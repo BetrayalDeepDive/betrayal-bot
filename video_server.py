@@ -22,7 +22,7 @@ Features:
 import os, sys, json, re, uuid, time, pickle, asyncio
 import textwrap, random, threading, subprocess, requests
 from datetime import datetime, timedelta
-import edge_tts
+# edge_tts removed - using Groq TTS API (works on GitHub Actions)
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -49,13 +49,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
 # ── Voice Pool ────────────────────────────────────────────
+# Groq TTS voices (work reliably on GitHub Actions - no Microsoft blocking)
 VOICES_DRAMATIC = [
-    {"id": "en-US-GuyNeural",  "rate": "-10%", "pitch": "-8Hz"},
-    {"id": "en-GB-RyanNeural", "rate": "-8%",  "pitch": "-5Hz"},
+    {"id": "Fritz-PlayAI",  "rate": "slow",   "pitch": "low"},
+    {"id": "Briggs-PlayAI", "rate": "slow",   "pitch": "low"},
 ]
 VOICES_EMOTIONAL = [
-    {"id": "en-US-AvaMultilingualNeural", "rate": "-6%", "pitch": "+0Hz"},
-    {"id": "en-GB-MaisieNeural",          "rate": "-4%", "pitch": "+2Hz"},
+    {"id": "Celeste-PlayAI", "rate": "normal", "pitch": "normal"},
+    {"id": "Aaliyah-PlayAI", "rate": "normal", "pitch": "normal"},
 ]
 
 # ── Scene Visuals ─────────────────────────────────────────
@@ -1038,28 +1039,79 @@ def run_production():
     voice = pick_voice(tone, job_id)
     print(f"[INFO] Tone: {tone} | Voice: {voice['id']}")
 
-    # 5. Generate audio
+    # 5. Generate audio via Groq TTS API
     audio_path = os.path.join(work_dir, "audio.mp3")
 
     def run_tts(text, out_path):
-        """Run edge-tts safely regardless of asyncio context."""
-        async def _gen():
-            c = edge_tts.Communicate(
-                text[:9000], voice=voice["id"],
-                rate=voice["rate"], volume="+12%", pitch=voice["pitch"])
-            await c.save(out_path)
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            pool.submit(asyncio.run, _gen()).result(timeout=120)
+        """Generate audio using Groq TTS API - works reliably on GitHub Actions."""
+        headers = {
+            "Authorization": f"Bearer {GROQ_KEY}",
+            "Content-Type": "application/json"
+        }
+        # Split text into chunks (Groq TTS limit: 3000 chars per request)
+        chunks = []
+        words = text[:9000].split()
+        chunk = ""
+        for word in words:
+            if len(chunk) + len(word) + 1 > 2800:
+                chunks.append(chunk.strip())
+                chunk = word
+            else:
+                chunk += " " + word
+        if chunk.strip():
+            chunks.append(chunk.strip())
 
-    for attempt in range(3):
-        try:
-            run_tts(clean, audio_path)
-            if os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
-                break
-        except Exception as e:
-            print(f"[WARN] TTS attempt {attempt+1} failed: {e}")
-            time.sleep(5)
+        audio_parts = []
+        for i, chunk_text in enumerate(chunks):
+            for attempt in range(3):
+                try:
+                    resp = requests.post(
+                        "https://api.groq.com/openai/v1/audio/speech",
+                        headers=headers,
+                        json={
+                            "model": "playai-tts",
+                            "input": chunk_text,
+                            "voice": voice["id"],
+                            "response_format": "mp3"
+                        },
+                        timeout=60
+                    )
+                    if resp.status_code == 200:
+                        chunk_path = out_path + f".part{i}.mp3"
+                        with open(chunk_path, "wb") as f:
+                            f.write(resp.content)
+                        audio_parts.append(chunk_path)
+                        print(f"[INFO] TTS chunk {i+1}/{len(chunks)} done ({len(resp.content)} bytes)")
+                        break
+                    else:
+                        print(f"[WARN] TTS chunk {i+1} attempt {attempt+1}: {resp.status_code} {resp.text[:100]}")
+                        time.sleep(3)
+                except Exception as e:
+                    print(f"[WARN] TTS chunk {i+1} attempt {attempt+1} error: {e}")
+                    time.sleep(3)
+
+        if not audio_parts:
+            raise RuntimeError("All TTS attempts failed")
+
+        # Merge audio chunks with ffmpeg
+        if len(audio_parts) == 1:
+            import shutil
+            shutil.move(audio_parts[0], out_path)
+        else:
+            list_file = out_path + "_list.txt"
+            with open(list_file, "w") as f:
+                for p in audio_parts:
+                    f.write("file '" + p + "'\n")
+
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file, "-c", "copy", out_path
+            ], capture_output=True)
+            for p in audio_parts:
+                os.remove(p)
+            os.remove(list_file)
+
+    run_tts(clean, audio_path)
 
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1000:
         telegram_send(f"❌ *Audio failed* for: {topic}")
