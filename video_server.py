@@ -956,10 +956,16 @@ def send_daily_notification() -> None:
     upload_days = ["Monday", "Wednesday", "Friday"]
     is_upload_day = day in upload_days
 
+    if is_upload_day:
+        upload_status = "✅ A new video will be produced and uploaded today"
+    else:
+        next_day = next((d for d in upload_days if upload_days.index(d) > upload_days.index(day)), upload_days[0])
+        upload_status = f"⏰ Next upload: {next_day}"
+
     msg = (
         f"☀️ *DAILY STATUS — {date}*\n\n"
         f"{'🎬 VIDEO PRODUCTION DAY!' if is_upload_day else '📅 Rest day (no upload today)'}\n\n"
-        f"{'✅ A new video will be produced and uploaded today' if is_upload_day else '⏰ Next upload: ' + next((d for d in upload_days if upload_days.index(d) > upload_days.index(day) if day in upload_days else True), upload_days[0])}\n\n"
+        f"{upload_status}\n\n"
         f"📌 Channel: *{CHANNEL_NAME}*\n"
         f"🤖 System: *Fully Automated*\n"
         f"💡 No action needed from you"
