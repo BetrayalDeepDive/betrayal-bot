@@ -49,15 +49,91 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
 # ── Voice Pool ────────────────────────────────────────────
-# Groq Orpheus TTS voices (current model - canopylabs/orpheus-v1-english)
-VOICES_DRAMATIC = [
-    {"id": "dan",  "rate": "slow", "pitch": "low"},
-    {"id": "zac",  "rate": "slow", "pitch": "low"},
+# ── Orpheus TTS Voice Roster ─────────────────────────────
+# 8 voices across dramatic/emotional/suspense/reveal tones
+# Vocal direction tags control expressiveness per scene
+# ── 15 Premium Voice Profiles (canopylabs/orpheus-v1-english on Groq) ─────────
+# Human-like, cinematic, optimised for betrayal/true-crime YouTube storytelling
+# Each profile = unique voice ID + emotional direction tag for max expressiveness
+VOICE_PROFILES = [
+    # ── DRAMATIC (high-stakes, intense, cinematic) ──────────
+    {"id": "leo",  "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[serious]",
+     "desc": "Deep authoritative US male — cinematic betrayal narrator"},
+    {"id": "troy", "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[intense]",
+     "desc": "Commanding US male — thriller tension, best for reveals"},
+    {"id": "dan",  "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[grave]",
+     "desc": "Friendly-turned-serious US male — hooks viewer then hits hard"},
+    {"id": "zac",  "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[urgent]",
+     "desc": "Dynamic urgent US male — drives pace on fast betrayal stories"},
+
+    # ── EMOTIONAL (intimate, empathetic, story-driven) ───────
+    {"id": "tara", "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[empathetic]",
+     "desc": "Clear conversational US female — #1 realism rating, top performer"},
+    {"id": "leah", "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[warm]",
+     "desc": "Warm gentle US female — pulls heartstrings, ideal for victim stories"},
+    {"id": "mia",  "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[sincere]",
+     "desc": "Professional articulate US female — trustworthy storyteller"},
+    {"id": "jess", "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[passionate]",
+     "desc": "Energetic youthful US female — high engagement, younger audience"},
+
+    # ── INVESTIGATIVE (documentary, cold-case, analytical) ───
+    {"id": "zoe",  "tone": "investigative", "gender": "female", "accent": "US",
+     "tag": "[calm]",
+     "desc": "Calm soothing US female — true crime documentary narrator"},
+    {"id": "leo",  "tone": "investigative", "gender": "male",   "accent": "US",
+     "tag": "[measured]",
+     "desc": "Leo measured tone — cold case detective, builds slow tension"},
+    {"id": "mia",  "tone": "investigative", "gender": "female", "accent": "US",
+     "tag": "[thoughtful]",
+     "desc": "Mia analytical — evidence-based investigator voice"},
+
+    # ── SHOCKING (punchy, reactive, jaw-drop moments) ────────
+    {"id": "tara", "tone": "shocking",      "gender": "female", "accent": "US",
+     "tag": "[shocked]",
+     "desc": "Tara shocked — reacts like viewer, spikes audience emotion"},
+    {"id": "zac",  "tone": "shocking",      "gender": "male",   "accent": "US",
+     "tag": "[disbelief]",
+     "desc": "Zac disbelief — cannot-believe-this energy boosts watch time"},
+    {"id": "jess", "tone": "shocking",      "gender": "female", "accent": "US",
+     "tag": "[outraged]",
+     "desc": "Jess outraged — righteous anger on justice and revenge stories"},
+
+    # ── REFLECTIVE (slow, weighted, emotional resolution) ────
+    {"id": "leah", "tone": "reflective",    "gender": "female", "accent": "US",
+     "tag": "[melancholy]",
+     "desc": "Leah melancholy — powerful grief and loss, high retention endings"},
 ]
-VOICES_EMOTIONAL = [
-    {"id": "tara", "rate": "normal", "pitch": "normal"},
-    {"id": "leah", "rate": "normal", "pitch": "normal"},
-]
+
+# Tone keyword map — script analysis picks best tone category
+TONE_KEYWORDS = {
+    "dramatic":      ["murder","stolen","destroyed","ruined","exposed","betrayed",
+                      "secret","conspiracy","manipulated","lied","scheme","trap"],
+    "emotional":     ["heartbroken","family","friend","love","trusted","cried",
+                      "devastated","children","marriage","years","hope","believed"],
+    "investigative": ["discovered","evidence","investigation","found out","revealed",
+                      "uncovered","records","documents","lawyer","court","police"],
+    "shocking":      ["unbelievable","shocking","never expected","jaw-dropping",
+                      "stunned","truth","suddenly","overnight","million","overnight"],
+    "reflective":    ["lost","grief","alone","aftermath","never same","healing",
+                      "moving on","years later","looking back","lesson","survivor"],
+}
+
+# Group by tone for pick_voice function
+VOICES_BY_TONE = {}
+for v in VOICE_PROFILES:
+    VOICES_BY_TONE.setdefault(v["tone"], []).append(v)
+
+# Backwards compat pools
+VOICES_DRAMATIC  = VOICES_BY_TONE["dramatic"]  + VOICES_BY_TONE["shocking"]
+VOICES_EMOTIONAL = VOICES_BY_TONE["emotional"] + VOICES_BY_TONE["reflective"]
 
 # ── Scene Visuals ─────────────────────────────────────────
 SCENE_VISUALS = {
@@ -335,21 +411,26 @@ def get_scene_order(script: str) -> list:
     return scenes or ["hook","backstory","tension","betrayal","revelation","justice"]
 
 def analyze_tone(script: str) -> str:
-    dramatic = ["murder","crime","theft","fraud","police","court","arrested",
-                "money","corporate","scheme","conspiracy","weapon","investigation"]
-    emotional = ["love","marriage","family","child","mother","father","friend",
-                 "trust","heart","tears","relationship","affair","divorce"]
+    """Analyse script and return best-matching tone from 5 categories."""
     s = script.lower()
-    d = sum(1 for w in dramatic if w in s)
-    e = sum(1 for w in emotional if w in s)
-    return "dramatic" if d >= e else "emotional"
+    scores = {tone: sum(1 for w in words if w in s)
+              for tone, words in TONE_KEYWORDS.items()}
+    best = max(scores, key=scores.get)
+    # Default to dramatic if all zero
+    return best if scores[best] > 0 else "dramatic"
 
 def pick_voice(tone: str, job_id: str) -> dict:
-    pool = VOICES_DRAMATIC if tone == "dramatic" else VOICES_EMOTIONAL
-    n = abs(hash(job_id)) % len(pool)
-    return pool[n]
+    """Pick from 15 voice profiles — rotates per job so every video sounds different."""
+    pool = VOICES_BY_TONE.get(tone, VOICES_BY_TONE["dramatic"])
+    # Deterministic rotation: same job_id always gets same voice, but each job differs
+    try:
+        idx = int(job_id[:8], 16) % len(pool)
+    except Exception:
+        idx = abs(hash(job_id)) % len(pool)
+    v = pool[idx]
+    print(f"[INFO] Voice selected: {v['id']} | tone: {tone} | direction: {v['tag']} | {v['desc']}")
+    return v
 
-# ─────────────────────────────────────────────────────────
 
 def download_music() -> str:
     """Download one cinematic track from Pixabay music (free)."""
@@ -1042,74 +1123,147 @@ def run_production():
     # 5. Generate audio via Groq TTS API
     audio_path = os.path.join(work_dir, "audio.mp3")
 
-    def run_tts(text, out_path):
-        """Generate audio using Groq TTS API - works reliably on GitHub Actions."""
-        headers = {
-            "Authorization": f"Bearer {GROQ_KEY}",
-            "Content-Type": "application/json"
-        }
-        # Split text into chunks (Groq TTS limit: 3000 chars per request)
-        chunks = []
+    def merge_audio_parts(parts, out_path):
+        """Merge wav parts and convert to high-quality mp3."""
+        if len(parts) == 1:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", parts[0],
+                 "-codec:a", "libmp3lame", "-b:a", "192k", out_path],
+                capture_output=True)
+            try: os.remove(parts[0])
+            except: pass
+        else:
+            list_file = out_path + "_list.txt"
+            with open(list_file, "w") as lf:
+                for p in parts:
+                    lf.write("file '" + p + "'\n")
+            merged_wav = out_path + "_merged.wav"
+            subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file, "-c", "copy", merged_wav
+            ], capture_output=True)
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", merged_wav,
+                 "-codec:a", "libmp3lame", "-b:a", "192k", out_path],
+                capture_output=True)
+            for p in parts:
+                try: os.remove(p)
+                except: pass
+            try: os.remove(list_file)
+            except: pass
+            try: os.remove(merged_wav)
+            except: pass
+
+    def tts_groq(text, out_path, voice_dict):
+        """PRIMARY: Groq Orpheus TTS — 15 human-like voices with emotional directions."""
+        headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
         words = text[:9000].split()
-        chunk = ""
+        chunks, chunk = [], ""
         for word in words:
             if len(chunk) + len(word) + 1 > 2800:
-                chunks.append(chunk.strip())
-                chunk = word
+                chunks.append(chunk.strip()); chunk = word
             else:
                 chunk += " " + word
-        if chunk.strip():
-            chunks.append(chunk.strip())
+        if chunk.strip(): chunks.append(chunk.strip())
 
-        audio_parts = []
+        parts = []
         for i, chunk_text in enumerate(chunks):
             for attempt in range(3):
                 try:
                     resp = requests.post(
                         "https://api.groq.com/openai/v1/audio/speech",
                         headers=headers,
-                        json={
-                            "model": "canopylabs/orpheus-v1-english",
-                            "input": chunk_text,
-                            "voice": voice["id"],
-                            "response_format": "mp3"
-                        },
-                        timeout=60
+                        json={"model": "canopylabs/orpheus-v1-english",
+                              "input": voice_dict.get("tag","") + " " + chunk_text,
+                              "voice": voice_dict["id"],
+                              "response_format": "wav"},
+                        timeout=90
                     )
-                    if resp.status_code == 200:
-                        chunk_path = out_path + f".part{i}.mp3"
-                        with open(chunk_path, "wb") as f:
-                            f.write(resp.content)
-                        audio_parts.append(chunk_path)
-                        print(f"[INFO] TTS chunk {i+1}/{len(chunks)} done ({len(resp.content)} bytes)")
+                    if resp.status_code == 200 and len(resp.content) > 500:
+                        p = out_path + f".g{i}.wav"
+                        with open(p, "wb") as f: f.write(resp.content)
+                        parts.append(p)
+                        print(f"[INFO] Groq TTS chunk {i+1}/{len(chunks)} ok ({len(resp.content)}b)")
                         break
                     else:
-                        print(f"[WARN] TTS chunk {i+1} attempt {attempt+1}: {resp.status_code} {resp.text[:100]}")
-                        time.sleep(3)
+                        print(f"[WARN] Groq chunk {i+1} attempt {attempt+1}: {resp.status_code} {resp.text[:120]}")
+                        time.sleep(2)
                 except Exception as e:
-                    print(f"[WARN] TTS chunk {i+1} attempt {attempt+1} error: {e}")
-                    time.sleep(3)
+                    print(f"[WARN] Groq chunk {i+1} attempt {attempt+1}: {e}")
+                    time.sleep(2)
+        if len(parts) == len(chunks) and parts:
+            merge_audio_parts(parts, out_path)
+            return True
+        for p in parts:
+            try: os.remove(p)
+            except: pass
+        return False
 
-        if not audio_parts:
-            raise RuntimeError("All TTS attempts failed")
+    def tts_piper(text, out_path):
+        """FALLBACK: Piper local TTS — runs 100% offline, no network needed."""
+        model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "en_US-ryan-high.onnx")
+        if not os.path.exists(model_path):
+            print("[WARN] Piper model not found, skipping")
+            return False
+        try:
+            wav_path = out_path + ".wav"
+            proc = subprocess.run(
+                ["python3", "-m", "piper", "--model", model_path,
+                 "--output_file", wav_path],
+                input=text[:9000].encode(),
+                capture_output=True, timeout=180
+            )
+            if os.path.exists(wav_path) and os.path.getsize(wav_path) > 1000:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", wav_path,
+                     "-codec:a", "libmp3lame", "-b:a", "192k", out_path],
+                    capture_output=True
+                )
+                os.remove(wav_path)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                    print("[INFO] Piper TTS success")
+                    return True
+        except Exception as e:
+            print(f"[WARN] Piper TTS error: {e}")
+        return False
 
-        # Merge audio chunks with ffmpeg
-        if len(audio_parts) == 1:
-            import shutil
-            shutil.move(audio_parts[0], out_path)
-        else:
-            list_file = out_path + "_list.txt"
-            with open(list_file, "w") as f:
-                for p in audio_parts:
-                    f.write("file '" + p + "'\n")
+    def tts_espeak(text, out_path):
+        """EMERGENCY FALLBACK: espeak-ng — built into Ubuntu, zero dependencies."""
+        try:
+            wav_path = out_path + ".wav"
+            subprocess.run(
+                ["espeak-ng", "--stdin", "-v", "en-us", "-s", "145",
+                 "-a", "180", "-p", "45", "-w", wav_path],
+                input=text[:9000].encode(), capture_output=True, timeout=120
+            )
+            if os.path.exists(wav_path) and os.path.getsize(wav_path) > 1000:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", wav_path,
+                     "-codec:a", "libmp3lame", "-b:a", "128k", out_path],
+                    capture_output=True
+                )
+                os.remove(wav_path)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+                    print("[INFO] espeak-ng TTS success (emergency fallback)")
+                    return True
+        except Exception as e:
+            print(f"[WARN] espeak TTS error: {e}")
+        return False
 
-            subprocess.run([
-                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", list_file, "-c", "copy", out_path
-            ], capture_output=True)
-            for p in audio_parts:
-                os.remove(p)
-            os.remove(list_file)
+    def run_tts(text, out_path):
+        """3-tier TTS: Groq Orpheus → Piper local → espeak emergency."""
+        # Try primary: Groq Orpheus
+        if tts_groq(text, out_path, voice):
+            return
+        print("[WARN] Groq TTS failed, trying Piper local...")
+        # Try fallback: Piper offline
+        if tts_piper(text, out_path):
+            return
+        print("[WARN] Piper failed, using espeak emergency fallback...")
+        # Emergency: espeak
+        if tts_espeak(text, out_path):
+            return
+        raise RuntimeError("All TTS methods failed")
 
     run_tts(clean, audio_path)
 
