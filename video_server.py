@@ -49,14 +49,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 
 # ── Voice Pool ────────────────────────────────────────────
-# Groq TTS voices (work reliably on GitHub Actions - no Microsoft blocking)
+# Groq Orpheus TTS voices (current model - canopylabs/orpheus-v1-english)
 VOICES_DRAMATIC = [
-    {"id": "Fritz-PlayAI",  "rate": "slow",   "pitch": "low"},
-    {"id": "Briggs-PlayAI", "rate": "slow",   "pitch": "low"},
+    {"id": "dan",  "rate": "slow", "pitch": "low"},
+    {"id": "zac",  "rate": "slow", "pitch": "low"},
 ]
 VOICES_EMOTIONAL = [
-    {"id": "Celeste-PlayAI", "rate": "normal", "pitch": "normal"},
-    {"id": "Aaliyah-PlayAI", "rate": "normal", "pitch": "normal"},
+    {"id": "tara", "rate": "normal", "pitch": "normal"},
+    {"id": "leah", "rate": "normal", "pitch": "normal"},
 ]
 
 # ── Scene Visuals ─────────────────────────────────────────
@@ -1069,7 +1069,7 @@ def run_production():
                         "https://api.groq.com/openai/v1/audio/speech",
                         headers=headers,
                         json={
-                            "model": "playai-tts",
+                            "model": "canopylabs/orpheus-v1-english",
                             "input": chunk_text,
                             "voice": voice["id"],
                             "response_format": "mp3"
