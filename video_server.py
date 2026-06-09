@@ -1109,31 +1109,42 @@ def run_production():
     audio_path = os.path.join(work_dir, "audio.mp3")
 
     def merge_audio_parts(parts, out_path):
-        """Merge mp3 parts into final audio file."""
-        import shutil
+        """Merge wav parts into single mp3 file."""
+        # Step 1: concat all wav parts into one wav
         if len(parts) == 1:
-            shutil.move(parts[0], out_path)
+            merged_wav = parts[0]
         else:
             list_file = out_path + "_list.txt"
             with open(list_file, "w") as lf:
                 for p in parts:
                     lf.write("file '" + p + "'\n")
-            result = subprocess.run([
+            merged_wav = out_path + "_merged.wav"
+            r = subprocess.run([
                 "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", list_file, "-c", "copy", out_path
+                "-i", list_file, "-c", "copy", merged_wav
             ], capture_output=True)
-            if result.returncode != 0:
-                print(f"[WARN] ffmpeg concat error: {result.stderr.decode()[:200]}")
-                # Fallback: concatenate binary files directly
-                with open(out_path, "wb") as fout:
-                    for p in parts:
-                        with open(p, "rb") as fin:
-                            fout.write(fin.read())
-            for p in parts:
-                try: os.remove(p)
-                except: pass
             try: os.remove(list_file)
             except: pass
+            if r.returncode != 0 or not os.path.exists(merged_wav):
+                # Fallback: use first part only
+                merged_wav = parts[0]
+
+        # Step 2: convert wav to mp3
+        r2 = subprocess.run([
+            "ffmpeg", "-y", "-i", merged_wav,
+            "-codec:a", "libmp3lame", "-b:a", "192k", "-ar", "44100", out_path
+        ], capture_output=True)
+
+        # Cleanup
+        for p in parts:
+            try: os.remove(p)
+            except: pass
+        if merged_wav != (parts[0] if len(parts)==1 else merged_wav):
+            try: os.remove(merged_wav)
+            except: pass
+
+        if r2.returncode != 0:
+            print(f"[WARN] wav->mp3 error: {r2.stderr.decode()[:200]}")
 
     def tts_groq(text, out_path, voice_dict):
         """PRIMARY: Groq Orpheus TTS — 15 human-like voices with emotional directions."""
@@ -1157,11 +1168,11 @@ def run_production():
                         json={"model": "canopylabs/orpheus-v1-english",
                               "input": voice_dict.get("tag","") + " " + chunk_text,
                               "voice": voice_dict["id"],
-                              "response_format": "mp3"},
+                              "response_format": "wav"},
                         timeout=90
                     )
                     if resp.status_code == 200 and len(resp.content) > 500:
-                        p = out_path + f".g{i}.mp3"
+                        p = out_path + f".g{i}.wav"
                         with open(p, "wb") as f: f.write(resp.content)
                         parts.append(p)
                         print(f"[INFO] Groq TTS chunk {i+1}/{len(chunks)} ok ({len(resp.content)}b)")
