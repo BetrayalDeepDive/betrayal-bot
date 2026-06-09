@@ -52,67 +52,52 @@ os.makedirs(MUSIC_DIR, exist_ok=True)
 # ── Orpheus TTS Voice Roster ─────────────────────────────
 # 8 voices across dramatic/emotional/suspense/reveal tones
 # Vocal direction tags control expressiveness per scene
-# ── 15 Premium Voice Profiles (canopylabs/orpheus-v1-english on Groq) ─────────
-# Human-like, cinematic, optimised for betrayal/true-crime YouTube storytelling
-# Each profile = unique voice ID + emotional direction tag for max expressiveness
+# ── 15 Voice Profiles using REAL Groq Orpheus voices ──────────────────────────
+# Confirmed valid voices: autumn, diana, hannah, austin, daniel, troy
+# Each profile = unique voice + emotional direction for maximum variety
 VOICE_PROFILES = [
-    # ── DRAMATIC (high-stakes, intense, cinematic) ──────────
-    {"id": "leo",  "tone": "dramatic",      "gender": "male",   "accent": "US",
-     "tag": "[serious]",
-     "desc": "Deep authoritative US male — cinematic betrayal narrator"},
-    {"id": "troy", "tone": "dramatic",      "gender": "male",   "accent": "US",
-     "tag": "[intense]",
-     "desc": "Commanding US male — thriller tension, best for reveals"},
-    {"id": "dan",  "tone": "dramatic",      "gender": "male",   "accent": "US",
-     "tag": "[grave]",
-     "desc": "Friendly-turned-serious US male — hooks viewer then hits hard"},
-    {"id": "zac",  "tone": "dramatic",      "gender": "male",   "accent": "US",
-     "tag": "[urgent]",
-     "desc": "Dynamic urgent US male — drives pace on fast betrayal stories"},
+    # ── DRAMATIC ────────────────────────────────────────────
+    {"id": "troy",   "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[intense]",   "desc": "Commanding US male — cinematic thriller narrator"},
+    {"id": "austin", "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[serious]",   "desc": "Deep authoritative US male — betrayal reveals"},
+    {"id": "daniel", "tone": "dramatic",      "gender": "male",   "accent": "US",
+     "tag": "[grave]",     "desc": "Serious US male — high-stakes dramatic tension"},
 
-    # ── EMOTIONAL (intimate, empathetic, story-driven) ───────
-    {"id": "tara", "tone": "emotional",     "gender": "female", "accent": "US",
-     "tag": "[empathetic]",
-     "desc": "Clear conversational US female — #1 realism rating, top performer"},
-    {"id": "leah", "tone": "emotional",     "gender": "female", "accent": "US",
-     "tag": "[warm]",
-     "desc": "Warm gentle US female — pulls heartstrings, ideal for victim stories"},
-    {"id": "mia",  "tone": "emotional",     "gender": "female", "accent": "US",
-     "tag": "[sincere]",
-     "desc": "Professional articulate US female — trustworthy storyteller"},
-    {"id": "jess", "tone": "emotional",     "gender": "female", "accent": "US",
-     "tag": "[passionate]",
-     "desc": "Energetic youthful US female — high engagement, younger audience"},
+    # ── EMOTIONAL ───────────────────────────────────────────
+    {"id": "autumn", "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[empathetic]","desc": "Warm US female — #1 for victim and family stories"},
+    {"id": "diana",  "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[warm]",      "desc": "Gentle female — heartfelt betrayal storytelling"},
+    {"id": "hannah", "tone": "emotional",     "gender": "female", "accent": "US",
+     "tag": "[sincere]",   "desc": "Sincere US female — trusted narrator voice"},
 
-    # ── INVESTIGATIVE (documentary, cold-case, analytical) ───
-    {"id": "zoe",  "tone": "investigative", "gender": "female", "accent": "US",
-     "tag": "[calm]",
-     "desc": "Calm soothing US female — true crime documentary narrator"},
-    {"id": "leo",  "tone": "investigative", "gender": "male",   "accent": "US",
-     "tag": "[measured]",
-     "desc": "Leo measured tone — cold case detective, builds slow tension"},
-    {"id": "mia",  "tone": "investigative", "gender": "female", "accent": "US",
-     "tag": "[thoughtful]",
-     "desc": "Mia analytical — evidence-based investigator voice"},
+    # ── INVESTIGATIVE ────────────────────────────────────────
+    {"id": "diana",  "tone": "investigative", "gender": "female", "accent": "US",
+     "tag": "[calm]",      "desc": "Diana calm — true crime documentary narrator"},
+    {"id": "troy",   "tone": "investigative", "gender": "male",   "accent": "US",
+     "tag": "[measured]",  "desc": "Troy measured — cold case detective energy"},
+    {"id": "autumn", "tone": "investigative", "gender": "female", "accent": "US",
+     "tag": "[thoughtful]","desc": "Autumn analytical — evidence-based investigation"},
 
-    # ── SHOCKING (punchy, reactive, jaw-drop moments) ────────
-    {"id": "tara", "tone": "shocking",      "gender": "female", "accent": "US",
-     "tag": "[shocked]",
-     "desc": "Tara shocked — reacts like viewer, spikes audience emotion"},
-    {"id": "zac",  "tone": "shocking",      "gender": "male",   "accent": "US",
-     "tag": "[disbelief]",
-     "desc": "Zac disbelief — cannot-believe-this energy boosts watch time"},
-    {"id": "jess", "tone": "shocking",      "gender": "female", "accent": "US",
-     "tag": "[outraged]",
-     "desc": "Jess outraged — righteous anger on justice and revenge stories"},
+    # ── SHOCKING ─────────────────────────────────────────────
+    {"id": "hannah", "tone": "shocking",      "gender": "female", "accent": "US",
+     "tag": "[shocked]",   "desc": "Hannah shocked — reacts like viewer, spikes emotion"},
+    {"id": "austin", "tone": "shocking",      "gender": "male",   "accent": "US",
+     "tag": "[disbelief]", "desc": "Austin disbelief — cannot-believe-this energy"},
+    {"id": "daniel", "tone": "shocking",      "gender": "male",   "accent": "US",
+     "tag": "[outraged]",  "desc": "Daniel outraged — righteous anger on justice stories"},
 
-    # ── REFLECTIVE (slow, weighted, emotional resolution) ────
-    {"id": "leah", "tone": "reflective",    "gender": "female", "accent": "US",
-     "tag": "[melancholy]",
-     "desc": "Leah melancholy — powerful grief and loss, high retention endings"},
+    # ── REFLECTIVE ───────────────────────────────────────────
+    {"id": "diana",  "tone": "reflective",    "gender": "female", "accent": "US",
+     "tag": "[melancholy]","desc": "Diana melancholy — grief and loss, powerful endings"},
+    {"id": "autumn", "tone": "reflective",    "gender": "female", "accent": "US",
+     "tag": "[somber]",    "desc": "Autumn somber — heavy emotional weight, high retention"},
+    {"id": "troy",   "tone": "reflective",    "gender": "male",   "accent": "US",
+     "tag": "[wistful]",   "desc": "Troy wistful — reflective male narrator, powerful close"},
 ]
 
-# Tone keyword map — script analysis picks best tone category
+# Tone keyword map
 TONE_KEYWORDS = {
     "dramatic":      ["murder","stolen","destroyed","ruined","exposed","betrayed",
                       "secret","conspiracy","manipulated","lied","scheme","trap"],
@@ -121,17 +106,17 @@ TONE_KEYWORDS = {
     "investigative": ["discovered","evidence","investigation","found out","revealed",
                       "uncovered","records","documents","lawyer","court","police"],
     "shocking":      ["unbelievable","shocking","never expected","jaw-dropping",
-                      "stunned","truth","suddenly","overnight","million","overnight"],
+                      "stunned","truth","suddenly","overnight","million"],
     "reflective":    ["lost","grief","alone","aftermath","never same","healing",
                       "moving on","years later","looking back","lesson","survivor"],
 }
 
-# Group by tone for pick_voice function
+# Group by tone
 VOICES_BY_TONE = {}
 for v in VOICE_PROFILES:
     VOICES_BY_TONE.setdefault(v["tone"], []).append(v)
 
-# Backwards compat pools
+# Backwards compat
 VOICES_DRAMATIC  = VOICES_BY_TONE["dramatic"]  + VOICES_BY_TONE["shocking"]
 VOICES_EMOTIONAL = VOICES_BY_TONE["emotional"] + VOICES_BY_TONE["reflective"]
 
