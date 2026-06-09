@@ -1040,12 +1040,26 @@ def run_production():
 
     # 5. Generate audio
     audio_path = os.path.join(work_dir, "audio.mp3")
-    async def gen_audio():
-        c = edge_tts.Communicate(
-            clean[:9000], voice=voice["id"],
-            rate=voice["rate"], volume="+12%", pitch=voice["pitch"])
-        await c.save(audio_path)
-    asyncio.run(gen_audio())
+
+    def run_tts(text, out_path):
+        """Run edge-tts safely regardless of asyncio context."""
+        async def _gen():
+            c = edge_tts.Communicate(
+                text[:9000], voice=voice["id"],
+                rate=voice["rate"], volume="+12%", pitch=voice["pitch"])
+            await c.save(out_path)
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, _gen()).result(timeout=120)
+
+    for attempt in range(3):
+        try:
+            run_tts(clean, audio_path)
+            if os.path.exists(audio_path) and os.path.getsize(audio_path) > 1000:
+                break
+        except Exception as e:
+            print(f"[WARN] TTS attempt {attempt+1} failed: {e}")
+            time.sleep(5)
 
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1000:
         telegram_send(f"❌ *Audio failed* for: {topic}")
@@ -1063,10 +1077,10 @@ def run_production():
         pass
 
     if duration < 480:
-        telegram_send(f"⚠️ Script too short ({duration/60:.1f}min) — retrying...")
+        telegram_send(f"\u26a0\ufe0f Script too short ({duration/60:.1f}min) — retrying...")
         script = generate_script(topic + " extended complete version with full backstory", style_hint)
         clean = clean_script(script)
-        asyncio.run(gen_audio())
+        run_tts(clean, audio_path)
 
     # 7. Thumbnail
     thumb = generate_thumbnail(topic, title, work_dir)
