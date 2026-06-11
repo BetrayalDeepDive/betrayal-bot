@@ -1,78 +1,475 @@
-name: Betrayal DeepDive — YouTube Automation
+name: 🏆 Betrayal DeepDive — Full Empire Automation
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHEDULE:
+#   Content pipeline:    Daily 6:00 AM IST (00:30 UTC) + 2:00 PM IST (08:30 UTC)
+#   Intelligence scan:   Daily 5:00 AM IST (23:30 UTC previous day)
+#   Weekly report:       Every Sunday 8:00 AM IST (02:30 UTC)
+# ─────────────────────────────────────────────────────────────────────────────
 
 on:
   schedule:
-    - cron: '30 2 * * 1,3,5'
-    - cron: '30 2 * * *'
-    - cron: '30 3 * * 0'
+    - cron: "30 23 * * *"    # Intelligence scan: 5 AM IST
+    - cron: "0 1 * * 1,3,5"  # YouTube long-form: Mon/Wed/Fri 6:30 AM IST
+    - cron: "30 0 * * *"     # Reel 1: Daily 6 AM IST
+    - cron: "30 8 * * *"     # Reel 2: Daily 2 PM IST
+    - cron: "30 2 * * 0"     # Weekly report: Sunday 8 AM IST
+
   workflow_dispatch:
     inputs:
-      topic:
-        description: 'Custom video topic (optional)'
-        required: false
-        default: ''
       mode:
-        description: 'Run mode: production / notification / report'
+        description: "Mode: full_pipeline | reels_only | intel_only | weekly_report | custom_topic"
         required: false
-        default: 'production'
-
-env:
-  GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-  PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
-  TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-  TOPIC: ${{ github.event.inputs.topic || '' }}
-  RUN_MODE: ${{ github.event.inputs.mode || 'production' }}
+        default: "full_pipeline"
+      custom_topic:
+        description: "Custom topic (only used when mode=custom_topic)"
+        required: false
+        default: ""
 
 jobs:
-  run-automation:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  #  JOB 1 — DAILY INTELLIGENCE SCAN
+  # ════════════════════════════════════════════════════════════════════════════
+  intelligence-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    if: |
+      github.event.schedule == '30 23 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'intel_only')
+
+    env:
+      GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+      YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+      NEWS_API_KEY:         ${{ secrets.NEWS_API_KEY }}
+      IG_ACCESS_TOKEN:      ${{ secrets.IG_ACCESS_TOKEN }}
+      IG_USER_ID:           ${{ secrets.IG_USER_ID }}
+      OUTPUT_DIR:           /tmp/empire_output
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install requests
+      - run: mkdir -p /tmp/empire_output
+      - name: 🔍 Run intelligence scan
+        run: python scripts/intelligence_engine.py
+      - name: 💾 Cache intelligence report
+        uses: actions/cache@v4
         with:
-          python-version: '3.11'
+          path: /tmp/empire_output/intelligence_report.json
+          key: intel-${{ github.run_id }}
 
-      - name: Install system dependencies
+  # ════════════════════════════════════════════════════════════════════════════
+  #  JOB 2 — DAILY REELS PIPELINE (2x per day)
+  #  Creates 1 Reel + 1 Short per run (2 runs = 2 Reels + 2 Shorts daily)
+  # ════════════════════════════════════════════════════════════════════════════
+  daily-reels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: |
+      github.event.schedule == '30 0 * * *' ||
+      github.event.schedule == '30 8 * * *' ||
+      (github.event_name == 'workflow_dispatch' && (
+        github.event.inputs.mode == 'reels_only' ||
+        github.event.inputs.mode == 'full_pipeline' ||
+        github.event.inputs.mode == 'custom_topic'
+      ))
+
+    env:
+      GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+      PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
+      YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      IG_USER_ID:            ${{ secrets.IG_USER_ID }}
+      IG_ACCESS_TOKEN:       ${{ secrets.IG_ACCESS_TOKEN }}
+      TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+      PINTEREST_ACCESS_TOKEN: ${{ secrets.PINTEREST_ACCESS_TOKEN }}
+      PINTEREST_BOARD_ID:    ${{ secrets.PINTEREST_BOARD_ID }}
+      GITHUB_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY:     ${{ github.repository }}
+      NEWS_API_KEY:          ${{ secrets.NEWS_API_KEY }}
+      YOUTUBE_DATA_API_KEY:  ${{ secrets.YOUTUBE_DATA_API_KEY }}
+      CUSTOM_TOPIC:          ${{ github.event.inputs.custom_topic }}
+      OUTPUT_DIR:            /tmp/empire_output
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - run: pip install requests Pillow
+      - run: mkdir -p /tmp/empire_output
+
+      # Restore intelligence report if available
+      - name: 💾 Restore intelligence cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/empire_output/intelligence_report.json
+          key: intel-
+          restore-keys: intel-
+
+      # Run intelligence scan if no cached report exists
+      - name: 🔍 Run fresh intelligence scan
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg espeak-ng espeak-ng-data
+          if [ ! -f /tmp/empire_output/intelligence_report.json ]; then
+            echo "No cached intel — running fresh scan"
+            python scripts/intelligence_engine.py
+          else
+            echo "Using cached intelligence report"
+          fi
 
-      - name: Install Python dependencies
+      # Handle custom topic override
+      - name: 📝 Apply custom topic if set
+        if: github.event.inputs.custom_topic != ''
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python -c "
+          import json, os
+          report_path = '/tmp/empire_output/intelligence_report.json'
+          topic = os.environ.get('CUSTOM_TOPIC', '')
+          if not topic:
+              exit(0)
+          report = {}
+          if os.path.exists(report_path):
+              report = json.load(open(report_path))
+          if 'daily_strategy' not in report:
+              report['daily_strategy'] = {}
+          # Override niche_1 with custom topic
+          report['daily_strategy']['niche_1'] = {
+              'topic': topic,
+              'target': 'india_english',
+              'format': 'shocking_reveal',
+              'hook': topic[:30] + '...'
+          }
+          json.dump(report, open(report_path, 'w'), indent=2)
+          print(f'Custom topic applied: {topic}')
+          "
 
-      - name: Verify espeak works
+      # ── REEL CREATION ──────────────────────────────────────────────────────
+      - name: 🎬 Create Reels (Instagram + YouTube Shorts)
+        id: create_reels
         run: |
-          espeak-ng --version
-          echo "espeak-ng ready"
+          python -c "
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          from reel_generator import create_daily_reels
 
-      - name: Download Piper TTS voice model
+          report = {}
+          try:
+              report = json.load(open('/tmp/empire_output/intelligence_report.json'))
+          except:
+              pass
+
+          results = create_daily_reels(report)
+          json.dump(results, open('/tmp/empire_output/reel_results.json', 'w'), indent=2)
+          print(f'Created {len(results)} reels')
+          for r in results:
+              print(f'  Reel {r[\"reel_num\"]}: {r[\"topic\"][:50]} | Score: {r[\"virality_score\"]}')
+          "
+
+      # ── YOUTUBE SHORTS UPLOAD ──────────────────────────────────────────────
+      - name: 📤 Upload YouTube Shorts
+        id: upload_shorts
         run: |
-          pip install piper-tts
-          wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx" -O en_US-ryan-high.onnx && echo "Piper model ready" || echo "Piper unavailable - espeak fallback active"
-          wget -q "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json" -O en_US-ryan-high.onnx.json || true
+          python -c "
+          import json, os, requests
 
-      - name: Determine run mode
-        run: echo "Run mode is $RUN_MODE"
+          results = json.load(open('/tmp/empire_output/reel_results.json'))
+          yt_results = []
 
-      - name: Run automation
-        run: python video_server.py
+          for reel in results:
+              video_path = reel['video_path']
+              if not os.path.exists(video_path):
+                  print(f'Video not found: {video_path}')
+                  continue
 
-      - name: Upload artifacts
+              # Get access token
+              r = requests.post('https://oauth2.googleapis.com/token', data={
+                  'client_id':     os.environ['YOUTUBE_CLIENT_ID'],
+                  'client_secret': os.environ['YOUTUBE_CLIENT_SECRET'],
+                  'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
+                  'grant_type':    'refresh_token',
+              })
+              if r.status_code != 200:
+                  print(f'Auth failed: {r.text[:100]}')
+                  continue
+              token = r.json()['access_token']
+              file_size = os.path.getsize(video_path)
+
+              body = {
+                  'snippet': {
+                      'title': reel['yt_title'][:100],
+                      'description': reel['yt_description'][:2000] + '\n\n#Shorts #YouTubeShorts',
+                      'tags': reel['yt_tags'][:30],
+                      'categoryId': '22',
+                      'defaultLanguage': 'en',
+                  },
+                  'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
+              }
+
+              init_r = requests.post(
+                  'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Content-Type': 'application/json',
+                      'X-Upload-Content-Type': 'video/mp4',
+                      'X-Upload-Content-Length': str(file_size),
+                  },
+                  json=body
+              )
+              if init_r.status_code not in (200, 201):
+                  print(f'Short init failed: {init_r.status_code}')
+                  continue
+
+              with open(video_path, 'rb') as f:
+                  up_r = requests.put(
+                      init_r.headers['Location'],
+                      headers={'Content-Type': 'video/mp4', 'Content-Length': str(file_size)},
+                      data=f.read(), timeout=300
+                  )
+
+              if up_r.status_code in (200, 201):
+                  vid_id = up_r.json()['id']
+                  url    = f'https://youtube.com/shorts/{vid_id}'
+                  print(f'Short uploaded: {url}')
+                  yt_results.append({'success': True, 'url': url, 'reel_num': reel['reel_num']})
+              else:
+                  print(f'Short upload failed: {up_r.status_code}')
+
+          json.dump(yt_results, open('/tmp/empire_output/yt_short_results.json', 'w'), indent=2)
+          "
+
+      # ── INSTAGRAM REELS UPLOAD ─────────────────────────────────────────────
+      - name: 📱 Upload Instagram Reels
+        id: upload_reels
+        run: |
+          python -c "
+          import json, os, requests, time
+
+          results  = json.load(open('/tmp/empire_output/reel_results.json'))
+          ig_token = os.environ.get('IG_ACCESS_TOKEN', '')
+          ig_uid   = os.environ.get('IG_USER_ID', '')
+          gh_token = os.environ.get('GITHUB_TOKEN', '')
+          gh_repo  = os.environ.get('GITHUB_REPOSITORY', '')
+
+          if not ig_token or not ig_uid:
+              print('Instagram credentials not set — skipping')
+              exit(0)
+
+          ig_results = []
+          for reel in results:
+              video_path = reel['video_path']
+              if not os.path.exists(video_path):
+                  continue
+
+              # Upload to GitHub releases as public CDN
+              from datetime import date
+              tag = f'reel-assets-{date.today()}'
+              h   = {'Authorization': f'Bearer {gh_token}', 'Accept': 'application/vnd.github+json'}
+
+              r = requests.get(f'https://api.github.com/repos/{gh_repo}/releases/tags/{tag}', headers=h)
+              if r.status_code == 200:
+                  rel_id = r.json()['id']
+              else:
+                  r2 = requests.post(f'https://api.github.com/repos/{gh_repo}/releases',
+                      headers=h, json={'tag_name': tag, 'name': tag, 'draft': False})
+                  if r2.status_code not in (200, 201):
+                      print(f'Release creation failed: {r2.status_code}')
+                      continue
+                  rel_id = r2.json()['id']
+
+              fname = os.path.basename(video_path)
+              fsize = os.path.getsize(video_path)
+              with open(video_path, 'rb') as f:
+                  r3 = requests.post(
+                      f'https://uploads.github.com/repos/{gh_repo}/releases/{rel_id}/assets?name={fname}',
+                      headers={**h, 'Content-Type': 'video/mp4', 'Content-Length': str(fsize)},
+                      data=f.read(), timeout=180
+                  )
+              if r3.status_code not in (200, 201):
+                  print(f'GitHub upload failed: {r3.status_code}')
+                  continue
+
+              public_url = r3.json().get('browser_download_url', '')
+              print(f'Public URL: {public_url}')
+
+              # Post to Instagram
+              caption = reel.get('ig_caption', '')[:2200]
+              cr = requests.post(
+                  f'https://graph.instagram.com/v19.0/{ig_uid}/media',
+                  data={'media_type': 'REELS', 'video_url': public_url,
+                        'caption': caption, 'share_to_feed': 'true',
+                        'access_token': ig_token}
+              )
+              if cr.status_code != 200:
+                  print(f'Container failed: {cr.text[:200]}')
+                  continue
+
+              container_id = cr.json()['id']
+
+              # Wait for processing
+              for _ in range(30):
+                  time.sleep(10)
+                  sr = requests.get(
+                      f'https://graph.instagram.com/v19.0/{container_id}',
+                      params={'fields': 'status_code', 'access_token': ig_token}
+                  )
+                  status = sr.json().get('status_code', '')
+                  if status == 'FINISHED':
+                      break
+                  elif status == 'ERROR':
+                      print('Container error')
+                      break
+
+              pr = requests.post(
+                  f'https://graph.instagram.com/v19.0/{ig_uid}/media_publish',
+                  data={'creation_id': container_id, 'access_token': ig_token}
+              )
+              if pr.status_code in (200, 201):
+                  media_id = pr.json().get('id', '')
+                  print(f'Reel posted: {media_id}')
+                  ig_results.append({'success': True, 'media_id': media_id})
+              else:
+                  print(f'Publish failed: {pr.text[:200]}')
+
+          json.dump(ig_results, open('/tmp/empire_output/ig_results.json', 'w'), indent=2)
+          "
+
+      # ── PINTEREST PINS ─────────────────────────────────────────────────────
+      - name: 📌 Post Pinterest Pins
+        id: post_pins
+        run: |
+          python -c "
+          import json, sys, os
+          sys.path.insert(0, 'scripts')
+
+          intel = {}
+          try:
+              intel = json.load(open('/tmp/empire_output/intelligence_report.json'))
+          except:
+              pass
+
+          strategy = intel.get('daily_strategy', {})
+          topics   = strategy.get('pinterest_topics', [
+              'signs someone is betraying you',
+              'psychology of deception',
+              'red flags in relationships India',
+              'true crime books recommendation',
+              'how to detect a liar'
+          ])
+
+          from pinterest_poster import create_daily_pins
+          results = create_daily_pins(
+              topics[:5],
+              yt_channel_url='https://youtube.com/@BetrayalDeepDive'
+          )
+          json.dump(results, open('/tmp/empire_output/pin_results.json', 'w'), indent=2)
+          pins_ok = sum(1 for r in results if r.get('success'))
+          print(f'Pinterest: {pins_ok}/{len(results)} pins posted')
+          "
+
+      # ── INSTAGRAM STORY ────────────────────────────────────────────────────
+      - name: 📸 Post Instagram Story
+        run: |
+          python -c "
+          import json, os, requests
+
+          ig_token = os.environ.get('IG_ACCESS_TOKEN', '')
+          ig_uid   = os.environ.get('IG_USER_ID', '')
+
+          if not ig_token or not ig_uid:
+              print('No IG credentials')
+              exit(0)
+
+          intel    = {}
+          try:
+              intel = json.load(open('/tmp/empire_output/intelligence_report.json'))
+          except:
+              pass
+
+          story_idea = intel.get('daily_strategy', {}).get('instagram_story_idea',
+              'New reel dropping today! 🔴 Follow before the algorithm hides it')
+
+          # Post story via Groq-generated image
+          print(f'Story idea for today: {story_idea}')
+          # Note: Instagram Story posting via API requires approved permissions
+          # This logs the idea for manual posting if needed
+          "
+
+      # ── DAILY REPORT ───────────────────────────────────────────────────────
+      - name: 📊 Send daily report
         if: always()
-        uses: actions/upload-artifact@v4
+        run: |
+          python -c "
+          import json, os, sys
+          sys.path.insert(0, 'scripts')
+          from empire_report import send_daily_report
+
+          reel_results = []
+          yt_results   = []
+          ig_results   = []
+
+          try: reel_results = json.load(open('/tmp/empire_output/reel_results.json'))
+          except: pass
+          try: yt_results = json.load(open('/tmp/empire_output/yt_short_results.json'))
+          except: pass
+          try: ig_results = json.load(open('/tmp/empire_output/ig_results.json'))
+          except: pass
+
+          reel_meta = reel_results[0] if reel_results else {}
+          yt_ok     = yt_results[0]   if yt_results   else {}
+          ig_ok     = ig_results[0]   if ig_results   else {}
+
+          send_daily_report({
+              'youtube_short': yt_ok,
+              'instagram':     ig_ok,
+              'reel_meta':     reel_meta,
+          })
+          "
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: rm -rf /tmp/empire_output/reel_*/ || true
+
+  # ════════════════════════════════════════════════════════════════════════════
+  #  JOB 3 — WEEKLY REPORT (Every Sunday)
+  # ════════════════════════════════════════════════════════════════════════════
+  weekly-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event.schedule == '30 2 * * 0' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'weekly_report')
+
+    env:
+      GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+      YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      IG_ACCESS_TOKEN:       ${{ secrets.IG_ACCESS_TOKEN }}
+      IG_USER_ID:            ${{ secrets.IG_USER_ID }}
+      TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+      GOOGLE_SHEETS_CREDS:   ${{ secrets.GOOGLE_SHEETS_CREDS }}
+      SHEETS_ID:             ${{ secrets.SHEETS_ID }}
+      OUTPUT_DIR:            /tmp/empire_output
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install requests gspread oauth2client google-auth
+      - run: mkdir -p /tmp/empire_output
+
+      - name: 💾 Restore intel cache
+        uses: actions/cache@v4
         with:
-          name: video-output
-          path: /tmp/betrayal_output/
-          retention-days: 3
-          if-no-files-found: ignore
+          path: /tmp/empire_output/intelligence_report.json
+          key: intel-
+          restore-keys: intel-
+
+      - name: 📊 Send weekly empire report
+        run: |
+          cd scripts && python empire_report.py weekly
