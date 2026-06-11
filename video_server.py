@@ -429,6 +429,8 @@ def get_youtube_service():
             token_uri="https://oauth2.googleapis.com/token",
             client_id=YT_CLIENT_ID, client_secret=YT_CLIENT_SECRET,
             scopes=["https://www.googleapis.com/auth/youtube.upload",
+                    "https://www.googleapis.com/auth/youtube",
+                    "https://www.googleapis.com/auth/youtube.force-ssl",
                     "https://www.googleapis.com/auth/youtube.readonly",
                     "https://www.googleapis.com/auth/yt-analytics.readonly"])
         return build("youtube", "v3", credentials=creds)
