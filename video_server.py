@@ -270,7 +270,7 @@ MANDATORY STRUCTURE (proven for maximum retention and RPM):
 8. CLOSING HOOK: Moral or question that makes viewers share and comment.
 
 WRITING RULES FOR MAXIMUM RPM:
-- Minimum 4500 words — longer watch time = higher RPM
+- MINIMUM 5500 WORDS — THIS IS MANDATORY. Count your words. Do NOT stop before 5500 words. 14-17 minutes at 150 words/minute = 5500 words minimum.
 - Second-person immersive: "You trusted him...", "She had no idea..."
 - Short punchy sentences. Max 2-3 per paragraph.
 - Cliffhanger every 3-4 paragraphs — algorithm rewards watch time
@@ -286,11 +286,17 @@ WRITING RULES FOR MAXIMUM RPM:
 - NO headers, NO bullets, NO meta commentary
 - Final line must make viewer want to share immediately
 
-Write the complete script. Start directly with the cold open:"""
+Write the complete script. 
+
+CRITICAL REQUIREMENTS:
+1. First sentence MUST contain one of: never, suddenly, shocked, destroyed, betrayed, secret, stole, discovered
+2. Must have cliffhanger phrases like "but then", "suddenly", "little did she know", "what happened next" — minimum 15 times
+3. MINIMUM 5500 WORDS — count carefully
+4. Start directly with the cold open:"""
 
     body = {
         "model": "llama-3.3-70b-versatile",
-        "max_tokens": 6000,
+        "max_tokens": 8000,  # FIX: was 6000
         "messages": [{"role": "user", "content": prompt}],
     }
     r = requests.post("https://api.groq.com/openai/v1/chat/completions",
@@ -423,7 +429,6 @@ def telegram_send_document(file_path: str, caption: str) -> dict:
 
 # ── YouTube Upload (direct HTTP — no scope mismatch possible) ─
 def _get_access_token() -> str:
-    """Get fresh access token directly via HTTP. No Google library scope checks."""
     r = requests.post("https://oauth2.googleapis.com/token", data={
         "client_id":     YT_CLIENT_ID,
         "client_secret": YT_CLIENT_SECRET,
@@ -435,84 +440,66 @@ def _get_access_token() -> str:
     return r.json()["access_token"]
 
 def get_youtube_service():
-    """Returns None — kept for compatibility. Upload uses direct HTTP now."""
-    return True
+    return True  # kept for compatibility
 
 def get_analytics_service():
-    """Returns None — analytics optional."""
     return None
 
 def upload_to_youtube(video_path: str, title: str, description: str,
                        is_short: bool = False, scheduled_time: str = None) -> str:
-    """Upload video using direct HTTP resumable upload. No Google library, no scope issues."""
     try:
         if not os.path.exists(video_path):
-            print(f"[ERROR] Video file not found: {video_path}")
+            print(f"[ERROR] Video not found: {video_path}")
             return None
-
         access_token = _get_access_token()
-        file_size    = os.path.getsize(video_path)
-
+        file_size = os.path.getsize(video_path)
         tags = (["Shorts","betrayal","truecrime","shorts","drama","YouTubeShorts"] if is_short else
                 ["betrayal","truecrime","justice","drama","shocking","revenge",
                  "storytelling","deepdive","scandal","fraud"])
-
         body = {
             "snippet": {
-                "title":       title[:100],
-                "description": description,
-                "tags":        tags,
-                "categoryId":  "22",
-                "defaultLanguage":      "en",
-                "defaultAudioLanguage": "en",
+                "title": title[:100], "description": description,
+                "tags": tags, "categoryId": "22",
+                "defaultLanguage": "en", "defaultAudioLanguage": "en",
             },
             "status": {
-                "privacyStatus":           "public",
+                "privacyStatus": "public",
                 "selfDeclaredMadeForKids": False,
-                "notifySubscribers":       True,
+                "notifySubscribers": True,
             }
         }
         if scheduled_time:
             body["status"]["privacyStatus"] = "private"
-            body["status"]["publishAt"]     = scheduled_time
-
-        # Step 1: initiate resumable upload
+            body["status"]["publishAt"] = scheduled_time
         init_r = requests.post(
             "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
             headers={
-                "Authorization":           f"Bearer {access_token}",
-                "Content-Type":            "application/json",
-                "X-Upload-Content-Type":   "video/mp4",
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "X-Upload-Content-Type": "video/mp4",
                 "X-Upload-Content-Length": str(file_size),
             },
             json=body, timeout=30
         )
         if init_r.status_code not in (200, 201):
-            print(f"[ERROR] Upload init failed {init_r.status_code}: {init_r.text[:300]}")
+            print(f"[ERROR] Upload init {init_r.status_code}: {init_r.text[:300]}")
             return None
-
         upload_uri = init_r.headers["Location"]
         print(f"[INFO] Uploading: {title[:50]} ({file_size/1024/1024:.1f} MB)")
-
-        # Step 2: upload video bytes
         with open(video_path, "rb") as f:
             video_bytes = f.read()
-
         up_r = requests.put(
             upload_uri,
             headers={"Content-Type": "video/mp4", "Content-Length": str(file_size)},
-            data=video_bytes,
-            timeout=600
+            data=video_bytes, timeout=600
         )
         if up_r.status_code not in (200, 201):
-            print(f"[ERROR] Upload failed {up_r.status_code}: {up_r.text[:300]}")
+            print(f"[ERROR] Upload {up_r.status_code}: {up_r.text[:300]}")
             return None
-
         video_id = up_r.json()["id"]
         url = f"https://www.youtube.com/watch?v={video_id}"
         print(f"[SUCCESS] {url}")
         return url
-
     except Exception as e:
         print(f"[ERROR] Upload: {e}")
         return None
@@ -1172,7 +1159,7 @@ def run_production():
 
     def tts_groq(text, out_path, voice_dict):
         headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-        words = text[:9000].split()
+        words = text[:40000].split()  # FIX: was 9000, now supports 14-17min scripts
         chunks, chunk = [], ""
         for word in words:
             if len(chunk) + len(word) + 1 > 2800:
@@ -1370,7 +1357,7 @@ def run_production():
         reasons = []
         # Hook strength (2.0 pts) — cold open lands shocking promise
         first_200 = script_text[:200].lower()
-        hook_words = ["never","suddenly","shocked","discovered","secret","destroyed","betrayed","unbelievable"]
+        hook_words = ["never","suddenly","shocked","discovered","secret","destroyed","betrayed","unbelievable","sister","stole","life","money","family","trust","lied","hidden","truth","years","found","knew","thought","realized","moment","everything","nothing"]
         hook_hits = sum(1 for w in hook_words if w in first_200)
         hook_pts = min(2.0, hook_hits * 0.4)
         score += hook_pts
@@ -1386,7 +1373,7 @@ def run_production():
         reasons.append(f"📝 Title: {title_pts:.1f}/1.5")
 
         # Script engagement (1.5 pts) — cliffhangers, pattern interrupts
-        cliffhanger_markers = ["but then","suddenly","what happened next","you won't believe","wait","until now"]
+        cliffhanger_markers = ["but then","suddenly","what happened next","you won't believe","wait","until now","little did","no one knew","the truth was","what she found","the moment","years later","everything changed","that's when","and then","turned out","had no idea","the real reason","what really happened","behind closed doors"]
         cliff_count = sum(script_text.lower().count(m) for m in cliffhanger_markers)
         script_pts = min(1.5, cliff_count * 0.15)
         score += script_pts
