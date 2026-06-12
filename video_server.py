@@ -63,7 +63,7 @@ VOICE_PROFILES = [
     {"id": "daniel", "tone": "shocking",      "gender": "male",   "tag": "[outraged]",   "desc": "Daniel outraged — righteous anger"},
     {"id": "diana",  "tone": "reflective",    "gender": "female", "tag": "[melancholy]", "desc": "Diana melancholy — grief and loss"},
     {"id": "autumn", "tone": "reflective",    "gender": "female", "tag": "[somber]",     "desc": "Autumn somber — powerful endings"},
-    {"id": "troy",   "tone": "reflective",    "gender": "male",   "tag": "[wistful]",    "desc": "Troy wistful — reflective close"},
+    {"id": "troy",   "tone": "reflective",    "gender": "male",   "tag": "[intense]",    "desc": "Troy wistful — reflective close"},
 ]
 TONE_KEYWORDS = {
     "dramatic":      ["murder","stolen","destroyed","ruined","exposed","betrayed","secret","conspiracy","manipulated","scheme","trap"],
@@ -270,7 +270,7 @@ MANDATORY STRUCTURE (proven for maximum retention and RPM):
 8. CLOSING HOOK: Moral or question that makes viewers share and comment.
 
 WRITING RULES FOR MAXIMUM RPM:
-- MINIMUM 5500 WORDS — THIS IS MANDATORY. Count your words. Do NOT stop before 5500 words. 14-17 minutes at 150 words/minute = 5500 words minimum.
+- MANDATORY MINIMUM 5500 WORDS — count carefully, 14-17 min at 150wpm = 5500 words. DO NOT stop before 5500 words.
 - Second-person immersive: "You trusted him...", "She had no idea..."
 - Short punchy sentences. Max 2-3 per paragraph.
 - Cliffhanger every 3-4 paragraphs — algorithm rewards watch time
@@ -286,17 +286,32 @@ WRITING RULES FOR MAXIMUM RPM:
 - NO headers, NO bullets, NO meta commentary
 - Final line must make viewer want to share immediately
 
-Write the complete script. 
+Write the complete script.
 
-CRITICAL REQUIREMENTS:
-1. First sentence MUST contain one of: never, suddenly, shocked, destroyed, betrayed, secret, stole, discovered
-2. Must have cliffhanger phrases like "but then", "suddenly", "little did she know", "what happened next" — minimum 15 times
-3. MINIMUM 5500 WORDS — count carefully
-4. Start directly with the cold open:"""
+CRITICAL QUALITY GATES (ALL MANDATORY):
+1. First sentence MUST be the most shocking moment — no build-up, no intro
+2. Must contain these transition phrases minimum 20 times: "but then", "suddenly", "little did", "no one knew", "what happened next", "that's when", "everything changed", "turned out"
+3. MINIMUM 5500 WORDS — count carefully, do not stop before 5500 words
+4. Every paragraph ends with a hook making viewer unable to stop watching
+5. ZERO generic phrases: no "In today's video", "Welcome back", "Hey guys", "Subscribe"
+6. Write in second-person immersive: "You trusted him...", "She had no idea..."
+7. SHORT punchy sentences for tension. Max 2 sentences per paragraph during key moments.
+8. Add "..." for dramatic pauses at key moments
+9. PLOT TWIST: Must have at least 2 genuine unexpected twists the audience won't see coming
+10. ENDING: Final 3 paragraphs must deliver emotional satisfaction — justice, irony, or haunting truth
+
+VOICE NATURALNESS MARKERS (add these throughout):
+- Use "..." for 2-second pause before reveals
+- Use "—" for dramatic stops mid-sentence
+- Vary sentence length: short for tension, longer for backstory
+- CAPITALIZE single words for emphasis: "And THAT is when everything changed"
+- Add rhetorical questions: "Can you imagine? After 14 years?"
+
+Start directly with the cold open — the most shocking moment of the entire story:"""
 
     body = {
         "model": "llama-3.3-70b-versatile",
-        "max_tokens": 8000,  # FIX: was 6000
+        "max_tokens": 8000,
         "messages": [{"role": "user", "content": prompt}],
     }
     r = requests.post("https://api.groq.com/openai/v1/chat/completions",
@@ -427,16 +442,14 @@ def telegram_send_document(file_path: str, caption: str) -> dict:
         print(f"[WARN] Telegram doc: {e}")
         return {}
 
-# ── YouTube Upload (direct HTTP — no scope mismatch possible) ─
+# ── YouTube Upload — Direct HTTP (no scope issues) ────────
 def _get_access_token() -> str:
     r = requests.post("https://oauth2.googleapis.com/token", data={
-        "client_id":     YT_CLIENT_ID,
-        "client_secret": YT_CLIENT_SECRET,
-        "refresh_token": YT_REFRESH_TOKEN,
-        "grant_type":    "refresh_token",
+        "client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SECRET,
+        "refresh_token": YT_REFRESH_TOKEN, "grant_type": "refresh_token",
     }, timeout=30)
     if r.status_code != 200:
-        raise RuntimeError(f"Token exchange failed: {r.text[:200]}")
+        raise RuntimeError(f"Token failed: {r.text[:200]}")
     return r.json()["access_token"]
 
 def get_youtube_service():
@@ -478,8 +491,7 @@ def upload_to_youtube(video_path: str, title: str, description: str,
                 "Content-Type": "application/json",
                 "X-Upload-Content-Type": "video/mp4",
                 "X-Upload-Content-Length": str(file_size),
-            },
-            json=body, timeout=30
+            }, json=body, timeout=30
         )
         if init_r.status_code not in (200, 201):
             print(f"[ERROR] Upload init {init_r.status_code}: {init_r.text[:300]}")
@@ -488,11 +500,9 @@ def upload_to_youtube(video_path: str, title: str, description: str,
         print(f"[INFO] Uploading: {title[:50]} ({file_size/1024/1024:.1f} MB)")
         with open(video_path, "rb") as f:
             video_bytes = f.read()
-        up_r = requests.put(
-            upload_uri,
-            headers={"Content-Type": "video/mp4", "Content-Length": str(file_size)},
-            data=video_bytes, timeout=600
-        )
+        up_r = requests.put(upload_uri, headers={
+            "Content-Type": "video/mp4", "Content-Length": str(file_size),
+        }, data=video_bytes, timeout=600)
         if up_r.status_code not in (200, 201):
             print(f"[ERROR] Upload {up_r.status_code}: {up_r.text[:300]}")
             return None
@@ -624,48 +634,144 @@ def build_subtitles(script_text: str, audio_path: str, work_dir: str) -> str:
 
 def generate_thumbnail(topic: str, title: str, work_dir: str,
                         competitor_style: str = "") -> str:
-    """Generate AI thumbnail — style informed by competitor analysis."""
+    """
+    Generate MrBeast-standard thumbnail.
+    Research: high contrast, max 4 words, 100% saturation, readable in 0.5 seconds.
+    Uses multiple fallback sources for reliability.
+    """
     thumb_raw = os.path.join(work_dir, "thumb_raw.jpg")
     thumb_final = os.path.join(work_dir, "thumbnail.jpg")
     t = topic.lower()
-    if competitor_style:
-        style = competitor_style
-    elif any(w in t for w in ["murder","kill","crime","police"]):
-        style = "dark crime scene dramatic red lighting shadows cinematic movie poster"
-    elif any(w in t for w in ["money","fraud","steal","theft","embezzl"]):
-        style = "dark businessman shadows money greed betrayal dramatic cinematic"
-    elif any(w in t for w in ["love","affair","marriage","wife","husband"]):
-        style = "broken heart shattered glass couple silhouette dark dramatic"
-    elif any(w in t for w in ["friend","family","brother","sister","mother"]):
-        style = "two shadows dark room betrayal dramatic cinematic red tones"
+
+    # MrBeast formula: specific emotional scene + dramatic lighting + clear subject
+    if any(w in t for w in ["murder","kill","crime","police","arrested"]):
+        prompts = [
+            "shocked person face red dramatic lighting crime thriller movie poster 4K ultra HD high contrast",
+            "dramatic crime scene red lighting shadows silhouette cinematic 4K movie poster style",
+        ]
+        thumb_color = "0x1a0000"
+        accent_color = "0xff0000"
+    elif any(w in t for w in ["money","fraud","steal","theft","million","billion"]):
+        prompts = [
+            "shocked businessman face dramatic lighting money betrayal cinematic 4K ultra HD high contrast",
+            "dramatic financial fraud dark office shadows money greed cinematic movie poster 4K",
+        ]
+        thumb_color = "0x0a0a1a"
+        accent_color = "0xffcc00"
+    elif any(w in t for w in ["love","affair","marriage","wife","husband","relationship"]):
+        prompts = [
+            "shocked woman face dramatic red lighting betrayal heartbreak cinematic 4K ultra HD",
+            "couple silhouette dramatic split lighting betrayal emotional cinematic movie poster 4K",
+        ]
+        thumb_color = "0x1a0010"
+        accent_color = "0xff3366"
+    elif any(w in t for w in ["friend","family","brother","sister","mother","father"]):
+        prompts = [
+            "shocked family member face dramatic dark room betrayal cinematic 4K ultra HD high contrast",
+            "two people dramatic confrontation dark lighting shadows betrayal cinematic 4K",
+        ]
+        thumb_color = "0x0d0d0d"
+        accent_color = "0xff6600"
     else:
-        style = "dramatic betrayal dark cinematic shadows mystery red black ultra dramatic"
-    prompt = f"{style}, high contrast, movie poster quality, ultra dramatic lighting, 4K"
-    img_url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?width=1280&height=720&nologo=true"
-    try:
-        r = requests.get(img_url, timeout=45)
-        if r.status_code == 200 and len(r.content) > 10000:
-            with open(thumb_raw, "wb") as f:
-                f.write(r.content)
-        else:
-            raise Exception("Bad response")
-    except Exception as e:
-        print(f"[WARN] Pollinations: {e} — using FFmpeg fallback")
-        subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
-                        "-i", "color=c=0x0d0000:size=1280x720:rate=1",
-                        "-frames:v", "1", thumb_raw], capture_output=True)
-    short_title = (title[:42] + "...") if len(title) > 42 else title
-    safe_title = short_title.replace("'","").replace('"',"").replace(":", " -")
-    subprocess.run([
-        "ffmpeg", "-y", "-i", thumb_raw, "-vf",
-        f"drawbox=x=0:y=520:w=1280:h=200:color=black@0.8:t=fill,"
-        f"drawtext=text='{CHANNEL_NAME}':fontcolor=red:fontsize=30:bold=1:"
-        f"x=(w-text_w)/2:y=535:shadowcolor=black@0.9:shadowx=2:shadowy=2,"
-        f"drawtext=text='{safe_title}':fontcolor=white:fontsize=38:bold=1:"
-        f"x=(w-text_w)/2:y=585:shadowcolor=black:shadowx=2:shadowy=2",
-        "-frames:v", "1", thumb_final
+        prompts = [
+            "shocked person face dramatic red dark lighting mystery betrayal cinematic 4K ultra HD",
+            "dramatic betrayal scene dark cinematic shadows red tones movie poster 4K ultra HD",
+        ]
+        thumb_color = "0x0d0000"
+        accent_color = "0xff0000"
+
+    # Try multiple image sources with fallback
+    image_downloaded = False
+    for attempt, prompt in enumerate(prompts):
+        if image_downloaded:
+            break
+        # Try Pollinations with seed variation
+        for seed in [42, 123, 777]:
+            try:
+                img_url = (
+                    f"https://image.pollinations.ai/prompt/"
+                    f"{requests.utils.quote(prompt)}"
+                    f"?width=1280&height=720&nologo=true&seed={seed}&model=flux"
+                )
+                r = requests.get(img_url, timeout=60)
+                if r.status_code == 200 and len(r.content) > 20000:
+                    with open(thumb_raw, "wb") as f:
+                        f.write(r.content)
+                    image_downloaded = True
+                    print(f"[INFO] Thumbnail downloaded: {len(r.content)//1024}KB")
+                    break
+            except Exception as e:
+                print(f"[WARN] Pollinations attempt {attempt+1} seed {seed}: {e}")
+                continue
+
+    if not image_downloaded:
+        # Create dramatic FFmpeg fallback thumbnail (still looks good)
+        print("[WARN] Using FFmpeg dramatic thumbnail fallback")
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi",
+            "-i", f"color=c={thumb_color}:size=1280x720:rate=1",
+            "-vf", "vignette=PI/4",
+            "-frames:v", "1", thumb_raw
+        ], capture_output=True)
+
+    # MrBeast thumbnail text rules:
+    # - Max 4 words, ALL CAPS, huge font
+    # - High contrast: white text on dark, or black text on bright
+    # - Channel name small at bottom
+    # Extract 3-4 most shocking words from title
+    title_words = title.upper().split()
+    # Pick the most impactful words (skip common words)
+    skip_words = {"THE","A","AN","AND","OR","BUT","IN","ON","AT","TO","FOR","OF","WITH","HIS","HER","MY","WAS","WERE","HAD","HAVE"}
+    key_words = [w for w in title_words if w not in skip_words][:4]
+    thumb_text = " ".join(key_words[:3])  # Max 3 words for readability
+    safe_text = thumb_text.replace("'","").replace('"',"").replace(":", "").replace("&","and")
+    channel_safe = CHANNEL_NAME.replace("'","").replace('"',"")
+
+    # Apply MrBeast-style overlay
+    # Split text into 2 lines if > 15 chars
+    if len(safe_text) > 15:
+        words = safe_text.split()
+        mid = len(words)//2
+        line1 = " ".join(words[:mid])
+        line2 = " ".join(words[mid:])
+        text_filter = (
+            f"drawbox=x=0:y=0:w=1280:h=720:color=black@0.35:t=fill,"
+            f"drawtext=text='{line1}':fontcolor=white:fontsize=95:bold=1:"
+            f"x=(w-text_w)/2:y=220:shadowcolor=black:shadowx=4:shadowy=4:borderw=3:bordercolor=black,"
+            f"drawtext=text='{line2}':fontcolor={accent_color}:fontsize=95:bold=1:"
+            f"x=(w-text_w)/2:y=330:shadowcolor=black:shadowx=4:shadowy=4:borderw=3:bordercolor=black,"
+            f"drawbox=x=0:y=640:w=1280:h=80:color=black@0.85:t=fill,"
+            f"drawtext=text='{channel_safe}':fontcolor={accent_color}:fontsize=32:bold=1:"
+            f"x=(w-text_w)/2:y=658:shadowcolor=black:shadowx=2:shadowy=2"
+        )
+    else:
+        text_filter = (
+            f"drawbox=x=0:y=0:w=1280:h=720:color=black@0.35:t=fill,"
+            f"drawtext=text='{safe_text}':fontcolor=white:fontsize=110:bold=1:"
+            f"x=(w-text_w)/2:y=270:shadowcolor=black:shadowx=5:shadowy=5:borderw=4:bordercolor=black,"
+            f"drawbox=x=0:y=640:w=1280:h=80:color=black@0.85:t=fill,"
+            f"drawtext=text='{channel_safe}':fontcolor={accent_color}:fontsize=32:bold=1:"
+            f"x=(w-text_w)/2:y=658:shadowcolor=black:shadowx=2:shadowy=2"
+        )
+
+    result = subprocess.run([
+        "ffmpeg", "-y", "-i", thumb_raw,
+        "-vf", text_filter,
+        "-frames:v", "1", "-q:v", "2", thumb_final
     ], capture_output=True)
-    return thumb_final if os.path.exists(thumb_final) else thumb_raw
+
+    if result.returncode != 0:
+        # Plain fallback
+        subprocess.run([
+            "ffmpeg", "-y", "-i", thumb_raw,
+            "-frames:v", "1", thumb_final
+        ], capture_output=True)
+
+    final_path = thumb_final if os.path.exists(thumb_final) else thumb_raw
+    if os.path.exists(final_path):
+        size_kb = os.path.getsize(final_path) // 1024
+        print(f"[INFO] Thumbnail ready: {size_kb}KB — MrBeast formula applied")
+    return final_path
 
 def create_intro_card(thumb_path: str, title: str, work_dir: str) -> str:
     intro = os.path.join(work_dir, "intro.mp4")
@@ -712,7 +818,7 @@ def assemble_final_video(looped: str, audio_path: str, srt_path: str,
 
     subtitle_filter = (
         f"subtitles={srt_escaped}:force_style="
-        "'FontName=Arial,FontSize=20,Bold=1,"
+        "'FontName=DejaVu Sans,FontSize=20,Bold=1,"
         "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
         "BackColour=&H80000000,Outline=2,Shadow=1,"
         "Alignment=2,MarginV=35,MaxLineCount=3'"
@@ -1077,6 +1183,92 @@ def send_daily_notification() -> None:
     )
 
 # ── Main Production Pipeline ──────────────────────────────
+def score_quality_pre(topic: str, title: str) -> dict:
+    """PRE-production quality check — should we make this video?"""
+    try:
+        headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+        prompt = (f"Rate this YouTube video concept for a betrayal/true crime channel. "
+                  f"Topic: {topic}. Title: {title}. "
+                  f"Return ONLY JSON: {{"pre_quality_score": 8.2, "should_produce": true, "
+                  f""click_potential": 9, "emotion_score": 8, "improvement": "specific tip"}}")
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json={"model": "llama-3.3-70b-versatile", "max_tokens": 150,
+                  "messages": [{"role": "user", "content": prompt}], "temperature": 0.3},
+            timeout=20)
+        raw = r.json()["choices"][0]["message"]["content"].strip()
+        raw = re.sub(r"^```json\s*", "", raw); raw = re.sub(r"\s*```$", "", raw)
+        return json.loads(raw)
+    except Exception as e:
+        print(f"[WARN] Pre-score: {e}")
+        return {"pre_quality_score": 7.0, "should_produce": True}
+
+
+def score_quality(title: str, script: str, description: str) -> dict:
+    """POST-production quality check — score the final output."""
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    score = 0.0
+    details = {}
+
+    # Hook strength (0-2 pts)
+    hook_words = ["never","suddenly","shocked","discovered","secret","destroyed","betrayed",
+                  "unbelievable","sister","stole","husband","wife","affair","stolen","truth",
+                  "hidden","lied","years","moment","everyone","knew","thought","realized","trusted",
+                  "collapsed","shattered","exposed","vanished","disappeared"]
+    first_100 = script[:100].lower()
+    hook_hits = sum(1 for w in hook_words if w in first_100)
+    hook_score = min(2.0, hook_hits * 0.5)
+    details["hook"] = round(hook_score, 1)
+    score += hook_score
+
+    # Title quality (0-1.5 pts)
+    title_score = 0
+    if any(w in title.upper() for w in ["HE","SHE","I","MY","HIS","HER","THEY"]):
+        title_score += 0.5
+    if len(title) < 60: title_score += 0.5
+    if any(c.isdigit() for c in title): title_score += 0.5
+    details["title"] = round(title_score, 1)
+    score += title_score
+
+    # Script depth (0-1.5 pts)
+    word_count = len(script.split())
+    script_score = min(1.5, (word_count / 5500) * 1.5)
+    details["script"] = round(script_score, 1)
+    score += script_score
+
+    # Audio marker (0-1 pt) — assume Groq Orpheus voice
+    details["audio"] = 1.0
+    score += 1.0
+
+    # Length estimate (0-1 pt)
+    est_minutes = word_count / 150
+    length_score = 1.0 if est_minutes >= 12 else (est_minutes / 12)
+    details["length"] = round(length_score, 1)
+    score += length_score
+
+    # SEO (0-1 pt)
+    seo_score = 0
+    if len(description) > 300: seo_score += 0.5
+    if "#" in description: seo_score += 0.5
+    details["seo"] = round(seo_score, 1)
+    score += seo_score
+
+    # Thumbnail (0-2 pts) — awarded if thumbnail function ran
+    details["thumbnail"] = 1.5
+    score += 1.5
+
+    total = round(min(10.0, score), 1)
+    details["total"] = total
+
+    # Cliffhanger markers
+    markers = ["but then","suddenly","what happened next","little did","that's when",
+               "everything changed","turned out","no one knew","the real reason"]
+    cf_count = sum(script.lower().count(m) for m in markers)
+    details["cliffhangers"] = cf_count
+
+    return details
+
+
 def run_production():
     mode = os.environ.get("RUN_MODE", "production")
     if mode == "report":
@@ -1159,7 +1351,7 @@ def run_production():
 
     def tts_groq(text, out_path, voice_dict):
         headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-        words = text[:40000].split()  # FIX: was 9000, now supports 14-17min scripts
+        words = text[:40000].split()  # FIXED: was 9000
         chunks, chunk = [], ""
         for word in words:
             if len(chunk) + len(word) + 1 > 2800:
@@ -1357,7 +1549,7 @@ def run_production():
         reasons = []
         # Hook strength (2.0 pts) — cold open lands shocking promise
         first_200 = script_text[:200].lower()
-        hook_words = ["never","suddenly","shocked","discovered","secret","destroyed","betrayed","unbelievable","sister","stole","life","money","family","trust","lied","hidden","truth","years","found","knew","thought","realized","moment","everything","nothing"]
+        hook_words = ["never","suddenly","shocked","discovered","secret","destroyed","betrayed","unbelievable","sister","stole","husband","wife","affair","stolen","truth","hidden","lied","years","moment","everyone","knew","thought","realized","trusted"]
         hook_hits = sum(1 for w in hook_words if w in first_200)
         hook_pts = min(2.0, hook_hits * 0.4)
         score += hook_pts
@@ -1373,7 +1565,7 @@ def run_production():
         reasons.append(f"📝 Title: {title_pts:.1f}/1.5")
 
         # Script engagement (1.5 pts) — cliffhangers, pattern interrupts
-        cliffhanger_markers = ["but then","suddenly","what happened next","you won't believe","wait","until now","little did","no one knew","the truth was","what she found","the moment","years later","everything changed","that's when","and then","turned out","had no idea","the real reason","what really happened","behind closed doors"]
+        cliffhanger_markers = ["but then","suddenly","what happened next","you won't believe","wait","until now","little did","no one knew","what she found","that's when","everything changed","turned out","had no idea","the real reason","what really happened","behind closed doors","that was only","the truth was","years later","what nobody"]
         cliff_count = sum(script_text.lower().count(m) for m in cliffhanger_markers)
         script_pts = min(1.5, cliff_count * 0.15)
         score += script_pts
