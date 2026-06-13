@@ -1,0 +1,197 @@
+name: 📱 Shorts & Reels — Daily Pipeline
+
+# ═══════════════════════════════════════════════════════════════
+# COMPLETE DAILY SCHEDULE:
+#
+# 6:00 AM IST  — Instagram Reel 1 (Hinglish, female voice)
+# 6:30 AM IST  — YouTube Short 1 Standalone (US story, male voice)
+# [Main video posts Mon/Wed/Fri at 7:30 AM IST via video_automation.yml]
+# 2:00 PM IST  — YouTube Short 2 Standalone (UK/crime, female voice)
+# 3:00 PM IST  — Instagram Reel 2 (Hinglish, male voice)
+#
+# TIED TO MAIN VIDEO (Mon/Wed/Fri only):
+# -8h before  — Teaser Short (triggered by video_automation.yml)
+# +24h after  — Recap Short (triggered by video_automation.yml)
+#
+# TOTAL: 4 Shorts + 2 Reels EVERY DAY = 6 uploads/day
+# ═══════════════════════════════════════════════════════════════
+
+on:
+  schedule:
+    - cron: "30 0 * * *"   # 6:00 AM IST — Reel 1
+    - cron: "0 1 * * *"    # 6:30 AM IST — Short 1 standalone
+    - cron: "30 8 * * *"   # 2:00 PM IST — Short 2 standalone
+    - cron: "30 9 * * *"   # 3:00 PM IST — Reel 2
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "standalone_1 | standalone_2 | reel_1 | reel_2 | teaser | recap"
+        required: false
+        default: "standalone_1"
+      main_topic:
+        description: "Main video topic (for teaser/recap)"
+        required: false
+        default: ""
+
+env:
+  GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+  GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+  MISTRAL_API_KEY:       ${{ secrets.MISTRAL_API_KEY }}
+  PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
+  TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+  TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+  YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+  IG_USER_ID:            ${{ secrets.IG_USER_ID }}
+  IG_ACCESS_TOKEN:       ${{ secrets.IG_ACCESS_TOKEN }}
+  NEWS_API_KEY:          ${{ secrets.NEWS_API_KEY }}
+  GITHUB_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_REPOSITORY:     ${{ github.repository }}
+  OUTPUT_DIR:            /tmp/shorts_output
+
+jobs:
+
+  # ── Reel 1: 6:00 AM IST ──────────────────────────────────────
+  reel-morning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event.schedule == '30 0 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'reel_1')
+    env:
+      REEL_MODE: reel_1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Free disk + install
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - name: Run Reel 1
+        run: python shorts_reels_engine.py reel_1
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
+
+  # ── Short 1: 6:30 AM IST — Standalone ────────────────────────
+  short-morning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event.schedule == '0 1 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'standalone_1')
+    env:
+      SHORT_MODE: standalone_1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Free disk + install
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - name: Run Short 1
+        run: python shorts_reels_engine.py standalone_1
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
+
+  # ── Short 2: 2:00 PM IST — Standalone ────────────────────────
+  short-afternoon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event.schedule == '30 8 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'standalone_2')
+    env:
+      SHORT_MODE: standalone_2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Free disk + install
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - name: Run Short 2
+        run: python shorts_reels_engine.py standalone_2
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
+
+  # ── Reel 2: 3:00 PM IST ──────────────────────────────────────
+  reel-afternoon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event.schedule == '30 9 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'reel_2')
+    env:
+      REEL_MODE: reel_2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Free disk + install
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - name: Run Reel 2
+        run: python shorts_reels_engine.py reel_2
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
+
+  # ── Teaser + Recap (triggered by video_automation.yml) ────────
+  teaser-short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'teaser'
+    env:
+      SHORT_MODE: teaser
+      MAIN_VIDEO_TOPIC: ${{ github.event.inputs.main_topic }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - run: python shorts_reels_engine.py teaser
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
+
+  recap-short:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: |
+      github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'recap'
+    env:
+      SHORT_MODE: recap
+      MAIN_VIDEO_TOPIC: ${{ github.event.inputs.main_topic }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libass-dev espeak-ng
+          pip install requests
+      - run: python shorts_reels_engine.py recap
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/shorts_output || true
