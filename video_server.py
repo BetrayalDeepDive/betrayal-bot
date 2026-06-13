@@ -339,26 +339,16 @@ def check_telegram_commands():
 
         if text.startswith("/video "):
             topic = text[7:].strip()
-            tg(f"🎬 *Commander received*
-Making video on: {topic}
-Estimated time: 45-60 min")
+            tg(f"🎬 *Commander received*\nMaking video on: {topic}\nEstimated time: 45-60 min")
             return topic
 
         elif text.startswith("/short "):
             topic = text[7:].strip()
-            tg(f"⚡ *Commander received*
-Making Short on: {topic}
-Estimated time: 5 min")
+            tg(f"⚡ *Commander received*\nMaking Short on: {topic}\nEstimated time: 5 min")
             return f"SHORT:{topic}"
 
         elif text == "/status":
-            tg(f"""📊 *SYSTEM STATUS*
-🤖 Automation: ✅ Running
-📺 YouTube: Mon/Wed/Fri 6:30 AM IST
-📱 Reels: Daily 6 AM + 2 PM IST
-🔄 Next video: As scheduled
-💡 To request video: /video [topic]
-💡 To request short: /short [topic]""")
+            tg("📊 *SYSTEM STATUS*\n🤖 Automation: ✅ Running\n📺 YouTube: Mon/Wed/Fri 6:30 AM IST\n📱 Reels: Daily 6 AM + 2 PM IST\n🔄 Next video: As scheduled\n💡 To request video: /video [topic]\n💡 To request short: /short [topic]")
             return None
 
         elif text.startswith("/niche "):
