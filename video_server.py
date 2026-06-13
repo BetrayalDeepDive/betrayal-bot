@@ -426,7 +426,7 @@ TOP VIDEOS (sorted by views):
               for v in viral_videos[:10]], indent=2)}
 
 Return JSON with exact formulas:
-{{"hook_formula": "exact pattern for first 15 seconds",
+{{{{"hook_formula": "exact pattern for first 15 seconds",
   "title_formula": "exact title structure with [placeholders]",
   "content_structure": "exact narrative arc",
   "thumbnail_style": "what makes thumbnails click-worthy",
@@ -460,7 +460,7 @@ Score each 0-10:
 5. Shareability (will viewers send this to friends?)
 
 Return JSON:
-{{"click_score": 8.5, "search_score": 7.0, "emotion_score": 9.0, "watchtime_score": 8.0,
+{{{{"click_score": 8.5, "search_score": 7.0, "emotion_score": 9.0, "watchtime_score": 8.0,
   "share_score": 8.5, "overall": 8.2, "should_produce": true,
   "improvement": "Make title more specific — add the betrayal amount or timeframe",
   "better_title": "She Hid ₹2 Crore From Her Husband For 11 Years"}}"""
@@ -514,13 +514,13 @@ TRENDING SEARCHES: {trending[:10]}
 NEWS HEADLINES: {news_topics[:5]}
 
 AVAILABLE NICHES (with RPM):
-{json.dumps([{{'id':n[0],'name':n[1],'rpm':n[3],'weight':n[4]}} for n in NICHES], indent=2)}
+{json.dumps([{'id':n[0],'name':n[1],'rpm':n[3],'weight':n[4]} for n in NICHES], indent=2)}
 
 Select the highest-potential niche for TODAY and generate a specific topic.
 Consider: trending topics, highest RPM, audience interest, shareability.
 
 Return JSON:
-{{"niche_id": "betrayal", "niche_name": "Betrayal & Revenge",
+{{{{"niche_id": "betrayal", "niche_name": "Betrayal & Revenge",
   "series_name": "The Betrayal Files",
   "topic": "Specific compelling story topic",
   "hook": "First sentence that will SHOCK viewers",
@@ -1717,7 +1717,7 @@ def run_production():
 Topic: {topic} | Niche: {niche_cfg[1]} | Series: {series_name}
 
 Return JSON:
-{{"title": "Power word + specific claim (45-60 chars)",
+{{{{"title": "Power word + specific claim (45-60 chars)",
   "description": "400+ word description with timestamps and keywords",
   "tags": ["10 specific tags"]}}"""
         new_seo = llm_json(seo_prompt)
