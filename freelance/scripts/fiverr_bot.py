@@ -275,7 +275,13 @@ def check_fiverr_orders():
         # Connect to Gmail
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(GMAIL_USER, GMAIL_PASSWORD)
-        mail.select("inbox")
+        # Try Fiverr Orders label first, fallback to inbox
+        try:
+            mail.select('Fiverr Orders')
+            print('Scanning Fiverr Orders label')
+        except Exception:
+            mail.select('inbox')
+            print('Scanning inbox (label not found)')
 
         # Search for Fiverr emails
         search_criteria = [
