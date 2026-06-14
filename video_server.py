@@ -1637,7 +1637,7 @@ def run_production():
 
     # ── Step 2: Viral intelligence scan ────────────────────────────
     niche_cfg    = next((n for n in NICHES if n[0] == niche_id), NICHES[0])
-    viral_videos = scan_viral_videos(niche_cfg[7])
+    viral_videos = scan_viral_videos(niche_cfg[6])
     patterns     = extract_winning_patterns(viral_videos, niche_cfg[1])
     log.info("Viral patterns: CTR estimate %.1f%%, confidence %d%%",
              patterns.get("estimated_ctr", 7), patterns.get("confidence", 80))
