@@ -32,6 +32,8 @@ YT_REFRESH     = os.environ["YOUTUBE_REFRESH_TOKEN"]
 SHEETS_ID      = os.environ.get("SHEETS_ID", "")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONSTANTS — NEVER TOUCH THESE WITHOUT UNDERSTANDING THEM
