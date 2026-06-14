@@ -232,6 +232,34 @@ def tg(msg: str):
         pass
 
 
+# ── INSTAGRAM SAFETY CHECK ────────────────────────────────────────────────────
+def is_instagram_ready() -> bool:
+    """Check if Instagram token is valid before attempting upload."""
+    if not IG_USER_ID or not IG_TOKEN:
+        log.warning("Instagram: credentials missing — skipping")
+        return False
+    if IG_USER_ID == "placeholder" or IG_TOKEN == "placeholder":
+        log.warning("Instagram: placeholder credentials — skipping")
+        return False
+    try:
+        r = requests.get(
+            f"https://graph.facebook.com/v19.0/{IG_USER_ID}",
+            params={"fields": "id,name", "access_token": IG_TOKEN},
+            timeout=10
+        )
+        if r.status_code == 200:
+            log.info("Instagram: token valid ✅")
+            return True
+        else:
+            err = r.json().get("error", {}).get("message", "Unknown")
+            log.warning("Instagram: token invalid — %s", err)
+            tg(f"⚠️ Instagram token expired or invalid.\nSkipping IG upload. YouTube continues normally.\nError: {err[:100]}")
+            return False
+    except Exception as e:
+        log.warning("Instagram: check failed — %s", e)
+        return False
+
+
 # ── TOPIC SELECTION ───────────────────────────────────────────────────────────
 def get_trending_short_topic(mode: str) -> dict:
     """
@@ -759,8 +787,11 @@ def upload_youtube_short(video_path: str, title: str, description: str,
 # ── INSTAGRAM UPLOAD ──────────────────────────────────────────────────────────
 def upload_instagram_reel(video_path: str, caption: str) -> bool:
     """Upload video as Instagram Reel via GitHub Release URL."""
-    if not all([IG_USER_ID, IG_TOKEN, GH_TOKEN, GH_REPO]):
-        log.warning("Instagram credentials incomplete")
+    if not is_instagram_ready():
+        log.warning("Instagram not ready — skipping upload gracefully")
+        return False
+    if not all([GH_TOKEN, GH_REPO]):
+        log.warning("GitHub credentials missing for video hosting")
         return False
 
     # Host video via GitHub Release
