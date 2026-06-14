@@ -1,0 +1,191 @@
+name: Empire V2 - Full Automation
+
+on:
+  schedule:
+    # Main YouTube video - Mon, Wed, Fri at 7:30 AM IST (2:00 AM UTC)
+    - cron: '0 2 * * 1,3,5'
+    # YouTube Short 1 - Daily 6:30 AM IST (1:00 AM UTC)
+    - cron: '0 1 * * *'
+    # YouTube Short 2 - Daily 2:00 PM IST (8:30 AM UTC)
+    - cron: '30 8 * * *'
+    # Instagram Reel 1 - Daily 6:00 AM IST (12:30 AM UTC)
+    - cron: '30 0 * * *'
+    # Instagram Reel 2 - Daily 3:00 PM IST (9:30 AM UTC)
+    - cron: '30 9 * * *'
+    # Support Bot - Every 30 minutes
+    - cron: '*/30 * * * *'
+    # Weekly Report - Every Sunday 9:00 AM IST (3:30 AM UTC)
+    - cron: '30 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task to run'
+        required: true
+        default: 'main_video'
+        type: choice
+        options:
+          - main_video
+          - short_video
+          - instagram_reel
+          - support_bot
+          - weekly_report
+          - all
+
+jobs:
+  main-video:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'main_video' || github.event.inputs.task == 'all') || (github.event_name == 'schedule' && github.event.schedule == '0 2 * * 1,3,5')
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+          pip install requests groq google-auth google-auth-oauthlib google-api-python-client Pillow numpy
+
+      - name: Run main video automation
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: |
+          echo "Starting main video generation..."
+          python video_server.py --mode main_video
+
+  shorts-video:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'short_video' || github.event.inputs.task == 'all') || (github.event_name == 'schedule' && (github.event.schedule == '0 1 * * *' || github.event.schedule == '30 8 * * *'))
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+          pip install requests groq google-auth google-auth-oauthlib google-api-python-client Pillow numpy
+
+      - name: Run YouTube Shorts automation
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          echo "Starting YouTube Shorts generation..."
+          python shorts_reels_engine.py --mode youtube_short
+
+  instagram-reel:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'instagram_reel' || github.event.inputs.task == 'all') || (github.event_name == 'schedule' && (github.event.schedule == '30 0 * * *' || github.event.schedule == '30 9 * * *'))
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+          pip install requests groq Pillow numpy
+
+      - name: Run Instagram Reels automation
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+        run: |
+          echo "Starting Instagram Reel generation..."
+          python shorts_reels_engine.py --mode instagram_reel
+
+  support-bot:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && github.event.schedule == '*/30 * * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'support_bot')
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run support bot
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "Running support bot check..."
+          python freelance/scripts/support_bot.py --single-check
+
+  weekly-report:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && github.event.schedule == '30 3 * * 0' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'weekly_report')
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Send weekly report
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          echo "Sending weekly report..."
+          python freelance/scripts/support_bot.py --weekly-report
