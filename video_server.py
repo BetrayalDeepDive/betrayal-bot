@@ -176,15 +176,15 @@ VOICE_BY_NICHE = {
 def llm(prompt: str, max_tokens: int = 8000, temp: float = 0.8,
         priority: str = "youtube") -> str:
     """Generate text with automatic API fallback."""
-    if priority == "youtube":
-        order = [("groq", "llama-3.3-70b-versatile"),
-                 ("gemini", "gemini-2.0-flash"),
-                 ("groq", "llama-3.1-8b-instant"),
-                 ("mistral", "mistral-small-latest")]
-    else:
-        order = [("gemini", "gemini-2.0-flash"),
-                 ("groq", "llama-3.3-70b-versatile"),
-                 ("mistral", "mistral-small-latest")]
+    # Use working models only — gemini-1.5-flash is stable
+    order = [
+        ("groq",    "llama-3.3-70b-versatile"),
+        ("groq",    "llama-3.1-8b-instant"),
+        ("gemini",  "gemini-1.5-flash"),
+        ("gemini",  "gemini-1.5-pro"),
+        ("mistral", "mistral-small-latest"),
+        ("mistral", "open-mistral-7b"),
+    ]
 
     for provider, model in order:
         try:
@@ -195,30 +195,39 @@ def llm(prompt: str, max_tokens: int = 8000, temp: float = 0.8,
                              "Content-Type": "application/json"},
                     json={"model": model,
                           "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": max_tokens, "temperature": temp},
+                          "max_tokens": min(max_tokens, 8000),
+                          "temperature": temp},
                     timeout=90
                 )
                 if r.status_code == 429:
-                    log.warning("Groq rate limited, trying next")
+                    log.warning("Groq rate limited — waiting 10s")
+                    time.sleep(10)
                     continue
-                r.raise_for_status()
+                if r.status_code != 200:
+                    log.warning("Groq %s: HTTP %d", model, r.status_code)
+                    continue
                 return r.json()["choices"][0]["message"]["content"].strip()
 
             elif provider == "gemini" and GEMINI_KEY:
                 r = requests.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}",
                     json={"contents": [{"parts": [{"text": prompt}]}],
-                          "generationConfig": {"maxOutputTokens": max_tokens,
+                          "generationConfig": {"maxOutputTokens": min(max_tokens, 8192),
                                                "temperature": temp}},
                     timeout=90
                 )
                 if r.status_code == 429:
-                    log.warning("Gemini rate limited, trying next")
+                    log.warning("Gemini rate limited — waiting 10s")
+                    time.sleep(10)
                     continue
-                r.raise_for_status()
+                if r.status_code != 200:
+                    log.warning("Gemini %s: HTTP %d — %s", model, r.status_code, r.text[:100])
+                    continue
                 candidates = r.json().get("candidates", [])
                 if candidates:
-                    return candidates[0]["content"]["parts"][0]["text"].strip()
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        return parts[0]["text"].strip()
 
             elif provider == "mistral" and MISTRAL_KEY:
                 r = requests.post(
@@ -227,16 +236,21 @@ def llm(prompt: str, max_tokens: int = 8000, temp: float = 0.8,
                              "Content-Type": "application/json"},
                     json={"model": model,
                           "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": max_tokens, "temperature": temp},
+                          "max_tokens": min(max_tokens, 8000),
+                          "temperature": temp},
                     timeout=90
                 )
                 if r.status_code == 429:
+                    time.sleep(10)
                     continue
-                r.raise_for_status()
+                if r.status_code != 200:
+                    log.warning("Mistral %s: HTTP %d", model, r.status_code)
+                    continue
                 return r.json()["choices"][0]["message"]["content"].strip()
 
         except Exception as e:
             log.warning("%s/%s failed: %s", provider, model, str(e)[:80])
+            time.sleep(2)
             continue
 
     raise RuntimeError("All AI APIs exhausted")
