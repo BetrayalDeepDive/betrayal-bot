@@ -17,13 +17,7 @@ name: 📱 Shorts & Reels — Daily Pipeline
 # ═══════════════════════════════════════════════════════════════
 
 on:
-  schedule:
-    - cron: "30 0 * * *"   # 6:00 AM IST — Reel 1
-    - cron: "0 1 * * *"    # 6:30 AM IST — Short 1 standalone
-    - cron: "30 8 * * *"   # 2:00 PM IST — Short 2 standalone
-    - cron: "30 9 * * *"   # 3:00 PM IST — Reel 2
-
-  workflow_dispatch:
+ workflow_dispatch:
     inputs:
       mode:
         description: "standalone_1 | standalone_2 | reel_1 | reel_2 | teaser | recap"
