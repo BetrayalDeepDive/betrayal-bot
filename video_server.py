@@ -949,7 +949,7 @@ def generate_thumbnail(topic: str, meta: dict, niche: dict, work_dir: str) -> st
     thumb_final = os.path.join(work_dir, "thumbnail.jpg")
 
     niche_id      = niche.get("niche_id", "betrayal")
-    accent_hex    = next((n[6] for n in NICHES if n[0] == niche_id), "0xff0000")
+    accent_hex    = next((n[5] for n in NICHES if n[0] == niche_id), "0xff0000")
     accent_ffmpeg = accent_hex.replace("0x", "#")
     thumbnail_text = meta.get("thumbnail_text", "")
     emotion        = meta.get("thumbnail_emotion", "shocked")
