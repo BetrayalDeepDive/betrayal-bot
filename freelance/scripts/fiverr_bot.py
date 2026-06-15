@@ -1,422 +1,395 @@
+#!/usr/bin/env python3
 """
-fiverr_bot.py
-=============
-100% Automated Fiverr Order Fulfillment System
+DeepDive Intelligence — Fiverr Bot v2.0
+=========================================
+Monitors Gmail 'Fiverr Orders' label for new Fiverr notifications.
+Auto-generates and delivers content for SEO blog article orders.
+Tracks orders, sends Telegram alerts, logs to Google Sheets.
 
-HOW IT WORKS:
-1. Checks Gmail for Fiverr order notification emails
-2. Extracts buyer requirements from order email
-3. Generates content using Groq/Gemini AI
-4. Runs plagiarism check (uniqueness verification)
-5. Sends completed work back to buyer via Gmail
-6. Notifies Mohammed via Telegram
-7. Logs everything to Google Sheets
-
-TRIGGERS (GitHub Actions - every 30 minutes):
-- Scans for emails from: noreply@fiverr.com
-- Subject contains: "New Order" OR "Order Requirements"
+AUTHENTICATION: Uses Gmail App Password (16-char).
+GIGS: SEO Blog Article (Basic $10 / Standard $25 / Premium $55)
 """
 
-import os
-import json
-import time
-import imaplib
-import smtplib
-import email
-import re
-import requests
-from datetime import datetime
+import os, sys, json, re, time, imaplib, smtplib, email
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import decode_header
+from datetime import datetime, timedelta
+import requests
+from groq import Groq
 
-# ── Credentials ──────────────────────────────────────────────────────
-GMAIL_USER     = "nextlayermediallc@gmail.com"
-GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-GROQ_KEY       = os.environ.get("GROQ_API_KEY", "")
-GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
-TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN", "")
-TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID", "")
+# ── CREDENTIALS ───────────────────────────────────────────────────────────────
+GROQ_API_KEY   = os.environ["GROQ_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GMAIL_USER     = os.environ.get("GMAIL_USER", "mohammedsultan0497@gmail.com")
+GMAIL_APP_PASS = os.environ["GMAIL_APP_PASSWORD"]
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT  = os.environ["TELEGRAM_CHAT_ID"]
 
-# ── Telegram notification ─────────────────────────────────────────────
-def tg(msg):
-    if not TG_TOKEN:
-        print(f"[TG] {msg[:200]}")
-        return
+groq_client = Groq(api_key=GROQ_API_KEY)
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+IMAP_SERVER     = "imap.gmail.com"
+IMAP_PORT       = 993
+SMTP_SERVER     = "smtp.gmail.com"
+SMTP_PORT       = 587
+FIVERR_LABEL    = "Fiverr Orders"
+SENDER_NAME     = "Mohammed Sultan | NextLayer Media"
+FIVERR_USERNAME = "nextlayermedia"
+
+# ── GIG PACKAGES ──────────────────────────────────────────────────────────────
+GIG_PACKAGES = {
+    "basic":    {"price": 10,  "words": 1200, "revisions": 1, "delivery_days": 3},
+    "standard": {"price": 25,  "words": 2000, "revisions": 2, "delivery_days": 2},
+    "premium":  {"price": 55,  "words": 3500, "revisions": 3, "delivery_days": 1},
+}
+
+def telegram(msg: str):
     try:
         requests.post(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "Markdown"},
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT, "text": msg, "parse_mode": "HTML"},
             timeout=15
         )
-    except Exception as e:
-        print(f"Telegram error: {e}")
+    except: pass
 
-# ── AI Content Generation ─────────────────────────────────────────────
-def generate_content(service_type, topic, keywords, tone, word_count):
-    """Generate 100% unique AI content — no plagiarism possible."""
-    
-    prompts = {
-        "seo_article": f"""Write a {word_count}-word professional SEO blog article.
+def safe_decode(value) -> str:
+    if value is None: return ""
+    decoded_parts = decode_header(value)
+    result = ""
+    for part, encoding in decoded_parts:
+        if isinstance(part, bytes):
+            result += part.decode(encoding or "utf-8", errors="replace")
+        else:
+            result += str(part)
+    return result.strip()
 
-Topic: {topic}
-Target keywords: {keywords}
-Tone: {tone}
-Style: Engaging, informative, well-structured
-
-Requirements:
-- Start with a compelling introduction
-- Use H2 and H3 headings naturally
-- Include target keywords naturally (3-5 times each)
-- Write in active voice
-- End with a strong conclusion and CTA
-- Include a meta description at the end (155 characters max)
-- Add 5 relevant tags at the end
-
-This must be 100% original content written from scratch.
-Word count target: {word_count} words minimum.
-
-Write the complete article now:""",
-
-        "youtube_script": f"""Write a professional YouTube script.
-
-Topic: {topic}
-Keywords: {keywords}
-Tone: {tone}
-Duration: 8-10 minutes (approximately 1200-1500 words)
-
-Structure:
-- Hook (first 30 seconds - most shocking/interesting fact)
-- Introduction (what viewers will learn)
-- Main content (5-6 sections)
-- Conclusion with CTA
-
-Write the complete script now:""",
-
-        "social_media": f"""Create a 7-day social media content pack.
-
-Brand/Topic: {topic}
-Keywords: {keywords}
-Tone: {tone}
-
-For each day provide:
-- Instagram caption (150 words) + 20 hashtags
-- Twitter/X post (280 chars max)
-- Facebook post (100 words)
-
-Write all 7 days now:""",
-    }
-
-    prompt = prompts.get(service_type, prompts["seo_article"])
-
-    # Try Groq first
-    if GROQ_KEY:
-        try:
-            r = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_KEY}",
-                         "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile",
-                      "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": 4000, "temperature": 0.8},
-                timeout=60
-            )
-            if r.status_code == 200:
-                content = r.json()["choices"][0]["message"]["content"].strip()
-                print(f"Content generated via Groq: {len(content.split())} words")
-                return content
-        except Exception as e:
-            print(f"Groq failed: {e}")
-
-    # Gemini fallback
-    if GEMINI_KEY:
-        try:
-            r = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}",
-                json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"maxOutputTokens": 4000, "temperature": 0.8}},
-                timeout=60
-            )
-            if r.status_code == 200:
-                content = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                print(f"Content generated via Gemini: {len(content.split())} words")
-                return content
-        except Exception as e:
-            print(f"Gemini failed: {e}")
-
-    return None
-
-# ── Parse Fiverr order email ──────────────────────────────────────────
-def parse_fiverr_order(email_body, email_subject):
-    """Extract order details from Fiverr notification email."""
-    order_info = {
-        "is_real_order": False,
-        "order_id": "",
-        "buyer_email": "",
-        "service_type": "seo_article",
-        "topic": "",
-        "keywords": "",
-        "tone": "professional",
-        "word_count": 1200,
-        "package": "standard"
-    }
-
-    # Check if this is a real Fiverr order
-    real_order_signals = [
-        "new order" in email_subject.lower(),
-        "order requirements" in email_subject.lower(),
-        "you have a new order" in email_body.lower(),
-        "fiverr order" in email_body.lower(),
-        "order #" in email_body.lower(),
-    ]
-
-    if not any(real_order_signals):
-        return order_info
-
-    order_info["is_real_order"] = True
-
-    # Extract order ID
-    order_match = re.search(r'Order #?(\w+)', email_body, re.IGNORECASE)
-    if order_match:
-        order_info["order_id"] = order_match.group(1)
-
-    # Extract buyer requirements from order details
-    topic_match = re.search(r'topic[:\s]+([^\n]+)', email_body, re.IGNORECASE)
-    if topic_match:
-        order_info["topic"] = topic_match.group(1).strip()
-
-    keywords_match = re.search(r'keyword[s]?[:\s]+([^\n]+)', email_body, re.IGNORECASE)
-    if keywords_match:
-        order_info["keywords"] = keywords_match.group(1).strip()
-
-    tone_match = re.search(r'tone[:\s]+([^\n]+)', email_body, re.IGNORECASE)
-    if tone_match:
-        order_info["tone"] = tone_match.group(1).strip()
-
-    # Detect service type from gig title
-    if "youtube" in email_body.lower() or "script" in email_body.lower():
-        order_info["service_type"] = "youtube_script"
-    elif "social media" in email_body.lower():
-        order_info["service_type"] = "social_media"
+def extract_body(msg) -> str:
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                try:
+                    payload = part.get_payload(decode=True)
+                    body = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+                    break
+                except: continue
     else:
-        order_info["service_type"] = "seo_article"
+        try:
+            body = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8", errors="replace")
+        except:
+            body = str(msg.get_payload())
+    return body[:3000]
 
-    # Default topic if not found
-    if not order_info["topic"]:
-        order_info["topic"] = "Technology and Innovation in 2026"
-    if not order_info["keywords"]:
-        order_info["keywords"] = "technology, innovation, digital transformation"
+def classify_fiverr_email(subject: str, body: str) -> dict:
+    """Classify type of Fiverr notification"""
+    subject_lower = subject.lower()
+    body_lower    = body.lower()
 
-    return order_info
+    result = {"type": "unknown", "package": "basic", "topic": "", "buyer": ""}
 
-# ── Send delivery email ───────────────────────────────────────────────
-def send_delivery_email(buyer_email, order_id, content, service_type):
-    """Send completed work to buyer via email."""
-    if not GMAIL_PASSWORD:
-        print("Gmail password not set — skipping email delivery")
-        return False
+    # Determine notification type
+    if "new order" in subject_lower or "you have a new order" in body_lower:
+        result["type"] = "new_order"
+    elif "order delivered" in subject_lower or "delivery" in subject_lower:
+        result["type"] = "delivery_confirmation"
+    elif "message" in subject_lower or "inbox" in subject_lower:
+        result["type"] = "message"
+    elif "review" in subject_lower or "feedback" in subject_lower:
+        result["type"] = "review"
+    elif "revision" in subject_lower:
+        result["type"] = "revision_request"
+    elif "cancellation" in subject_lower or "cancel" in subject_lower:
+        result["type"] = "cancellation"
+    elif "payment" in subject_lower or "cleared" in subject_lower:
+        result["type"] = "payment"
+    else:
+        result["type"] = "general"
 
+    # Determine package
+    if "premium" in body_lower or "$55" in body: result["package"] = "premium"
+    elif "standard" in body_lower or "$25" in body: result["package"] = "standard"
+    else: result["package"] = "basic"
+
+    # Extract buyer name (Fiverr format: "from [username]")
+    buyer_match = re.search(r'from\s+([A-Za-z0-9_]+)', body, re.IGNORECASE)
+    if buyer_match: result["buyer"] = buyer_match.group(1)
+
+    # Extract topic/keyword from order requirements
+    topic_patterns = [
+        r'(?:about|on|for|topic:|keyword:)\s+"?([^"\n,]{10,80})"?',
+        r'(?:write|article|blog).{0,30}(?:about|on)\s+"?([^"\n,]{10,80})"?',
+    ]
+    for pattern in topic_patterns:
+        match = re.search(pattern, body, re.IGNORECASE)
+        if match:
+            result["topic"] = match.group(1).strip()
+            break
+
+    return result
+
+def generate_seo_article(topic: str, package: str, buyer: str) -> str:
+    """Generate high-quality SEO article using Gemini"""
+    pkg = GIG_PACKAGES.get(package, GIG_PACKAGES["basic"])
+    word_count = pkg["words"]
+
+    prompt = f"""You are a professional SEO content writer. Write a complete, publication-ready SEO blog article.
+
+TOPIC: {topic or 'Digital Marketing Best Practices'}
+WORD COUNT: Exactly {word_count} words (±50 words tolerance)
+CLIENT: {buyer or 'Client'}
+
+ARTICLE REQUIREMENTS:
+1. SEO-optimized title (60-65 characters, includes main keyword)
+2. Meta description (150-160 characters)
+3. Introduction with hook (150-200 words)
+4. 4-6 main sections with H2 headings
+5. Sub-sections with H3 headings where appropriate
+6. Naturally integrated keywords throughout (density 1-2%)
+7. Bullet points and numbered lists for readability
+8. Real statistics and specific data points
+9. Actionable advice in every section
+10. Strong conclusion with call-to-action
+11. FAQ section (3-5 questions) at the end
+
+FORMAT OUTPUT AS:
+META TITLE: [title here]
+META DESCRIPTION: [description here]
+---
+[Full article content in Markdown format]
+---
+WORD COUNT: [actual word count]
+PRIMARY KEYWORD: [main keyword identified]
+SECONDARY KEYWORDS: [3-5 related keywords]
+
+Write the complete article now. Make it genuinely helpful and authoritative."""
+
+    # Try Gemini first (better for long content)
     try:
-        msg = MIMEMultipart()
-        msg["From"] = GMAIL_USER
-        msg["To"] = buyer_email
-        msg["Subject"] = f"Your Order #{order_id} is Ready! — Next Layer Media"
+        resp = requests.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4000}
+            },
+            timeout=120
+        )
+        if resp.status_code == 200:
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        print(f"   Gemini failed: {e} — trying Groq...")
 
-        body = f"""Hello!
+    # Fallback to Groq
+    for attempt in range(3):
+        try:
+            resp = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=3000
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(60 * (attempt + 1))
+            else:
+                raise
 
-Thank you for your order. Your {service_type.replace('_', ' ').title()} is ready!
+    return f"# Article on {topic}\n\nArticle generation encountered an error. Please contact support."
 
-Here is your completed work:
+def send_article_delivery(buyer_email: str, buyer_name: str, topic: str,
+                          article: str, package: str) -> bool:
+    """Send completed article to client via email"""
+    pkg = GIG_PACKAGES.get(package, GIG_PACKAGES["basic"])
+
+    subject = f"✅ Your SEO Article Delivered — {topic[:50]}"
+
+    body = f"""Dear {buyer_name or 'Valued Client'},
+
+Your SEO blog article has been completed and is attached below.
+
+ORDER DETAILS:
+• Topic: {topic}
+• Package: {package.capitalize()} ({pkg['words']} words)
+• Status: Delivered ✅
+
+Please find your article below:
 
 {'='*60}
-{content}
+
+{article}
+
 {'='*60}
 
-Key highlights:
-✅ 100% original content — no plagiarism
-✅ SEO optimized with your keywords
-✅ Professional quality guaranteed
-✅ Ready to publish immediately
+WHAT TO DO NEXT:
+1. Review the article and check it meets your requirements
+2. If you need any revisions, please send your feedback via Fiverr
+3. If you're satisfied, a 5-star review would mean the world to us!
 
-If you have any questions or need revisions, please reply to this email.
+You have {pkg['revisions']} revision(s) included with your order.
 
-Thank you for choosing Next Layer Media!
+Thank you for choosing NextLayer Media. We look forward to working with you again!
 
 Best regards,
-Next Layer Media Team
-nextlayermediallc@gmail.com"""
-
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_USER, GMAIL_PASSWORD)
-            server.send_message(msg)
-
-        print(f"Delivery email sent to {buyer_email}")
-        return True
-
-    except Exception as e:
-        print(f"Email delivery failed: {e}")
-        return False
-
-# ── Check Gmail for Fiverr orders ────────────────────────────────────
-def check_fiverr_orders():
-    """Main function — scan Gmail for Fiverr orders and fulfill them."""
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking for Fiverr orders...")
-
-    if not GMAIL_PASSWORD:
-        print("GMAIL_APP_PASSWORD not set")
-        return
-
-    processed_count = 0
-    orders_fulfilled = 0
+{SENDER_NAME}
+Fiverr: fiverr.com/s/nextlayermedia
+Response time: Within 24 hours"""
 
     try:
-        # Connect to Gmail
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(GMAIL_USER, GMAIL_PASSWORD)
-        # Try Fiverr Orders label first, fallback to inbox
+        msg = MIMEMultipart('alternative')
+        msg['From']    = f"Mohammed Sultan <{GMAIL_USER}>"
+        msg['To']      = buyer_email
+        msg['Subject'] = subject
+
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(GMAIL_USER, GMAIL_APP_PASS)
+            server.sendmail(GMAIL_USER, buyer_email, msg.as_string())
+
+        print(f"   ✅ Article delivered to {buyer_email}")
+        return True
+    except smtplib.SMTPAuthenticationError as e:
+        telegram(f"⚠️ <b>Fiverr Bot SMTP Auth Failed</b>\n{str(e)}\nUpdate GMAIL_APP_PASSWORD in GitHub Secrets.")
+        return False
+    except Exception as e:
+        print(f"   ❌ Delivery failed: {e}")
+        return False
+
+def connect_imap() -> imaplib.IMAP4_SSL:
+    """Connect to Gmail IMAP"""
+    try:
+        imap = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+        imap.login(GMAIL_USER, GMAIL_APP_PASS)
+        return imap
+    except imaplib.IMAP4.error as e:
+        if "AUTHENTICATIONFAILED" in str(e) or "Invalid credentials" in str(e):
+            telegram(f"⚠️ <b>Fiverr Bot — Gmail Auth Failed</b>\n\n"
+                    f"Error: {str(e)}\n\n"
+                    f"Fix:\n1. myaccount.google.com → Security\n"
+                    f"2. Enable 2-Step Verification\n"
+                    f"3. App Passwords → Generate for Mail\n"
+                    f"4. Update GMAIL_APP_PASSWORD in GitHub Secrets")
+        raise
+
+def run_fiverr_bot():
+    """Main Fiverr bot logic"""
+    print(f"\n💼 Fiverr Bot v2.0 — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+    processed = 0
+    errors    = 0
+
+    try:
+        imap = connect_imap()
+        print("   ✅ Gmail connected")
+
+        # Try Fiverr Orders label first, fall back to inbox search
         try:
-            mail.select('Fiverr Orders')
-            print('Scanning Fiverr Orders label')
-        except Exception:
-            mail.select('inbox')
-            print('Scanning inbox (label not found)')
+            status, _ = imap.select(f'"{FIVERR_LABEL}"')
+            if status != "OK":
+                raise Exception("Label not found")
+            label_used = FIVERR_LABEL
+        except:
+            imap.select("INBOX")
+            label_used = "INBOX (Fiverr filter)"
 
-        # Search for Fiverr emails
-        search_criteria = [
-            '(FROM "fiverr.com" UNSEEN)',
-            '(FROM "noreply@fiverr.com" UNSEEN)',
-            '(SUBJECT "New Order" UNSEEN)',
-            '(SUBJECT "Order Requirements" UNSEEN)',
-        ]
+        # Search unread emails from last 48 hours
+        since_date = (datetime.now() - timedelta(hours=48)).strftime("%d-%b-%Y")
+        status, messages = imap.search(None, f'UNSEEN SINCE {since_date}')
 
-        all_email_ids = []
-        for criteria in search_criteria:
+        if status != "OK" or not messages[0]:
+            print(f"   📭 No new Fiverr emails ({label_used})")
+            imap.logout()
+            return 0, 0
+
+        email_ids = messages[0].split()
+        print(f"   📬 {len(email_ids)} new Fiverr email(s) in {label_used}")
+
+        for msg_id in reversed(email_ids[-5:]):  # Process max 5 per run
             try:
-                status, messages = mail.search(None, criteria)
-                if status == "OK" and messages[0]:
-                    all_email_ids.extend(messages[0].split())
-            except Exception:
-                pass
+                status, msg_data = imap.fetch(msg_id, "(RFC822)")
+                if status != "OK": continue
 
-        # Remove duplicates
-        all_email_ids = list(set(all_email_ids))
-        print(f"Found {len(all_email_ids)} Fiverr emails to process")
+                msg     = email.message_from_bytes(msg_data[0][1])
+                subject = safe_decode(msg.get("Subject", ""))
+                body    = extract_body(msg)
 
-        for email_id in all_email_ids[:5]:  # Process max 5 at once
-            try:
-                status, msg_data = mail.fetch(email_id, "(RFC822)")
-                raw_email = msg_data[0][1]
-                msg = email.message_from_bytes(raw_email)
+                sender_raw   = safe_decode(msg.get("From", ""))
+                sender_match = re.search(r'<([^>]+)>', sender_raw)
+                sender_email = sender_match.group(1) if sender_match else sender_raw
 
-                # Get subject
-                subject_raw = msg.get("Subject", "")
-                subject_parts = decode_header(subject_raw)
-                subject = ""
-                for part, enc in subject_parts:
-                    if isinstance(part, bytes):
-                        subject += part.decode(enc or "utf-8", errors="ignore")
-                    else:
-                        subject += str(part)
+                print(f"\n   📧 {subject[:60]}")
 
-                # Get sender
-                sender = msg.get("From", "")
+                info = classify_fiverr_email(subject, body)
+                print(f"      Type: {info['type']} | Package: {info['package']}")
 
-                # Get body
-                body = ""
-                if msg.is_multipart():
-                    for part in msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                            break
-                else:
-                    body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
+                if info["type"] == "new_order":
+                    topic   = info["topic"] or "Digital Marketing"
+                    buyer   = info["buyer"] or "Client"
+                    package = info["package"]
+                    pkg     = GIG_PACKAGES[package]
 
-                processed_count += 1
+                    telegram(f"🛒 <b>New Fiverr Order!</b>\n\n"
+                            f"📦 Package: {package.capitalize()} (${pkg['price']})\n"
+                            f"📝 Topic: {topic}\n"
+                            f"👤 Buyer: {buyer}\n"
+                            f"📅 Delivery: {pkg['delivery_days']} day(s)\n\n"
+                            f"⚡ Generating article now...")
 
-                # Parse order details
-                order = parse_fiverr_order(body, subject)
+                    print(f"      Generating {pkg['words']}-word article on: {topic}")
+                    article = generate_seo_article(topic, package, buyer)
 
-                if not order["is_real_order"]:
-                    print(f"Not a real order — skipping: {subject[:50]}")
-                    # Mark as read to avoid reprocessing
-                    mail.store(email_id, "+FLAGS", "\\Seen")
-                    continue
+                    # For now notify via Telegram (actual delivery needs buyer's email from Fiverr)
+                    telegram(f"✅ <b>Article Generated!</b>\n\n"
+                            f"📝 Topic: {topic}\n"
+                            f"📦 {package.capitalize()} | {pkg['words']} words\n"
+                            f"📤 Deliver via Fiverr dashboard\n\n"
+                            f"Article preview:\n{article[:200]}...")
 
-                print(f"REAL ORDER DETECTED: {order['order_id']}")
-                print(f"Service: {order['service_type']}")
-                print(f"Topic: {order['topic']}")
+                    processed += 1
 
-                # Notify Mohammed immediately
-                tg(f"""🛒 *NEW FIVERR ORDER!*
+                elif info["type"] == "message":
+                    telegram(f"💬 <b>New Fiverr Message</b>\n\n"
+                            f"From: {info['buyer'] or 'Unknown buyer'}\n"
+                            f"Subject: {subject}\n\n"
+                            f"Check Fiverr inbox to reply.")
 
-Order ID: #{order['order_id']}
-Service: {order['service_type'].replace('_', ' ').title()}
-Topic: {order['topic']}
-Keywords: {order['keywords']}
+                elif info["type"] == "revision_request":
+                    telegram(f"🔄 <b>Revision Request</b>\n\n"
+                            f"Buyer: {info['buyer']}\n"
+                            f"Subject: {subject}\n\n"
+                            f"Review the request in Fiverr and action within 24 hours.")
 
-🤖 Generating content automatically...
-⏱ Delivery in 2 minutes""")
+                elif info["type"] == "payment":
+                    telegram(f"💰 <b>Payment Cleared!</b>\n\n{subject}")
 
-                # Generate content
-                content = generate_content(
-                    order["service_type"],
-                    order["topic"],
-                    order["keywords"],
-                    order["tone"],
-                    order["word_count"]
-                )
+                elif info["type"] == "review":
+                    telegram(f"⭐ <b>New Review!</b>\n\n{subject}\n\nCheck Fiverr for details.")
 
-                if not content:
-                    tg(f"⚠️ Content generation failed for order #{order['order_id']}. Please check manually.")
-                    continue
-
-                word_count = len(content.split())
-                print(f"Content generated: {word_count} words")
-
-                # Send delivery
-                # Note: In production, this would use Fiverr's delivery system
-                # For now, log the delivery details
-                delivery_success = True
-
-                if delivery_success:
-                    orders_fulfilled += 1
-                    tg(f"""✅ *ORDER FULFILLED AUTOMATICALLY!*
-
-Order: #{order['order_id']}
-Words: {word_count}
-Quality: 100% original
-Status: Delivered
-
-💰 Money incoming! No action needed.""")
-
-                # Mark email as read
-                mail.store(email_id, "+FLAGS", "\\Seen")
-                time.sleep(2)
+                imap.store(msg_id, '+FLAGS', '\\Seen')
 
             except Exception as e:
-                print(f"Error processing email {email_id}: {e}")
+                print(f"      ❌ Error: {e}")
+                errors += 1
+                continue
 
-        mail.logout()
-
-        print(f"Processed: {processed_count} emails | Fulfilled: {orders_fulfilled} orders")
-
-        if orders_fulfilled > 0:
-            tg(f"📊 Fiverr Bot Summary: {orders_fulfilled} orders fulfilled automatically")
+        imap.logout()
+        return processed, errors
 
     except Exception as e:
-        print(f"Gmail connection error: {e}")
-        tg(f"⚠️ Fiverr bot error: {str(e)[:200]}")
+        print(f"   ❌ Fiverr bot error: {e}")
+        if "AUTHENTICATIONFAILED" not in str(e):
+            telegram(f"⚠️ <b>Fiverr Bot Error</b>\n{str(e)[:250]}")
+        return 0, 1
 
-# ── Entry point ───────────────────────────────────────────────────────
+def main():
+    processed, errors = run_fiverr_bot()
+    print(f"\n✅ Fiverr Bot: {processed} orders processed | {errors} errors")
+
 if __name__ == "__main__":
-    import sys
-    if "--single-check" in sys.argv:
-        check_fiverr_orders()
-    else:
-        # Continuous mode
-        tg("🤖 Fiverr Bot ACTIVE — monitoring orders 24/7")
-        while True:
-            check_fiverr_orders()
-            time.sleep(1800)  # Check every 30 minutes
+    main()
