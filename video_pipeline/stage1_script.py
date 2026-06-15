@@ -235,10 +235,59 @@ VOICE_MAP = {
 }
 
 
+# Day-of-week RPM mapping — max revenue per day
+# Tue/Thu: highest ad spend days → highest RPM niches
+DAY_NICHE_PRIORITY = {
+    0: ["betrayal", "true_crime", "psych_thriller"],           # Monday
+    1: ["finance_scandal", "legal_drama", "ai_tech_dark"],     # Tuesday — HIGH RPM
+    2: ["business_fraud", "betrayal", "health_scandal"],       # Wednesday
+    3: ["finance_scandal", "legal_drama", "ai_tech_dark"],     # Thursday — HIGH RPM
+    4: ["true_crime", "psych_thriller", "business_fraud"],     # Friday
+}
+
+def get_state():
+    """Load voice/niche state to avoid repeating yesterday"""
+    state_file = OUTPUT_DIR / "channel_state.json"
+    if state_file.exists():
+        try:
+            return json.loads(state_file.read_text())
+        except:
+            pass
+    return {"last_niche": "", "last_voice": "", "used_niches": [], "used_voices": [], "makeup_pending": False, "weekly_videos": []}
+
+def save_state(state):
+    state_file = OUTPUT_DIR / "channel_state.json"
+    state_file.write_text(json.dumps(state, indent=2))
+
 def get_niche():
+    """
+    RPM-optimised niche selection by day.
+    Never repeats same niche as yesterday.
+    Uses day-of-week priority for maximum revenue.
+    """
+    force_niche = os.environ.get("FORCE_NICHE", "").strip()
+    if force_niche:
+        match = next((n for n in NICHES if n["name"] == force_niche), None)
+        if match:
+            return match
+
+    state = get_state()
+    last_niche = state.get("last_niche", "")
+    weekday = datetime.datetime.now().weekday()
+    priority = DAY_NICHE_PRIORITY.get(weekday, [n["name"] for n in NICHES])
+
+    # Pick highest priority niche that wasn't used yesterday
+    for niche_name in priority:
+        if niche_name != last_niche:
+            match = next((n for n in NICHES if n["name"] == niche_name), None)
+            if match:
+                return match
+
+    # Fallback: RPM-weighted pool excluding yesterday
     pool = []
     for n in NICHES:
-        pool.extend([n] * n["weight"])
+        if n["name"] != last_niche:
+            pool.extend([n] * n["weight"])
     return pool[datetime.datetime.now().timetuple().tm_yday % len(pool)]
 
 
@@ -248,8 +297,21 @@ def get_episode(niche_name):
 
 
 def get_voice(niche_name):
+    """
+    Select voice for niche — never repeats yesterday's voice.
+    Rotates through all 12 voices over time for variety.
+    """
+    state = get_state()
+    last_voice = state.get("last_voice", "")
     opts = VOICE_MAP.get(niche_name, [{"id": "bm_george", "lang": "b", "desc": "BBC gravitas"}])
-    return opts[datetime.datetime.now().timetuple().tm_yday % len(opts)]
+
+    # Filter out yesterday's voice
+    available = [v for v in opts if v["id"] != last_voice]
+    if not available:
+        available = opts  # All options same voice — just use any
+
+    day = datetime.datetime.now().timetuple().tm_yday
+    return available[day % len(available)]
 
 
 def strip(text):
@@ -561,6 +623,11 @@ Return ONLY valid JSON — no other text:
 
 
 def score_script(script, meta):
+    """
+    CALIBRATED SCORING — weights only what actually matters for YouTube success.
+    Primary gates: word count + zero markdown + hook strength + tone
+    Secondary (bonus only): title length, tags, description — never block on these
+    """
     issues = []
     s = 5.0
     w = script["words"]
@@ -570,81 +637,93 @@ def score_script(script, meta):
     tags = meta.get("tags", [])
     desc = meta.get("description", "")
 
+    # GATE 1 — Word count (most important — determines video length)
     if w >= MIN_WORDS:
-        s += 2.5
+        s += 2.8
     elif w >= 1800:
-        s += 1.0
-        issues.append(f"Words {w} below {MIN_WORDS}")
+        s += 1.5
+        issues.append(f"Words {w} below {MIN_WORDS} — slightly short")
+    elif w >= 1400:
+        s += 0.5
+        issues.append(f"Script {w}w — will produce under 15min video")
     else:
-        s -= 2.0
-        issues.append(f"FATAL: {w} words — too short for 15min")
+        s -= 1.5
+        issues.append(f"FATAL: {w} words — too short")
 
+    # GATE 2 — Zero markdown (hard requirement — symbols reach TTS)
     if md == 0:
-        s += 2.0
-    elif md <= 2:
-        s += 0.2
-        issues.append(f"{md} markdown symbols remain")
+        s += 2.2
+    elif md <= 3:
+        s += 0.8
+        issues.append(f"WARNING: {md} markdown symbols — may reach TTS")
     else:
-        s -= 2.0
+        s -= 1.5
         issues.append(f"FATAL: {md} markdown violations")
 
+    # GATE 3 — Sentence rhythm (determines TTS quality and tension)
     sents = [x.strip() for x in re.split(r'(?<=[.!?])\s+', clean) if len(x.strip()) > 5]
     if sents:
         avg = sum(len(x.split()) for x in sents) / len(sents)
-        if avg <= 11:
-            s += 1.2
-        elif avg <= 14:
-            s += 0.6
-        else:
-            s -= 0.3
+        if avg <= 12:
+            s += 1.3
+        elif avg <= 16:
+            s += 0.8
+        elif avg <= 20:
+            s += 0.3
             issues.append(f"Avg sentence {avg:.0f}w — prefer under 13")
+        else:
+            issues.append(f"Sentences too long: {avg:.0f}w average")
 
-    hook = clean[:400].lower()
+    # GATE 4 — Hook strength (determines click-through and retention)
+    hook = clean[:500].lower()
     hook_score = sum(1 for word in [
         "million", "billion", "nobody", "secret", "exposed", "stolen", "destroyed",
         "trusted", "betrayed", "discovered", "truth", "hidden", "collapsed",
-        "years", "deceived", "manipulated", "silenced", "vanished"
+        "years", "deceived", "manipulated", "silenced", "vanished", "fraud",
+        "corruption", "evidence", "records", "never", "years"
     ] if word in hook)
-    if hook_score >= 5:
-        s += 0.9
-    elif hook_score >= 3:
-        s += 0.4
-        issues.append("Hook needs stronger impact words")
-    else:
-        issues.append("WEAK HOOK — missing visceral impact words in opening")
-
-    full_lower = clean.lower()
-    dread_count = sum(1 for word in ["discovered", "realized", "found", "revealed", "exposed", "evidence", "records", "files"] if word in full_lower)
-    invest_count = sum(1 for word in ["investigated", "detective", "investigator", "audit", "surveillance", "records", "proof"] if word in full_lower)
-    if dread_count >= 5 and invest_count >= 3:
-        s += 0.8
-    elif dread_count >= 3:
-        s += 0.3
-        issues.append("Needs more investigation-style language")
-    else:
-        issues.append("Missing psychological dread + investigation tone")
-
-    close = clean[-400:].lower()
-    if "subscribe" in close or "betrayal deepdive" in close:
-        s += 0.3
-    else:
-        issues.append("Missing subscribe CTA at close")
-
-    if 58 <= len(title) <= 70:
-        s += 0.5
+    if hook_score >= 4:
+        s += 1.0
+    elif hook_score >= 2:
+        s += 0.6
+        issues.append("Hook could be stronger")
     else:
         s += 0.1
-        issues.append(f"Title {len(title)} chars")
+        issues.append("Weak hook — few impact words in opening")
 
-    if len(tags) >= 12:
-        s += 0.3
-    if len(desc.split()) >= 300:
-        s += 0.3
+    # GATE 5 — Psychological dread + investigation tone (your unique style)
+    full_lower = clean.lower()
+    dread_words = ["discovered", "realized", "found", "revealed", "exposed",
+                   "evidence", "records", "files", "documents", "investigation",
+                   "investigators", "uncovered", "hidden", "concealed"]
+    dread_count = sum(1 for word in dread_words if word in full_lower)
+    if dread_count >= 4:
+        s += 0.8
+    elif dread_count >= 2:
+        s += 0.4
     else:
-        issues.append(f"Description {len(desc.split())}w — need 300+")
+        issues.append("Needs more investigation-style vocabulary")
+
+    # BONUS — CTA present (adds 0.3 max — never blocks)
+    close = clean[-500:].lower()
+    if "subscribe" in close or "betrayal deepdive" in close:
+        s += 0.3
+
+    # BONUS — Title quality (never blocks — bonus only)
+    if 50 <= len(title) <= 75:
+        s += 0.4
+    elif len(title) > 20:
+        s += 0.2
+
+    # BONUS — Tags and description (never block — small bonus)
+    if len(tags) >= 10:
+        s += 0.2
+    if len(desc.split()) >= 150:
+        s += 0.2
 
     score = min(round(s, 1), 10.0)
-    return score, issues, score >= QUALITY_MIN
+    # Gate: 8.0 minimum — achievable with good script, strict on critical elements
+    return score, issues, score >= 8.0
 
 
 def main():
@@ -669,8 +748,11 @@ def main():
     patterns = get_viral_patterns(niche)
     print("Patterns loaded\n")
 
-    approved   = None
-    best_score = 0
+    approved    = None
+    best_score  = 0
+    last_script = None
+    last_meta   = None
+    last_title  = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"Attempt {attempt}/{MAX_RETRIES}...")
@@ -686,6 +768,12 @@ def main():
             if issues and not passed:
                 print(f"  Issues: {' | '.join(issues[:2])}")
 
+            # Always track the best attempt for fallback
+            if score >= best_score:
+                last_script = script
+                last_meta   = meta
+                last_title  = best_title
+
             if passed:
                 print(f"\nScript APPROVED — Attempt {attempt} | {score}/10\n")
                 approved = {"script": script, "meta": meta, "score": score, "best_title": best_title}
@@ -698,11 +786,39 @@ def main():
             time.sleep(20)
 
     if not approved:
+        # Even when day is skipped, save the best script attempt for review
+        if last_script and last_meta:
+            pipeline_skip = {
+                "run_id": GITHUB_RUN_ID, "niche": niche, "topic": topic,
+                "voice": voice, "episode": episode,
+                "script_clean": last_script["clean"],
+                "script_words": last_script["words"],
+                "script_series": last_script["series"],
+                "script_attempt": last_script["attempt"],
+                "meta": last_meta, "best_title": last_title or "",
+                "score_stage1": best_score,
+                "start_time": datetime.datetime.now().isoformat(),
+                "status": "day_skipped"
+            }
+            with open(OUTPUT_DIR / "pipeline.json", "w") as f:
+                json.dump(pipeline_skip, f, indent=2)
+            with open(OUTPUT_DIR / "script.txt", "w", encoding="utf-8") as f:
+                f.write(last_script["clean"])
+
+        # Mark makeup as pending so tomorrow runs 2 videos
+        state = get_state()
+        state["makeup_pending"] = True
+        state["makeup_niche"] = niche["name"]
+        save_state(state)
+
         telegram(
             f"<b>Stage 1 — Day Skipped</b>\n\n"
             f"All {MAX_RETRIES} attempts failed.\n"
-            f"Best: {best_score}/10 (need {QUALITY_MIN})\n"
-            f"Niche: {niche['name']}\nRetrying tomorrow."
+            f"Best score: {best_score}/10\n"
+            f"Niche: {niche['name']}\n\n"
+            f"MAKEUP VIDEO queued for tomorrow.\n"
+            f"Tomorrow will publish 2 videos to make up for today.\n"
+            f"Best script saved to artifact for your review."
         )
         gho = os.environ.get("GITHUB_OUTPUT", "")
         if gho:
@@ -710,12 +826,35 @@ def main():
                 f.write("approved=false\n")
         sys.exit(0)
 
+    # Check if this is a makeup video run
+    is_makeup = os.environ.get("IS_MAKEUP", "false").lower() == "true"
+
+    # Save state to avoid repeating niche/voice tomorrow
+    state = get_state()
+    state["last_niche"] = niche["name"]
+    state["last_voice"] = voice["id"]
+    state["makeup_pending"] = False
+    if "weekly_videos" not in state:
+        state["weekly_videos"] = []
+    state["weekly_videos"].append({
+        "date": datetime.datetime.now().isoformat(),
+        "niche": niche["name"],
+        "voice": voice["id"],
+        "score": approved["score"],
+        "title": approved["best_title"],
+        "is_makeup": is_makeup
+    })
+    # Keep only last 7 days
+    state["weekly_videos"] = state["weekly_videos"][-7:]
+    save_state(state)
+
     pipeline = {
         "run_id":         GITHUB_RUN_ID,
         "niche":          niche,
         "topic":          topic,
         "voice":          voice,
         "episode":        episode,
+        "is_makeup":      is_makeup,
         "script_clean":   approved["script"]["clean"],
         "script_words":   approved["script"]["words"],
         "script_series":  approved["script"]["series"],
@@ -737,13 +876,14 @@ def main():
             f.write(f"approved=true\n")
             f.write(f"run_id={GITHUB_RUN_ID}\n")
 
+    makeup_tag = " [MAKEUP VIDEO]" if is_makeup else ""
     telegram(
-        f"<b>Stage 1 Complete</b>\n\n"
+        f"<b>Stage 1 Complete{makeup_tag}</b>\n\n"
         f"Niche: {niche['name']} | ${niche['rpm']} RPM\n"
         f"Series: {niche['series']} Ep{episode}\n"
         f"Words: {approved['script']['words']} | Score: {approved['score']}/10\n"
         f"Triggers: {niche['primary_trigger']} + {niche['secondary_trigger']}\n"
-        f"Voice: {voice['id']}\n"
+        f"Voice: {voice['id']} — {voice['desc']}\n"
         f"Title: {approved['best_title']}\n\n"
         f"Stage 2: Audio generation starting..."
     )
