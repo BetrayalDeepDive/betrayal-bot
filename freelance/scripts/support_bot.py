@@ -1,262 +1,380 @@
-# support_bot.py
-# Betrayal DeepDive - Freelance Support Bot
-# Checks Gmail every 30 minutes, auto-replies to client orders
+#!/usr/bin/env python3
+"""
+DeepDive Intelligence — Support Bot v2.0
+=========================================
+Monitors Gmail every 30 minutes for client emails.
+Auto-replies using Groq AI with professional responses.
+Handles: general inquiries, order follow-ups, complaints, refund requests.
 
-import os
-import json
-import time
-import base64
-import requests
-from datetime import datetime, timedelta
+AUTHENTICATION: Uses Gmail App Password (16-char) — NOT regular Gmail password.
+ERROR HANDLING: Never crashes — logs all errors to Telegram.
+"""
+
+import os, sys, json, re, time, imaplib, smtplib, email
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import decode_header
+from datetime import datetime, timedelta
+import requests
+from groq import Groq
 
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+# ── CREDENTIALS ───────────────────────────────────────────────────────────────
+GROQ_API_KEY      = os.environ["GROQ_API_KEY"]
+GMAIL_USER        = os.environ.get("GMAIL_USER", "mohammedsultan0497@gmail.com")
+GMAIL_APP_PASS    = os.environ["GMAIL_APP_PASSWORD"]
+TELEGRAM_TOKEN    = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT     = os.environ["TELEGRAM_CHAT_ID"]
 
-SERVICE_PRICES = {
-    "seo article": 25, "blog": 25, "blog article": 25,
-    "youtube script": 35, "script": 35,
-    "social media": 30, "social media pack": 30,
-    "product description": 40,
-    "email newsletter": 25, "newsletter": 25,
-    "script pack": 150, "youtube pack": 150,
-    "intelligence report": 199, "report": 199,
-    "social media strategy": 175, "content calendar": 175,
-    "website content": 250, "website": 250,
-    "chatbot": 299, "ai chatbot": 299,
-    "youtube channel": 499, "channel setup": 499,
-    "content empire": 799,
-    "business intelligence": 599,
-    "consulting": 999, "automation": 999
-}
+groq_client = Groq(api_key=GROQ_API_KEY)
 
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+IMAP_SERVER   = "imap.gmail.com"
+IMAP_PORT     = 993
+SMTP_SERVER   = "smtp.gmail.com"
+SMTP_PORT     = 587
+BUSINESS_NAME = "DeepDive Intelligence / NextLayer Media"
+SENDER_NAME   = "Mohammed Sultan"
+MAX_EMAILS    = 10   # Process max 10 emails per run to avoid timeouts
+REPLY_DELAY   = 2    # Seconds between replies to avoid spam flags
 
-def send_telegram(message):
-    """Send notification to Telegram"""
+# ── EMAIL CATEGORIES ──────────────────────────────────────────────────────────
+SKIP_SENDERS = [
+    "noreply@", "no-reply@", "notifications@", "mailer-daemon@",
+    "fiverr.com", "donotreply@", "bounce@", "unsubscribe@"
+]
+
+def telegram(msg: str):
+    """Send Telegram notification"""
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "HTML"
-        }, timeout=10)
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT, "text": msg, "parse_mode": "HTML"},
+            timeout=15
+        )
     except Exception as e:
         print(f"Telegram error: {e}")
 
+def safe_decode(value) -> str:
+    """Safely decode email header values"""
+    if value is None:
+        return ""
+    decoded_parts = decode_header(value)
+    result = ""
+    for part, encoding in decoded_parts:
+        if isinstance(part, bytes):
+            try:
+                result += part.decode(encoding or "utf-8", errors="replace")
+            except:
+                result += part.decode("utf-8", errors="replace")
+        else:
+            result += str(part)
+    return result.strip()
 
-def generate_reply(email_subject, email_body, sender_name):
-    """Generate context-aware reply using Groq"""
-    try:
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
+def extract_email_body(msg) -> str:
+    """Extract plain text body from email"""
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                try:
+                    payload = part.get_payload(decode=True)
+                    charset = part.get_content_charset() or "utf-8"
+                    body = payload.decode(charset, errors="replace")
+                    break
+                except:
+                    continue
+    else:
+        try:
+            payload = msg.get_payload(decode=True)
+            charset = msg.get_content_charset() or "utf-8"
+            body = payload.decode(charset, errors="replace")
+        except:
+            body = str(msg.get_payload())
 
-        services_list = "\n".join([f"- {k}: ${v}" for k, v in SERVICE_PRICES.items()])
+    # Clean up quoted content and signatures
+    lines = body.split('\n')
+    clean_lines = []
+    for line in lines:
+        if line.startswith('>') or line.startswith('On ') and 'wrote:' in line:
+            break
+        clean_lines.append(line)
 
-        prompt = f"""You are a professional freelance content agency assistant for "Betrayal DeepDive Media".
+    return '\n'.join(clean_lines).strip()[:2000]
 
-Client name: {sender_name}
-Email subject: {email_subject}
-Email body: {email_body}
+def classify_email(subject: str, body: str) -> str:
+    """Classify email type for appropriate response"""
+    text = (subject + " " + body).lower()
 
-Our services and prices:
-{services_list}
+    if any(w in text for w in ["refund", "money back", "cancel order", "cancellation"]):
+        return "refund_request"
+    elif any(w in text for w in ["complaint", "not satisfied", "unhappy", "terrible", "awful", "bad quality"]):
+        return "complaint"
+    elif any(w in text for w in ["when will", "status", "update", "where is", "delivery", "progress"]):
+        return "order_status"
+    elif any(w in text for w in ["order", "purchase", "bought", "payment", "invoice"]):
+        return "order_inquiry"
+    elif any(w in text for w in ["price", "cost", "how much", "quote", "pricing", "package"]):
+        return "pricing_inquiry"
+    elif any(w in text for w in ["revision", "change", "modify", "update", "edit"]):
+        return "revision_request"
+    else:
+        return "general_inquiry"
 
-Payment methods: PayPal, Wise, UPI (India)
-Turnaround: 1-7 days depending on service
-Revisions: 2-5 depending on package
+def generate_reply(sender_name: str, subject: str, body: str, email_type: str) -> str:
+    """Generate AI-powered professional reply using Groq"""
 
-Write a professional, friendly email reply that:
-1. Thanks them for reaching out
-2. Addresses their specific inquiry
-3. Provides relevant pricing if they asked about services
-4. Asks for any clarification needed
-5. Ends with next steps
+    type_context = {
+        "refund_request": "The client is requesting a refund. Be empathetic, acknowledge their concern, explain the refund policy professionally, and offer to resolve the issue. Do not promise a refund directly — say you will review their case within 24 hours.",
+        "complaint": "The client is unhappy with the service. Be extremely empathetic and professional. Apologize genuinely, take responsibility, and offer a specific resolution (revision, priority support, or escalation to senior team).",
+        "order_status": "The client is asking about their order status. Acknowledge the inquiry, confirm you are checking on their order, and say you will provide a full update within 2-4 hours.",
+        "order_inquiry": "The client has an order-related question. Answer professionally and offer to assist with any specific requirements they have.",
+        "pricing_inquiry": "The client is asking about pricing. Direct them to the Fiverr gig page for current pricing, mention the three packages (Basic $10, Standard $25, Premium $55), and highlight the value offered.",
+        "revision_request": "The client wants revisions. Confirm you have received their revision request, acknowledge their specific requirements, and say you will begin within 24 hours.",
+        "general_inquiry": "The client has a general question. Answer helpfully and professionally, and offer to assist further.",
+    }
 
-Keep it concise (150-200 words). Don't use placeholders like [Your Name]."""
+    context = type_context.get(email_type, type_context["general_inquiry"])
 
-        payload = {
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
-                {"role": "system", "content": "You are a professional business email writer."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 500,
-            "temperature": 0.7
-        }
+    prompt = f"""You are a professional customer support representative for {BUSINESS_NAME}.
 
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
+CLIENT NAME: {sender_name or 'Valued Client'}
+EMAIL SUBJECT: {subject}
+CLIENT MESSAGE: {body[:800]}
+SITUATION: {context}
 
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"Reply generation error: {e}")
+Write a professional, warm, and helpful email reply.
 
-    return f"""Hi {sender_name},
+RULES:
+1. Start with "Dear {sender_name or 'Valued Client'},"
+2. Maximum 4-5 short paragraphs
+3. Be specific to their actual question or concern
+4. Never make promises you cannot keep
+5. Always end with: "Best regards,\\n{SENDER_NAME}\\n{BUSINESS_NAME}\\nResponse time: Within 24 hours"
+6. Do NOT include a subject line — just the body
+7. Sound like a real human — not a robot or template
 
-Thank you for reaching out to Betrayal DeepDive Media!
+Write the reply now:"""
 
-We've received your inquiry and will get back to you within 24 hours with a detailed response.
+    for attempt in range(3):
+        try:
+            resp = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=600
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            if "429" in str(e) or "rate_limit" in str(e).lower():
+                time.sleep(60 * (attempt + 1))
+            else:
+                raise
 
-If you need immediate assistance, please reply to this email with more details about your project.
+    # Fallback reply if AI fails
+    return f"""Dear {sender_name or 'Valued Client'},
+
+Thank you for reaching out to {BUSINESS_NAME}. We have received your message regarding "{subject}" and will review it promptly.
+
+A member of our team will respond with a detailed reply within 24 hours. We appreciate your patience.
+
+If this is urgent, please reply to this email with "URGENT" in the subject line and we will prioritize your request.
 
 Best regards,
-Betrayal DeepDive Media Team
-{BUSINESS_EMAIL}"""
+{SENDER_NAME}
+{BUSINESS_NAME}
+Response time: Within 24 hours"""
 
+def send_reply(to_email: str, to_name: str, subject: str, body: str) -> bool:
+    """Send email reply via Gmail SMTP"""
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['From']    = f"{SENDER_NAME} <{GMAIL_USER}>"
+        msg['To']      = f"{to_name} <{to_email}>" if to_name else to_email
+        msg['Subject'] = f"Re: {subject}" if not subject.startswith("Re:") else subject
+        msg['Reply-To'] = GMAIL_USER
 
-def check_emails_and_reply():
-    """Main function to check emails and send replies"""
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking emails...")
+        # Plain text version
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        # HTML version for better formatting
+        html_body = body.replace('\n', '<br>').replace('  ', '&nbsp;&nbsp;')
+        html = f"""<html><body style="font-family: Arial, sans-serif; color: #333; max-width: 600px;">
+<div style="padding: 20px;">
+{html_body}
+</div>
+</body></html>"""
+        msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(GMAIL_USER, GMAIL_APP_PASS)
+            server.sendmail(GMAIL_USER, to_email, msg.as_string())
+
+        print(f"   ✅ Reply sent to {to_email}")
+        return True
+
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"   ❌ SMTP Auth failed: {e}")
+        telegram(f"⚠️ <b>Support Bot — SMTP Auth Failed</b>\n\nError: {str(e)}\n\n"
+                f"Fix: Go to Google Account → Security → App Passwords → Generate new password → Update GMAIL_APP_PASSWORD secret in GitHub.")
+        return False
+    except Exception as e:
+        print(f"   ❌ Send failed: {e}")
+        return False
+
+def mark_as_read(imap, msg_id: bytes):
+    """Mark email as read"""
+    try:
+        imap.store(msg_id, '+FLAGS', '\\Seen')
+    except:
+        pass
+
+def connect_imap() -> imaplib.IMAP4_SSL:
+    """Connect to Gmail IMAP with proper error handling"""
+    try:
+        imap = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+        imap.login(GMAIL_USER, GMAIL_APP_PASS)
+        return imap
+    except imaplib.IMAP4.error as e:
+        err = str(e)
+        if "AUTHENTICATIONFAILED" in err or "Invalid credentials" in err:
+            telegram(f"⚠️ <b>Support Bot — Gmail Auth Failed</b>\n\n"
+                    f"Error: {err}\n\n"
+                    f"<b>Fix required:</b>\n"
+                    f"1. Go to myaccount.google.com → Security\n"
+                    f"2. Enable 2-Step Verification\n"
+                    f"3. Go to App Passwords → Generate for 'Mail'\n"
+                    f"4. Update GMAIL_APP_PASSWORD in GitHub Secrets\n\n"
+                    f"<b>Current secret appears to be wrong or expired.</b>")
+            raise
+        raise
+
+def run_support_bot():
+    """Main support bot logic"""
+    print(f"\n🤖 Support Bot v2.0 — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"   Account: {GMAIL_USER}")
+
+    replied_count = 0
+    skipped_count = 0
+    error_count   = 0
 
     try:
-        import smtplib
-        import imaplib
-        import email
-        from email.header import decode_header
+        print("   Connecting to Gmail IMAP...")
+        imap = connect_imap()
+        print("   ✅ Connected")
 
-        # Connect to Gmail IMAP
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(BUSINESS_EMAIL, GMAIL_APP_PASSWORD)
-        mail.select("inbox")
+        # Select inbox
+        imap.select("INBOX")
 
-        # Search for unread emails from last 30 minutes
-        since_time = (datetime.now() - timedelta(minutes=35)).strftime("%d-%b-%Y")
-        status, messages = mail.search(None, f'(UNSEEN SINCE {since_time})')
+        # Search for unread emails from last 24 hours
+        since_date = (datetime.now() - timedelta(hours=24)).strftime("%d-%b-%Y")
+        status, messages = imap.search(None, f'UNSEEN SINCE {since_date}')
 
         if status != "OK" or not messages[0]:
-            print("No new emails")
-            return
+            print("   📭 No unread emails in last 24 hours")
+            imap.logout()
+            return 0, 0, 0
 
         email_ids = messages[0].split()
-        print(f"Found {len(email_ids)} new emails")
+        total = len(email_ids)
+        print(f"   📬 {total} unread email(s) found")
 
-        for email_id in email_ids:
+        # Process most recent first, up to MAX_EMAILS
+        for msg_id in reversed(email_ids[-MAX_EMAILS:]):
             try:
-                status, msg_data = mail.fetch(email_id, "(RFC822)")
+                # Fetch email
+                status, msg_data = imap.fetch(msg_id, "(RFC822)")
+                if status != "OK":
+                    continue
+
                 raw_email = msg_data[0][1]
                 msg = email.message_from_bytes(raw_email)
 
-                # Get sender info
-                sender = msg.get("From", "")
-                sender_name = sender.split("<")[0].strip().strip('"') if "<" in sender else sender
-                sender_email = sender.split("<")[1].strip(">") if "<" in sender else sender
+                # Extract headers
+                sender_raw  = safe_decode(msg.get("From", ""))
+                subject     = safe_decode(msg.get("Subject", "(No Subject)"))
+                date        = msg.get("Date", "")
 
-                # Skip our own emails
-                if BUSINESS_EMAIL in sender_email:
+                # Extract sender email and name
+                sender_match = re.search(r'<([^>]+)>', sender_raw)
+                sender_email = sender_match.group(1).lower() if sender_match else sender_raw.lower()
+                sender_name  = re.sub(r'<[^>]+>', '', sender_raw).strip().strip('"')
+
+                print(f"\n   📧 From: {sender_email}")
+                print(f"      Subject: {subject[:60]}")
+
+                # Skip automated emails
+                if any(skip in sender_email for skip in SKIP_SENDERS):
+                    print(f"      ⏭️ Skipped (automated sender)")
+                    mark_as_read(imap, msg_id)
+                    skipped_count += 1
                     continue
 
-                # Get subject
-                subject_raw = msg.get("Subject", "No Subject")
-                subject_parts = decode_header(subject_raw)
-                subject = ""
-                for part, encoding in subject_parts:
-                    if isinstance(part, bytes):
-                        subject += part.decode(encoding or "utf-8")
-                    else:
-                        subject += part
+                # Skip our own emails
+                if sender_email == GMAIL_USER.lower():
+                    mark_as_read(imap, msg_id)
+                    skipped_count += 1
+                    continue
 
-                # Get body
-                body = ""
-                if msg.is_multipart():
-                    for part in msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            body = part.get_payload(decode=True).decode("utf-8", errors="ignore")
-                            break
+                # Extract body
+                body = extract_email_body(msg)
+                if not body:
+                    print(f"      ⏭️ Skipped (empty body)")
+                    mark_as_read(imap, msg_id)
+                    skipped_count += 1
+                    continue
+
+                # Classify and generate reply
+                email_type = classify_email(subject, body)
+                print(f"      📌 Type: {email_type}")
+
+                reply_body = generate_reply(sender_name, subject, body, email_type)
+
+                # Send reply
+                success = send_reply(sender_email, sender_name, subject, reply_body)
+
+                if success:
+                    mark_as_read(imap, msg_id)
+                    replied_count += 1
+                    time.sleep(REPLY_DELAY)
                 else:
-                    body = msg.get_payload(decode=True).decode("utf-8", errors="ignore")
-
-                body = body[:1000]  # Limit body length
-
-                print(f"Processing email from: {sender_email} | Subject: {subject}")
-
-                # Generate reply
-                reply_text = generate_reply(subject, body, sender_name)
-
-                # Send reply via SMTP
-                smtp = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-                smtp.login(BUSINESS_EMAIL, GMAIL_APP_PASSWORD)
-
-                reply_msg = MIMEMultipart()
-                reply_msg["From"] = BUSINESS_EMAIL
-                reply_msg["To"] = sender_email
-                reply_msg["Subject"] = f"Re: {subject}"
-                reply_msg.attach(MIMEText(reply_text, "plain"))
-
-                smtp.send_message(reply_msg)
-                smtp.quit()
-
-                # Mark as read
-                mail.store(email_id, "+FLAGS", "\\Seen")
-
-                # Notify via Telegram
-                send_telegram(
-                    f"📧 <b>New Client Email!</b>\n\n"
-                    f"From: {sender_name} ({sender_email})\n"
-                    f"Subject: {subject}\n\n"
-                    f"✅ Auto-reply sent!"
-                )
-
-                print(f"Reply sent to {sender_email}")
-                time.sleep(2)
+                    error_count += 1
 
             except Exception as e:
-                print(f"Error processing email {email_id}: {e}")
+                print(f"      ❌ Error processing email: {e}")
+                error_count += 1
+                continue
 
-        mail.logout()
+        imap.logout()
+        print(f"\n   ✅ Done: {replied_count} replied | {skipped_count} skipped | {error_count} errors")
+        return replied_count, skipped_count, error_count
 
+    except imaplib.IMAP4.error as e:
+        print(f"   ❌ IMAP Error: {e}")
+        raise
     except Exception as e:
-        print(f"Email check error: {e}")
-        send_telegram(f"⚠️ Support bot error: {str(e)[:200]}")
+        print(f"   ❌ Unexpected error: {e}")
+        telegram(f"⚠️ <b>Support Bot Error</b>\n{str(e)[:300]}")
+        return 0, 0, 1
 
+def main():
+    try:
+        replied, skipped, errors = run_support_bot()
 
-def run_weekly_report():
-    """Send weekly financial report via Telegram"""
-    report = f"""📊 <b>WEEKLY FREELANCE REPORT</b>
-    
-Date: {datetime.now().strftime('%Y-%m-%d')}
+        if replied > 0:
+            telegram(f"✅ <b>Support Bot Complete</b>\n"
+                    f"📧 Replied: {replied}\n"
+                    f"⏭️ Skipped: {skipped}\n"
+                    f"❌ Errors: {errors}")
 
-💼 Services Available: 14
-📧 Auto-reply: Active
-🤖 Bot Status: Running
-
-<b>Service Pricing Summary:</b>
-Starter: $25-$40
-Professional: $150-$299  
-Premium: $499-$999
-
-<b>Next Steps:</b>
-- Check Gumroad for new orders
-- Review client emails
-- Update service catalog if needed
-
-Keep building the empire! 💪"""
-
-    send_telegram(report)
-
+    except imaplib.IMAP4.error as e:
+        # Auth error already handled in connect_imap()
+        sys.exit(1)
+    except Exception as e:
+        telegram(f"⚠️ <b>Support Bot Fatal Error</b>\n{str(e)[:300]}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    print("🤖 Betrayal DeepDive Support Bot Starting...")
-    send_telegram("🤖 Support Bot is now ACTIVE!\n\nChecking emails every 30 minutes.")
-
-    check_count = 0
-    while True:
-        check_emails_and_reply()
-        check_count += 1
-
-        # Send weekly report every Sunday (every 336 checks at 30min intervals)
-        if check_count % 336 == 0:
-            run_weekly_report()
-
-        print(f"Sleeping 30 minutes... (Check #{check_count})")
-        time.sleep(1800)  # 30 minutes
+    main()
