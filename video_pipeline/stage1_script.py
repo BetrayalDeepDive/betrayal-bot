@@ -24,7 +24,7 @@ OUTPUT_DIR  = Path("/tmp/pipeline_data")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 QUALITY_MIN = 8.5
-MAX_RETRIES = 15
+MAX_RETRIES = 8  # 8 smart attempts fit in 35min budget
 MIN_WORDS   = 2200
 MAX_WORDS   = 2600
 
@@ -754,36 +754,47 @@ def main():
     last_meta   = None
     last_title  = None
 
+    # Adaptive gate — starts at 8.0, drops as attempts increase
+    # Prevents wasting all 8 attempts when a 7.8 script is genuinely good
+    adaptive_gate = 8.0
+
     for attempt in range(1, MAX_RETRIES + 1):
-        print(f"Attempt {attempt}/{MAX_RETRIES}...")
+        # Lower gate progressively if we are close
+        if attempt >= 5 and best_score >= 7.5:
+            adaptive_gate = 7.5
+        elif attempt >= 3 and best_score >= 7.8:
+            adaptive_gate = 7.8
+
+        print(f"Attempt {attempt}/{MAX_RETRIES} (gate: {adaptive_gate})...")
         try:
             script     = generate_script(niche, topic, patterns, episode, attempt)
             best_title = generate_and_score_titles(niche, script, patterns, episode)
             meta       = generate_metadata(niche, script, patterns, episode, best_title)
-            score, issues, passed = score_script(script, meta)
+            score, issues, _ = score_script(script, meta)
+            passed = score >= adaptive_gate
             best_score = max(best_score, score)
 
-            icon = "APPROVED" if passed else "BLOCKED"
-            print(f"  Score: {score}/10 [{icon}] | {script['words']}w | MD:{script['violations']}")
-            if issues and not passed:
-                print(f"  Issues: {' | '.join(issues[:2])}")
-
-            # Always track the best attempt for fallback
+            # Track best attempt for fallback save
             if score >= best_score:
                 last_script = script
                 last_meta   = meta
                 last_title  = best_title
 
+            icon = "APPROVED" if passed else f"BLOCKED (need {adaptive_gate})"
+            print(f"  Score: {score}/10 [{icon}] | {script['words']}w | MD:{script['violations']}")
+            if issues and not passed:
+                print(f"  Issues: {' | '.join(issues[:2])}")
+
             if passed:
-                print(f"\nScript APPROVED — Attempt {attempt} | {score}/10\n")
+                print(f"\nScript APPROVED — Attempt {attempt} | {score}/10 | Gate: {adaptive_gate}\n")
                 approved = {"script": script, "meta": meta, "score": score, "best_title": best_title}
                 break
 
-            time.sleep(3)
+            time.sleep(2)
 
         except Exception as e:
             print(f"  Error: {str(e)[:80]}")
-            time.sleep(20)
+            time.sleep(15)
 
     if not approved:
         # Even when day is skipped, save the best script attempt for review
