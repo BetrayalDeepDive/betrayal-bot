@@ -43,7 +43,7 @@ jobs:
   generate-script:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 35
     outputs:
       approved:  ${{ steps.gen.outputs.approved }}
       run_id:    ${{ steps.gen.outputs.run_id }}
