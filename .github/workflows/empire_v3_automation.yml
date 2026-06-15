@@ -1,0 +1,213 @@
+name: Empire V3 - Masterpiece Pipeline
+
+on:
+  schedule:
+    # 7:30 AM IST = 2:00 AM UTC — Mon/Wed/Fri
+    - cron: '0 2 * * 1,3,5'
+  workflow_dispatch:
+
+jobs:
+
+  # ═══════════════════════════════════════════════════
+  # JOB 1: Script + Metadata (20 min budget)
+  # Viral intelligence + psychological triggers
+  # 5-title CTR scoring + masterpiece script
+  # ═══════════════════════════════════════════════════
+  generate-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    outputs:
+      approved: ${{ steps.gen.outputs.approved }}
+      run_id:   ${{ steps.gen.outputs.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install groq requests --break-system-packages -q
+
+      - name: Generate masterpiece script
+        id: gen
+        env:
+          GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_RUN_ID:    ${{ github.run_id }}
+        run: python video_pipeline/stage1_script.py
+
+      - name: Upload script artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-script-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+          retention-days: 2
+
+  # ═══════════════════════════════════════════════════
+  # JOB 2: Kokoro TTS Audio (55 min budget)
+  # 12 voices | Validates every chunk | Auto-switches
+  # ═══════════════════════════════════════════════════
+  generate-audio:
+    needs: generate-script
+    if: needs.generate-script.outputs.approved == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 57
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download script artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-script-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+
+      - name: Install Kokoro TTS + audio tools
+        run: |
+          sudo apt-get install -y espeak-ng ffmpeg -q
+          pip install kokoro>=0.9.4 soundfile scipy numpy requests --break-system-packages -q
+
+      - name: Generate audio
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python video_pipeline/stage2_audio.py
+
+      - name: Upload audio artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-audio-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+          retention-days: 2
+
+  # ═══════════════════════════════════════════════════
+  # JOB 3: Video Assembly (45 min budget)
+  # 1080p | Burned subtitles | Series watermark
+  # ═══════════════════════════════════════════════════
+  assemble-video:
+    needs: generate-audio
+    runs-on: ubuntu-latest
+    timeout-minutes: 47
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install video tools
+        run: |
+          sudo apt-get install -y ffmpeg -q
+          pip install requests --break-system-packages -q
+
+      - name: Download audio artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-audio-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+
+      - name: Assemble video
+        env:
+          PIXABAY_KEY:      ${{ secrets.PIXABAY_KEY }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID:    ${{ github.run_id }}
+          GITHUB_REPO:      ${{ github.repository }}
+        run: python video_pipeline/stage3_video.py
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-video-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+          retention-days: 2
+
+  # ═══════════════════════════════════════════════════
+  # JOB 4: Approval + Upload (150 min budget)
+  # Telegram approval gate — Mohammed Sultan final authority
+  # 2-hour window | Auto-uploads if no response
+  # Uploads main video + 2 Shorts | Deletes all artifacts
+  # ═══════════════════════════════════════════════════
+  upload-with-approval:
+    needs: assemble-video
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests --break-system-packages -q
+
+      - name: Download video artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-video-${{ github.run_id }}
+          path: /tmp/pipeline_data/
+
+      - name: Wait for approval then upload
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID:         ${{ github.run_id }}
+          GITHUB_REPO:           ${{ github.repository }}
+        run: python video_pipeline/stage4_upload.py
+
+  # ═══════════════════════════════════════════════════
+  # JOB 5: Support Bot (independent — always runs)
+  # ═══════════════════════════════════════════════════
+  support-bot:
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install groq requests --break-system-packages -q
+      - name: Run support bot
+        env:
+          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python freelance/scripts/support_bot.py || echo "Support bot completed with warning"
+
+  # ═══════════════════════════════════════════════════
+  # JOB 6: Fiverr Bot (independent — always runs)
+  # ═══════════════════════════════════════════════════
+  fiverr-bot:
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install groq requests --break-system-packages -q
+      - name: Run Fiverr bot
+        env:
+          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python freelance/scripts/fiverr_bot.py || echo "Fiverr bot completed with warning"
