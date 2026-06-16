@@ -24,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - run: pip install requests --break-system-packages -q
       - name: Weekly report
@@ -42,8 +42,8 @@ jobs:
       approved: ${{ steps.gen.outputs.approved }}
       run_id:   ${{ steps.gen.outputs.run_id }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - run: pip install groq requests --break-system-packages -q
       - name: Generate script
@@ -58,7 +58,7 @@ jobs:
         run: python video_pipeline/stage1_script.py
       - name: Save artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: pipeline-script-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -70,11 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - name: Download script
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           name: pipeline-script-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -86,7 +86,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python video_pipeline/stage2_audio.py
       - name: Save artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: pipeline-audio-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -97,8 +97,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - name: Install ffmpeg + deps
         run: |
@@ -106,7 +106,7 @@ jobs:
           sudo apt-get install -y ffmpeg -qq
           pip install requests --break-system-packages -q
       - name: Download audio
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           name: pipeline-audio-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -120,7 +120,7 @@ jobs:
           GITHUB_REPO:      ${{ github.repository }}
         run: python video_pipeline/stage3_video.py
       - name: Save artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: pipeline-video-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -131,12 +131,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - run: pip install requests --break-system-packages -q
       - name: Download video
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           name: pipeline-video-${{ github.run_id }}
           path: /tmp/pipeline_data/
@@ -157,8 +157,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - run: pip install groq requests --break-system-packages -q
       - name: Support bot
@@ -174,8 +174,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
         with: { python-version: '3.11' }
       - run: pip install groq requests --break-system-packages -q
       - name: Fiverr bot
