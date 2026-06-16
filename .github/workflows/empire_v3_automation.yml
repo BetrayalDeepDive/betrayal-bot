@@ -1,4 +1,4 @@
-name: Empire V3 - 5 Videos Per Week Masterpiece Pipeline
+name: Empire V3 - 5 Videos Per Week
 
 on:
   schedule:
@@ -7,24 +7,12 @@ on:
     - cron: '0 2 * * 3'   # Wednesday 7:30 AM IST
     - cron: '0 2 * * 4'   # Thursday  7:30 AM IST
     - cron: '0 2 * * 5'   # Friday    7:30 AM IST
-    - cron: '30 3 * * 0'  # Sunday    9:00 AM IST — weekly report
-
+    - cron: '30 3 * * 0'  # Sunday    9:00 AM IST weekly report
   workflow_dispatch:
-    inputs:
-      makeup_video:
-        description: 'Makeup video for failed day?'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
-      force_niche:
-        description: 'Force specific niche (optional)'
-        required: false
-        default: ''
-        type: string
 
 jobs:
 
+  # ── WEEKLY REPORT (Sunday only) ──────────────────────────
   weekly-report:
     if: github.event.schedule == '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -40,20 +28,21 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python video_pipeline/weekly_report.py
 
+  # ── JOB 1: SCRIPT GENERATION (35 min budget) ─────────────
   generate-script:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     outputs:
-      approved:  ${{ steps.gen.outputs.approved }}
-      run_id:    ${{ steps.gen.outputs.run_id }}
-
+      approved: ${{ steps.gen.outputs.approved }}
+      run_id:   ${{ steps.gen.outputs.run_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
-      - run: pip install groq requests --break-system-packages -q
-      - name: Generate masterpiece script
+      - name: Install dependencies
+        run: pip install groq requests --break-system-packages -q
+      - name: Generate script
         id: gen
         env:
           GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
@@ -61,10 +50,8 @@ jobs:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:    ${{ github.run_id }}
-          IS_MAKEUP:        ${{ github.event.inputs.makeup_video || 'false' }}
-          FORCE_NICHE:      ${{ github.event.inputs.force_niche || '' }}
         run: python video_pipeline/stage1_script.py
-      - name: Upload script artifact
+      - name: Save script artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -72,11 +59,14 @@ jobs:
           path: /tmp/pipeline_data/
           retention-days: 1
 
+  # ── JOB 2: AUDIO GENERATION (45 min budget) ──────────────
+  # Uses edge-tts: Microsoft Azure Neural Voices
+  # pip install only - zero system dependencies
   generate-audio:
     needs: generate-script
     if: needs.generate-script.outputs.approved == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 57
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -86,26 +76,27 @@ jobs:
         with:
           name: pipeline-script-${{ github.run_id }}
           path: /tmp/pipeline_data/
-      - name: Install Kokoro TTS
+      - name: Install audio tools
         run: |
-          sudo apt-get install -y espeak-ng ffmpeg -q
-          pip install kokoro>=0.9.4 soundfile scipy numpy requests --break-system-packages -q
+          sudo apt-get install -y ffmpeg -q
+          pip install edge-tts requests --break-system-packages -q
       - name: Generate audio
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python video_pipeline/stage2_audio.py
-      - name: Upload audio artifact
+      - name: Save audio artifact
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-audio-${{ github.run_id }}
           path: /tmp/pipeline_data/
           retention-days: 1
 
+  # ── JOB 3: VIDEO ASSEMBLY (45 min budget) ────────────────
   assemble-video:
     needs: generate-audio
     runs-on: ubuntu-latest
-    timeout-minutes: 47
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -128,13 +119,14 @@ jobs:
           GITHUB_RUN_ID:    ${{ github.run_id }}
           GITHUB_REPO:      ${{ github.repository }}
         run: python video_pipeline/stage3_video.py
-      - name: Upload video artifact
+      - name: Save video artifact
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-video-${{ github.run_id }}
           path: /tmp/pipeline_data/
           retention-days: 1
 
+  # ── JOB 4: APPROVAL + UPLOAD (150 min budget) ────────────
   upload-with-approval:
     needs: assemble-video
     runs-on: ubuntu-latest
@@ -161,6 +153,7 @@ jobs:
           GITHUB_REPO:           ${{ github.repository }}
         run: python video_pipeline/stage4_upload.py
 
+  # ── JOB 5: SUPPORT BOT (always runs) ─────────────────────
   support-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -176,8 +169,9 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python freelance/scripts/support_bot.py || echo "Support bot done"
+        run: python freelance/scripts/support_bot.py || echo "Done"
 
+  # ── JOB 6: FIVERR BOT (always runs) ──────────────────────
   fiverr-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -194,4 +188,4 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python freelance/scripts/fiverr_bot.py || echo "Fiverr bot done"
+        run: python freelance/scripts/fiverr_bot.py || echo "Done"
