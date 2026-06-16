@@ -83,7 +83,7 @@ async def _tts_async(text, voice_id, output_path):
     await communicate.save(output_path)
 
 
-def generate_audio(script_clean, voice):
+def generate_audio(script_clean, voice):  # noqa
     print(f"  Voice: {voice['id']} — {voice['desc']}")
     audio_path = str(OUTPUT_DIR / "audio.mp3")
 
@@ -96,35 +96,39 @@ def generate_audio(script_clean, voice):
     if file_size < 50_000:
         raise Exception(f"File too small: {file_size} bytes")
 
-    # Get duration
-    probe = subprocess.run(
-        ["ffprobe","-v","quiet","-print_format","json","-show_format", audio_path],
-        capture_output=True, text=True
-    )
-    duration = 0.0
-    try:
-        duration = float(json.loads(probe.stdout)["format"]["duration"])
-    except:
-        duration = (file_size * 8) / (128 * 1000)
+    # Calculate duration from word count (no ffprobe needed)
+    # Average speaking rate with -12% slower = ~128 words per minute
+    word_count = len(script_clean.split())
+    duration = (word_count / 128.0) * 60.0  # seconds
+    print(f"  Duration estimate: {duration/60:.1f}min ({word_count} words at 128wpm)")
 
     print(f"  Audio: {duration/60:.1f}min | {file_size/1024/1024:.1f}MB")
     return audio_path, duration, file_size
 
 
 def convert_to_wav(mp3_path):
+    """Convert MP3 to WAV using ffmpeg if available, else use MP3 directly"""
     wav_path = str(OUTPUT_DIR / "audio.wav")
-    result = subprocess.run([
-        "ffmpeg","-y","-i", mp3_path,
-        "-acodec","pcm_s16le","-ar","24000","-ac","1", wav_path
-    ], capture_output=True, text=True, timeout=300)
+    try:
+        result = subprocess.run([
+            "ffmpeg","-y","-i", mp3_path,
+            "-acodec","pcm_s16le","-ar","24000","-ac","1", wav_path
+        ], capture_output=True, text=True, timeout=300)
 
-    if result.returncode == 0 and Path(wav_path).exists():
-        size = Path(wav_path).stat().st_size
-        if size > 100_000:
-            print(f"  WAV: {size/1024/1024:.1f}MB")
-            return wav_path
+        if result.returncode == 0 and Path(wav_path).exists():
+            size = Path(wav_path).stat().st_size
+            if size > 100_000:
+                print(f"  WAV: {size/1024/1024:.1f}MB")
+                return wav_path
+    except FileNotFoundError:
+        print("  ffmpeg not found - using MP3 directly (stage3 handles this)")
+    except Exception as e:
+        print(f"  WAV conversion: {e} - using MP3 directly")
 
-    print("  Using MP3 directly")
+    # Copy MP3 as audio.wav filename so stage3 finds it
+    import shutil
+    shutil.copy(mp3_path, wav_path)
+    print(f"  Using MP3 as audio file: {Path(mp3_path).stat().st_size/1024/1024:.1f}MB")
     return mp3_path
 
 
