@@ -151,13 +151,9 @@ def main():
     print("  Free | Zero system deps | GitHub Actions proven")
     print("="*60 + "\n")
 
-    # Install edge-tts (3 seconds, pure Python)
-    print("Installing edge-tts...")
-    subprocess.run(
-        ["pip","install","edge-tts","requests","--break-system-packages","-q"],
-        capture_output=True
-    )
-    print("edge-tts ready\n")
+    # edge-tts already installed by workflow step
+    # ffmpeg pre-installed on ubuntu-latest - no apt-get needed
+    print("edge-tts ready | ffmpeg pre-installed\n")
 
     data   = load_pipeline()
     script = load_script()
