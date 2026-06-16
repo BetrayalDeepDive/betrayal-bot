@@ -71,8 +71,11 @@ jobs:
         with:
           name: pipeline-script-${{ github.run_id }}
           path: /tmp/pipeline_data/
-      - name: Install edge-tts
-        run: pip install edge-tts requests --break-system-packages -q
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg -qq
+          pip install edge-tts requests --break-system-packages -q
       - name: Generate audio
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
@@ -94,7 +97,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Install dependencies
-        run: pip install requests --break-system-packages -q
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg -qq
+          pip install requests --break-system-packages -q
       - name: Download audio artifact
         uses: actions/download-artifact@v4
         with:
