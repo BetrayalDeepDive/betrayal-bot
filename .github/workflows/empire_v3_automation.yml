@@ -2,17 +2,16 @@ name: Empire V3 - 5 Videos Per Week
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # Monday    7:30 AM IST
-    - cron: '0 2 * * 2'   # Tuesday   7:30 AM IST
-    - cron: '0 2 * * 3'   # Wednesday 7:30 AM IST
-    - cron: '0 2 * * 4'   # Thursday  7:30 AM IST
-    - cron: '0 2 * * 5'   # Friday    7:30 AM IST
-    - cron: '30 3 * * 0'  # Sunday    9:00 AM IST weekly report
+    - cron: '0 2 * * 1'
+    - cron: '0 2 * * 2'
+    - cron: '0 2 * * 3'
+    - cron: '0 2 * * 4'
+    - cron: '0 2 * * 5'
+    - cron: '30 3 * * 0'
   workflow_dispatch:
 
 jobs:
 
-  # ── WEEKLY REPORT (Sunday only) ──────────────────────────
   weekly-report:
     if: github.event.schedule == '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -28,7 +27,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python video_pipeline/weekly_report.py
 
-  # ── JOB 1: SCRIPT GENERATION (35 min budget) ─────────────
   generate-script:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -59,9 +57,6 @@ jobs:
           path: /tmp/pipeline_data/
           retention-days: 1
 
-  # ── JOB 2: AUDIO GENERATION (45 min budget) ──────────────
-  # Uses edge-tts: Microsoft Azure Neural Voices
-  # pip install only - zero system dependencies
   generate-audio:
     needs: generate-script
     if: needs.generate-script.outputs.approved == 'true'
@@ -76,10 +71,8 @@ jobs:
         with:
           name: pipeline-script-${{ github.run_id }}
           path: /tmp/pipeline_data/
-      - name: Install audio tools
-        run: |
-          sudo apt-get install -y ffmpeg -q
-          pip install edge-tts requests --break-system-packages -q
+      - name: Install edge-tts
+        run: pip install edge-tts requests --break-system-packages -q
       - name: Generate audio
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
@@ -92,7 +85,6 @@ jobs:
           path: /tmp/pipeline_data/
           retention-days: 1
 
-  # ── JOB 3: VIDEO ASSEMBLY (45 min budget) ────────────────
   assemble-video:
     needs: generate-audio
     runs-on: ubuntu-latest
@@ -101,10 +93,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
-      - name: Install video tools
-        run: |
-          sudo apt-get install -y ffmpeg -q
-          pip install requests --break-system-packages -q
+      - name: Install dependencies
+        run: pip install requests --break-system-packages -q
       - name: Download audio artifact
         uses: actions/download-artifact@v4
         with:
@@ -126,7 +116,6 @@ jobs:
           path: /tmp/pipeline_data/
           retention-days: 1
 
-  # ── JOB 4: APPROVAL + UPLOAD (150 min budget) ────────────
   upload-with-approval:
     needs: assemble-video
     runs-on: ubuntu-latest
@@ -141,7 +130,7 @@ jobs:
         with:
           name: pipeline-video-${{ github.run_id }}
           path: /tmp/pipeline_data/
-      - name: Wait for approval then upload
+      - name: Upload to YouTube
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -153,7 +142,6 @@ jobs:
           GITHUB_REPO:           ${{ github.repository }}
         run: python video_pipeline/stage4_upload.py
 
-  # ── JOB 5: SUPPORT BOT (always runs) ─────────────────────
   support-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -171,7 +159,6 @@ jobs:
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python freelance/scripts/support_bot.py || echo "Done"
 
-  # ── JOB 6: FIVERR BOT (always runs) ──────────────────────
   fiverr-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
