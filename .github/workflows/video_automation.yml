@@ -1,6 +1,8 @@
-name: Video Automation (DISABLED - use Empire V2 instead)
+name: Video Automation [DISABLED]
 
 on:
+  # DISABLED — replaced by 4-stage empire_v3_automation.yml
+  # - cron: '0 2 * * 1,3,5'
   workflow_dispatch:
 
 jobs:
@@ -8,4 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Disabled
-        run: echo "This workflow is disabled. Use Empire V2 Full Automation instead."
+        run: |
+          echo "video_automation.yml is DISABLED."
+          echo "Video production now runs through empire_v3_automation.yml"
+          echo "4 stages: generate-script, generate-audio, assemble-video, upload-with-approval"
+          exit 0
