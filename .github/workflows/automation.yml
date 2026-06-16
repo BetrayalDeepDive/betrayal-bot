@@ -1,6 +1,8 @@
-name: Run Automation (DISABLED - use Empire V2 instead)
+name: Automation [DISABLED]
 
 on:
+  # DISABLED — superseded by empire_v3_automation.yml
+  # - cron: '30 2 * * *'
   workflow_dispatch:
 
 jobs:
@@ -8,4 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Disabled
-        run: echo "This workflow is disabled. Use Empire V2 Full Automation instead."
+        run: |
+          echo "Old automation.yml is DISABLED."
+          echo "All automation now runs through empire_v3_automation.yml"
+          exit 0
