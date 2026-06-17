@@ -564,6 +564,13 @@ def main():
             with open(OUTPUT_DIR / "script.txt", "w", encoding="utf-8") as f:
                 f.write(last_script["clean"])
 
+        # Write output FIRST before exiting
+        gho = os.environ.get("GITHUB_OUTPUT", "")
+        if gho:
+            with open(gho, "a") as f:
+                f.write("approved=false\n")
+                f.write(f"run_id={GITHUB_RUN_ID}\n")
+
         telegram(
             f"<b>Stage 1 — Day Skipped</b>\n\n"
             f"All {MAX_RETRIES} attempts failed.\n"
@@ -572,10 +579,6 @@ def main():
             f"Makeup video queued for tomorrow.\n"
             f"Tomorrow will publish 2 videos automatically."
         )
-        gho = os.environ.get("GITHUB_OUTPUT", "")
-        if gho:
-            with open(gho, "a") as f:
-                f.write("approved=false\n")
         sys.exit(0)
 
     # Update state — track voice/niche to avoid repeating tomorrow
@@ -625,11 +628,13 @@ def main():
     with open(OUTPUT_DIR / "channel_state.json", "w") as f:
         json.dump(state, f, indent=2)
 
+    # Write output immediately after pipeline.json is saved
     gho = os.environ.get("GITHUB_OUTPUT", "")
     if gho:
         with open(gho, "a") as f:
-            f.write(f"approved=true\n")
+            f.write("approved=true\n")
             f.write(f"run_id={GITHUB_RUN_ID}\n")
+    print(f"GitHub output written: approved=true")
 
     makeup_tag = " [MAKEUP VIDEO]" if IS_MAKEUP else ""
     telegram(
