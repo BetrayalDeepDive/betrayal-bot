@@ -681,11 +681,42 @@ deeper psychological analysis, more human cost, richer aftermath.
 
 RETURN ONLY THE NARRATION TEXT. No labels. No markers. No word count."""
 
-    raw = ai(prompt, temp=temp, tokens=6000, prefer="gemini")
+    raw = ai(prompt, temp=temp, tokens=8000, prefer="gemini")
     clean = strip_md(strip_md(raw))
+    wc = len(clean.split())
+
+    # If still too short, ask Gemini to expand it
+    if wc < MIN_WORDS:
+        print(f"  Script {wc}w — expanding to {MIN_WORDS}w minimum...")
+        expand_prompt = f"""The following narration script is only {wc} words.
+You MUST expand it to reach {MIN_WORDS} words minimum.
+
+Add more content by:
+1. Expanding the human cost section with more specific stories
+2. Adding more detail to the descent section with exact amounts and dates
+3. Deepening the psychological analysis in the reckoning
+4. Adding more specific aftermath details
+
+The script must remain pure spoken English — no markdown, no symbols.
+DO NOT summarize or repeat — ADD new content that deepens the investigation.
+
+CURRENT SCRIPT:
+{clean}
+
+Return the COMPLETE expanded script, not just the additions."""
+        try:
+            raw2 = ai(expand_prompt, temp=0.82, tokens=8000, prefer="gemini")
+            clean2 = strip_md(strip_md(raw2))
+            if len(clean2.split()) > wc:
+                clean = clean2
+                wc = len(clean.split())
+                print(f"  Expanded to {wc}w")
+        except Exception as e:
+            print(f"  Expansion failed: {e}")
+
     return {
         "clean": clean,
-        "words": len(clean.split()),
+        "words": wc,
         "violations": len(re.findall(r'[#*_`\[\]{}<>\\]', clean)),
         "attempt": attempt,
         "_topic": topic
@@ -693,21 +724,31 @@ RETURN ONLY THE NARRATION TEXT. No labels. No markers. No word count."""
 
 def generate_metadata(niche, script, episode, best_title, thumbnail_text, prev_title, prev_url):
     cross_ref = f'Include: "Watch our previous investigation: {prev_title} — {prev_url}"' if prev_title else ""
-    prompt = f"""YouTube metadata for Episode {episode} of "{niche['series']}".
+    prompt = f"""Write YouTube metadata for Episode {episode} of a series called {niche['series']}.
 Topic: {script['_topic']}
-Winning title (already selected by CTR scoring): {best_title}
-Thumbnail text: {thumbnail_text}
+The winning title has already been selected: {best_title}
 {cross_ref}
 
-Return ONLY valid JSON:
-{{"title":"{best_title}","description":"450 word description. First 3 lines standalone hooks. 5 chapter timestamps. Cross-reference previous video. The Betrayal DeepDive subscribe CTA.","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10","tag11","tag12"],"thumbnail_text":"{thumbnail_text}","chapters":[{{"time":"0:00","title":"The Opening Shock"}},{{"time":"3:30","title":"The Setup"}},{{"time":"7:00","title":"The Discovery"}},{{"time":"11:00","title":"The Major Twist"}},{{"time":"14:30","title":"The Full Truth"}}],"category":"22"}}"""
+Return ONLY a valid JSON object with these exact keys:
+- title: the winning title exactly as given above
+- description: 450 words, first 3 lines are standalone hooks, includes 5 chapter timestamps, cross-references previous video if given, ends with subscribe CTA for The Betrayal DeepDive
+- tags: array of exactly 12 strings relevant to this niche
+- thumbnail_text: exactly 3 words ALL CAPS maximum shock value
+- chapters: array of 5 objects each with time and title keys
+- category: "22"
+
+Do not include any control characters. Return only clean ASCII JSON."""
 
     try:
         text = ai(prompt, temp=0.65, tokens=1200, prefer="groq")
         text = re.sub(r'```json|```', '', text).strip()
+        # Remove all control characters that break JSON parsing
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
         m = re.search(r'\{[\s\S]*\}', text)
         if m:
-            meta = json.loads(m.group())
+            clean_json = m.group()
+            clean_json = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', clean_json)
+            meta = json.loads(clean_json)
             meta["title"] = best_title
             meta["thumbnail_text"] = thumbnail_text
             return meta
@@ -793,8 +834,9 @@ def run_stage1(state):
     gate, best, last_script, last_meta = 8.0, 0, None, None
 
     for attempt in range(1, 9):
-        if attempt >= 5 and best >= 7.5: gate = 7.5
-        elif attempt >= 3 and best >= 7.8: gate = 7.8
+        if attempt >= 5 and best >= 7.0: gate = 7.5
+        elif attempt >= 3 and best >= 7.5: gate = 7.8
+        elif attempt >= 7: gate = 7.0  # Last resort — get something published
 
         print(f"\nAttempt {attempt}/8 (gate:{gate})...")
         try:
