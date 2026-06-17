@@ -55,7 +55,15 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:    ${{ github.run_id }}
           IS_MAKEUP:        ${{ github.event.inputs.is_makeup || 'false' }}
-        run: python video_pipeline/stage1_script.py
+        run: |
+          python video_pipeline/stage1_script.py
+          # Ensure output is set even if script exits 0 without writing
+          if [ -f /tmp/pipeline_data/pipeline.json ]; then
+            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/pipeline_data/pipeline.json')); print('false' if d.get('status')=='day_skipped' else 'true')" 2>/dev/null || echo "false")
+            echo "approved=${STATUS}" >> $GITHUB_OUTPUT
+            echo "run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
+            echo "Script approved: ${STATUS}"
+          fi
       - name: Save artifact
         if: always()
         uses: actions/upload-artifact@v4.6.2
