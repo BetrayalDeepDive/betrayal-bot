@@ -1,0 +1,37 @@
+name: The Evidence Room — Animated Pipeline
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # Monday    8:30 AM IST
+    - cron: "0 3 * * 2"   # Tuesday   8:30 AM IST
+    - cron: "0 3 * * 3"   # Wednesday 8:30 AM IST
+    - cron: "0 3 * * 4"   # Thursday  8:30 AM IST
+    - cron: "0 3 * * 5"   # Friday    8:30 AM IST
+  workflow_dispatch:
+
+jobs:
+
+  make-animated-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with: { python-version: "3.11" }
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu -qq
+          pip install groq requests edge-tts pillow matplotlib numpy --break-system-packages -q
+
+      - name: Run Evidence Room pipeline
+        env:
+          GROQ_API_KEY:                ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:              ${{ secrets.GEMINI_API_KEY }}
+          EVIDENCE_YT_CLIENT_ID:      ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
+          EVIDENCE_YT_CLIENT_SECRET:  ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
+          EVIDENCE_YT_REFRESH_TOKEN:  ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN:              ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:            ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python channels/evidence_room/evidence_room_pipeline.py
