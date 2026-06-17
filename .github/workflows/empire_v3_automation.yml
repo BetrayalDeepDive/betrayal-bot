@@ -1,17 +1,17 @@
-name: DeepDive Empire V3 - 5 Videos Per Week
+name: DeepDive Empire - Video Pipeline
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # Monday    7:30 AM IST
-    - cron: '0 2 * * 2'   # Tuesday   7:30 AM IST  HIGH RPM
-    - cron: '0 2 * * 3'   # Wednesday 7:30 AM IST
-    - cron: '0 2 * * 4'   # Thursday  7:30 AM IST  HIGH RPM
-    - cron: '0 2 * * 5'   # Friday    7:30 AM IST
-    - cron: '30 3 * * 0'  # Sunday    9:00 AM IST  weekly report
+    - cron: "0 2 * * 1"
+    - cron: "0 2 * * 2"
+    - cron: "0 2 * * 3"
+    - cron: "0 2 * * 4"
+    - cron: "0 2 * * 5"
+    - cron: "30 3 * * 0"
   workflow_dispatch:
     inputs:
       is_makeup:
-        description: 'Makeup video for failed day?'
+        description: 'Makeup video?'
         required: false
         default: 'false'
         type: choice
@@ -26,139 +26,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
+        with: { python-version: "3.11" }
       - run: pip install requests --break-system-packages -q
-      - name: Weekly report
+      - name: Send weekly report
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python video_pipeline/weekly_report.py
 
-  generate-script:
+  make-video:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    outputs:
-      approved: ${{ steps.gen.outputs.approved }}
-      run_id:   ${{ steps.gen.outputs.run_id }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
-      - run: pip install groq requests --break-system-packages -q
-      - name: Generate script
-        id: gen
-        env:
-          GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_RUN_ID:    ${{ github.run_id }}
-          IS_MAKEUP:        ${{ github.event.inputs.is_makeup || 'false' }}
-        run: |
-          python video_pipeline/stage1_script.py
-          # Ensure output is set even if script exits 0 without writing
-          if [ -f /tmp/pipeline_data/pipeline.json ]; then
-            STATUS=$(python3 -c "import json; d=json.load(open('/tmp/pipeline_data/pipeline.json')); print('false' if d.get('status')=='day_skipped' else 'true')" 2>/dev/null || echo "false")
-            echo "approved=${STATUS}" >> $GITHUB_OUTPUT
-            echo "run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
-            echo "Script approved: ${STATUS}"
-          fi
-      - name: Save artifact
-        if: always()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: pipeline-script-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-          retention-days: 1
-
-  generate-audio:
-    needs: generate-script
-    if: needs.generate-script.outputs.approved == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
-      - name: Download script
-        uses: actions/download-artifact@v4.3.0
-        with:
-          name: pipeline-script-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-      - name: Install edge-tts only (no apt-get)
-        run: pip install edge-tts requests --break-system-packages -q
-      - name: Generate audio
-        env:
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python video_pipeline/stage2_audio.py
-      - name: Save artifact
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: pipeline-audio-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-          retention-days: 1
-
-  assemble-video:
-    needs: generate-audio
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
-      - name: Install ffmpeg + deps
+        with: { python-version: "3.11" }
+      - name: Install all dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg -qq
-          pip install requests --break-system-packages -q
-      - name: Download audio
-        uses: actions/download-artifact@v4.3.0
-        with:
-          name: pipeline-audio-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-      - name: Assemble video
+          pip install groq requests edge-tts --break-system-packages -q
+      - name: Run complete video pipeline
         env:
-          PIXABAY_KEY:      ${{ secrets.PIXABAY_KEY }}
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_TOKEN:     ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_RUN_ID:    ${{ github.run_id }}
-          GITHUB_REPO:      ${{ github.repository }}
-        run: python video_pipeline/stage3_video.py
-      - name: Save artifact
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: pipeline-video-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-          retention-days: 1
-
-  upload-with-approval:
-    needs: assemble-video
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
-      - run: pip install requests --break-system-packages -q
-      - name: Download video
-        uses: actions/download-artifact@v4.3.0
-        with:
-          name: pipeline-video-${{ github.run_id }}
-          path: /tmp/pipeline_data/
-      - name: Approval gate + upload
-        env:
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
-          GITHUB_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID:         ${{ github.run_id }}
-          GITHUB_REPO:           ${{ github.repository }}
-        run: python video_pipeline/stage4_upload.py
+          IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
+        run: python video_pipeline/master_pipeline.py
 
   support-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
@@ -167,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
+        with: { python-version: "3.11" }
       - run: pip install groq requests --break-system-packages -q
       - name: Support bot
         env:
@@ -184,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
-        with: { python-version: '3.11' }
+        with: { python-version: "3.11" }
       - run: pip install groq requests --break-system-packages -q
       - name: Fiverr bot
         env:
