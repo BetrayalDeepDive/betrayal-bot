@@ -154,7 +154,7 @@ def load_state():
 def save_state(s): STATE_FILE.write_text(json.dumps(s,indent=2))
 
 def ai_gemini(prompt, temp=0.85, tokens=6000):
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             r = requests.post(f"{GEMINI_URL}?key={GEMINI_KEY}",
                 headers={"Content-Type":"application/json"},
@@ -169,15 +169,19 @@ def ai_gemini(prompt, temp=0.85, tokens=6000):
             if r.status_code == 200:
                 c = r.json().get("candidates",[])
                 if c: return c[0]["content"]["parts"][0]["text"]
-            elif r.status_code == 429: time.sleep(60*(attempt+1))
-            else: time.sleep(15)
+            elif r.status_code == 429:
+                wait = 90*(attempt+1)
+                print(f"  Gemini rate limit — waiting {wait}s...")
+                time.sleep(wait)
+            else:
+                time.sleep(30)
         except Exception as e:
             print(f"  Gemini {attempt+1}: {e}")
-            time.sleep(20)
+            time.sleep(30)
     raise Exception("Gemini failed")
 
 def ai_groq(prompt, temp=0.7, tokens=2000):
-    for attempt in range(4):
+    for attempt in range(5):
         try:
             r = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -186,7 +190,9 @@ def ai_groq(prompt, temp=0.7, tokens=2000):
             return r.choices[0].message.content
         except Exception as e:
             if "429" in str(e) or "rate_limit" in str(e).lower():
-                time.sleep(60*(2**attempt))
+                wait = 90*(2**attempt)
+                print(f"  Groq rate limit — waiting {wait}s...")
+                time.sleep(min(wait, 600))
             else: raise
     raise Exception("Groq failed")
 
@@ -767,6 +773,10 @@ def cleanup():
 # MAIN
 # ════════════════════════════════════════════════════════════
 def main():
+    import random as _r
+    _delay = _r.randint(60, 120)
+    print(f"  Waiting {_delay}s to avoid API conflicts with other pipelines...")
+    time.sleep(_delay)
     print("\n" + "="*65)
     print("  THE EVIDENCE ROOM — ANIMATED FORENSIC PIPELINE")
     print("  3 Rotating Styles | Pillow + FFmpeg | No system deps")
