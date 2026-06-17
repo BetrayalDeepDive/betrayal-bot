@@ -49,6 +49,7 @@ jobs:
           pip install groq requests edge-tts --break-system-packages -q
       - name: Run complete video pipeline
         env:
+          PYTHONUNBUFFERED:      "1"
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
@@ -59,7 +60,7 @@ jobs:
           TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_RUN_ID:         ${{ github.run_id }}
           IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
-        run: python video_pipeline/master_pipeline.py
+        run: python -u video_pipeline/master_pipeline.py
 
   support-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
