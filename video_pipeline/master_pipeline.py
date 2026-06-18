@@ -558,59 +558,155 @@ def build_dread_prompt(niche):
         if t in DREAD_TRIGGERS)
 
 def generate_script(niche, topic, episode, attempt, prev_title, intel):
-    temp      = min(0.82+attempt*0.012, 0.94)
-    darkness  = min(40+attempt*6, 96)
+    """
+    The Addiction Architecture Script Generator
+    
+    Built from studying what makes people watch dark content for 4+ hours:
+    1. Slow burn — earn the darkness, don't rush to it
+    2. Detective mechanism — viewer solves alongside narrator
+    3. The impossible detail — one specific unexplainable thing
+    4. Identity invasion — this could be you, right now
+    5. Unresolved ending — the story follows you after it ends
+    6. Escalating specificity — each paragraph more documented than the last
+    7. The planted ordinary detail — becomes sinister in retrospect
+    """
+    temp      = min(0.82 + attempt*0.012, 0.94)
+    darkness  = min(40 + attempt*6, 96)
     cross     = f'\nNaturally reference previous episode: "{prev_title}" in your closing.' if prev_title else ""
     dread     = build_dread_prompt(niche)
     hooks     = intel.get("top_hook_formulas",["Nobody believed it until they saw the footage."])
     retention = intel.get("retention_hooks",["What happened next has never been officially explained"])
     power     = intel.get("niche_specific_power_words",["nobody","witnessed","documented","still"])
-    viral     = intel.get("what_makes_videos_viral","Documented real events delivered with precision")
+    viral     = intel.get("what_makes_videos_viral","Documented real events that resist rational explanation")
     arc       = intel.get("emotional_arc","Curiosity then dread then terror then revelation")
 
-    prompt = f"""You are the greatest dark storytelling narrator alive for YouTube documentaries.
-Write Episode {episode} of "{niche['series']}" — a channel built to make people watch all night.
-Story: {topic}
-Darkness: {darkness}% {cross}
+    prompt = f"""You are the narrator of the most addictive dark documentary channel on YouTube.
+You have studied every channel that makes people watch at 2AM unable to stop.
+You know the exact mechanics that keep viewers from clicking away.
 
-PROVEN HOOKS: {hooks[0]}
+Write Episode {episode} of "{niche['series']}" — this channel makes people lose hours of their life.
+Story: {topic}
+Darkness intensity: {darkness}%
+{cross}
+
+ADDICTION MECHANICS — THESE ARE WHY PEOPLE CANNOT STOP WATCHING:
+
+MECHANIC 1 — THE SLOW BURN:
+Never rush to the horror. Build the ordinary world first. Make them love it before you destroy it.
+The darkness lands hardest when the audience has something to lose.
+
+MECHANIC 2 — THE DETECTIVE MECHANISM:
+Never tell the audience what to think. Give them the pieces in the right order.
+Let them realize the truth a half-second before you say it. That realization is addictive.
+Use phrases like: "Look at that again." "Notice what is missing." "That detail will matter."
+
+MECHANIC 3 — THE ONE IMPOSSIBLE DETAIL:
+Every great dark story has one specific detail that cannot be rationally explained.
+It must be concrete. A timestamp that doesn't match. A door that was locked from inside.
+A record that shows someone was in two places simultaneously.
+Build your entire story around this one impossible thing.
+
+MECHANIC 4 — IDENTITY INVASION:
+Three times during the narration, make the listener feel this could be their life.
+Not "this could happen to anyone" — too generic.
+"The person who found this was driving the same road you drove to work this morning."
+Specific. Geographic. Temporal. Make it physically present in their life.
+
+MECHANIC 5 — THE UNRESOLVED ENDING:
+Do NOT wrap this up. The best dark stories end with one thing still unexplained.
+Something that makes the listener uncomfortable in silence after the video ends.
+They will search for answers. They will return.
+
+MECHANIC 6 — ESCALATING SPECIFICITY:
+Each section must be MORE specific than the previous one.
+Start with a general disturbing fact. By the end, give them the exact date, time, address, and the one sentence that was spoken.
+The more specific, the more real. The more real, the more terrifying.
+
+MECHANIC 7 — THE PLANTED DETAIL:
+In the first 3 minutes, plant one small ordinary detail that seems irrelevant.
+Reference it at the 60% mark. By the end, it is the most disturbing thing in the story.
+The audience will rewind. Rewatching is the highest signal.
+
+PROVEN HOOKS FROM TOP-PERFORMING VIDEOS:
+{hooks[0] if hooks else "Nobody believed it until they saw the footage."}
 VIRAL FACTOR: {viral}
 EMOTIONAL ARC: {arc}
-POWER WORDS: {', '.join(power[:7])}
-RETENTION HOOK at 30pct: {retention[0]}
-RETENTION HOOK at 60pct: {retention[1] if len(retention)>1 else "Everything you understood about this is about to change"}
-RETENTION HOOK at 80pct: {retention[2] if len(retention)>2 else "The final detail has never been publicly released until now"}
+POWER WORDS: {", ".join(power[:7])}
+RETENTION HOOK at 30pct: {retention[0] if retention else "What happened next has never been officially explained"}
+RETENTION HOOK at 60pct: {retention[1] if len(retention)>1 else "This is the detail that investigators cannot account for"}
+RETENTION HOOK at 80pct: {retention[2] if len(retention)>2 else "What you are about to hear was never meant to be made public"}
 
-DREAD SYSTEM: {dread}
+DREAD ARCHITECTURE: {dread}
 
 THE 10 LAWS — ALL MANDATORY:
 1. ZERO markdown — no symbols of any kind
 2. ZERO stage directions — no music pause cut narrator
 3. ZERO AI filler — no moreover furthermore in conclusion it is worth noting
-4. Pure spoken English — every word speakable naturally by a human
+4. Pure spoken English — every word naturally speakable by a human
 5. MAX 13 words per sentence — dread lives in short sentences
-6. Every paragraph heavier and darker than the previous
-7. Specific dates times exact numbers throughout — it must feel real and documented
+6. Every paragraph more specific and darker than the previous
+7. Use the 7 addiction mechanics above — all 7 in every script
 8. EXACTLY {MIN_WORDS} to {MAX_WORDS} words
 9. ZERO section labels — pure seamless narration
-10. The listener must be physically unable to stop — every paragraph must earn the next one
+10. End with something unresolved — the discomfort should survive the video
 
-STRUCTURE (one seamless narration, no labels):
-HOOK (4 sentences): Most disturbing specific fact. One detail making it immediately worse. An exact number or time. The question that makes stopping impossible.
-WORLD BEFORE (400-500w): Establish what was normal. Make the audience care. Plant 3 ordinary details that detonate later. Apply NORMALITY and INVISIBILITY triggers.
-RISING DREAD (400-500w): First signs. Each dismissable alone. Together a pattern nobody named. Apply PROXIMITY and DURATION triggers.
-[USE RETENTION HOOK 1]
-THE DESCENT (600-700w): Full scale of what was really happening. Specific. Documented. Suffocating. Apply COMPETENCE and REPETITION triggers.
-THE BREAK (200-250w): The exact moment everything collapsed. Who discovered it. What they saw.
-[USE RETENTION HOOK 2]
-THE TWIST (150-200w): One sentence that shatters everything. Reframe every planted detail. Apply REVERSAL trigger.
-THE COST (350-400w): Specific named people. Specific permanent losses. Apply COST trigger.
-[USE RETENTION HOOK 3]
-THE AFTERMATH (200-250w): What followed. What failed to follow. What continues right now. Apply INSTITUTIONAL and COMPLICITY triggers.
-THE RECKONING (150-200w): The hard truth with no comfort and no resolution.
-THE CLOSE (100-150w): Haunting line to next episode. Natural subscribe call to {niche['series']}.
+STRUCTURE (one seamless narration — no labels):
 
-WRITE {MIN_WORDS}-{MAX_WORDS} WORDS OF PURE NARRATION. NO LABELS. NO PREAMBLE. START IMMEDIATELY."""
+THE ORDINARY WORLD (300-400w):
+Start before the darkness existed. Show the normal. Make it warm and specific.
+Plant THE ONE IMPOSSIBLE DETAIL quietly here — make it seem insignificant.
+Plant PLANTED DETAIL here — one small thing that will return.
+Apply NORMALITY trigger.
+
+THE FIRST CRACK (300-400w):
+The first thing that was slightly wrong. One thing. Dismissable.
+Use the DETECTIVE MECHANISM — give the audience the clue before naming it.
+Apply INVISIBILITY trigger.
+
+THE ACCUMULATION (400-500w):
+More things that were slightly wrong. Each one alone means nothing.
+Together they mean everything. Do not say that. Let the audience feel it.
+IDENTITY INVASION moment 1 here — make it personal and specific to their life.
+Apply PROXIMITY and DURATION triggers.
+
+[USE RETENTION HOOK 1 — verbatim]
+
+THE DESCENT (500-600w):
+Now the impossible detail becomes impossible to explain away.
+ESCALATING SPECIFICITY at maximum — exact times, exact words, exact locations.
+Apply SCALE and COMPETENCE triggers.
+IDENTITY INVASION moment 2 here.
+
+THE IMPOSSIBLE DETAIL (150-200w):
+The one thing that has no rational explanation.
+State it plainly. No dramatization needed — the fact itself is enough.
+Let it sit. One paragraph. Then continue.
+
+[USE RETENTION HOOK 2 — verbatim]
+
+THE REVERSAL (150-200w):
+THE PLANTED DETAIL returns. Everything ordinary was always something else.
+The floor drops for the audience. Apply REVERSAL trigger.
+
+THE HUMAN COST (300-350w):
+Specific named people. Specific permanent things they lost.
+Apply COST trigger. This is peak devastation.
+IDENTITY INVASION moment 3 here — final and most personal.
+
+[USE RETENTION HOOK 3 — verbatim]
+
+THE AFTERMATH (200-250w):
+What happened legally or institutionally. What failed.
+What is still happening right now. Apply INSTITUTIONAL trigger.
+
+THE UNRESOLVED CLOSE (100-150w):
+The one thing that was never explained.
+State it as a fact. Do not dramatize it.
+Let the listener sit with it.
+One line connecting to next episode of {niche['series']}.
+Natural subscribe call.{f" Reference: {prev_title}." if prev_title else ""}
+
+WRITE {MIN_WORDS}-{MAX_WORDS} WORDS. NO LABELS. START WITH THE FIRST WORD OF THE STORY."""
 
     raw   = ai(prompt,temp=temp,tokens=8000,prefer="gemini")
     clean = strip_md(strip_md(raw))
@@ -619,10 +715,13 @@ WRITE {MIN_WORDS}-{MAX_WORDS} WORDS OF PURE NARRATION. NO LABELS. NO PREAMBLE. S
     for exp in range(2):
         if wc >= MIN_WORDS: break
         deficit = MIN_WORDS - wc
-        log(f"  {wc}w — expanding {exp+1}...")
+        log(f"  {wc}w — expanding round {exp+1}...")
         expand = f"""This narration is {wc} words. Needs {MIN_WORDS}. Add {deficit} words.
-Expand: 1) THE COST — 2 more specific people with permanent losses 2) THE DESCENT — 3 more specific documented details 3) THE AFTERMATH — more about what continues now.
-Zero markdown. Pure spoken English. Max 13 words per sentence. ADD only — no repetition.
+Expand using the addiction mechanics:
+1. THE ACCUMULATION — add 2 more dismissable-but-wrong details with exact specifics
+2. THE HUMAN COST — add 2 more specific named people with specific permanent losses
+3. THE DESCENT — add 3 more escalating specific documented details
+Zero markdown. Pure spoken English. Max 13 words per sentence. ADD only.
 Return COMPLETE script.
 SCRIPT: {clean}"""
         try:
