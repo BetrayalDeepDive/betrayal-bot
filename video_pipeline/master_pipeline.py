@@ -65,7 +65,7 @@ IS_MAKEUP     = os.environ.get("IS_MAKEUP","false").lower() == "true"
 
 groq_client   = Groq(api_key=GROQ_KEY)
 GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_15_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent"
 WORK_DIR      = Path("/tmp/deepdive")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE    = WORK_DIR / "state.json"
@@ -293,7 +293,7 @@ def load_intel():
 def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 
 def call_gemini(prompt, temp=0.88, tokens=8000, model="2.0"):
-    url = GEMINI_URL if model=="2.0" else GEMINI_15_URL
+    url = GEMINI_URL if model=="2.0" else GEMINI_LITE_URL
     for attempt in range(5):
         try:
             r = requests.post(f"{url}?key={GEMINI_KEY}",
@@ -313,9 +313,11 @@ def call_gemini(prompt, temp=0.88, tokens=8000, model="2.0"):
                         return text
                     log(f"  Gemini {model}: empty — retrying")
             elif r.status_code == 429:
-                wait = 60*(attempt+1)
+                wait = min(45*(attempt+1), 90)
                 log(f"  Gemini {model} 429 — wait {wait}s")
                 time.sleep(wait)
+                if attempt >= 2:
+                    raise Exception(f"Gemini {model} rate limited")
             elif r.status_code == 400:
                 err = r.json().get("error",{}).get("message","unknown")[:120]
                 log(f"  Gemini {model} 400: {err}")
@@ -824,17 +826,17 @@ def run_stage1(state):
     title_scores   = [(best_title_str,6.0)]
     thumbnail_text = generate_thumbnail_text(niche,niche["seed_topics"][0],intel)
 
-    for attempt in range(1,14):
-        if attempt==13:       gate=FINAL_GATE
-        elif attempt>=10:     gate=7.0
-        elif attempt>=7:      gate=7.2
+    for attempt in range(1, 9):
+        if attempt==8:        gate=FINAL_GATE
+        elif attempt>=6:      gate=7.0
+        elif attempt>=4:      gate=7.2
         topic = get_fresh_topic(niche,attempt,intel,used_topics)
         used_topics.append(topic)
         if attempt in [1,5,9]:
             thumbnail_text     = generate_thumbnail_text(niche,topic,intel)
             best_title_str,title_scores = generate_and_score_titles(niche,topic,intel,episode)
             log(f"Thumbnail: {thumbnail_text}")
-        log(f"\nAttempt {attempt}/13 (gate:{gate}) {'[ARCHIVE]' if attempt>8 else '[FRESH]'}...")
+        log(f"\nAttempt {attempt}/8 (gate:{gate}) {'[ARCHIVE]' if attempt>8 else '[FRESH]'}...")
         log(f"Topic: {topic[:80]}")
         try:
             script        = generate_script(niche,topic,episode,attempt,prev_title,intel)
