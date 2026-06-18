@@ -1,55 +1,48 @@
 #!/usr/bin/env python3
 """
-DEEPDIVE EMPIRE — MASTER PIPELINE v5.0
+DEEPDIVE EMPIRE — MASTER PIPELINE v6.0
 =======================================
-FINAL VERSION — Built for Mohammed Sultan
+NICHE REBUILD: Horror / Dark / Deception / Seduction / Psychological
+These are the niches that make people watch back-to-back without checking the time.
 
-ARCHITECTURE:
-- 13-attempt system: 8 fresh topics + 5 archive (2yr viral) topics
-- Quality gate MINIMUM 7.3/10 — NEVER drops below 6.9 (final attempt only)
-- Voice quality checker — auto-rejects robotic output, remakes with better voice
-- 10 US + 10 GB human neural voices rotating intelligently
-- Darkest most compelling thumbnails ever built for this niche
-- NO subtitles on main video — subtitles on Shorts ONLY with audio sync
-- Crime / Betrayal / Deception niches ONLY
+NICHES (all chosen for maximum addiction + high RPM):
+1. dark_horror       — Real horror stories that happened to real people. $13 RPM
+2. seduction_dark    — Manipulation seduction and obsession. $14 RPM
+3. psychological_trap — The documented methods people use to trap others. $12 RPM
+4. supernatural_real — Real unexplained events with documented evidence. $11 RPM
+5. obsession_dark    — Stalking possession and dark fixation. $13 RPM
 
-WHAT MAKES THIS DIFFERENT FROM EVERY OTHER PIPELINE:
-1. Each of 13 attempts gets a DIFFERENT topic — never retries same topic
-2. Attempts 9-13 pull from verified viral archive topics (2yr old proven hits)
-3. Voice quality detection — if score suggests robotic output, auto-switches voice
-4. Thumbnail uses 4 psychological triggers simultaneously (not just shock)
-5. Script prompt built from actual viral video analysis, not generic instructions
-6. Minimum quality 7.3 guaranteed or makeup video queued — never compromise quality
+WHY THESE NICHES:
+- Horror + psychology content has the highest watch time on YouTube
+- Viewers watch entire playlists at 2AM unable to stop
+- These niches have almost zero quality competition at this level
+- RPM is strong because audience is 18-35 educated professionals
+- Suggested content algorithm loves dark storytelling — infinite loop potential
 
-ALL REQUIREMENTS CONFIRMED:
-✅ Crime/Betrayal/Deception niches ONLY
+ALL REQUIREMENTS:
 ✅ 13-attempt system (8 fresh + 5 archive)
-✅ Quality gate minimum 7.3 | final gate 6.9 (never lower)
-✅ 10 US + 10 GB human neural voices (20 total)
-✅ Voice quality checker — auto-remakes with better voice if robotic
-✅ Darkest most creative thumbnails — 4 psychological triggers
-✅ Most shocking hook-based scripts ever written
-✅ Viral intelligence engine (weekly learning)
-✅ Fresh topic per attempt (not same topic retried)
-✅ Archive fallback for attempts 9-13
-✅ 5-title CTR scoring engine
-✅ 12 psychological dread triggers
-✅ 2200-2600 word scripts with enforced expansion
+✅ Quality minimum 7.3 | Final floor 6.9
+✅ 20 human neural voices (10 US + 10 GB)
+✅ Voice quality checker — auto-switches robotic
+✅ 4-trigger thumbnail system
 ✅ NO subtitles on main video
-✅ Subtitles on Shorts ONLY with frame-perfect audio sync
-✅ 2 YouTube Shorts per video
-✅ Approval gate BEFORE video generation (30-min)
-✅ Dual notification: Telegram + Gmail HTML
-✅ Startup Telegram test (confirms bot is working)
-✅ Telegram messages split to avoid 4096 char limit
-✅ Makeup video logic (fail = 2 tomorrow)
-✅ Voice + niche memory (never repeat yesterday)
-✅ Cross-promotion between videos
-✅ Pixabay dark cinematic background
-✅ Series watermark on every video
-✅ Auto-cleanup after upload
-✅ Weekly performance tracking
-✅ Fits in 2-hour GitHub Actions timeout
+✅ Subtitles on Shorts ONLY with audio sync
+✅ 2 Shorts per video (teaser 10% + recap 67%)
+✅ Approval gate BEFORE video (30-min)
+✅ Telegram + Gmail dual notification
+✅ Startup Telegram test
+✅ Viral intelligence engine
+✅ Fresh topic per attempt
+✅ Archive fallback attempts 9-13
+✅ Pixabay dark background
+✅ Series watermark
+✅ Voice + niche memory
+✅ Makeup video logic
+✅ Cross-promotion
+✅ Auto-cleanup
+✅ Weekly tracking
+✅ Gemini-only for scripts (Groq for small requests)
+✅ Node.js 24 compatible workflow
 """
 
 import os, sys, json, re, time, random, datetime, asyncio
@@ -68,7 +61,7 @@ YT_CLIENT_SEC = os.environ["YOUTUBE_CLIENT_SECRET"]
 YT_REFRESH    = os.environ["YOUTUBE_REFRESH_TOKEN"]
 TG_TOKEN      = os.environ["TELEGRAM_TOKEN"]
 TG_CHAT       = os.environ["TELEGRAM_CHAT_ID"]
-IS_MAKEUP     = os.environ.get("IS_MAKEUP", "false").lower() == "true"
+IS_MAKEUP     = os.environ.get("IS_MAKEUP","false").lower() == "true"
 
 groq_client   = Groq(api_key=GROQ_KEY)
 GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
@@ -78,176 +71,162 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE    = WORK_DIR / "state.json"
 INTEL_FILE    = WORK_DIR / "viral_intel.json"
 
-MIN_WORDS = 2200
-MAX_WORDS = 2600
-MIN_GATE  = 7.3   # Never compromise below this
-FINAL_GATE = 6.9  # Absolute floor — only at attempt 13
+MIN_WORDS  = 2200
+MAX_WORDS  = 2600
+MIN_GATE   = 7.3
+FINAL_GATE = 6.9
 
 # ════════════════════════════════════════════════════════════
 # 20 HUMAN NEURAL VOICES — 10 US + 10 GB
-# All verified for maximum naturalness
-# Rated by documentary/narration suitability
 # ════════════════════════════════════════════════════════════
 US_VOICES = [
-    "en-US-AndrewNeural",       # Warm authoritative storyteller — BEST for betrayal
-    "en-US-BrianNeural",        # Deep calm commanding — BEST for dark conspiracy
-    "en-US-ChristopherNeural",  # Serious documentary authoritative
-    "en-US-DavisNeural",        # Dark dramatic deep — BEST for psychological
-    "en-US-EricNeural",         # Professional measured deliberate
+    "en-US-AndrewNeural",       # Warm authoritative — BEST for horror storytelling
+    "en-US-BrianNeural",        # Deep commanding — BEST for dark psychology
+    "en-US-ChristopherNeural",  # Serious documentary
+    "en-US-DavisNeural",        # Dark dramatic deep — BEST for horror
+    "en-US-EricNeural",         # Professional measured
     "en-US-GuyNeural",          # Commanding serious
-    "en-US-JasonNeural",        # Calm measured deliberate
+    "en-US-JasonNeural",        # Calm deliberate
     "en-US-RogerNeural",        # Energetic authoritative
-    "en-US-SteffanNeural",      # Professional clear sharp
+    "en-US-SteffanNeural",      # Professional clear
     "en-US-TonyNeural",         # Confident expressive
 ]
-
 GB_VOICES = [
-    "en-GB-RyanNeural",         # BBC documentary gravitas — BEST overall
-    "en-GB-ThomasNeural",       # Cold measured cinematic authority
+    "en-GB-RyanNeural",         # BBC gravitas — BEST overall
+    "en-GB-ThomasNeural",       # Cold measured cinematic
     "en-GB-ElliotNeural",       # Deep calm investigative
     "en-GB-NoahNeural",         # Measured dark deliberate
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
-    "en-GB-SoniaNeural",        # Sharp devastating (female)
-    "en-GB-LibbyNeural",        # Natural conversational warm (female)
-    "en-GB-AbbiNeural",         # Clear warm professional (female)
-    "en-GB-HollieNeural",       # Professional sharp natural (female)
+    "en-GB-SoniaNeural",        # Sharp devastating (F)
+    "en-GB-LibbyNeural",        # Natural warm (F)
+    "en-GB-AbbiNeural",         # Clear professional (F)
+    "en-GB-HollieNeural",       # Sharp professional (F)
 ]
+ALL_VOICES     = US_VOICES + GB_VOICES
+ROBOTIC_VOICES = ["en-US-AriaNeural","en-US-AnaNeural"]
 
-ALL_VOICES = US_VOICES + GB_VOICES  # 20 total
-
-# Voice quality markers — if these appear in TTS output it is robotic
-# These are edge-tts voices to AVOID (they have known robotic artifacts)
-ROBOTIC_VOICES = [
-    "en-US-AriaNeural",   # Can sound robotic on long form
-    "en-US-AnaNeural",    # Child voice — wrong for this content
-]
-
-# Best voices per niche — ordered by fit
 NICHE_VOICES = {
-    "betrayal":           ["en-GB-RyanNeural", "en-US-AndrewNeural", "en-GB-ElliotNeural",
-                           "en-US-BrianNeural", "en-GB-NoahNeural"],
-    "true_crime":         ["en-US-AndrewNeural", "en-GB-RyanNeural", "en-US-ChristopherNeural",
-                           "en-GB-ThomasNeural", "en-US-DavisNeural"],
-    "deception":          ["en-US-BrianNeural", "en-GB-ThomasNeural", "en-US-AndrewNeural",
-                           "en-GB-ElliotNeural", "en-US-DavisNeural"],
-    "dark_conspiracy":    ["en-US-ChristopherNeural", "en-GB-NoahNeural", "en-US-BrianNeural",
-                           "en-GB-RyanNeural", "en-US-EricNeural"],
-    "psychological_dark": ["en-GB-RyanNeural", "en-US-DavisNeural", "en-US-AndrewNeural",
-                           "en-GB-ElliotNeural", "en-US-JasonNeural"],
+    "dark_horror":        ["en-US-DavisNeural","en-GB-RyanNeural","en-US-AndrewNeural","en-GB-ElliotNeural","en-US-BrianNeural"],
+    "seduction_dark":     ["en-GB-RyanNeural","en-US-AndrewNeural","en-GB-ThomasNeural","en-US-DavisNeural","en-GB-ElliotNeural"],
+    "psychological_trap": ["en-US-BrianNeural","en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-NoahNeural","en-US-DavisNeural"],
+    "supernatural_real":  ["en-GB-RyanNeural","en-US-DavisNeural","en-GB-ElliotNeural","en-US-AndrewNeural","en-GB-NoahNeural"],
+    "obsession_dark":     ["en-US-AndrewNeural","en-GB-RyanNeural","en-US-DavisNeural","en-GB-ThomasNeural","en-US-BrianNeural"],
 }
 
-# ── NICHES ────────────────────────────────────────────────
+# ── NICHES ────────────────────────────────────────────────────
 DAY_NICHE = {
-    0: "betrayal",
-    1: "true_crime",
-    2: "deception",
-    3: "dark_conspiracy",
-    4: "psychological_dark",
+    0: "dark_horror",
+    1: "seduction_dark",
+    2: "psychological_trap",
+    3: "supernatural_real",
+    4: "obsession_dark",
 }
 
 NICHES = [
     {
-        "name": "betrayal", "rpm": 12.82,
-        "series": "The Betrayal Files", "watermark": "THE BETRAYAL FILES",
-        "dread_triggers": ["proximity", "normality", "complicity", "invisibility"],
-        "viral_search": "betrayal exposed documentary true story viral",
-        "archive_search": "biggest betrayal exposed 2022 2023 true story documentary viral",
+        "name": "dark_horror", "rpm": 13.00,
+        "series": "Dark Hours", "watermark": "DARK HOURS",
+        "dread_triggers": ["proximity","normality","invisibility","cost"],
+        "viral_search": "real horror story documentary dark terrifying true",
+        "archive_search": "most terrifying real horror story viral documentary 2022 2023",
+        "thumbnail_triggers": ["IT CAME BACK","STILL THERE","NEVER LEFT","THEY SAW IT"],
         "seed_topics": [
-            "A best friend secretly worked against someone for 8 years while pretending to be their closest ally",
-            "A business partner who systematically dismantled his co-founders life from the inside over a decade",
-            "A family member who forged documents for 11 years destroying everything while attending every birthday",
-            "A mentor who stole credit for her proteges entire career then watched them take the blame publicly",
-            "A trusted colleague who fed private information to competitors for 6 years and was never suspected",
-            "A partner who maintained a second family for 9 years and was only exposed when both families met",
+            "A family moved into a house where something had been living in the walls for 11 years before they arrived",
+            "A nurse documented what she witnessed during night shifts over 6 years that nobody believed until a camera proved it",
+            "A hiker survived something in the mountains in 2019 that search and rescue teams still cannot explain",
+            "A woman began receiving messages from her own phone number 3 months after her phone was destroyed",
+            "An entire small town reported the same experience on the same night in 2021 and authorities sealed the records",
+            "A sleep researcher recorded 847 nights of footage and found the same figure appearing in 23 percent of them",
         ],
-        "thumbnail_triggers": ["THEY KNEW", "ALL ALONG", "TRUSTED THEM", "NOBODY KNEW"]
     },
     {
-        "name": "true_crime", "rpm": 10.50,
-        "series": "Dark Truth", "watermark": "DARK TRUTH",
-        "dread_triggers": ["proximity", "detail", "invisibility", "duration"],
-        "viral_search": "true crime documentary cold case solved shocking exposed",
-        "archive_search": "shocking true crime cold case solved 2022 2023 viral documentary",
+        "name": "seduction_dark", "rpm": 14.00,
+        "series": "The Dark Seduction Files", "watermark": "DARK SEDUCTION FILES",
+        "dread_triggers": ["proximity","normality","complicity","reversal"],
+        "viral_search": "dark seduction manipulation obsession real story documentary",
+        "archive_search": "dark seduction manipulation real story viral documentary 2022 2023",
+        "thumbnail_triggers": ["YOU WANTED IT","THEY ALL DO","NOBODY RESISTS","PERFECTLY PLANNED"],
         "seed_topics": [
-            "A killer who lived in the same neighborhood as the victims family for 14 years completely undetected",
-            "An innocent man imprisoned for 22 years while the real criminal attended every court hearing",
-            "A crime solved 30 years later by a single overlooked detail in the original case file",
-            "A serial criminal who used an ordinary job as cover and was only caught through a data pattern",
-            "A case where the investigating detective was the perpetrator for 7 years of the investigation",
+            "A person used a documented 14-step system to make someone fall completely in love and then destroy them",
+            "A charismatic figure seduced and financially destroyed 23 people over 8 years using the same script every time",
+            "A relationship that began as a chance encounter was revealed to have been planned 3 years in advance",
+            "How one person made 4 different people believe they were each the only one for 6 consecutive years",
+            "A cult leader who used documented seduction psychology to make educated adults give up everything in 90 days",
+            "The documented playbook a manipulator used that made victims defend their abuser to investigators",
         ],
-        "thumbnail_triggers": ["NEVER CAUGHT", "STILL FREE", "WALKED FREE", "THEY KNEW"]
     },
     {
-        "name": "deception", "rpm": 13.50,
-        "series": "The Deception Files", "watermark": "THE DECEPTION FILES",
-        "dread_triggers": ["competence", "invisibility", "normality", "reversal"],
-        "viral_search": "deception manipulation identity fraud exposed documentary real story",
-        "archive_search": "biggest deception con artist identity fraud exposed 2022 2023 viral",
+        "name": "psychological_trap", "rpm": 12.00,
+        "series": "The Trap", "watermark": "THE TRAP",
+        "dread_triggers": ["proximity","competence","normality","complicity"],
+        "viral_search": "psychological manipulation trap dark true story exposed documentary",
+        "archive_search": "psychological trap manipulation exposed real story viral 2022 2023",
+        "thumbnail_triggers": ["YOU ARE TRAPPED","ALREADY DONE","TOO LATE NOW","PERFECTLY SET"],
         "seed_topics": [
-            "A person who lived under a completely fabricated identity for 17 years and built a real career on it",
-            "A con artist who fooled hospitals banks and universities simultaneously for over a decade",
-            "A family that discovered every significant memory of their lives together was manufactured",
-            "An elaborate deception that worked precisely because it was too bold for anyone to question",
-            "How one lie told in 2009 became the foundation of an entire life that collapsed in 2024",
+            "The documented 9-stage process one person used to make their target completely financially dependent",
+            "A psychological trap that used social media to make the victim isolate themselves over 18 months",
+            "How a gaslighting campaign made a forensic psychologist temporarily doubt her own professional judgment",
+            "The workplace psychological trap that destroyed 6 careers while the perpetrator was promoted 3 times",
+            "A documented case where an entire family was manipulated into cutting off one member using zero obvious force",
+            "The psychological method that made victims believe they were the ones causing harm for 4 years",
         ],
-        "thumbnail_triggers": ["ALL LIES", "NEVER REAL", "COMPLETELY FAKE", "ALL FABRICATED"]
     },
     {
-        "name": "dark_conspiracy", "rpm": 14.00,
-        "series": "Hidden Truth", "watermark": "HIDDEN TRUTH",
-        "dread_triggers": ["institutional", "scale", "competence", "duration"],
-        "viral_search": "dark truth hidden conspiracy cover-up exposed documentary institutional",
-        "archive_search": "biggest cover-up institutional scandal exposed 2022 2023 viral documentary",
+        "name": "supernatural_real", "rpm": 11.50,
+        "series": "Evidence Files", "watermark": "EVIDENCE FILES",
+        "dread_triggers": ["proximity","normality","detail","invisibility"],
+        "viral_search": "real supernatural documented evidence unexplained events true story",
+        "archive_search": "documented supernatural unexplained events real evidence viral 2022 2023",
+        "thumbnail_triggers": ["OFFICIALLY UNEXPLAINED","STILL NO ANSWER","THEY FILMED IT","RECORDS SEALED"],
         "seed_topics": [
-            "An institution that discovered the truth internally in 2018 and spent 5 years ensuring it stayed buried",
-            "A cover-up that protected 12 powerful people while 340 ordinary people paid the consequences",
-            "How an entire organization knew about ongoing harm for years and built systems to conceal it",
-            "A scandal that reached the highest levels of a trusted institution and was almost never found",
-            "The documented chain of decisions that turned knowledge of harm into a decade of silence",
+            "A 2019 incident documented by 14 independent witnesses that government agencies classified within 72 hours",
+            "A building where every occupant over 40 years reported the same auditory experience that instruments confirmed",
+            "A medical case from 2021 where a patient described in precise detail an event they could not have witnessed",
+            "Physical evidence collected in 1987 that was finally analyzed in 2023 and produced results with no explanation",
+            "A documented mass experience in a school in 2020 where 67 students simultaneously reported the same thing",
+            "A location where magnetic instruments and cameras produce consistent anomalies that scientists cannot account for",
         ],
-        "thumbnail_triggers": ["THEY HID IT", "ALL KNEW", "BURIED TRUTH", "HIDDEN YEARS"]
     },
     {
-        "name": "psychological_dark", "rpm": 11.50,
-        "series": "Mind Games", "watermark": "MIND GAMES",
-        "dread_triggers": ["proximity", "normality", "complicity", "competence"],
-        "viral_search": "dark psychology narcissist manipulation exposed isolation control documentary",
-        "archive_search": "dark psychology manipulation narcissist exposed 2022 2023 viral documentary",
+        "name": "obsession_dark", "rpm": 13.00,
+        "series": "Consumed", "watermark": "CONSUMED",
+        "dread_triggers": ["proximity","duration","normality","cost"],
+        "viral_search": "dark obsession stalking fixation real story documentary true crime",
+        "archive_search": "dark obsession fixation real story viral documentary 2022 2023",
+        "thumbnail_triggers": ["ALWAYS WATCHING","NEVER STOPPED","12 YEARS LATER","STILL WATCHING"],
         "seed_topics": [
-            "The documented 14-step process one person used to make their partner doubt their own memory",
-            "How a clinical narcissist systematically destroyed 6 careers while maintaining a perfect public image",
-            "The psychological tactics that made an entire family believe the abuser was the one being harmed",
-            "A grooming operation so methodical it was only recognized 11 years later by a forensic psychologist",
-            "How one person controlled 4 people simultaneously each believing they were the only one",
+            "A person documented 4,380 consecutive days of obsessive behavior before anyone realized what was happening",
+            "An obsession that began as admiration and became a 7-year campaign that destroyed everything the subject built",
+            "A stalker who embedded themselves in the victims life as a trusted friend for 3 years before being discovered",
+            "How a completely ordinary fixation transformed into something that required 3 restraining orders and 2 relocations",
+            "A documented case where the subject did not realize they were being observed for 9 years until a phone was found",
+            "An obsession that crossed 4 countries over 11 years and was only stopped when the obsessed person died",
         ],
-        "thumbnail_triggers": ["INSIDE YOUR MIND", "CONTROLLED YOU", "YOU NEVER KNEW", "THEY PLANNED IT"]
     },
 ]
 
-# ── 12 PSYCHOLOGICAL DREAD TRIGGERS ──────────────────────
 DREAD_TRIGGERS = {
-    "proximity":     "Make the audience feel this WILL happen to them. Not could. Will. Use 'the person sitting next to you right now', 'your closest friend', 'someone in your own home'.",
-    "duration":      "Emphasize the exact duration with obsessive specificity. 4,380 days. 627 Sundays. 14 Christmases. Duration made concrete becomes unbearable.",
-    "scale":         "Use numbers that overwhelm the mind's ability to process them. Then make each one a specific human being.",
-    "institutional": "The trust was the weapon. The institution that was supposed to protect people is what destroyed them.",
-    "invisibility":  "Evil that looks indistinguishable from good is the most terrifying thing that exists. Make the perpetrator completely ordinary.",
-    "normality":     "The horror and the ordinary happened simultaneously in the same rooms. Sunday dinner happened. The harm happened. In the same house. At the same time.",
-    "complicity":    "The audience failed these people too. Through inattention. Through misplaced trust. Through the same assumptions that made the perpetrator invisible.",
-    "competence":    "The intelligence required. The patience. The planning. The years of rehearsal. The cold architecture of sustained harm.",
-    "detail":        "One specific irrelevant-seeming detail that later proves everything. The exact date. The exact words. The exact amount. Specificity transforms fiction into documented truth.",
-    "reversal":      "Everything understood was the cover story. The real story was always something else entirely. Everything ordinary was always sinister.",
-    "cost":          "Name what was lost. The career that never happened. The marriage that ended. The child who grew up without a parent. The money that cannot be recovered. The years.",
-    "repetition":    "It happened again. And again. Every single time. For years. The mechanical inhuman repetition of sustained calculated harm.",
+    "proximity":     "Make the audience feel this is happening near them right now. 'Someone near you tonight.' 'The house next to yours.' Make it personal and immediate.",
+    "duration":      "The exact duration stated obsessively. Not 7 years — 2,555 nights. Not a decade — 3,650 mornings of waking up and continuing.",
+    "scale":         "Numbers that overwhelm before they can be processed. Make each one a specific person with a specific life.",
+    "institutional": "The thing that should have stopped it was the thing that enabled it. The system. The family. The organization.",
+    "invisibility":  "The most terrifying thing looks completely normal. It is ordinary. It is unremarkable. It is the person next to you.",
+    "normality":     "The horror and the ordinary life existed simultaneously. In the same house. On the same evenings. At the same dinner table.",
+    "complicity":    "The audience would have done exactly the same thing as the people who failed to stop it. Make them uncomfortable with that.",
+    "competence":    "The cold intelligence of it. The patience. The planning across years. The architecture of sustained darkness.",
+    "detail":        "One specific small detail that proves everything and cannot be explained away. Make it concrete and undeniable.",
+    "reversal":      "The moment when everything the audience understood was wrong. The floor drops. Everything was always something else.",
+    "cost":          "What was permanently destroyed. Not inconvenienced — destroyed. Name what can never be recovered.",
+    "repetition":    "Every day. Every night. Without stopping. The mechanical relentless inhuman repetition of it.",
 }
 
-# ── BACKGROUND KEYWORDS ──────────────────────────────────
 BG_KEYWORDS = {
-    "betrayal":           ["dark dramatic shadow interior", "dark emotional betrayal"],
-    "true_crime":         ["dark mystery investigation forensic", "crime shadow night"],
-    "deception":          ["dark mirror shadow reflection", "deception darkness abstract"],
-    "dark_conspiracy":    ["dark corridor power shadow", "government dark secrets"],
-    "psychological_dark": ["psychological shadow abstract", "mind darkness depth"],
+    "dark_horror":        ["dark horror shadow night", "horror darkness abstract"],
+    "seduction_dark":     ["dark sensual shadow night", "mysterious dark elegant"],
+    "psychological_trap": ["dark corridor trap shadow", "mind darkness psychological"],
+    "supernatural_real":  ["dark mysterious fog night", "supernatural darkness abstract"],
+    "obsession_dark":     ["dark shadow watching night", "obsession darkness cinema"],
 }
 
 
@@ -262,43 +241,39 @@ def tg(msg):
         try:
             r = requests.post(
                 f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                json={"chat_id": TG_CHAT, "text": chunk, "parse_mode": "HTML"},
+                json={"chat_id":TG_CHAT,"text":chunk,"parse_mode":"HTML"},
                 timeout=15)
             if r.status_code != 200:
-                log(f"  TG error {r.status_code}: {r.text[:80]}")
+                log(f"  TG {r.status_code}: {r.text[:60]}")
             time.sleep(0.5)
         except Exception as e:
-            log(f"  TG failed: {str(e)[:60]}")
+            log(f"  TG err: {str(e)[:50]}")
 
 def tg_updates(offset=None):
     try:
-        params = {"timeout": 25}
+        params = {"timeout":25}
         if offset: params["offset"] = offset
         r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
                         params=params, timeout=30)
-        return r.json().get("result", [])
+        return r.json().get("result",[])
     except: return []
 
 def send_gmail(subject, html_body):
-    pwd = os.environ.get("GMAIL_APP_PASSWORD", "")
-    if not pwd:
-        log("  Gmail: no password secret — skipping")
-        return False
+    pwd = os.environ.get("GMAIL_APP_PASSWORD","")
+    if not pwd: log("  Gmail: no secret"); return False
     sender = recipient = "mohammedsultan0497@gmail.com"
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = sender
     msg["To"]      = recipient
-    msg.attach(MIMEText(html_body, "html"))
+    msg.attach(MIMEText(html_body,"html"))
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
-            smtp.login(sender, pwd)
-            smtp.sendmail(sender, recipient, msg.as_string())
-        log("  Gmail sent")
-        return True
+        with smtplib.SMTP_SSL("smtp.gmail.com",465,timeout=30) as smtp:
+            smtp.login(sender,pwd)
+            smtp.sendmail(sender,recipient,msg.as_string())
+        log("  Gmail sent"); return True
     except Exception as e:
-        log(f"  Gmail error: {str(e)[:80]}")
-        return False
+        log(f"  Gmail err: {str(e)[:80]}"); return False
 
 def load_state():
     if STATE_FILE.exists():
@@ -307,7 +282,7 @@ def load_state():
     return {"last_niche":"","last_voice":"","makeup_pending":False,
             "makeup_niche":"","last_title":"","last_url":"","weekly_videos":[]}
 
-def save_state(s): STATE_FILE.write_text(json.dumps(s, indent=2))
+def save_state(s): STATE_FILE.write_text(json.dumps(s,indent=2))
 
 def load_intel():
     if INTEL_FILE.exists():
@@ -315,50 +290,41 @@ def load_intel():
         except: pass
     return {}
 
-def save_intel(d): INTEL_FILE.write_text(json.dumps(d, indent=2))
+def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 
 def call_gemini(prompt, temp=0.88, tokens=8000, model="2.0"):
-    url = GEMINI_URL if model == "2.0" else GEMINI_15_URL
+    url = GEMINI_URL if model=="2.0" else GEMINI_15_URL
     for attempt in range(5):
         try:
             r = requests.post(f"{url}?key={GEMINI_KEY}",
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type":"application/json"},
                 json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": temp,
-                        "maxOutputTokens": min(tokens, 8192),
-                        "topP": 0.95
-                    },
-                    "safetySettings": [
-                        {"category": c, "threshold": "BLOCK_NONE"}
-                        for c in ["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH",
-                                  "HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"]
-                    ]
+                    "contents":[{"parts":[{"text":prompt}]}],
+                    "generationConfig":{"temperature":temp,"maxOutputTokens":min(tokens,8192),"topP":0.95},
+                    "safetySettings":[{"category":c,"threshold":"BLOCK_NONE"} for c in
+                        ["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH",
+                         "HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"]]
                 }, timeout=90)
             if r.status_code == 200:
-                c = r.json().get("candidates", [])
+                c = r.json().get("candidates",[])
                 if c:
                     text = c[0]["content"]["parts"][0]["text"]
                     if text and len(text.strip()) > 100:
                         return text
-                    log(f"  Gemini {model}: empty response — retrying")
+                    log(f"  Gemini {model}: empty — retrying")
             elif r.status_code == 429:
-                wait = 60 * (attempt + 1)
+                wait = 60*(attempt+1)
                 log(f"  Gemini {model} 429 — wait {wait}s")
                 time.sleep(wait)
             elif r.status_code == 400:
-                # 400 = bad request — log the error and try with shorter prompt
-                err = r.json().get("error",{}).get("message","unknown")[:100]
+                err = r.json().get("error",{}).get("message","unknown")[:120]
                 log(f"  Gemini {model} 400: {err}")
-                # Trim prompt if too long
-                if len(prompt) > 8000:
-                    prompt = prompt[:8000] + " WRITE THE NARRATION NOW."
-                    log(f"  Trimmed prompt to 8000 chars")
+                if "API_KEY_INVALID" in err or "API key not valid" in err:
+                    tg("CRITICAL: Gemini API key is invalid. Update GEMINI_API_KEY in GitHub Secrets at aistudio.google.com")
+                    sys.exit(1)
+                if len(prompt) > 6000:
+                    prompt = prompt[:6000] + " WRITE THE NARRATION NOW."
                 time.sleep(5)
-            elif r.status_code == 503:
-                log(f"  Gemini {model} 503 overloaded — wait 30s")
-                time.sleep(30)
             else:
                 log(f"  Gemini {model} {r.status_code}: {r.text[:80]}")
                 time.sleep(15)
@@ -372,56 +338,48 @@ def call_groq(prompt, temp=0.7, tokens=2000):
         try:
             r = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temp, max_tokens=min(tokens, 2000))
+                messages=[{"role":"user","content":prompt}],
+                temperature=temp, max_tokens=min(tokens,2000))
             return r.choices[0].message.content
         except Exception as e:
             if "429" in str(e) or "rate_limit" in str(e).lower():
-                wait = 60
-                log(f"  Groq 429 — wait {wait}s then fallback to Gemini")
-                time.sleep(wait)
-            else:
-                raise
+                log(f"  Groq 429 — wait 60s")
+                time.sleep(60)
+            else: raise
     raise Exception("Groq rate limited")
 
 def ai(prompt, temp=0.88, tokens=8000, prefer="gemini"):
-    """
-    For large requests (script generation): Gemini ONLY — never Groq
-    For small requests (titles/metadata under 1500 tokens): Groq first, Gemini fallback
-    Groq has 2000 token output limit — cannot generate scripts
-    """
     if tokens > 1500:
-        # SCRIPT GENERATION — Gemini only
-        try: return call_gemini(prompt, temp, tokens, "2.0")
-        except: return call_gemini(prompt, temp, tokens, "1.5")
+        # Script generation — Gemini ONLY (Groq cannot output 2200 words)
+        try: return call_gemini(prompt,temp,tokens,"2.0")
+        except: return call_gemini(prompt,temp,tokens,"1.5")
     else:
-        # SMALL REQUESTS — Groq first (faster), Gemini fallback
+        # Small requests — Groq first (faster), Gemini fallback
         if prefer != "gemini":
-            try: return call_groq(prompt, temp, min(tokens, 2000))
-            except: return call_gemini(prompt, temp, min(tokens, 4000), "2.0")
+            try: return call_groq(prompt,temp,min(tokens,2000))
+            except: return call_gemini(prompt,temp,min(tokens,4000),"2.0")
         else:
-            try: return call_gemini(prompt, temp, min(tokens, 4000), "2.0")
-            except: return call_groq(prompt, temp, min(tokens, 2000))
+            try: return call_gemini(prompt,temp,min(tokens,4000),"2.0")
+            except: return call_groq(prompt,temp,min(tokens,2000))
 
 def strip_md(text):
     for _ in range(2):
-        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
-        text = re.sub(r'_{1,3}([^_\n]+)_{1,3}', r'\1', text)
-        text = re.sub(r'^[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*[-*+•·▪]\s+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^\s*\d+[.)]\s+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^>\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'`+[^`]*`+', '', text)
-        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        text = re.sub(r'\[[^\]]*\]', '', text)
-        text = re.sub(r'https?://\S+', '', text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\([^)]*(?:narrator|music|sfx|pause|cut|scene|beat|applause|fade)[^)]*\)',
-                      '', text, flags=re.IGNORECASE)
-        text = re.sub(r'[#@$%^&*{}<>|\\~`]', '', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = re.sub(r'[ \t]{2,}', ' ', text)
+        text = re.sub(r'^#{1,6}\s+','',text,flags=re.MULTILINE)
+        text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}',r'\1',text)
+        text = re.sub(r'_{1,3}([^_\n]+)_{1,3}',r'\1',text)
+        text = re.sub(r'^[-*_]{3,}\s*$','',text,flags=re.MULTILINE)
+        text = re.sub(r'^\s*[-*+•·▪]\s+','',text,flags=re.MULTILINE)
+        text = re.sub(r'^\s*\d+[.)]\s+','',text,flags=re.MULTILINE)
+        text = re.sub(r'^>\s*','',text,flags=re.MULTILINE)
+        text = re.sub(r'`+[^`]*`+','',text)
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)',r'\1',text)
+        text = re.sub(r'\[[^\]]*\]','',text)
+        text = re.sub(r'https?://\S+','',text)
+        text = re.sub(r'<[^>]+>','',text)
+        text = re.sub(r'\([^)]*(?:narrator|music|sfx|pause|cut|scene|beat|fade)[^)]*\)','',text,flags=re.IGNORECASE)
+        text = re.sub(r'[#@$%^&*{}<>|\\~`]','',text)
+        text = re.sub(r'\n{3,}','\n\n',text)
+        text = re.sub(r'[ \t]{2,}',' ',text)
     return text.strip()
 
 
@@ -433,890 +391,599 @@ def run_viral_intelligence(niche):
     name  = niche["name"]
     if name in intel:
         try:
-            last = datetime.datetime.fromisoformat(intel[name].get("last_run", "2020-01-01"))
-            if (datetime.datetime.now() - last).days < 7:
-                log(f"  Intel cached ({(datetime.datetime.now()-last).days}d old)")
+            last = datetime.datetime.fromisoformat(intel[name].get("last_run","2020-01-01"))
+            if (datetime.datetime.now()-last).days < 7:
+                log(f"  Intel cached ({(datetime.datetime.now()-last).days}d)")
                 return intel[name]
         except: pass
     log(f"  Running viral intelligence for {name}...")
-    prompt = f"""You are the world's leading YouTube viral content analyst specializing in dark documentary niches.
-Analyze the TOP 30 most viral videos (2M+ views) in the "{niche['viral_search']}" niche.
-
-Return ONLY valid JSON with no markdown:
-{{"top_hook_formulas":["Hook 1 used in highest-retention videos","Hook 2","Hook 3"],
-"winning_title_patterns":["Pattern A: [NUMBER] [SHOCKING CLAIM] [CONSEQUENCE]","Pattern B","Pattern C"],
-"thumbnail_text_examples":["3 WORD EXAMPLE 1","3 WORD EXAMPLE 2","3 WORD EXAMPLE 3","3 WORD EXAMPLE 4","3 WORD EXAMPLE 5"],
-"emotional_arc":"Exact description of emotional journey in highest-performing videos",
-"retention_hooks":["What audiences hear at 30pct that stops them leaving","60pct hook","80pct hook"],
-"niche_specific_power_words":["word1","word2","word3","word4","word5","word6","word7","word8"],
-"what_makes_videos_viral":"Single most important viral factor in this exact niche",
-"fresh_topic_ideas":["Specific compelling topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]}}"""
+    prompt = f"""Analyze TOP 20 viral YouTube videos (2M+ views) in "{niche['viral_search']}" niche.
+Return ONLY valid JSON:
+{{"top_hook_formulas":["Hook 1 used in highest watch-time videos","Hook 2","Hook 3"],
+"winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
+"thumbnail_text_examples":["3 WORDS 1","3 WORDS 2","3 WORDS 3","3 WORDS 4","3 WORDS 5"],
+"emotional_arc":"One sentence: exact emotional journey in top performers",
+"retention_hooks":["30pct hook","60pct hook","80pct hook"],
+"niche_specific_power_words":["word1","word2","word3","word4","word5","word6","word7"],
+"what_makes_videos_viral":"One sentence: single most important factor",
+"fresh_topic_ideas":["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]}}"""
     try:
-        text = ai(prompt, temp=0.65, tokens=1500, prefer="groq")
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '',
-                      re.sub(r'```json|```', '', text).strip())
-        m = re.search(r'\{[\s\S]*\}', text)
+        text = ai(prompt,temp=0.65,tokens=400,prefer="groq")
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',re.sub(r'```json|```','',text).strip())
+        m = re.search(r'\{[\s\S]*\}',text)
         if m:
             d = json.loads(m.group())
             d["last_run"] = datetime.datetime.now().isoformat()
-            intel[name]   = d
-            save_intel(intel)
-            log(f"  Intel loaded — {len(d.get('fresh_topic_ideas',[]))} topics")
+            intel[name] = d; save_intel(intel)
+            log(f"  Intel loaded")
             return d
-    except Exception as e:
-        log(f"  Intel error: {e}")
+    except Exception as e: log(f"  Intel err: {e}")
     fallback = {
-        "top_hook_formulas": [
-            "They trusted this person with everything. That was the only mistake they ever made.",
-            "For exactly X years, not one person checked. That silence is the most terrifying detail.",
-            "The truth was visible the entire time. Nobody looked."
-        ],
-        "winning_title_patterns": [
-            "He [BETRAYAL VERB] For [DURATION] And Nobody [RESPONSE]",
-            "The [PERSON/ROLE] Who [CRIME] While [NORMAL ACTIVITY] For [YEARS]",
-            "[NUMBER] [PEOPLE/YEARS] — The [INSTITUTION/PERSON] That [FAILURE]"
-        ],
-        "thumbnail_text_examples": ["THEY KNEW","NEVER TOLD","ALL LIES","STILL FREE","NOBODY KNEW"],
-        "emotional_arc": "Shock at scale then horror at duration then devastation at cost then fury at impunity",
-        "retention_hooks": [
-            "What you are about to hear rewrites everything you understood about this case",
-            "The real crime did not start where everyone thinks it started",
-            "The person who should have stopped this is still trusted by thousands of people right now"
-        ],
-        "niche_specific_power_words": ["betrayed","nobody","years","exposed","trusted",
-                                        "hidden","destroyed","silent","alone","never"],
-        "what_makes_videos_viral": "Hyper-specific documented betrayal by trusted person over long duration with irreversible cost",
-        "fresh_topic_ideas": niche["seed_topics"][:6],
+        "top_hook_formulas":["Nobody believed it until they saw the footage.","It happened at 3:17 AM. Every single time.","What was found in that room changed everything."],
+        "winning_title_patterns":["The [THING] That [HAPPENED] For [DURATION] While [NORMAL]","Nobody Believed [SUBJECT] Until [EVIDENCE] Proved [HORROR]"],
+        "thumbnail_text_examples": niche["thumbnail_triggers"],
+        "emotional_arc":"Curiosity then dread then terror then revelation then inability to unsee",
+        "retention_hooks":["What happened next has never been officially explained","The recording you are about to hear was never meant to exist","The last piece of evidence changes everything before it"],
+        "niche_specific_power_words":["nobody","witnessed","documented","still","returned","impossible","proven"],
+        "what_makes_videos_viral":"Documented real events that resist rational explanation delivered with precision",
+        "fresh_topic_ideas": niche["seed_topics"],
         "last_run": datetime.datetime.now().isoformat()
     }
-    intel[name] = fallback
-    save_intel(intel)
-    return fallback
+    intel[name] = fallback; save_intel(intel); return fallback
 
 
 # ════════════════════════════════════════════════════════════
 # FRESH TOPIC ENGINE
-# Different topic for every single attempt
-# Attempts 1-8: Fresh/current topics
-# Attempts 9-13: Proven viral archive topics (2yr old)
 # ════════════════════════════════════════════════════════════
 def get_fresh_topic(niche, attempt, intel, used_topics):
     is_archive = attempt > 8
-
     if not is_archive:
-        # First try intel's fresh topics
         fresh = intel.get("fresh_topic_ideas", niche["seed_topics"])
         unused = [t for t in fresh if t not in used_topics]
         if unused:
             chosen = unused[0] if attempt <= 3 else random.choice(unused)
-            log(f"  Topic (intel): {chosen[:75]}")
+            log(f"  Topic: {chosen[:75]}")
             return chosen
-
-        # Generate new topics
-        log(f"  Generating fresh topics...")
-        prompt = f"""Generate 6 completely original compelling story topics for "{niche['series']}".
+        prompt = f"""Generate 6 original compelling topics for "{niche['series']}" YouTube series.
 Niche: {niche['name']} | Search: {niche['viral_search']}
-Already used: {[t[:50] for t in used_topics[:4]]}
-
-Requirements:
-- Each must be a specific human story with real emotional weight
-- Each must be different from all used topics
-- Each must naturally produce a 15-minute video
-- Each must feel documented and real
-
-Return ONLY a JSON array of 6 strings:
-["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]"""
+Already used: {[t[:40] for t in used_topics[:4]]}
+Make each specific, emotionally gripping, different from used list.
+Return ONLY JSON array: ["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]"""
         try:
-            text = ai(prompt, temp=0.85, tokens=700, prefer="groq")
-            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '',
-                          re.sub(r'```json|```', '', text).strip())
-            m = re.search(r'\[[\s\S]*?\]', text)
+            text = ai(prompt,temp=0.85,tokens=400,prefer="groq")
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',re.sub(r'```json|```','',text).strip())
+            m = re.search(r'\[[\s\S]*?\]',text)
             if m:
                 topics = json.loads(m.group())
                 unused = [t for t in topics if t not in used_topics]
-                if unused:
-                    chosen = random.choice(unused)
-                    log(f"  Topic (generated): {chosen[:75]}")
-                    return chosen
-        except Exception as e:
-            log(f"  Topic gen error: {e}")
+                if unused: return random.choice(unused)
+        except Exception as e: log(f"  Topic gen err: {e}")
     else:
-        # Archive mode — search for proven viral topics from last 2 years
-        log(f"  Archive mode (attempt {attempt}) — searching proven viral topics...")
-        prompt = f"""Find 6 highly compelling TRUE documented stories from 2022-2024 that:
-1. Generated massive public interest and went viral online
-2. Fit the "{niche['name']}" niche
-3. Would make an outstanding 15-minute YouTube documentary
-4. Are NOT already in this list: {[t[:40] for t in used_topics[:4]]}
-
-Search focus: {niche['archive_search']}
-
-Return ONLY a JSON array of 6 specific story descriptions:
-["Specific real documented story 1","Story 2","Story 3","Story 4","Story 5","Story 6"]"""
+        prompt = f"""Find 6 documented real stories from 2022-2024 in "{niche['name']}" niche that went viral.
+Focus: {niche['archive_search']}
+Not: {[t[:40] for t in used_topics[:4]]}
+Return ONLY JSON array: ["Story 1","Story 2","Story 3","Story 4","Story 5","Story 6"]"""
         try:
-            text = ai(prompt, temp=0.8, tokens=700, prefer="groq")
-            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '',
-                          re.sub(r'```json|```', '', text).strip())
-            m = re.search(r'\[[\s\S]*?\]', text)
+            text = ai(prompt,temp=0.8,tokens=400,prefer="groq")
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',re.sub(r'```json|```','',text).strip())
+            m = re.search(r'\[[\s\S]*?\]',text)
             if m:
                 topics = json.loads(m.group())
                 unused = [t for t in topics if t not in used_topics]
-                if unused:
-                    chosen = random.choice(unused)
-                    log(f"  Topic (archive): {chosen[:75]}")
-                    return chosen
-        except Exception as e:
-            log(f"  Archive search error: {e}")
-
-    # Seed fallback
+                if unused: return random.choice(unused)
+        except Exception as e: log(f"  Archive err: {e}")
     unused_seeds = [t for t in niche["seed_topics"] if t not in used_topics]
-    chosen = random.choice(unused_seeds) if unused_seeds else niche["seed_topics"][0]
-    log(f"  Topic (seed): {chosen[:75]}")
-    return chosen
+    return random.choice(unused_seeds) if unused_seeds else niche["seed_topics"][0]
 
 
 # ════════════════════════════════════════════════════════════
-# 5-TITLE CTR SCORING ENGINE
+# 5-TITLE CTR SCORING
 # ════════════════════════════════════════════════════════════
 def score_title_ctr(title):
-    s = 5.0
-    tl = title.lower()
-    n = len(title)
-    if 50 <= n <= 65:  s += 1.5
-    elif 45 <= n <= 70: s += 0.8
-    else:               s -= 1.0
-    power = ["betrayed","exposed","nobody","secret","truth","years","destroyed",
-             "hidden","never","finally","inside","untold","silent","lied","escaped"]
-    s += min(sum(1 for w in power if w in tl) * 0.4, 2.0)
-    if re.search(r'\d+\s*(year|month|day|year|people|victim|million)', tl): s += 1.0
-    if any(w in tl for w in ["nobody knew","nobody checked","still free","got away",
-                               "was never","never told","never found","walked free"]): s += 0.8
-    if any(w in tl for w in ["how","why","the truth","the real","inside","untold"]): s += 0.5
-    return min(round(s, 1), 10.0)
+    s = 5.0; tl = title.lower(); n = len(title)
+    if 50<=n<=65: s+=1.5
+    elif 45<=n<=70: s+=0.8
+    else: s-=1.0
+    power = ["nobody","witnessed","returned","still","documented","proven","impossible","sealed","watched","alone","real","found","never"]
+    s += min(sum(1 for w in power if w in tl)*0.4, 2.0)
+    if re.search(r'\d+\s*(year|night|day|hour|month|time)',tl): s+=1.0
+    if any(w in tl for w in ["nobody believed","still unexplained","officially sealed","still watching","never left","came back"]): s+=0.8
+    return min(round(s,1),10.0)
 
 def generate_and_score_titles(niche, topic, intel, episode):
-    patterns  = intel.get("winning_title_patterns", [])
-    power     = intel.get("niche_specific_power_words", ["betrayed","nobody","years"])
-    prompt = f"""Generate exactly 5 YouTube title variants.
+    patterns = intel.get("winning_title_patterns",[])
+    power    = intel.get("niche_specific_power_words",["nobody","witnessed","real"])
+    prompt = f"""Generate 5 YouTube title variants for this dark story video.
 NICHE: {niche['name']} | SERIES: {niche['series']} Ep{episode}
 TOPIC: {topic[:150]}
-VIRAL PATTERNS: {chr(10).join(patterns[:3])}
+PATTERNS: {chr(10).join(patterns[:3])}
 POWER WORDS: {', '.join(power)}
-
-RULES:
-- 50-65 characters each
-- Massive curiosity gap — must make stopping impossible
-- At least one specific detail (number, duration, or name)
-- Documentary tone — feels true and documented not sensational
-- Never clickbait — must be factually supportable
-
-Return ONLY a JSON array of exactly 5 strings:
-["title 1","title 2","title 3","title 4","title 5"]"""
+Rules: 50-65 chars. Maximum dread and curiosity. Specific. Documentary not sensational.
+Return ONLY JSON array: ["title 1","title 2","title 3","title 4","title 5"]"""
     try:
-        text = ai(prompt, temp=0.75, tokens=450, prefer="groq")
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '',
-                      re.sub(r'```json|```', '', text).strip())
-        m = re.search(r'\[[\s\S]*?\]', text)
+        text = ai(prompt,temp=0.75,tokens=400,prefer="groq")
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',re.sub(r'```json|```','',text).strip())
+        m = re.search(r'\[[\s\S]*?\]',text)
         if m:
             titles = json.loads(m.group())
-            if len(titles) >= 3:
-                scored = sorted([(t, score_title_ctr(t)) for t in titles],
-                               key=lambda x: x[1], reverse=True)
-                log(f"  Winner: {scored[0][1]}/10 — {scored[0][0][:55]}")
-                for t, s in scored: log(f"    {s}/10: {t[:55]}")
+            if len(titles)>=3:
+                scored = sorted([(t,score_title_ctr(t)) for t in titles],key=lambda x:x[1],reverse=True)
+                log(f"  Title: {scored[0][1]}/10 — {scored[0][0][:55]}")
                 return scored[0][0], scored
-    except Exception as e:
-        log(f"  Title error: {e}")
-    fallback = f"{niche['series']}: The Story Nobody Was Supposed to Find"
-    return fallback, [(fallback, 6.5)]
+    except Exception as e: log(f"  Title err: {e}")
+    return f"{niche['series']}: The Story That Changes Everything", [(f"{niche['series']}: The Story",6.0)]
 
-
-# ════════════════════════════════════════════════════════════
-# DARKEST MOST CREATIVE THUMBNAIL GENERATOR
-# Uses 4 psychological triggers simultaneously:
-# 1. Curiosity gap (what are those 3 words hiding)
-# 2. Social proof violation (trusted thing = dangerous)
-# 3. Identity threat (this could be you)
-# 4. Pattern interrupt (unexpected juxtaposition)
-# ════════════════════════════════════════════════════════════
 def generate_thumbnail_text(niche, topic, intel):
-    examples  = intel.get("thumbnail_text_examples", niche["thumbnail_triggers"])
-    prompt = f"""You are the world's most effective YouTube thumbnail designer for dark documentary content.
-Generate the single most psychologically compelling 3-word thumbnail text.
-
-NICHE: {niche['name']}
-TOPIC: {topic[:120]}
-TOP PERFORMING EXAMPLES: {', '.join(examples)}
-NICHE-SPECIFIC TRIGGERS: {', '.join(niche['thumbnail_triggers'])}
-
-YOUR THUMBNAIL MUST USE ALL 4 PSYCHOLOGICAL TRIGGERS SIMULTANEOUSLY:
-1. CURIOSITY GAP: The 3 words must create an unanswerable question
-2. SOCIAL PROOF VIOLATION: Imply something trusted was dangerous
-3. IDENTITY THREAT: Make the viewer feel personally implicated
-4. PATTERN INTERRUPT: Be unexpected — not what they think they will see
-
-RULES:
-- EXACTLY 3 words
-- ALL CAPITALS
-- Blood-chilling but credible
-- Cannot be generic (never use: SHOCKING, AMAZING, EXPOSED alone)
-- Must be the most disturbing thing possible that is still coherent
-- Must stop someone mid-scroll instantly
-
-EXAMPLES OF WHAT WORKS:
-- "THEY ALL KNEW" (implies mass complicity including viewer)
-- "NEVER TOLD YOU" (implies hidden truth the viewer deserved to know)
-- "STILL WALKS FREE" (implies injustice ongoing right now)
-- "YOU TRUST THEM" (direct identity threat)
-- "IT NEVER STOPPED" (implies ongoing harm)
-
-Return ONLY the 3 words. Nothing else."""
+    examples = intel.get("thumbnail_text_examples",niche["thumbnail_triggers"])
+    prompt = f"""Generate the most psychologically compelling 3-word thumbnail text for a dark story video.
+NICHE: {niche['name']} | TOPIC: {topic[:100]}
+TOP EXAMPLES: {', '.join(examples)}
+USE ALL 4 TRIGGERS: curiosity gap + dread signal + identity threat + pattern interrupt
+Rules: EXACTLY 3 words ALL CAPS. Maximum psychological impact. Never generic.
+Return ONLY 3 words."""
     try:
-        result = ai(prompt, temp=0.82, tokens=20, prefer="groq")
-        result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+        result = ai(prompt,temp=0.85,tokens=15,prefer="groq")
+        result = re.sub(r'[^A-Z\s]','',result.upper()).strip()
         words  = result.split()[:3]
-        if len(words) == 3:
-            log(f"  Thumbnail: {' '.join(words)}")
-            return ' '.join(words)
-    except Exception as e:
-        log(f"  Thumbnail error: {e}")
+        if len(words)==3: return ' '.join(words)
+    except: pass
     return random.choice(niche["thumbnail_triggers"])
 
 
 # ════════════════════════════════════════════════════════════
-# SCRIPT GENERATION — THE MOST POWERFUL VERSION EVER BUILT
-# Minimum 7.3/10 quality or attempt continues
-# 13 attempts before defeat — video guaranteed
+# SCRIPT GENERATION — DARK ADDICTIVE STORYTELLING
+# Built specifically to make viewers watch back-to-back
 # ════════════════════════════════════════════════════════════
 def get_niche_and_voice(state):
     if IS_MAKEUP and state.get("makeup_pending") and state.get("makeup_niche"):
-        n = next((x for x in NICHES if x["name"] == state["makeup_niche"]), None)
-        if n: return n, get_best_voice(n["name"], state)
-    name = DAY_NICHE.get(datetime.datetime.now().weekday(), "betrayal")
-    if name == state.get("last_niche", ""):
-        candidates = sorted([x for x in NICHES if x["name"] != name],
-                           key=lambda x: x["rpm"], reverse=True)
+        n = next((x for x in NICHES if x["name"]==state["makeup_niche"]),None)
+        if n: return n, get_best_voice(n["name"],state)
+    name = DAY_NICHE.get(datetime.datetime.now().weekday(),"dark_horror")
+    if name == state.get("last_niche",""):
+        candidates = sorted([x for x in NICHES if x["name"]!=name],key=lambda x:x["rpm"],reverse=True)
         name = candidates[0]["name"]
-    niche = next(x for x in NICHES if x["name"] == name)
-    return niche, get_best_voice(name, state)
+    niche = next(x for x in NICHES if x["name"]==name)
+    return niche, get_best_voice(name,state)
 
 def get_best_voice(niche_name, state):
-    preferred = NICHE_VOICES.get(niche_name, GB_VOICES[:5])
-    available = [v for v in preferred if v != state.get("last_voice", "")]
+    preferred = NICHE_VOICES.get(niche_name,GB_VOICES[:5])
+    available = [v for v in preferred if v!=state.get("last_voice","")]
     pool      = available or preferred
     return pool[datetime.datetime.now().timetuple().tm_yday % len(pool)]
 
 def build_dread_prompt(niche):
     return "\n".join(
-        f"DREAD {t.upper()}: {DREAD_TRIGGERS[t]}"
-        for t in niche.get("dread_triggers", [])
-        if t in DREAD_TRIGGERS
-    )
-
-def generate_script(niche, topic, episode, attempt, prev_title, intel):
-    temp        = min(0.82 + attempt * 0.012, 0.94)
-    darkness    = min(30 + attempt * 7, 96)
-    cross       = (f'\nNATURAL CROSS-PROMOTION: Weave into your closing without announcing it — '
-                   f'reference our previous investigation: "{prev_title}"') if prev_title else ""
-    dread       = build_dread_prompt(niche)
-    hooks       = intel.get("top_hook_formulas",
-                           ["They trusted this person completely. That was the only mistake they ever made."])
-    hook_ex     = "\n".join(f"  HOOK {i+1} (proven in top-performing videos): {h}"
-                            for i, h in enumerate(hooks[:3]))
-    retention   = intel.get("retention_hooks",
-                           ["What you are about to hear rewrites everything about this case"])
-    ret_str     = "\n".join(
-        f"  RETENTION HOOK at {['30','60','80'][i]}pct: {r}"
-        for i, r in enumerate(retention[:3]))
-    power       = intel.get("niche_specific_power_words",
-                           ["betrayed","nobody","years","exposed","trusted","hidden"])
-    viral       = intel.get("what_makes_videos_viral",
-                           "Hyper-specific documented betrayal over long duration with irreversible cost")
-    arc         = intel.get("emotional_arc",
-                           "Shock then horror then dread then twist then devastation then reckoning")
-
-    # Compressed prompt — keeps all requirements, cuts token usage by 60%
-    dread_short = " | ".join(
-        f"{t.upper()}: {DREAD_TRIGGERS[t][:60]}"
+        f"DREAD {t.upper()}: {DREAD_TRIGGERS[t][:80]}"
         for t in niche.get("dread_triggers",[])[:4]
         if t in DREAD_TRIGGERS)
 
-    prompt = f"""You are the greatest dark investigative documentary narrator alive.
-Write Episode {episode} of "{niche['series']}" for The Betrayal DeepDive.
+def generate_script(niche, topic, episode, attempt, prev_title, intel):
+    temp      = min(0.82+attempt*0.012, 0.94)
+    darkness  = min(40+attempt*6, 96)
+    cross     = f'\nNaturally reference previous episode: "{prev_title}" in your closing.' if prev_title else ""
+    dread     = build_dread_prompt(niche)
+    hooks     = intel.get("top_hook_formulas",["Nobody believed it until they saw the footage."])
+    retention = intel.get("retention_hooks",["What happened next has never been officially explained"])
+    power     = intel.get("niche_specific_power_words",["nobody","witnessed","documented","still"])
+    viral     = intel.get("what_makes_videos_viral","Documented real events delivered with precision")
+    arc       = intel.get("emotional_arc","Curiosity then dread then terror then revelation")
+
+    prompt = f"""You are the greatest dark storytelling narrator alive for YouTube documentaries.
+Write Episode {episode} of "{niche['series']}" — a channel built to make people watch all night.
 Story: {topic}
 Darkness: {darkness}% {cross}
 
-PROVEN HOOKS FROM TOP VIDEOS: {hooks[0] if hooks else "They trusted this person completely. That was their only mistake."}
-EMOTIONAL ARC: {arc}
+PROVEN HOOKS: {hooks[0]}
 VIRAL FACTOR: {viral}
-POWER WORDS: {', '.join(power[:6])}
-RETENTION HOOK 1 (use at 30pct): {retention[0] if retention else "What you are about to hear changes everything"}
-RETENTION HOOK 2 (use at 60pct): {retention[1] if len(retention)>1 else "The real crime starts now"}
-RETENTION HOOK 3 (use at 80pct): {retention[2] if len(retention)>2 else "Nobody was ever held accountable"}
+EMOTIONAL ARC: {arc}
+POWER WORDS: {', '.join(power[:7])}
+RETENTION HOOK at 30pct: {retention[0]}
+RETENTION HOOK at 60pct: {retention[1] if len(retention)>1 else "Everything you understood about this is about to change"}
+RETENTION HOOK at 80pct: {retention[2] if len(retention)>2 else "The final detail has never been publicly released until now"}
 
-DREAD TRIGGERS APPLY: {dread_short}
+DREAD SYSTEM: {dread}
 
-STRICT RULES — ALL MANDATORY:
-1. ZERO markdown — no symbols asterisks hashtags brackets
+THE 10 LAWS — ALL MANDATORY:
+1. ZERO markdown — no symbols of any kind
 2. ZERO stage directions — no music pause cut narrator
-3. ZERO AI phrases — no moreover furthermore in conclusion interestingly
-4. Pure spoken English — every word speakable by a human narrator
-5. MAX 13 words per sentence — tension lives in brevity
-6. Every paragraph darker than the previous
-7. Specific dates amounts names locations throughout
-8. EXACTLY {MIN_WORDS} to {MAX_WORDS} words — count them
-9. ZERO section labels — pure seamless narration only
+3. ZERO AI filler — no moreover furthermore in conclusion it is worth noting
+4. Pure spoken English — every word speakable naturally by a human
+5. MAX 13 words per sentence — dread lives in short sentences
+6. Every paragraph heavier and darker than the previous
+7. Specific dates times exact numbers throughout — it must feel real and documented
+8. EXACTLY {MIN_WORDS} to {MAX_WORDS} words
+9. ZERO section labels — pure seamless narration
+10. The listener must be physically unable to stop — every paragraph must earn the next one
 
-STRUCTURE (write as one seamless narration, no labels):
-HOOK (4 sentences): Most disturbing fact stated plainly. One specific detail making it worse. An exact number or date. Question making stopping impossible.
-WORLD BEFORE (400-500w): Warm specific world before collapse. Plant 3 ordinary details that become sinister later. Apply NORMALITY and INVISIBILITY triggers.
-RISING DREAD (400-500w): First signs. Each explainable alone. Together a pattern nobody named. Apply PROXIMITY and DURATION triggers.
-[USE RETENTION HOOK 1 HERE]
-DESCENT (600-700w): Full documented scale. Exact amounts dates locations. Suffocating weight. Apply SCALE COMPETENCE REPETITION triggers.
-COLLAPSE (200-250w): Exact moment it buckled. Who found it. What they saw first.
-[USE RETENTION HOOK 2 HERE]
-TWIST (150-200w): ONE sentence shatters everything. Reframe every planted detail. Apply REVERSAL trigger.
-HUMAN COST (350-400w): Specific named people. Specific permanent losses. Apply COST trigger.
-[USE RETENTION HOOK 3 HERE]
-AFTERMATH (200-250w): Legal consequences or their absence. What remains unchanged now. Apply INSTITUTIONAL COMPLICITY triggers.
-RECKONING (150-200w): Hard truth. No comfort. No resolution.
-CLOSE (100-150w): Haunting line to next episode. Natural subscribe call.{f" Reference: {prev_title}." if prev_title else ""}
+STRUCTURE (one seamless narration, no labels):
+HOOK (4 sentences): Most disturbing specific fact. One detail making it immediately worse. An exact number or time. The question that makes stopping impossible.
+WORLD BEFORE (400-500w): Establish what was normal. Make the audience care. Plant 3 ordinary details that detonate later. Apply NORMALITY and INVISIBILITY triggers.
+RISING DREAD (400-500w): First signs. Each dismissable alone. Together a pattern nobody named. Apply PROXIMITY and DURATION triggers.
+[USE RETENTION HOOK 1]
+THE DESCENT (600-700w): Full scale of what was really happening. Specific. Documented. Suffocating. Apply COMPETENCE and REPETITION triggers.
+THE BREAK (200-250w): The exact moment everything collapsed. Who discovered it. What they saw.
+[USE RETENTION HOOK 2]
+THE TWIST (150-200w): One sentence that shatters everything. Reframe every planted detail. Apply REVERSAL trigger.
+THE COST (350-400w): Specific named people. Specific permanent losses. Apply COST trigger.
+[USE RETENTION HOOK 3]
+THE AFTERMATH (200-250w): What followed. What failed to follow. What continues right now. Apply INSTITUTIONAL and COMPLICITY triggers.
+THE RECKONING (150-200w): The hard truth with no comfort and no resolution.
+THE CLOSE (100-150w): Haunting line to next episode. Natural subscribe call to {niche['series']}.
 
-WRITE {MIN_WORDS}-{MAX_WORDS} WORDS OF PURE NARRATION NOW. NO LABELS. NO PREAMBLE."""
+WRITE {MIN_WORDS}-{MAX_WORDS} WORDS OF PURE NARRATION. NO LABELS. NO PREAMBLE. START IMMEDIATELY."""
 
-    raw   = ai(prompt, temp=temp, tokens=8000, prefer="gemini")
+    raw   = ai(prompt,temp=temp,tokens=8000,prefer="gemini")
     clean = strip_md(strip_md(raw))
     wc    = len(clean.split())
 
-    # Enforced expansion — up to 2 rounds
     for exp in range(2):
         if wc >= MIN_WORDS: break
         deficit = MIN_WORDS - wc
-        log(f"  {wc}w — {deficit}w short. Expanding round {exp+1}...")
-        expand = f"""This documentary narration is {wc} words. It needs {MIN_WORDS} minimum.
-Add exactly {deficit} more words by expanding these sections with entirely new content:
-
-1. THE HUMAN COST — Add 2 more specific named people with specific irreversible damage
-2. THE DESCENT — Add 3 more documented details with exact numbers dates and amounts
-3. THE WORLD BEFORE — Add 2 more small ordinary planted details that later become sinister
-4. THE AFTERMATH — Add 1 more paragraph about what remains unchanged today
-
-RULES: Zero markdown. Pure spoken English. Max 13 words per sentence.
-ADD only — do not repeat or rephrase existing content.
-Return the COMPLETE script with original content plus additions.
-
-SCRIPT:
-{clean}"""
+        log(f"  {wc}w — expanding {exp+1}...")
+        expand = f"""This narration is {wc} words. Needs {MIN_WORDS}. Add {deficit} words.
+Expand: 1) THE COST — 2 more specific people with permanent losses 2) THE DESCENT — 3 more specific documented details 3) THE AFTERMATH — more about what continues now.
+Zero markdown. Pure spoken English. Max 13 words per sentence. ADD only — no repetition.
+Return COMPLETE script.
+SCRIPT: {clean}"""
         try:
-            raw2   = ai(expand, temp=0.82, tokens=8000, prefer="gemini")
+            raw2   = ai(expand,temp=0.82,tokens=8000,prefer="gemini")
             clean2 = strip_md(strip_md(raw2))
-            if len(clean2.split()) > wc:
-                clean = clean2
-                wc    = len(clean.split())
+            if len(clean2.split())>wc:
+                clean=clean2; wc=len(clean.split())
                 log(f"  Expanded to {wc}w")
         except Exception as e:
-            log(f"  Expand error: {e}")
-            break
+            log(f"  Expand err: {e}"); break
 
-    violations = len(re.findall(r'[#*_`\[\]{}<>\\]', clean))
-    return {"clean": clean, "words": wc, "violations": violations, "_topic": topic}
+    violations = len(re.findall(r'[#*_`\[\]{}<>\\]',clean))
+    return {"clean":clean,"words":wc,"violations":violations,"_topic":topic}
 
 def score_script(s):
-    issues, score = [], 5.0
-    w, md = s["words"], s["violations"]
-    # Word count — most important
-    if w >= MIN_WORDS:      score += 2.8
-    elif w >= 1800:         score += 0.8;  issues.append(f"{w}w — below {MIN_WORDS}")
-    elif w >= 1200:         score -= 1.5;  issues.append(f"SHORT: {w}w")
-    else:                   score -= 4.0;  issues.append(f"FATAL: {w}w")
-    # Markdown cleanliness
-    if md == 0:             score += 2.2
-    elif md <= 2:           score += 0.8;  issues.append(f"{md} md symbols")
-    else:                   score -= 1.5;  issues.append(f"FATAL: {md} md")
-    # Sentence rhythm
-    sents = [x for x in re.split(r'(?<=[.!?])\s+', s["clean"]) if len(x.split()) > 2]
+    issues,score = [],5.0
+    w,md = s["words"],s["violations"]
+    if w>=MIN_WORDS:    score+=2.8
+    elif w>=1800:       score+=0.8; issues.append(f"{w}w short")
+    elif w>=1200:       score-=1.5; issues.append(f"SHORT:{w}w")
+    else:               score-=4.0; issues.append(f"FATAL:{w}w")
+    if md==0:           score+=2.2
+    elif md<=2:         score+=0.8; issues.append(f"{md}md")
+    else:               score-=1.5; issues.append(f"FATAL:{md}md")
+    sents=[x for x in re.split(r'(?<=[.!?])\s+',s["clean"]) if len(x.split())>2]
     if sents:
-        avg = sum(len(x.split()) for x in sents) / len(sents)
-        long_pct = sum(1 for x in sents if len(x.split()) > 13) / len(sents)
-        if avg <= 10:        score += 1.5
-        elif avg <= 12:      score += 1.0
-        elif avg <= 15:      score += 0.5
-        else:                score -= 0.5; issues.append(f"Avg {avg:.0f}w")
-        if long_pct > 0.3:   score -= 0.5; issues.append(f"{long_pct:.0%} long sents")
-    # Hook strength
-    hook = s["clean"][:350].lower()
-    pw = ["betrayed","nobody","years","secret","exposed","destroyed","hidden",
-          "truth","never","trusted","silent","alone","watched","planned"]
-    hs = sum(1 for w2 in pw if w2 in hook)
-    if hs >= 5:              score += 1.2
-    elif hs >= 3:            score += 0.7
-    else:                    score -= 0.3; issues.append("Weak hook")
-    # AI language check
-    ai_phrases = ["moreover","furthermore","it is worth noting","in conclusion",
-                  "interestingly","it should be noted","this highlights","this demonstrates"]
-    ai_count = sum(1 for p in ai_phrases if p in s["clean"].lower())
-    if ai_count > 0:         score -= ai_count * 0.3; issues.append(f"{ai_count} AI phrases")
-    # Retention hooks
-    if "what you are about to hear" in s["clean"].lower() or \
-       "what you do not know" in s["clean"].lower() or \
-       "the real crime" in s["clean"].lower():
-        score += 0.3
-    # Subscribe check
-    if "subscribe" in s["clean"][-400:].lower(): score += 0.2
-    return min(round(score, 1), 10.0), issues
+        avg=sum(len(x.split()) for x in sents)/len(sents)
+        long_pct=sum(1 for x in sents if len(x.split())>13)/len(sents)
+        if avg<=10:     score+=1.5
+        elif avg<=12:   score+=1.0
+        elif avg<=15:   score+=0.4
+        else:           score-=0.5; issues.append(f"Avg{avg:.0f}w")
+        if long_pct>0.3:score-=0.5; issues.append(f"{long_pct:.0%}long")
+    hook=s["clean"][:350].lower()
+    pw=["nobody","witnessed","returned","still","documented","impossible","proven","sealed","watched","real","found","never","alone"]
+    hs=sum(1 for w2 in pw if w2 in hook)
+    if hs>=5:           score+=1.2
+    elif hs>=3:         score+=0.7
+    else:               score-=0.3; issues.append("WeakHook")
+    ai_p=["moreover","furthermore","it is worth noting","in conclusion","interestingly","it should be noted","this highlights"]
+    ai_c=sum(1 for p in ai_p if p in s["clean"].lower())
+    if ai_c>0:          score-=ai_c*0.3; issues.append(f"{ai_c}AIphrases")
+    if "subscribe" in s["clean"][-400:].lower(): score+=0.2
+    return min(round(score,1),10.0), issues
 
 def generate_metadata(niche, script, episode, best_title, thumbnail_text, prev_title, prev_url):
-    cross = f'Include: "Previous investigation: {prev_title} — {prev_url}"' if prev_title else ""
+    cross = f'Include: "Previous episode: {prev_title} — {prev_url}"' if prev_title else ""
     prompt = f"""YouTube metadata for Episode {episode} of {niche['series']}.
-Topic: {script['_topic'][:180]}
-Title: {best_title}
-{cross}
-
+Topic: {script['_topic'][:180]}. Title: {best_title}. {cross}
 Return ONLY clean ASCII JSON:
 title: {best_title}
-description: 450 words, first 3 lines are standalone hooks, 5 chapter timestamps, subscribe CTA
+description: 400 words, first 2 lines standalone hooks, 5 chapter timestamps, subscribe CTA
 tags: array of 12 strings
 thumbnail_text: {thumbnail_text}
-chapters: array of 5 objects each with time and title
+chapters: array of 5 objects with time and title
 category: "22" """
     try:
-        text = ai(prompt, temp=0.65, tokens=1200, prefer="groq")
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '',
-                      re.sub(r'```json|```', '', text).strip())
-        m = re.search(r'\{[\s\S]*\}', text)
+        text = ai(prompt,temp=0.65,tokens=1000,prefer="groq")
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',re.sub(r'```json|```','',text).strip())
+        m = re.search(r'\{[\s\S]*\}',text)
         if m:
-            meta = json.loads(re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', m.group()))
+            meta = json.loads(re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]','',m.group()))
             meta["title"]          = best_title
             meta["thumbnail_text"] = thumbnail_text
             return meta
-    except Exception as e:
-        log(f"  Metadata error: {e}")
+    except Exception as e: log(f"  Meta err: {e}")
     return {
-        "title": best_title,
-        "description": f"Episode {episode}. {script['_topic'][:200]}. Subscribe to The Betrayal DeepDive.",
-        "tags": [niche["name"],"crime","betrayal","deception","documentary","dark",
-                 "truth","exposed","shocking","investigation","untold","mystery"],
-        "thumbnail_text": thumbnail_text,
-        "chapters": [
-            {"time": "0:00",  "title": "The Opening Shock"},
-            {"time": "3:30",  "title": "The World Before"},
-            {"time": "7:00",  "title": "The Descent"},
-            {"time": "11:00", "title": "The Twist"},
-            {"time": "14:30", "title": "The Reckoning"}
-        ],
-        "category": "22"
+        "title":best_title,
+        "description":f"Episode {episode}. {script['_topic'][:200]}. Subscribe to {niche['series']}.",
+        "tags":[niche["name"],"horror","dark","documentary","true","story","psychological","real","unexplained","obsession","dark truth","mystery"],
+        "thumbnail_text":thumbnail_text,
+        "chapters":[{"time":"0:00","title":"The Opening"},{"time":"3:30","title":"What Was Real"},
+                    {"time":"7:00","title":"The Descent"},{"time":"11:00","title":"The Twist"},{"time":"14:30","title":"What Remains"}],
+        "category":"22"
     }
 
 
 # ════════════════════════════════════════════════════════════
-# STAGE 1: 13-ATTEMPT SCRIPT ENGINE
-# Quality floor: 7.3 | Final floor: 6.9 (attempt 13 only)
+# STAGE 1: 13-ATTEMPT ENGINE
 # ════════════════════════════════════════════════════════════
 def run_stage1(state):
-    log("\n" + "="*65)
-    log("  STAGE 1: 13-Attempt Script Engine")
-    log(f"  Quality floor: {MIN_GATE} | Final floor: {FINAL_GATE}")
-    log("  Attempts 1-8: Fresh | 9-13: Proven Viral Archive")
+    log("\n"+"="*65)
+    log("  STAGE 1: 13-Attempt Dark Story Engine")
+    log(f"  Quality: {MIN_GATE} min | {FINAL_GATE} floor")
     log("="*65)
-
-    niche, voice = get_niche_and_voice(state)
-    episode      = (datetime.datetime.now().timetuple().tm_yday // max(1, len(NICHES))) + 1
-    prev_title   = state.get("last_title", "")
-    prev_url     = state.get("last_url", "")
-
+    niche,voice = get_niche_and_voice(state)
+    episode      = (datetime.datetime.now().timetuple().tm_yday//max(1,len(NICHES)))+1
+    prev_title   = state.get("last_title","")
+    prev_url     = state.get("last_url","")
     log(f"\nNiche: {niche['name']} | ${niche['rpm']} RPM | Ep{episode}")
     log(f"Voice: {voice}")
     log(f"IS_MAKEUP: {IS_MAKEUP}\n")
-
     log("Loading viral intelligence...")
     intel          = run_viral_intelligence(niche)
-
     used_topics    = []
-    gate           = MIN_GATE   # 7.3
+    gate           = MIN_GATE
     best_score     = 0.0
-    best_script    = None
-    best_meta      = None
-    best_title_str = ""
-    title_scores   = []
-    thumbnail_text = generate_thumbnail_text(niche, niche["seed_topics"][0], intel)
+    best_script    = best_meta = None
+    best_title_str = f"{niche['series']}: The Story Nobody Was Supposed to Find"
+    title_scores   = [(best_title_str,6.0)]
+    thumbnail_text = generate_thumbnail_text(niche,niche["seed_topics"][0],intel)
 
-    for attempt in range(1, 14):  # 13 total
-        # Gate schedule — maintains quality, only drops at very end
-        if attempt == 13:        gate = FINAL_GATE  # 6.9 — absolute floor
-        elif attempt >= 10:      gate = 7.0
-        elif attempt >= 7:       gate = 7.2
-        # else stays at 7.3
-
-        # Fresh topic for this attempt
-        topic = get_fresh_topic(niche, attempt, intel, used_topics)
+    for attempt in range(1,14):
+        if attempt==13:       gate=FINAL_GATE
+        elif attempt>=10:     gate=7.0
+        elif attempt>=7:      gate=7.2
+        topic = get_fresh_topic(niche,attempt,intel,used_topics)
         used_topics.append(topic)
-
-        # Regenerate titles and thumbnail for this topic
-        if attempt in [1, 5, 9]:
-            thumbnail_text     = generate_thumbnail_text(niche, topic, intel)
-            best_title_str, title_scores = generate_and_score_titles(
-                niche, topic, intel, episode)
+        if attempt in [1,5,9]:
+            thumbnail_text     = generate_thumbnail_text(niche,topic,intel)
+            best_title_str,title_scores = generate_and_score_titles(niche,topic,intel,episode)
             log(f"Thumbnail: {thumbnail_text}")
-
-        log(f"\nAttempt {attempt}/13 (gate:{gate}) "
-            f"{'[ARCHIVE]' if attempt > 8 else '[FRESH]'}...")
+        log(f"\nAttempt {attempt}/13 (gate:{gate}) {'[ARCHIVE]' if attempt>8 else '[FRESH]'}...")
         log(f"Topic: {topic[:80]}")
-
         try:
-            script        = generate_script(niche, topic, episode, attempt, prev_title, intel)
-            score, issues = score_script(script)
-            log(f"  Score: {score}/10 | {script['words']}w | MD:{script['violations']}")
-            if issues: log(f"  Issues: {' | '.join(issues[:3])}")
-
-            if score > best_score:
-                best_score     = score
-                best_script    = script
-                best_meta      = generate_metadata(niche, script, episode,
-                                                   best_title_str, thumbnail_text,
-                                                   prev_title, prev_url)
-
-            if score >= gate:
-                log(f"\nSCRIPT APPROVED: {score}/10 | Attempt {attempt}\n")
-                return (niche, topic, voice, episode, best_script,
-                        best_meta, score, thumbnail_text, intel, title_scores)
-
-            log(f"  BLOCKED — need {gate}, got {score}")
+            script        = generate_script(niche,topic,episode,attempt,prev_title,intel)
+            score,issues  = score_script(script)
+            log(f"  {score}/10 {'OK' if score>=gate else 'BLOCKED'} | {script['words']}w | MD:{script['violations']}")
+            if issues: log(f"  {' | '.join(issues[:3])}")
+            if score>best_score:
+                best_score  = score
+                best_script = script
+                best_meta   = generate_metadata(niche,script,episode,best_title_str,thumbnail_text,prev_title,prev_url)
+            if score>=gate:
+                log(f"\nAPPROVED: {score}/10 | Attempt {attempt}\n")
+                return niche,topic,voice,episode,best_script,best_meta,score,thumbnail_text,intel,title_scores
             time.sleep(3)
-
         except Exception as e:
-            log(f"  Error: {str(e)[:80]}")
+            log(f"  Err: {str(e)[:80]}")
             time.sleep(15)
 
-    # After 13 attempts — use best result if above absolute minimum
-    if best_script and best_score >= FINAL_GATE:
-        log(f"\nUsing best after 13 attempts: {best_score}/10")
-        tg(f"Note: Publishing with {best_score}/10 after 13 attempts.")
-        return (niche, used_topics[-1], voice, episode, best_script,
-                best_meta, best_score, thumbnail_text, intel, title_scores)
+    if best_script and best_score>=FINAL_GATE:
+        log(f"\nUsing best: {best_score}/10 after 13 attempts")
+        tg(f"Publishing with {best_score}/10 after 13 attempts.")
+        return niche,used_topics[-1],voice,episode,best_script,best_meta,best_score,thumbnail_text,intel,title_scores
 
-    # True failure — makeup queued
-    state["makeup_pending"] = True
-    state["makeup_niche"]   = niche["name"]
-    save_state(state)
-    tg(f"Day Skipped\nBest: {best_score}/10 after 13 attempts\n"
-       f"Niche: {niche['name']}\nMakeup tomorrow — 2 videos.")
+    state["makeup_pending"]=True; state["makeup_niche"]=niche["name"]; save_state(state)
+    tg(f"Day Skipped\nBest: {best_score}/10 after 13 attempts\nNiche: {niche['name']}\nMakeup tomorrow.")
     sys.exit(0)
 
 
 # ════════════════════════════════════════════════════════════
 # STAGE 2: APPROVAL GATE — Telegram + Gmail
-# Sent BEFORE video generation
 # ════════════════════════════════════════════════════════════
 def run_stage2_approval(meta, niche, voice, script, thumbnail_text, title_scores):
-    log("\n" + "="*65)
-    log("  STAGE 2: Approval Gate — Telegram + Gmail")
+    log("\n"+"="*65)
+    log("  STAGE 2: Approval Gate")
     log("="*65)
-
-    deadline     = datetime.datetime.now() + datetime.timedelta(minutes=30)
+    deadline     = datetime.datetime.now()+datetime.timedelta(minutes=30)
     deadline_str = deadline.strftime('%I:%M %p')
-    top_titles   = "\n".join(f"  {s}/10: {t[:58]}" for t, s in title_scores[:3])
-    preview      = script["clean"][:500].replace("<", "").replace(">", "")
-
-    # Telegram part 1
-    tg(f"DEEPDIVE APPROVAL NEEDED\n\n"
+    top_titles   = "\n".join(f"  {s}/10: {t[:58]}" for t,s in title_scores[:3])
+    preview      = script["clean"][:450].replace("<","").replace(">","")
+    tg(f"APPROVAL NEEDED — {niche['series']}\n\n"
        f"Title: {meta['title']}\n\n"
-       f"Niche: {niche['name']} | RPM: ${niche['rpm']}\n"
-       f"Voice: {voice}\n"
-       f"Words: {script['words']}\n"
+       f"Niche: {niche['name']} | ${niche['rpm']} RPM\n"
+       f"Voice: {voice} | Words: {script['words']}\n"
        f"Thumbnail: {thumbnail_text}\n\n"
-       f"Auto-uploads at {deadline_str}\n"
-       f"Reply APPROVE or REJECT")
+       f"Auto at {deadline_str} | Reply APPROVE or REJECT")
     time.sleep(1)
-    # Telegram part 2
-    tg(f"TITLE CTR SCORES:\n{top_titles}\n\n"
-       f"SCRIPT PREVIEW:\n{preview}...")
-    log("  Telegram sent (2 messages)")
-
-    # Gmail
-    html = f"""<!DOCTYPE html><html><body style="background:#0a0a0f;color:#e0e0e0;font-family:Arial,sans-serif;padding:20px;">
-<div style="max-width:660px;margin:0 auto;background:#12121a;border:1px solid #2a2a3a;border-radius:8px;overflow:hidden;">
-<div style="background:#1a0a0a;border-bottom:3px solid #cc2222;padding:20px 26px;">
-  <div style="font-size:10px;color:#888;letter-spacing:3px">BETRAYAL DEEPDIVE — APPROVAL NEEDED</div>
+    tg(f"CTR SCORES:\n{top_titles}\n\nPREVIEW:\n{preview}...")
+    html = f"""<!DOCTYPE html><html><body style="background:#080810;color:#e0e0e0;font-family:Arial,sans-serif;padding:20px;">
+<div style="max-width:660px;margin:0 auto;background:#0d0d18;border:1px solid #2a2a3a;border-radius:8px;overflow:hidden;">
+<div style="background:#0a0a14;border-bottom:3px solid #8800cc;padding:20px 26px;">
+  <div style="font-size:10px;color:#888;letter-spacing:3px">{niche['series'].upper()} — APPROVAL NEEDED</div>
   <div style="font-size:19px;font-weight:bold;color:#fff;margin-top:5px">{meta['title']}</div>
-  <div style="font-size:11px;color:#cc4444;margin-top:5px">Auto-uploads at {deadline_str} — Reply APPROVE or REJECT on Telegram</div>
+  <div style="font-size:11px;color:#8844cc;margin-top:5px">Auto at {deadline_str} — Reply APPROVE or REJECT</div>
 </div>
 <div style="padding:20px 26px;border-bottom:1px solid #2a2a3a;">
   <table style="width:100%;font-size:12px;border-collapse:collapse">
     <tr><td style="color:#666;padding:3px 0;width:110px">Niche</td><td>{niche['name']} — ${niche['rpm']} RPM</td></tr>
     <tr><td style="color:#666;padding:3px 0">Voice</td><td>{voice}</td></tr>
     <tr><td style="color:#666;padding:3px 0">Words</td><td>{script['words']} (~{script['words']//125:.0f} min)</td></tr>
-    <tr><td style="color:#666;padding:3px 0">Thumbnail</td><td style="color:#cc2222;font-weight:bold;font-size:14px">{thumbnail_text}</td></tr>
+    <tr><td style="color:#666;padding:3px 0">Thumbnail</td><td style="color:#8844cc;font-weight:bold;font-size:14px">{thumbnail_text}</td></tr>
   </table>
 </div>
 <div style="padding:18px 26px;border-bottom:1px solid #2a2a3a;">
-  <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:8px">TITLE CTR SCORES</div>
-  {"".join(f'<div style="padding:6px 10px;margin:3px 0;background:{"#1a2a1a" if i==0 else "#151520"};border-left:3px solid {"#22cc44" if i==0 else "#333"};border-radius:0 4px 4px 0"><span style="color:{"#22cc44" if i==0 else "#666"};font-size:10px">{s}/10{"  WINNER" if i==0 else ""}</span><br><span style="color:#e0e0e0;font-size:12px">{t}</span></div>' for i,(t,s) in enumerate(title_scores[:5]))}
+  <div style="font-size:10px;color:#666;margin-bottom:8px">CTR SCORES</div>
+  {"".join(f'<div style="padding:6px 10px;margin:3px 0;background:{"#1a1a2a" if i==0 else "#121218"};border-left:3px solid {"#8844cc" if i==0 else "#333"};"><span style="color:{"#aa66ff" if i==0 else "#666"};font-size:10px">{s}/10{"  WINNER" if i==0 else ""}</span><br><span style="color:#e0e0e0;font-size:12px">{t}</span></div>' for i,(t,s) in enumerate(title_scores[:5]))}
 </div>
 <div style="padding:18px 26px;">
-  <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:8px">SCRIPT PREVIEW</div>
-  <div style="background:#0d0d15;border:1px solid #1a1a2a;border-radius:4px;padding:14px;font-size:12px;line-height:1.7;color:#ccc;font-style:italic">{preview.replace(chr(10),'<br>')}...</div>
+  <div style="font-size:10px;color:#666;margin-bottom:8px">SCRIPT PREVIEW</div>
+  <div style="background:#08080f;border:1px solid #1a1a2a;border-radius:4px;padding:14px;font-size:12px;line-height:1.7;color:#bbb;font-style:italic">{preview.replace(chr(10),'<br>')}...</div>
 </div>
 </div></body></html>"""
-    send_gmail(f"[DeepDive] Approve: {meta['title'][:55]} — auto at {deadline_str}", html)
-
-    # Poll
+    send_gmail(f"[{niche['series']}] Approve: {meta['title'][:50]} — auto {deadline_str}",html)
     updates  = tg_updates()
-    offset   = (max(u["update_id"] for u in updates) + 1) if updates else 0
+    offset   = (max(u["update_id"] for u in updates)+1) if updates else 0
     reminded = set()
-
-    while datetime.datetime.now() < deadline:
+    while datetime.datetime.now()<deadline:
         time.sleep(30)
         for u in tg_updates(offset):
-            offset = u["update_id"] + 1
-            txt    = u.get("message", {}).get("text", "").upper().strip()
-            cid    = str(u.get("message", {}).get("chat", {}).get("id", ""))
-            if cid == str(TG_CHAT):
+            offset = u["update_id"]+1
+            txt = u.get("message",{}).get("text","").upper().strip()
+            cid = str(u.get("message",{}).get("chat",{}).get("id",""))
+            if cid==str(TG_CHAT):
                 if any(w in txt for w in ["APPROVE","YES","GO","OK","UPLOAD"]):
-                    tg("APPROVED. Generating audio and video now.")
-                    return "approved"
+                    tg("APPROVED. Generating now."); return "approved"
                 if any(w in txt for w in ["REJECT","NO","SKIP","CANCEL"]):
-                    tg("REJECTED. Skipping today. Makeup tomorrow.")
-                    return "rejected"
-        mins = int((deadline - datetime.datetime.now()).total_seconds() / 60)
-        if 13 <= mins <= 17 and "15" not in reminded:
-            reminded.add("15")
-            tg(f"15 min until auto-upload\n{meta['title']}\nReply APPROVE or REJECT")
-        elif 3 <= mins <= 6 and "5" not in reminded:
-            reminded.add("5")
-            tg("5 MIN — AUTO-UPLOADING SOON\nReply APPROVE or REJECT NOW")
-
-    tg("30 min expired — AUTO-APPROVED. Generating video now.")
+                    tg("REJECTED. Makeup tomorrow."); return "rejected"
+        mins=int((deadline-datetime.datetime.now()).total_seconds()/60)
+        if 13<=mins<=17 and "15" not in reminded:
+            reminded.add("15"); tg(f"15 min until auto-upload\n{meta['title']}\nReply APPROVE or REJECT")
+        elif 3<=mins<=6 and "5" not in reminded:
+            reminded.add("5"); tg("5 MIN — Reply APPROVE or REJECT NOW")
+    tg("30 min expired — AUTO-APPROVED. Generating now.")
     return "auto_approved"
 
 
 # ════════════════════════════════════════════════════════════
-# STAGE 3: AUDIO — HUMAN VOICE WITH QUALITY CHECK
-# Tests audio output for robotic artifacts
-# Auto-switches to better voice if robotic detected
+# STAGE 3: HUMAN VOICE AUDIO + QUALITY CHECK
 # ════════════════════════════════════════════════════════════
-async def _tts_generate(text, voice_id, path):
+async def _tts(text, voice_id, path):
     import edge_tts
-    c = edge_tts.Communicate(
-        text, voice_id,
-        rate="-8%",    # Slightly slower = more natural
-        pitch="+0Hz",  # Natural pitch — no artificial lowering
-        volume="+8%"   # Slightly louder for clarity
-    )
+    c = edge_tts.Communicate(text,voice_id,rate="-8%",pitch="+0Hz",volume="+8%")
     await c.save(path)
 
-def check_audio_quality(mp3_path, duration_expected):
-    """Basic quality check — file size and duration sanity"""
+def check_audio_quality(mp3_path, dur_expected):
     try:
         sz = Path(mp3_path).stat().st_size
-        # Check size is reasonable for the duration
-        min_size = duration_expected * 8000   # ~8KB per second minimum for decent audio
-        if sz < min_size:
-            log(f"  Audio quality check FAILED: {sz} bytes too small for {duration_expected:.0f}s")
-            return False
-        # Check no suspiciously short duration (robotic voices sometimes clip)
-        if sz < 100000:
-            log(f"  Audio quality check FAILED: file too small ({sz/1024:.0f}KB)")
-            return False
-        log(f"  Audio quality check PASSED: {sz/1024/1024:.1f}MB")
+        if sz < dur_expected*8000: return False
+        if sz < 80000: return False
         return True
-    except Exception as e:
-        log(f"  Audio check error: {e}")
-        return False
+    except: return False
 
 def run_stage3_audio(script_clean, voice_id, niche_name):
-    log("\n" + "="*65)
-    log(f"  STAGE 3: Human Voice Audio")
+    log("\n"+"="*65)
+    log(f"  STAGE 3: Human Voice Audio — {voice_id}")
     log("="*65)
-
     wc           = len(script_clean.split())
-    dur_expected = (wc / 125.0) * 60.0  # ~125 wpm natural pace
-
-    # Build voice priority list — preferred first, then all others as fallback
-    preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:5])
-    # Put selected voice first, then preferred, then all available
+    dur_expected = (wc/125.0)*60.0
+    preferred    = NICHE_VOICES.get(niche_name,GB_VOICES[:5])
     voice_queue  = [voice_id]
     for v in preferred:
-        if v not in voice_queue and v not in ROBOTIC_VOICES:
-            voice_queue.append(v)
+        if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
     for v in ALL_VOICES:
-        if v not in voice_queue and v not in ROBOTIC_VOICES:
-            voice_queue.append(v)
-
-    for v in voice_queue[:8]:  # Try up to 8 voices
+        if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
+    for v in voice_queue[:8]:
         log(f"  Trying: {v}")
-        mp3 = str(WORK_DIR / "audio.mp3")
+        mp3 = str(WORK_DIR/"audio.mp3")
         try:
-            asyncio.run(_tts_generate(script_clean, v, mp3))
-            if not Path(mp3).exists():
-                log(f"  No output file for {v}")
-                continue
-            # Quality check
-            if not check_audio_quality(mp3, dur_expected):
-                log(f"  {v} failed quality check — trying next voice")
-                continue
+            asyncio.run(_tts(script_clean,v,mp3))
+            if not Path(mp3).exists(): continue
+            if not check_audio_quality(mp3,dur_expected):
+                log(f"  {v} quality fail — next"); continue
             sz  = Path(mp3).stat().st_size
             dur = dur_expected
             log(f"  ACCEPTED: {v} | {sz/1024/1024:.1f}MB | ~{dur/60:.1f}min")
-            # Convert to WAV
-            wav = str(WORK_DIR / "audio.wav")
+            wav = str(WORK_DIR/"audio.wav")
             try:
-                subprocess.run(
-                    ["ffmpeg","-y","-i",mp3,
-                     "-acodec","pcm_s16le","-ar","24000","-ac","1",wav],
-                    capture_output=True, timeout=300)
-                if Path(wav).exists() and Path(wav).stat().st_size > 100000:
-                    return wav, dur, sz, v
+                subprocess.run(["ffmpeg","-y","-i",mp3,"-acodec","pcm_s16le","-ar","24000","-ac","1",wav],
+                               capture_output=True,timeout=300)
+                if Path(wav).exists() and Path(wav).stat().st_size>100000:
+                    return wav,dur,sz,v
             except: pass
-            return mp3, dur, sz, v
+            return mp3,dur,sz,v
         except Exception as e:
-            log(f"  {v} error: {str(e)[:60]}")
-            time.sleep(3)
-
-    tg("Stage 3 FAILED — all voices failed. Check GitHub Actions logs.")
-    sys.exit(1)
+            log(f"  {v} err: {str(e)[:60]}"); time.sleep(3)
+    tg("Stage 3 FAILED — all voices failed"); sys.exit(1)
 
 
 # ════════════════════════════════════════════════════════════
 # STAGE 4: VIDEO — NO SUBTITLES ON MAIN
 # ════════════════════════════════════════════════════════════
 def fetch_background(niche_name, duration):
-    kws = BG_KEYWORDS.get(niche_name, ["dark cinematic shadow"])
+    kws = BG_KEYWORDS.get(niche_name,["dark cinematic shadow"])
     for kw in kws:
         try:
             r = requests.get("https://pixabay.com/api/videos/",
-                params={"key": PIXABAY_KEY, "q": kw, "per_page": 10,
-                        "min_duration": 30, "video_type": "film"}, timeout=30)
-            if r.status_code == 200:
-                hits = r.json().get("hits", [])
+                params={"key":PIXABAY_KEY,"q":kw,"per_page":10,"min_duration":30,"video_type":"film"},
+                timeout=30)
+            if r.status_code==200:
+                hits=r.json().get("hits",[])
                 if hits:
                     url  = random.choice(hits[:5])["videos"]["medium"]["url"]
-                    path = str(WORK_DIR / "bg.mp4")
-                    resp = requests.get(url, stream=True, timeout=120)
-                    with open(path, "wb") as f:
+                    path = str(WORK_DIR/"bg.mp4")
+                    resp = requests.get(url,stream=True,timeout=120)
+                    with open(path,"wb") as f:
                         for chunk in resp.iter_content(8192): f.write(chunk)
-                    if Path(path).stat().st_size > 100000:
-                        log(f"  Background: {Path(path).stat().st_size/1024/1024:.1f}MB")
-                        return path
-        except Exception as e:
-            log(f"  Pixabay err: {e}")
-    # Dark cinematic fallback
-    path = str(WORK_DIR / "bg.mp4")
-    subprocess.run([
-        "ffmpeg","-y","-f","lavfi",
-        "-i",f"color=c=0x02020A:s=1920x1080:r=30",
-        "-t",str(int(duration)+20),
-        "-vf","noise=alls=18:allf=t+u,vignette=angle=PI/3",
-        "-c:v","libx264","-preset","fast","-crf","30",path
-    ], capture_output=True)
-    log("  Background: dark fallback generated")
-    return path
+                    if Path(path).stat().st_size>100000:
+                        log(f"  BG: {Path(path).stat().st_size/1024/1024:.1f}MB"); return path
+        except Exception as e: log(f"  Pixabay: {e}")
+    path=str(WORK_DIR/"bg.mp4")
+    subprocess.run(["ffmpeg","-y","-f","lavfi","-i","color=c=0x03010A:s=1920x1080:r=30",
+                   "-t",str(int(duration)+20),"-vf","noise=alls=20:allf=t+u,vignette=angle=PI/3",
+                   "-c:v","libx264","-preset","fast","-crf","30",path],capture_output=True)
+    log("  BG: dark fallback"); return path
 
-def assemble_video_clean(audio_path, bg_path, duration, watermark):
-    """Main video — NO subtitles — watermark only"""
-    out = str(WORK_DIR / "final.mp4")
-    wm  = re.sub(r"[^a-zA-Z0-9 ]", "", watermark)
+def assemble_video(audio_path, bg_path, duration, watermark):
+    out = str(WORK_DIR/"final.mp4")
+    wm  = re.sub(r"[^a-zA-Z0-9 ]","",watermark)
     result = subprocess.run([
         "ffmpeg","-y","-stream_loop","-1","-i",bg_path,"-i",audio_path,
         "-vf",(f"scale=1920:1080:force_original_aspect_ratio=increase,"
                f"crop=1920:1080,"
-               f"drawtext=text='{wm}':fontcolor=white@0.15:fontsize=16:"
-               f"x=w-tw-30:y=28:font=Arial"),
+               f"drawtext=text='{wm}':fontcolor=white@0.15:fontsize=16:x=w-tw-30:y=28:font=Arial"),
         "-map","0:v","-map","1:a","-t",str(duration),
         "-c:v","libx264","-preset","medium","-crf","19",
         "-c:a","aac","-b:a","192k","-r","30","-pix_fmt","yuv420p",
         "-movflags","+faststart","-shortest",out
-    ], capture_output=True, text=True, timeout=2400)
-    if result.returncode != 0:
-        raise Exception(f"FFmpeg: {result.stderr[-300:]}")
+    ],capture_output=True,text=True,timeout=2400)
+    if result.returncode!=0: raise Exception(f"FFmpeg: {result.stderr[-300:]}")
     log(f"  Video: {Path(out).stat().st_size/1024/1024:.0f}MB | 1080p | No subtitles")
     return out
 
 def run_stage4_video(audio_path, duration, niche):
-    log("\n" + "="*65)
-    log("  STAGE 4: Video Assembly — No Subtitles")
+    log("\n"+"="*65)
+    log("  STAGE 4: Video Assembly — No Subtitles on Main")
     log("="*65)
-    bg = fetch_background(niche["name"], duration)
-    return assemble_video_clean(audio_path, bg, duration, niche["watermark"])
+    bg = fetch_background(niche["name"],duration)
+    return assemble_video(audio_path,bg,duration,niche["watermark"])
 
 
 # ════════════════════════════════════════════════════════════
-# STAGE 5: SHORTS WITH SUBTITLES — SYNCED TO AUDIO
+# STAGE 5: SHORTS WITH SUBTITLES SYNCED TO AUDIO
 # ════════════════════════════════════════════════════════════
-def generate_short_srt(script_clean, short_start, short_dur):
-    """Generate SRT for exactly the words spoken in the short clip"""
+def generate_short_srt(script_clean, start, short_dur):
     words    = script_clean.split()
-    total_wc = len(words)
-    total_dur = (total_wc / 125.0) * 60.0
-    wps      = total_wc / total_dur
-
-    start_w  = int(short_start * wps)
-    end_w    = min(int((short_start + short_dur) * wps) + 5, total_wc)
-    clip_wds = words[start_w:end_w]
+    total_dur = (len(words)/125.0)*60.0
+    wps      = len(words)/total_dur
+    sw       = int(start*wps)
+    ew       = min(int((start+short_dur)*wps)+5,len(words))
+    clip_wds = words[sw:ew]
     if not clip_wds: return None
-
     def fmt(t):
-        h, r = divmod(int(t), 3600)
-        m, s = divmod(r, 60)
+        h,r=divmod(int(t),3600); m,s=divmod(r,60)
         return f"{h:02d}:{m:02d}:{s:02d},{int((t%1)*1000):03d}"
-
-    entries  = []
-    idx, t   = 1, 0.0
-    cwps     = len(clip_wds) / short_dur if short_dur > 0 else 3.0
-    for i in range(0, len(clip_wds), 4):
-        g = clip_wds[i:i+4]
+    entries=[]; idx,t=1,0.0
+    cwps=len(clip_wds)/short_dur if short_dur>0 else 3.0
+    for i in range(0,len(clip_wds),4):
+        g=clip_wds[i:i+4]
         if not g: continue
-        d = len(g) / cwps
+        d=len(g)/cwps
         entries.append(f"{idx}\n{fmt(t)} --> {fmt(t+d)}\n{' '.join(g)}\n")
-        idx += 1
-        t   += d
-
-    srt = WORK_DIR / f"short_{idx}.srt"
-    srt.write_text("\n".join(entries), encoding="utf-8")
+        idx+=1; t+=d
+    srt=WORK_DIR/f"short_{idx}.srt"
+    srt.write_text("\n".join(entries),encoding="utf-8")
     return str(srt)
 
 def make_short_with_subs(video_path, script_clean, stype, total_dur):
-    short_dur = 55
-    start     = total_dur * (0.10 if stype == "teaser" else 0.67)
-    raw       = str(WORK_DIR / f"s_{stype}_raw.mp4")
-    final     = str(WORK_DIR / f"short_{stype}.mp4")
-
-    # Cut clip
-    r = subprocess.run([
-        "ffmpeg","-y","-ss",str(start),"-i",video_path,
-        "-t",str(short_dur),
-        "-vf","crop=608:1080:(iw-608)/2:0,scale=1080:1920",
-        "-c:v","libx264","-preset","fast","-crf","22",
-        "-c:a","aac","-b:a","128k",raw
-    ], capture_output=True, timeout=180)
-
-    if not Path(raw).exists() or Path(raw).stat().st_size < 400000:
-        log(f"  Short {stype}: clip failed")
-        return None
-
-    # Generate synced subtitles
-    srt = generate_short_srt(script_clean, start, short_dur)
-    if not srt:
-        log(f"  Short {stype}: no SRT — uploading without subs")
-        return raw
-
-    # Burn subtitles — large font for mobile
-    sub_style = ("FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,"
-                 "OutlineColour=&H00000000,BackColour=&HCC000000,"
-                 "Bold=1,Outline=3,Shadow=1,Alignment=2,"
-                 "MarginL=40,MarginR=40,MarginV=130,BorderStyle=3")
-    r2 = subprocess.run([
-        "ffmpeg","-y","-i",raw,
-        "-vf",f"subtitles={srt}:force_style='{sub_style}'",
-        "-c:v","libx264","-preset","fast","-crf","21",
-        "-c:a","copy",final
-    ], capture_output=True, timeout=180)
-
-    if Path(final).exists() and Path(final).stat().st_size > 400000:
-        log(f"  Short ({stype}): {Path(final).stat().st_size/1024/1024:.1f}MB + subtitles")
+    short_dur=55
+    start    =total_dur*(0.10 if stype=="teaser" else 0.67)
+    raw      =str(WORK_DIR/f"s_{stype}_raw.mp4")
+    final    =str(WORK_DIR/f"short_{stype}.mp4")
+    subprocess.run(["ffmpeg","-y","-ss",str(start),"-i",video_path,"-t",str(short_dur),
+                    "-vf","crop=608:1080:(iw-608)/2:0,scale=1080:1920",
+                    "-c:v","libx264","-preset","fast","-crf","22",
+                    "-c:a","aac","-b:a","128k",raw],capture_output=True,timeout=180)
+    if not Path(raw).exists() or Path(raw).stat().st_size<400000:
+        log(f"  Short {stype} clip failed"); return None
+    srt=generate_short_srt(script_clean,start,short_dur)
+    if not srt: return raw
+    sub_style=("FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+               "BackColour=&HCC000000,Bold=1,Outline=3,Shadow=1,Alignment=2,"
+               "MarginL=40,MarginR=40,MarginV=130,BorderStyle=3")
+    subprocess.run(["ffmpeg","-y","-i",raw,"-vf",f"subtitles={srt}:force_style='{sub_style}'",
+                    "-c:v","libx264","-preset","fast","-crf","21","-c:a","copy",final],
+                   capture_output=True,timeout=180)
+    if Path(final).exists() and Path(final).stat().st_size>400000:
+        log(f"  Short ({stype}): {Path(final).stat().st_size/1024/1024:.1f}MB + subs")
         if Path(raw).exists(): Path(raw).unlink()
         return final
-
-    log(f"  Short {stype}: subtitle burn failed — using raw clip")
     return raw if Path(raw).exists() else None
 
 
@@ -1324,109 +991,81 @@ def make_short_with_subs(video_path, script_clean, stype, total_dur):
 # STAGE 6: UPLOAD
 # ════════════════════════════════════════════════════════════
 def get_yt_token():
-    r = requests.post("https://oauth2.googleapis.com/token", data={
-        "client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SEC,
-        "refresh_token": YT_REFRESH, "grant_type": "refresh_token"})
-    d = r.json()
+    r=requests.post("https://oauth2.googleapis.com/token",data={
+        "client_id":YT_CLIENT_ID,"client_secret":YT_CLIENT_SEC,
+        "refresh_token":YT_REFRESH,"grant_type":"refresh_token"})
+    d=r.json()
     if "access_token" not in d: raise Exception(f"YT token failed: {d}")
     return d["access_token"]
 
 def upload_yt(path, meta, is_short=False):
-    token = get_yt_token()
-    title = f"#Shorts {meta['title'][:50]}" if is_short else meta["title"]
-    desc  = meta["description"]
+    token=get_yt_token()
+    title=f"#Shorts {meta['title'][:50]}" if is_short else meta["title"]
+    desc =meta["description"]
     if not is_short and meta.get("chapters"):
-        desc += "\n\nCHAPTERS:\n" + "".join(
-            f"{c['time']} {c['title']}\n" for c in meta["chapters"])
-    init = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/videos"
-        "?uploadType=resumable&part=snippet,status",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={
-            "snippet": {"title": title, "description": desc,
-                       "tags": meta.get("tags", []), "categoryId": "22"},
-            "status":  {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
-        })
-    url = init.headers.get("Location")
-    if not url: raise Exception(f"No upload URL: {init.text[:200]}")
-    sz = Path(path).stat().st_size
+        desc+="\n\nCHAPTERS:\n"+"".join(f"{c['time']} {c['title']}\n" for c in meta["chapters"])
+    init=requests.post(
+        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"},
+        json={"snippet":{"title":title,"description":desc,"tags":meta.get("tags",[]),"categoryId":"22"},
+              "status":{"privacyStatus":"public","selfDeclaredMadeForKids":False}})
+    url=init.headers.get("Location")
+    if not url: raise Exception(f"No URL: {init.text[:200]}")
+    sz=Path(path).stat().st_size
     log(f"  Uploading {sz/1024/1024:.0f}MB...")
-    with open(path, "rb") as f:
-        up = requests.put(url,
-            headers={"Content-Length": str(sz), "Content-Type": "video/mp4"},
-            data=f, timeout=2400)
-    if up.status_code in [200, 201]:
+    with open(path,"rb") as f:
+        up=requests.put(url,headers={"Content-Length":str(sz),"Content-Type":"video/mp4"},
+                       data=f,timeout=2400)
+    if up.status_code in [200,201]:
         return f"https://www.youtube.com/watch?v={up.json().get('id')}"
-    raise Exception(f"Upload failed {up.status_code}: {up.text[:200]}")
+    raise Exception(f"Upload {up.status_code}: {up.text[:200]}")
 
 def cleanup():
-    files = ["audio.mp3","audio.wav","bg.mp4","final.mp4",
-             "short_teaser.mp4","short_recap.mp4",
-             "s_teaser_raw.mp4","s_recap_raw.mp4"]
-    for f in files:
-        p = WORK_DIR / f
+    for f in ["audio.mp3","audio.wav","bg.mp4","final.mp4",
+              "short_teaser.mp4","short_recap.mp4","s_teaser_raw.mp4","s_recap_raw.mp4"]:
+        p=WORK_DIR/f
         if p.exists(): p.unlink()
     for srt in WORK_DIR.glob("short_*.srt"): srt.unlink()
-    log("  Cleanup complete — all artifacts deleted")
+    log("  Cleanup complete")
 
-def run_stage6_upload(video_path, meta, niche, voice_id, dur,
-                      wc, episode, state, thumbnail_text,
-                      title_scores, decision, script_clean):
-    log("\n" + "="*65)
-    log("  STAGE 6: Upload Main + 2 Shorts with Subtitles")
+def run_stage6_upload(video_path, meta, niche, voice_id, dur, wc, episode, state,
+                      thumbnail_text, title_scores, decision, script_clean):
+    log("\n"+"="*65)
+    log("  STAGE 6: Upload Main + 2 Shorts")
     log("="*65)
-
-    log("  Uploading main video (no subtitles)...")
+    log("  Uploading main...")
     try:
-        yt_url = upload_yt(video_path, meta, is_short=False)
+        yt_url=upload_yt(video_path,meta,is_short=False)
         log(f"  Main: {yt_url}")
     except Exception as e:
-        tg(f"Upload FAILED\n{str(e)[:200]}")
-        sys.exit(1)
-
-    shorts = []
-    for stype in ["teaser", "recap"]:
+        tg(f"Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
+    shorts=[]
+    for stype in ["teaser","recap"]:
         try:
-            sp = make_short_with_subs(video_path, script_clean, stype, dur)
+            sp=make_short_with_subs(video_path,script_clean,stype,dur)
             if sp:
-                sm = dict(meta)
-                sm["title"] = f"{meta['title'][:46]} — {stype.upper()}"
-                su = upload_yt(sp, sm, is_short=True)
-                shorts.append(f"Short {stype}: {su}")
-                log(f"  {shorts[-1]}")
-        except Exception as e:
-            log(f"  Short {stype} failed: {e}")
-
+                sm=dict(meta); sm["title"]=f"{meta['title'][:46]} — {stype.upper()}"
+                su=upload_yt(sp,sm,is_short=True)
+                shorts.append(f"Short {stype}: {su}"); log(f"  {shorts[-1]}")
+        except Exception as e: log(f"  Short {stype}: {e}")
     cleanup()
-
-    state["last_niche"]     = niche["name"]
-    state["last_voice"]     = voice_id
-    state["last_title"]     = meta.get("title", "")
-    state["last_url"]       = yt_url
-    state["makeup_pending"] = False
-    if "weekly_videos" not in state: state["weekly_videos"] = []
-    state["weekly_videos"].append({
-        "date": datetime.datetime.now().isoformat(),
-        "niche": niche["name"], "voice": voice_id,
-        "title": meta.get("title", ""), "url": yt_url,
-        "thumbnail": thumbnail_text
-    })
-    state["weekly_videos"] = state["weekly_videos"][-7:]
+    state["last_niche"]    =niche["name"]; state["last_voice"]=voice_id
+    state["last_title"]    =meta.get("title",""); state["last_url"]=yt_url
+    state["makeup_pending"]=False
+    if "weekly_videos" not in state: state["weekly_videos"]=[]
+    state["weekly_videos"].append({"date":datetime.datetime.now().isoformat(),
+        "niche":niche["name"],"voice":voice_id,"title":meta.get("title",""),
+        "url":yt_url,"thumbnail":thumbnail_text})
+    state["weekly_videos"]=state["weekly_videos"][-7:]
     save_state(state)
-
-    ev  = int(7000 * (9.0 / 10))
-    er  = round((ev / 1000) * niche["rpm"], 2)
-    dec = "APPROVED" if decision == "approved" else "AUTO-APPROVED"
-    tg(f"PUBLISHED — {dec}\n\n"
-       f"{meta['title']}\n"
+    ev=int(7000*0.9); er=round((ev/1000)*niche["rpm"],2)
+    dec="APPROVED" if decision=="approved" else "AUTO-APPROVED"
+    tg(f"PUBLISHED — {dec}\n\n{meta['title']}\n"
        f"Ep{episode} | {niche['name']} | ${niche['rpm']} RPM\n"
-       f"Voice: {voice_id}\n"
-       f"Duration: {dur/60:.1f}min | {wc}w\n"
+       f"Voice: {voice_id} | {dur/60:.1f}min | {wc}w\n"
        f"Thumbnail: {thumbnail_text}\n\n"
-       f"Main: {yt_url}\n"
-       f"{chr(10).join(shorts)}\n\n"
-       f"Est 30-day: {ev:,} views | ${er} (Rs.{int(er*83):,})\n"
-       f"Artifacts deleted.")
+       f"Main: {yt_url}\n{chr(10).join(shorts)}\n\n"
+       f"Est 30d: {ev:,} views | ${er} (Rs.{int(er*83):,})\nArtifacts deleted.")
     log(f"\nCOMPLETE: {yt_url}")
 
 
@@ -1434,65 +1073,39 @@ def run_stage6_upload(video_path, meta, niche, voice_id, dur,
 # MAIN
 # ════════════════════════════════════════════════════════════
 def main():
-    start = time.time()
-    log("\n" + "="*65)
-    log("  DEEPDIVE EMPIRE — MASTER PIPELINE v5.0")
-    log("  Quality: 7.3 min | 6.9 floor | 13 attempts")
-    log("  20 human voices | No subs main | Subs on Shorts")
+    start=time.time()
+    log("\n"+"="*65)
+    log("  DEEPDIVE EMPIRE — PIPELINE v6.0")
+    log("  Niches: Horror | Dark Seduction | Psych Trap | Supernatural | Obsession")
+    log("  Quality: 7.3 min | 6.9 floor | 13 attempts | 20 human voices")
     log("="*65)
-
-    state = load_state()
-
-    # Startup Telegram — confirms bot is working immediately
-    tg(f"Pipeline v5.0 Starting\n"
+    state=load_state()
+    tg(f"Pipeline v6.0 Starting\n"
+       f"Niches: Horror Dark Seduction Psychological Supernatural Obsession\n"
        f"Time: {datetime.datetime.now().strftime('%I:%M %p')}\n"
-       f"Quality floor: {MIN_GATE} | Final: {FINAL_GATE}\n"
-       f"13-attempt engine loading...\n"
-       f"Approval request in ~15 min.")
+       f"Quality: {MIN_GATE} min | Approval in ~15 min.")
     log("Startup notification sent")
-
-    # Stage 1: 13-attempt script engine
-    (niche, topic, voice, episode, script, meta, score,
-     thumbnail_text, intel, title_scores) = run_stage1(state)
-
-    elapsed = (time.time() - start) / 60
+    (niche,topic,voice,episode,script,meta,score,
+     thumbnail_text,intel,title_scores) = run_stage1(state)
+    elapsed=(time.time()-start)/60
     log(f"\nStage 1: {elapsed:.1f} min")
-    tg(f"Stage 1 Complete\n"
-       f"{niche['name']} | {script['words']}w | {score}/10\n"
-       f"Title: {meta.get('title','')[:60]}\n"
-       f"Sending approval now...")
-
-    # Stage 2: Approval gate (30-min)
-    decision = run_stage2_approval(
-        meta, niche, voice, script, thumbnail_text, title_scores)
-    if decision == "rejected":
-        log("Rejected.")
-        sys.exit(0)
-
-    elapsed = (time.time() - start) / 60
+    tg(f"Stage 1 Complete\n{niche['name']} | {script['words']}w | {score}/10\n"
+       f"Title: {meta.get('title','')[:60]}\nSending approval...")
+    decision=run_stage2_approval(meta,niche,voice,script,thumbnail_text,title_scores)
+    if decision=="rejected": log("Rejected."); sys.exit(0)
+    elapsed=(time.time()-start)/60
     log(f"\nApproved at {elapsed:.1f} min")
     tg("Generating audio and video now...")
-
-    # Stage 3: Human voice audio
-    audio_path, duration, audio_sz, voice_used = run_stage3_audio(
-        script["clean"], voice, niche["name"])
+    audio_path,duration,audio_sz,voice_used=run_stage3_audio(script["clean"],voice,niche["name"])
     tg(f"Stage 3: {voice_used} | {duration/60:.1f}min")
-
-    # Stage 4: Video (no subtitles)
-    video_path = run_stage4_video(audio_path, duration, niche)
-
-    elapsed = (time.time() - start) / 60
+    video_path=run_stage4_video(audio_path,duration,niche)
+    elapsed=(time.time()-start)/60
     log(f"\nVideo ready at {elapsed:.1f} min")
-    tg("Video ready. Uploading now...")
+    tg("Video ready. Uploading...")
+    run_stage6_upload(video_path,meta,niche,voice_used,duration,
+                      script["words"],episode,state,
+                      thumbnail_text,title_scores,decision,script["clean"])
+    log(f"\nTotal: {(time.time()-start)/60:.1f} minutes")
 
-    # Stage 6: Upload main + 2 Shorts with subtitles
-    run_stage6_upload(
-        video_path, meta, niche, voice_used, duration,
-        script["words"], episode, state, thumbnail_text,
-        title_scores, decision, script["clean"])
-
-    elapsed = (time.time() - start) / 60
-    log(f"\nTotal: {elapsed:.1f} minutes")
-
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
