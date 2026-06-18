@@ -15,7 +15,7 @@ on:
         required: false
         default: 'false'
         type: choice
-        options: ['false', 'true']
+        options: ['false','true']
 
 jobs:
 
@@ -24,11 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install requests --break-system-packages -q
-      - name: Send weekly report
+      - name: Weekly report
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -39,15 +39,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - name: Install all dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg -qq
           pip install groq requests edge-tts --break-system-packages -q
-      - name: Run complete video pipeline
+      - name: Run pipeline
         env:
           PYTHONUNBUFFERED:      "1"
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
@@ -58,6 +58,7 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_APP_PASSWORD:    ${{ secrets.GMAIL_APP_PASSWORD }}
           GITHUB_RUN_ID:         ${{ github.run_id }}
           IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
         run: python -u video_pipeline/master_pipeline.py
@@ -67,8 +68,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install groq requests --break-system-packages -q
       - name: Support bot
@@ -84,8 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install groq requests --break-system-packages -q
       - name: Fiverr bot
