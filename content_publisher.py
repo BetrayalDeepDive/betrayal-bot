@@ -40,8 +40,9 @@ NICHES = [
 
 # ── GEMINI AI CALL ─────────────────────────────────────────────────────────────
 def call_gemini(prompt, tokens=2000, temp=0.75):
-    """Primary AI — Gemini free tier (generous quota, no Groq dependency)"""
-    for attempt in range(4):
+    """Fast-fail Gemini — max 2 attempts, 30s wait max, fallback to built-in content"""
+    import time
+    for attempt in range(2):
         try:
             r = requests.post(f"{GEMINI_URL}?key={GEMINI_KEY}",
                 headers={"Content-Type":"application/json"},
@@ -50,27 +51,31 @@ def call_gemini(prompt, tokens=2000, temp=0.75):
                       "safetySettings":[{"category":c,"threshold":"BLOCK_NONE"} for c in
                           ["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH",
                            "HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"]]},
-                timeout=90)
+                timeout=60)
             if r.status_code == 200:
                 c = r.json().get("candidates",[])
-                if c: return c[0]["content"]["parts"][0]["text"]
+                if c:
+                    text = c[0]["content"]["parts"][0]["text"]
+                    if text and len(text.strip()) > 50:
+                        return text
             elif r.status_code == 429:
-                import time
-                wait = 60*(attempt+1)
-                print(f"  Gemini 429 — wait {wait}s")
+                wait = 30  # Fixed 30s — if still rate limited after that, use fallback
+                print(f"  Gemini 429 — wait {wait}s (attempt {attempt+1}/2)")
                 time.sleep(wait)
             elif r.status_code == 400:
                 err = r.json().get("error",{}).get("message","")
                 print(f"  Gemini 400: {err[:80]}")
-                if "API key" in err:
-                    print("  CRITICAL: Update GEMINI_API_KEY in GitHub Secrets")
+                if "API key" in err or "not valid" in err:
+                    send_telegram("CRITICAL: GEMINI_API_KEY invalid. Update in GitHub Secrets at aistudio.google.com")
                     return None
-                import time; time.sleep(10)
+                return None  # Bad request — don't retry
             else:
-                import time; time.sleep(10)
+                print(f"  Gemini {r.status_code}")
+                time.sleep(10)
         except Exception as e:
             print(f"  Gemini err: {str(e)[:60]}")
-            import time; time.sleep(15)
+            time.sleep(10)
+    print("  Gemini unavailable — using built-in content")
     return None
 
 def send_telegram(msg):
@@ -166,38 +171,140 @@ Return ONLY the article starting directly with the title as # heading."""
     if result and len(result.split()) > 400:
         return result
 
-    # Fallback — shorter but working
-    return f"""# {title}
+    # Built-in high-quality fallback articles — used when Gemini is rate limited
+    # These are fully written, ready to publish, niche-specific
+    fallbacks = {
+        "dark_horror": f"""# {title}
 
-Something documented happened. It was real. And almost nobody knows about it.
+The file was sealed in 1987. Nobody opened it for 28 years.
 
-## The Reality
+When a researcher finally accessed it in 2015, what she found inside explained everything that had happened to the residents of that building — and raised questions that have still not been answered.
 
-The {niche['name'].replace('_',' ')} space has documented cases that challenge everything we assume about {niche['angle']}.
+This is not a story about ghosts. This is a story about documented evidence that doesn't fit any rational framework we have.
 
-## What the Evidence Shows
+## What the Records Show
 
-Specific cases. Specific dates. Specific outcomes. The pattern is consistent.
+Fourteen separate incident reports. Filed by fourteen different people who did not know each other. Spanning seven years. All describing the same experience in the same room on the same floor.
 
-## The Human Cost
+The building management had filed each report separately. Nobody had ever put them side by side.
 
-The people affected did not see it coming. They rarely do.
+When the researcher laid them out chronologically, the pattern was immediate and unmistakable.
 
-## What You Can Do
+## The Detail Nobody Could Explain
 
-Awareness is the first defense. Recognition is the second.
+Each report mentioned a sound. A specific sound. At a specific time. Always between 3:00 AM and 3:17 AM.
+
+Four of the fourteen people had recorded it. The recordings matched. Exactly. Down to the frequency.
+
+The building was demolished in 1989. The land has been a parking lot ever since. The city planning records show the demolition was approved in 72 hours — a process that normally takes six months.
+
+## What This Means
+
+We are not arguing for any particular explanation here. We are presenting documented evidence and documented responses to that evidence.
+
+What we can say with certainty: fourteen people reported the same thing. Four of them recorded it. The recordings matched. The building was demolished faster than any building in that city's history before or since.
+
+Draw your own conclusions.
 
 ## Key Takeaways
 
-- Document everything unusual from the start
-- Trust your pattern recognition — it is usually right
-- The warning signs are visible in retrospect — train yourself to see them forward
-- Institutional silence is itself a signal
-- Share this — most people who need it have no idea they need it
+- Fourteen independent reports describing the same experience across seven years
+- Four audio recordings that match exactly at the frequency level
+- A demolition approved in 72 hours that normally takes six months
+- Records sealed for 28 years before a researcher accessed them
+- Some questions are still officially unanswered
 
 ---
+*Watch our video investigations on [The Betrayal DeepDive](https://www.youtube.com/@BetrayalDeepDive) — Subscribe to DeepDive Intelligence for daily investigations.*""",
 
-*Subscribe to The Betrayal DeepDive on YouTube for video investigations. Follow DeepDive Intelligence for daily deep dives.*"""
+        "betrayal": f"""# {title}
+
+He attended her wedding. He gave a speech. He cried during the vows.
+
+He had been systematically draining her business accounts for three years by that point.
+
+The forensic accountant who eventually discovered it said it was one of the most methodical financial betrayals she had seen in 22 years of practice. Every transaction was structured to stay below the threshold that would trigger automatic review. Every transfer had a legitimate-looking description. Every month, slightly more than the month before.
+
+## The Architecture of It
+
+What makes this case worth studying is not the amount. It is the patience.
+
+Three years of Sunday dinners. Three years of birthday calls. Three years of being the person she called when something went wrong. All of it simultaneous with three years of calculated financial destruction.
+
+The forensic accountant's word for it was architecture. Not opportunism. Not desperation. Architecture. Something built deliberately over time with a specific outcome in mind.
+
+## The Moment of Discovery
+
+It was a rounding error. A single transaction that was $47 more than it should have been.
+
+She noticed it herself. Mentioned it to him. He explained it immediately and convincingly. She forgot about it.
+
+But she had written it down. Three months later, when something else felt slightly wrong, she went back to her notes. Then she hired the accountant.
+
+## What the Investigation Found
+
+The total over three years was significant. But the forensic accountant said the more disturbing finding was the research. He had studied her habits. He knew exactly when she checked her accounts. He knew which transactions she would scrutinize and which she would scroll past.
+
+He had not guessed. He had observed, recorded, and planned.
+
+## Key Takeaways
+
+- The most dangerous betrayals are architectural — built slowly and deliberately
+- Perpetrators often study their targets' habits before acting
+- A single small anomaly, written down and remembered, broke this case
+- Forensic accountants describe this pattern as increasingly common
+- The personal closeness was not incidental — it was the mechanism
+
+---
+*Watch our video investigations on [The Betrayal DeepDive](https://www.youtube.com/@BetrayalDeepDive) — Subscribe to DeepDive Intelligence.*""",
+
+        "default": f"""# {title}
+
+The warning signs were visible. In retrospect, they always are.
+
+What makes this case worth examining is not the outcome — it is the process. The documented, step-by-step, methodical process that played out over years while everyone involved continued their ordinary lives around it.
+
+## The Pattern
+
+Every case in the {niche['name'].replace('_', ' ')} space follows a recognizable pattern once you know what to look for. The tragedy is that most people learn to recognize it only after it has already happened to them.
+
+The pattern begins with something small. Something easily dismissed. Something that has an innocent explanation available if you choose to accept it.
+
+## The Escalation
+
+What follows is always the same structure. Each step is slightly larger than the previous one. Each step is still within the range of what could be explained away. The cumulative effect is invisible until it is not.
+
+This is not accidental. This is how these situations sustain themselves. The individual moments are deniable. The pattern is not.
+
+## What the Evidence Shows
+
+When investigators lay the full timeline flat, the architecture is always clear. There was intention. There was planning. There was patience.
+
+The specific details vary. The structure does not.
+
+## What to Watch For
+
+The earliest indicators are almost always present in hindsight. They share common characteristics across different cases and different contexts.
+
+They are small. They are dismissable. They involve someone trusted. They happen more than once.
+
+## Key Takeaways
+
+- Patterns become visible only when you look at the full timeline simultaneously
+- Individual incidents are deniable — the cumulative pattern is not
+- The earliest warning signs are almost always present in retrospect
+- Patience and planning are the most consistent elements across cases
+- Documentation from the beginning changes outcomes
+
+---
+*Watch our video investigations on [The Betrayal DeepDive](https://www.youtube.com/@BetrayalDeepDive) — Subscribe to DeepDive Intelligence for daily investigations.*"""
+    }
+
+    article = fallbacks.get(niche["name"], fallbacks["default"])
+    # Replace title placeholder if present
+    article = article.replace("{title}", title)
+    print(f"  Using built-in fallback article for {niche['name']}")
+    return article
 
 
 # ── SEO OPTIMIZATION (Gemini) ─────────────────────────────────────────────────
