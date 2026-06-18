@@ -154,9 +154,16 @@ def load_state():
 def save_state(s): STATE_FILE.write_text(json.dumps(s,indent=2))
 
 def ai_gemini(prompt, temp=0.85, tokens=6000):
-    for attempt in range(5):
+    # Use both flash models to double the quota
+    models = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+    ]
+    for attempt in range(6):
+        model = models[attempt % len(models)]
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            r = requests.post(f"{GEMINI_URL}?key={GEMINI_KEY}",
+            r = requests.post(f"{url}?key={GEMINI_KEY}",
                 headers={"Content-Type":"application/json"},
                 json={"contents":[{"parts":[{"text":prompt}]}],
                       "generationConfig":{"temperature":temp,"maxOutputTokens":min(tokens,8192)},
@@ -170,15 +177,19 @@ def ai_gemini(prompt, temp=0.85, tokens=6000):
                 c = r.json().get("candidates",[])
                 if c: return c[0]["content"]["parts"][0]["text"]
             elif r.status_code == 429:
-                wait = 90*(attempt+1)
-                print(f"  Gemini rate limit — waiting {wait}s...")
+                wait = 60 * (attempt + 1)
+                print(f"  Gemini {model} rate limit — waiting {wait}s (attempt {attempt+1}/6)...")
                 time.sleep(wait)
-            else:
+            elif r.status_code == 503:
+                print(f"  Gemini {model} overloaded — waiting 30s...")
                 time.sleep(30)
+            else:
+                print(f"  Gemini {model} error {r.status_code} — waiting 20s...")
+                time.sleep(20)
         except Exception as e:
-            print(f"  Gemini {attempt+1}: {e}")
-            time.sleep(30)
-    raise Exception("Gemini failed")
+            print(f"  Gemini {model} attempt {attempt+1}: {str(e)[:60]}")
+            time.sleep(20)
+    raise Exception("Gemini failed all 6 attempts across both models")
 
 def ai_groq(prompt, temp=0.7, tokens=2000):
     for attempt in range(5):
@@ -197,10 +208,20 @@ def ai_groq(prompt, temp=0.7, tokens=2000):
     raise Exception("Groq failed")
 
 def ai(prompt, temp=0.85, tokens=6000, prefer="gemini"):
-    try:
-        return ai_gemini(prompt,temp,tokens) if prefer=="gemini" else ai_groq(prompt,temp,min(tokens,2000))
-    except:
-        return ai_groq(prompt,temp,min(tokens,2000)) if prefer=="gemini" else ai_gemini(prompt,temp,tokens)
+    """
+    Evidence Room uses Gemini as primary AND fallback for large requests.
+    Groq only used for tiny requests (metadata/titles under 500 tokens).
+    This avoids Groq daily token exhaustion from Channel 1 usage.
+    """
+    if tokens > 500:
+        # Large request — Gemini only, never Groq
+        return ai_gemini(prompt, temp, tokens)
+    else:
+        # Small request — try Groq first, Gemini fallback
+        try:
+            return ai_groq(prompt, temp, min(tokens, 2000)) if prefer != "gemini" else ai_gemini(prompt, temp, tokens)
+        except:
+            return ai_gemini(prompt, temp, tokens)
 
 def strip_md(text):
     for _ in range(2):
