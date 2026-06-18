@@ -37,7 +37,7 @@ jobs:
   make-video:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
