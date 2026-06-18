@@ -219,7 +219,7 @@ def call_gemini(prompt, temp=0.88, tokens=8000):
                           {"category":"HARM_CATEGORY_HATE_SPEECH","threshold":"BLOCK_NONE"},
                           {"category":"HARM_CATEGORY_SEXUALLY_EXPLICIT","threshold":"BLOCK_NONE"},
                           {"category":"HARM_CATEGORY_DANGEROUS_CONTENT","threshold":"BLOCK_NONE"},
-                      ]}, timeout=120)
+                      ]}, timeout=90)  # 90s max per call
             if r.status_code == 200:
                 c = r.json().get("candidates",[])
                 if c: return c[0]["content"]["parts"][0]["text"]
@@ -554,7 +554,7 @@ Just the words exactly as the narrator will speak them."""
 
     # Enforced expansion — runs until word count is met
     expansion_attempts = 0
-    while wc < MIN_WORDS and expansion_attempts < 3:
+    while wc < MIN_WORDS and expansion_attempts < 2:  # max 2 expansion tries
         expansion_attempts += 1
         deficit = MIN_WORDS - wc
         print(f"  Script {wc}w — {deficit}w short. Expansion attempt {expansion_attempts}...")
@@ -650,9 +650,10 @@ Do not include any control characters. Return only clean ASCII JSON."""
             "category":"22"}
 
 def run_stage1(state):
-    print("\n"+"="*65)
-    print("  STAGE 1: Script + Viral Intel + CTR Scoring + Dread Triggers")
-    print("="*65)
+    import sys as _sys
+    print("\n"+"="*65, flush=True)
+    print("  STAGE 1: Script + Viral Intel + CTR Scoring + Dread Triggers", flush=True)
+    print("="*65, flush=True)
     niche, voice = get_niche_and_voice(state)
     topic   = random.choice(niche["topics"])
     episode = (datetime.datetime.now().timetuple().tm_yday // max(1,len(NICHES))) + 1
@@ -662,16 +663,17 @@ def run_stage1(state):
     print(f"Topic: {topic}")
     print(f"Voice: {voice}\n")
 
-    print("Running viral intelligence engine...")
+    # Viral intel: run fresh weekly, use cache otherwise (saves 3-5 min per run)
+    print("Loading viral intelligence...")
     intel = run_viral_intelligence(niche)
     thumbnail_text = generate_thumbnail_text(niche, topic, intel)
     print(f"Thumbnail: {thumbnail_text}")
-    print("\nScoring 5 title variants...")
+    print("Scoring 5 title variants...")
     best_title, title_scores = generate_and_score_titles(niche, topic, intel, episode)
 
     gate, best, last_script, last_meta = 8.0, 0, None, None
 
-    for attempt in range(1,9):
+    for attempt in range(1,6):  # 5 attempts max — expansion handles word count
         if attempt>=7: gate=7.0
         elif attempt>=5 and best>=7.0: gate=7.5
         elif attempt>=3 and best>=7.5: gate=7.8
@@ -760,19 +762,17 @@ def run_stage2_approval(meta, niche, voice, script, thumbnail_text, title_scores
     preview_short = script["clean"][:400].replace("<","").replace(">","")
 
     # ── 1. TELEGRAM NOTIFICATION ──────────────────────────
-    tg(f"<b>DEEPDIVE SCRIPT READY — APPROVAL NEEDED</b>\n\n"
-       f"<b>{meta['title']}</b>\n\n"
-       f"Niche: {niche['name']} | ${niche['rpm']} RPM\n"
-       f"Voice: {voice}\n"
-       f"Words: {script['words']}\n"
-       f"Thumbnail: <b>{thumbnail_text}</b> (blood red on black)\n\n"
-       f"<b>Title CTR Scores (5 variants analysed):</b>\n{top_titles}\n\n"
-       f"<b>Script Opening (first 400 words):</b>\n{preview_short}...\n\n"
-       f"<b>Reply APPROVE</b> — video generates and uploads automatically\n"
-       f"<b>Reply REJECT</b> — skip today, retry tomorrow\n\n"
-       f"Auto-approves at <b>{deadline_ist}</b> if no response\n"
-       f"You also received this at mohammedsultan0497@gmail.com")
-    print("  Telegram notification sent")
+    # Send approval message in 2 parts to avoid Telegram 4096 char limit
+    tg(f"DEEPDIVE APPROVAL NEEDED\n\n"
+       f"Title: {meta['title']}\n"
+       f"Niche: {niche['name']} | RPM: ${niche['rpm']}\n"
+       f"Voice: {voice} | Words: {script['words']}\n"
+       f"Thumbnail: {thumbnail_text}\n\n"
+       f"Auto-uploads at {deadline_ist}\n"
+       f"Reply APPROVE or REJECT")
+    time.sleep(2)
+    tg(f"TOP TITLES:\n{top_titles}\n\nSCRIPT PREVIEW:\n{preview_short[:300]}...")
+    print("  Telegram approval sent", flush=True)
 
     # ── 2. GMAIL NOTIFICATION ─────────────────────────────
     gmail_subject = f"[DeepDive] Approval Needed: {meta['title'][:60]} — Auto-uploads at {deadline_ist}"
@@ -1141,6 +1141,14 @@ def main():
     print("="*65)
 
     state = load_state()
+
+    # STARTUP TEST — send Telegram immediately so Mohammed knows pipeline started
+    tg(f"<b>Pipeline Starting</b>\n"
+       f"Run ID: {os.environ.get('GITHUB_RUN_ID','?')}\n"
+       f"Time: {datetime.datetime.now().strftime('%I:%M %p IST')}\n"
+       f"Channel 1 — BetrayalDeepDive\n"
+       f"Generating script now. Approval request coming in ~15 min.")
+    print("Startup Telegram notification sent", flush=True)
 
     # Stage 1: Script (10-15 min)
     niche,topic,voice,episode,script,meta,score,thumbnail_text,intel,title_scores = run_stage1(state)
