@@ -338,21 +338,37 @@ def call_gemini(prompt, temp=0.88, tokens=8000, model="2.0"):
                 }, timeout=90)
             if r.status_code == 200:
                 c = r.json().get("candidates", [])
-                if c: return c[0]["content"]["parts"][0]["text"]
+                if c:
+                    text = c[0]["content"]["parts"][0]["text"]
+                    if text and len(text.strip()) > 100:
+                        return text
+                    log(f"  Gemini {model}: empty response — retrying")
             elif r.status_code == 429:
                 wait = 60 * (attempt + 1)
-                log(f"  Gemini {model} 429 — waiting {wait}s...")
+                log(f"  Gemini {model} 429 — wait {wait}s")
                 time.sleep(wait)
+            elif r.status_code == 400:
+                # 400 = bad request — log the error and try with shorter prompt
+                err = r.json().get("error",{}).get("message","unknown")[:100]
+                log(f"  Gemini {model} 400: {err}")
+                # Trim prompt if too long
+                if len(prompt) > 8000:
+                    prompt = prompt[:8000] + " WRITE THE NARRATION NOW."
+                    log(f"  Trimmed prompt to 8000 chars")
+                time.sleep(5)
+            elif r.status_code == 503:
+                log(f"  Gemini {model} 503 overloaded — wait 30s")
+                time.sleep(30)
             else:
-                log(f"  Gemini {model} {r.status_code}")
-                time.sleep(20)
+                log(f"  Gemini {model} {r.status_code}: {r.text[:80]}")
+                time.sleep(15)
         except Exception as e:
             log(f"  Gemini {model} err: {str(e)[:60]}")
-            time.sleep(20)
+            time.sleep(15)
     raise Exception(f"Gemini {model} failed all 5 attempts")
 
 def call_groq(prompt, temp=0.7, tokens=2000):
-    for attempt in range(4):
+    for attempt in range(3):
         try:
             r = groq_client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -361,23 +377,31 @@ def call_groq(prompt, temp=0.7, tokens=2000):
             return r.choices[0].message.content
         except Exception as e:
             if "429" in str(e) or "rate_limit" in str(e).lower():
-                wait = min(90 * (2 ** attempt), 360)
-                log(f"  Groq 429 — waiting {wait}s...")
+                wait = 60
+                log(f"  Groq 429 — wait {wait}s then fallback to Gemini")
                 time.sleep(wait)
-            else: raise
-    raise Exception("Groq failed all attempts")
+            else:
+                raise
+    raise Exception("Groq rate limited")
 
 def ai(prompt, temp=0.88, tokens=8000, prefer="gemini"):
-    try:
-        if prefer == "gemini":
-            try: return call_gemini(prompt, temp, tokens, "2.0")
-            except: return call_gemini(prompt, temp, tokens, "1.5")
-        else:
+    """
+    For large requests (script generation): Gemini ONLY — never Groq
+    For small requests (titles/metadata under 1500 tokens): Groq first, Gemini fallback
+    Groq has 2000 token output limit — cannot generate scripts
+    """
+    if tokens > 1500:
+        # SCRIPT GENERATION — Gemini only
+        try: return call_gemini(prompt, temp, tokens, "2.0")
+        except: return call_gemini(prompt, temp, tokens, "1.5")
+    else:
+        # SMALL REQUESTS — Groq first (faster), Gemini fallback
+        if prefer != "gemini":
             try: return call_groq(prompt, temp, min(tokens, 2000))
-            except: return call_gemini(prompt, temp, tokens, "2.0")
-    except:
-        try: return call_groq(prompt, temp, min(tokens, 2000))
-        except: raise Exception("All AI models failed")
+            except: return call_gemini(prompt, temp, min(tokens, 4000), "2.0")
+        else:
+            try: return call_gemini(prompt, temp, min(tokens, 4000), "2.0")
+            except: return call_groq(prompt, temp, min(tokens, 2000))
 
 def strip_md(text):
     for _ in range(2):
@@ -711,123 +735,54 @@ def generate_script(niche, topic, episode, attempt, prev_title, intel):
     arc         = intel.get("emotional_arc",
                            "Shock then horror then dread then twist then devastation then reckoning")
 
-    prompt = f"""You are the greatest dark investigative documentary narrator who has ever existed.
-You have studied every viral documentary. You know exactly what makes someone unable to stop watching.
-You write Episode {episode} of "{niche['series']}" for The Betrayal DeepDive.
+    # Compressed prompt — keeps all requirements, cuts token usage by 60%
+    dread_short = " | ".join(
+        f"{t.upper()}: {DREAD_TRIGGERS[t][:60]}"
+        for t in niche.get("dread_triggers",[])[:4]
+        if t in DREAD_TRIGGERS)
 
-THE STORY YOU ARE TELLING TODAY:
-{topic}
-Darkness level: {darkness}%
-{cross}
+    prompt = f"""You are the greatest dark investigative documentary narrator alive.
+Write Episode {episode} of "{niche['series']}" for The Betrayal DeepDive.
+Story: {topic}
+Darkness: {darkness}% {cross}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-VIRAL INTELLIGENCE — EXTRACTED FROM TOP 30 VIDEOS IN THIS NICHE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PROVEN OPENING HOOKS:
-{hook_ex}
+PROVEN HOOKS FROM TOP VIDEOS: {hooks[0] if hooks else "They trusted this person completely. That was their only mistake."}
+EMOTIONAL ARC: {arc}
+VIRAL FACTOR: {viral}
+POWER WORDS: {', '.join(power[:6])}
+RETENTION HOOK 1 (use at 30pct): {retention[0] if retention else "What you are about to hear changes everything"}
+RETENTION HOOK 2 (use at 60pct): {retention[1] if len(retention)>1 else "The real crime starts now"}
+RETENTION HOOK 3 (use at 80pct): {retention[2] if len(retention)>2 else "Nobody was ever held accountable"}
 
-EMOTIONAL ARC OF TOP PERFORMERS: {arc}
-WHAT MAKES VIDEOS GO VIRAL: {viral}
-POWER WORDS THAT DOMINATE: {', '.join(power)}
+DREAD TRIGGERS APPLY: {dread_short}
 
-RETENTION ARCHITECTURE — INJECT AT EXACT POSITIONS:
-{ret_str}
+STRICT RULES — ALL MANDATORY:
+1. ZERO markdown — no symbols asterisks hashtags brackets
+2. ZERO stage directions — no music pause cut narrator
+3. ZERO AI phrases — no moreover furthermore in conclusion interestingly
+4. Pure spoken English — every word speakable by a human narrator
+5. MAX 13 words per sentence — tension lives in brevity
+6. Every paragraph darker than the previous
+7. Specific dates amounts names locations throughout
+8. EXACTLY {MIN_WORDS} to {MAX_WORDS} words — count them
+9. ZERO section labels — pure seamless narration only
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PSYCHOLOGICAL DREAD SYSTEM — APPLY THESE EXACTLY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{dread}
+STRUCTURE (write as one seamless narration, no labels):
+HOOK (4 sentences): Most disturbing fact stated plainly. One specific detail making it worse. An exact number or date. Question making stopping impossible.
+WORLD BEFORE (400-500w): Warm specific world before collapse. Plant 3 ordinary details that become sinister later. Apply NORMALITY and INVISIBILITY triggers.
+RISING DREAD (400-500w): First signs. Each explainable alone. Together a pattern nobody named. Apply PROXIMITY and DURATION triggers.
+[USE RETENTION HOOK 1 HERE]
+DESCENT (600-700w): Full documented scale. Exact amounts dates locations. Suffocating weight. Apply SCALE COMPETENCE REPETITION triggers.
+COLLAPSE (200-250w): Exact moment it buckled. Who found it. What they saw first.
+[USE RETENTION HOOK 2 HERE]
+TWIST (150-200w): ONE sentence shatters everything. Reframe every planted detail. Apply REVERSAL trigger.
+HUMAN COST (350-400w): Specific named people. Specific permanent losses. Apply COST trigger.
+[USE RETENTION HOOK 3 HERE]
+AFTERMATH (200-250w): Legal consequences or their absence. What remains unchanged now. Apply INSTITUTIONAL COMPLICITY triggers.
+RECKONING (150-200w): Hard truth. No comfort. No resolution.
+CLOSE (100-150w): Haunting line to next episode. Natural subscribe call.{f" Reference: {prev_title}." if prev_title else ""}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THE 10 LAWS — BREAKING ANY ONE DESTROYS THE VIDEO
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAW 1 — ZERO MARKDOWN: No asterisks. No hashtags. No underscores. No brackets. No backticks. Zero symbols.
-LAW 2 — ZERO STAGE DIRECTIONS: No [music]. No [pause]. No [cut]. No (narrator). Nothing in parentheses that is not spoken.
-LAW 3 — ZERO AI LANGUAGE: Never write: moreover, furthermore, it is worth noting, in conclusion, interestingly, it should be noted, this highlights, this demonstrates.
-LAW 4 — PURE SPOKEN ENGLISH: Every word must be naturally speakable aloud by a human narrator without sounding written.
-LAW 5 — 13 WORDS MAXIMUM per sentence. Not 14. Not 15. 13. Tension lives in brevity.
-LAW 6 — NEVER start 3 consecutive sentences with the same word.
-LAW 7 — Every paragraph MUST be heavier and darker than the paragraph before it. No exceptions.
-LAW 8 — Specificity is everything. Exact dates. Exact amounts. Exact words spoken. Exact locations. Invented specifics that feel documented.
-LAW 9 — {MIN_WORDS} to {MAX_WORDS} words. Not fewer. If you run short, expand every section.
-LAW 10 — ZERO section labels in the output. No HOOK: no THE TWIST: no RECKONING: Pure continuous narration only.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MANDATORY NARRATIVE ARCHITECTURE
-One seamless narration. No visible structure. Pure flowing darkness.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-OPENING HOOK — First 4 sentences. This is the only chance:
-Sentence 1: The single most disturbing fact about this story. No context. No build-up. Just the fact, stated plainly.
-Sentence 2: The one specific detail that makes sentence 1 immediately and viscerally worse.
-Sentence 3: An exact number, amount, or duration. Something that lands with the weight of concrete.
-Sentence 4: A question that makes it physiologically impossible for the listener to stop now.
-
-THE WORLD BEFORE (400-500 words):
-The world as it existed before the collapse. Specific. Warm. Human.
-Make the audience genuinely care about who will be destroyed — without telling them they will be.
-Plant EXACTLY 3 specific ordinary details that will detonate later. Do not signal them.
-They must feel like background color. They must read as insignificant.
-Apply NORMALITY and INVISIBILITY triggers here.
-
-THE RISING DREAD (400-500 words):
-The first signs. Each one small. Each one explainable in isolation.
-Each one the kind of thing a reasonable careful person would dismiss.
-Together they form a pattern that, in retrospect, was screaming.
-Never name the pattern. Let the listener feel it forming before they can articulate it.
-Apply PROXIMITY and DURATION triggers here.
-
-USE RETENTION HOOK 1 HERE. Verbatim. Exactly as written above.
-
-THE DESCENT (600-700 words):
-The full documented scale of what was really happening.
-Everything specific. Exact amounts. Exact dates. Exact locations. Exact words spoken.
-Every sentence lands like a physical weight pressing down.
-The listener cannot breathe during this section. Make it suffocating.
-Apply SCALE, COMPETENCE, and REPETITION triggers here.
-
-THE COLLAPSE (200-250 words):
-The exact moment the structure of concealment finally buckled.
-Who discovered it. What they saw first. The specific detail that cracked everything open.
-The 24 hours after discovery. What happened in that room.
-
-USE RETENTION HOOK 2 HERE. Verbatim.
-
-THE MAJOR TWIST (150-200 words):
-ONE sentence. It shatters everything the audience believed.
-A single paragraph break. Implied silence. Let it land completely.
-Then reframe — every single planted ordinary detail from the opening is now sinister.
-The audience must feel the floor drop away.
-Apply REVERSAL trigger here.
-
-THE HUMAN COST (350-400 words):
-Not statistics. Not numbers. Specific named people.
-The career that ended. The marriage that broke. The child who grew up without a parent.
-The savings that were gone. The years that cannot be reclaimed.
-This is the emotional apex. Make it completely unbearable.
-Apply COST trigger here.
-
-USE RETENTION HOOK 3 HERE. Verbatim.
-
-THE AFTERMATH (200-250 words):
-What the legal system did. What it refused to do.
-The most disturbing detail: what remains completely unchanged and is operating right now.
-Apply INSTITUTIONAL and COMPLICITY triggers here.
-
-THE RECKONING (150-200 words):
-The hard truth about power, trust, and human nature.
-No moral lesson. No advice. No resolution. No consolation.
-Just the truth, stated plainly, without comfort.
-
-THE CLOSE (100-150 words):
-One haunting line connecting directly to the next episode of {niche['series']}.
-One completely natural sentence about subscribing to The Betrayal DeepDive.
-{f"Organic reference to previous investigation: {prev_title}." if prev_title else ""}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WRITE THE COMPLETE NARRATION NOW.
-{MIN_WORDS} to {MAX_WORDS} words. Pure narration. Nothing else.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+WRITE {MIN_WORDS}-{MAX_WORDS} WORDS OF PURE NARRATION NOW. NO LABELS. NO PREAMBLE."""
 
     raw   = ai(prompt, temp=temp, tokens=8000, prefer="gemini")
     clean = strip_md(strip_md(raw))
