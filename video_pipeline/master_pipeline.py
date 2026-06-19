@@ -1,194 +1,213 @@
 #!/usr/bin/env python3
 """
-DeepDive Empire v10.0 - COMPLETE BUILD
-=======================================
-Includes all v9.0 bug fixes PLUS:
-  [1] Psychological 7-stage script framework
-  [2] AI-generated SEO description (300 words)
-  [3] Thumbnail image generation (Pillow)
-  [4] Thumbnail upload to YouTube
-  [5] Background ambient music (FFmpeg generated)
-  [6] YouTube Short #1 - Teaser (first 55s)
-  [7] YouTube Short #2 - Recap (at 67% mark)
-  [8] Both Shorts uploaded with proper metadata
-
-Pipeline sequence:
-  S1 Script → S2 SEO → S3 Audio → S4 Video → S5 Music
-  → S6 Compose Main → S7 Thumbnail → S8 Upload Main
-  → S9 Set Thumbnail → S10 Create+Upload Shorts
+DeepDive Empire v11.0 - ULTIMATE ENGINE
+=========================================
+All v10.0 features + 12 new additions:
+[1]  Burned-in captions (edge-tts SubMaker -> .ass -> FFmpeg hardcode)
+[2]  YouTube chapters (auto from 7-stage word distribution)
+[3]  Playlist engine (auto-create per niche, add every video)
+[4]  Checkpoint/resume (save after each stage, retry picks up)
+[5]  ElevenLabs TTS (premium voice -> edge-tts fallback)
+[6]  Trend intelligence (YouTube search top viral titles this month)
+[7]  Branded intro + outro (FFmpeg 2s + 5s)
+[8]  Performance tracker (per-niche/voice stats in state.json)
+[9]  Dynamic thumbnail text (AI extracts 3-word hook from script reveal)
+[10] Niche auto-rotation (3 bad episodes -> swap to best performer)
+[11] Subtitle style (white bold 48pt, black border, bottom-center)
+[12] Channel About update (latest episode after every upload)
 """
 
 import os, sys, json, re, time, random, datetime, glob, asyncio
-import subprocess, textwrap
+import subprocess
 from pathlib import Path
 import requests
 
-# ─────────────────────────────────────────────────────────
+# ================================================================
 # CREDENTIALS
-# ─────────────────────────────────────────────────────────
-GROQ_KEY       = os.environ.get("GROQ_API_KEY","")
-GEMINI_KEY     = os.environ.get("GEMINI_API_KEY","")
-CEREBRAS_KEY   = os.environ.get("CEREBRAS_API_KEY","")
-OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY","")
-PIXABAY_KEY    = os.environ.get("PIXABAY_KEY","")
-PEXELS_KEY     = os.environ.get("PEXELS_API_KEY","")
-YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID","")
-YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET","")
-YT_REFRESH     = os.environ.get("YOUTUBE_REFRESH_TOKEN","")
-TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN","")
-TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID","")
-IS_MAKEUP      = os.environ.get("IS_MAKEUP","false").lower() == "true"
+# ================================================================
+GROQ_KEY       = os.environ.get("GROQ_API_KEY", "")
+GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
+CEREBRAS_KEY   = os.environ.get("CEREBRAS_API_KEY", "")
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+PIXABAY_KEY    = os.environ.get("PIXABAY_KEY", "")
+PEXELS_KEY     = os.environ.get("PEXELS_API_KEY", "")
+ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID", "")
+YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+YT_REFRESH     = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
+TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN", "")
+TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID", "")
+IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 
-# ─────────────────────────────────────────────────────────
-# AI ENDPOINTS
-# ─────────────────────────────────────────────────────────
+# ================================================================
+# ENDPOINTS
+# ================================================================
 GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 CEREBRAS_URL   = "https://api.cerebras.ai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
+ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
+YT_DATA_URL    = "https://www.googleapis.com/youtube/v3"
+YT_UPLOAD_URL  = "https://www.googleapis.com/upload/youtube/v3"
+YT_TOKEN_URL   = "https://oauth2.googleapis.com/token"
 
-# ─────────────────────────────────────────────────────────
+# ================================================================
 # PATHS
-# ─────────────────────────────────────────────────────────
+# ================================================================
 SCRIPT_DIR = Path(__file__).parent
 WORK_DIR   = Path("/tmp/deepdive")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = SCRIPT_DIR / "state.json"
+CKPT_FILE  = WORK_DIR / "checkpoint.json"
 
-# ─────────────────────────────────────────────────────────
-# QUALITY CONFIG
-# ─────────────────────────────────────────────────────────
+# ================================================================
+# CONFIG
+# ================================================================
 MIN_WORDS  = 2000
 MAX_WORDS  = 2600
 MIN_GATE   = 7.0
 FINAL_GATE = 6.5
 
-# ─────────────────────────────────────────────────────────
-# NICHE DEFINITIONS
-# ─────────────────────────────────────────────────────────
-DAY_NICHE = {0:"dark_horror", 1:"seduction_dark", 2:"psychological_trap",
-             3:"supernatural_real", 4:"obsession_dark"}
+# Word targets per stage (sum = MIN_WORDS baseline)
+STAGE_WORDS = [100, 200, 250, 400, 200, 650, 200]
+STAGE_NAMES = ["The Opening", "Before It Happened", "First Warning Signs",
+               "Escalation", "A Moment of Peace", "The Truth Revealed", "What This Means"]
+
+EL_VOICES = {
+    "dark_horror":        "29vD33N1CtxCmqQRPOHJ",
+    "seduction_dark":     "VR6AewLTigWG4xSOukaG",
+    "psychological_trap": "pNInz6obpgDQGcFmaJgB",
+    "supernatural_real":  "yoZ06aMxZJJ28mfd3POQ",
+    "obsession_dark":     "29vD33N1CtxCmqQRPOHJ",
+}
+
+DAY_NICHE = {0: "dark_horror", 1: "seduction_dark", 2: "psychological_trap",
+             3: "supernatural_real", 4: "obsession_dark"}
 
 NICHES = [
     {
-        "name":"dark_horror","rpm":13.00,"series":"Dark Hours",
-        "topics":[
-            "A family discovered something had been living in their walls for three years — and only found out when the child disappeared overnight",
-            "A night-shift nurse documented 14 incidents that nobody believed — until the third patient died the same way",
-            "A hiker survived something in the mountains that three separate search teams still cannot explain",
-            "A woman received a letter from herself — postmarked the day after she went missing",
+        "name": "dark_horror", "rpm": 13.00, "series": "Dark Hours",
+        "search_query": "dark horror true story documentary",
+        "dread_style": "physical dread — something real in shared space without anyone knowing",
+        "implication": "the listener has almost certainly been somewhere wrong was happening without ever sensing it",
+        "topics": [
+            "A family discovered something had been living inside their walls for three years — they found out when the child stopped sleeping",
+            "A night-shift nurse documented 14 incidents nobody believed — until the third patient died the same way",
+            "A hiker survived something in those mountains that three search teams still cannot explain",
+            "A woman received a letter from herself — postmarked the day after she was reported missing",
         ],
-        "dread_style":"physical dread — the horror of something real being in your space without you knowing",
-        "implication":"the listener has probably been in a space where something wrong was happening and never felt it",
+        "dread_triggers": [
+            "the slow realisation something was wrong long before anyone understood it",
+            "the moment the ordinary became permanently broken",
+            "the detail that made everything before it feel like a lie",
+            "the specific thing seen or heard that cannot be explained away",
+        ],
     },
     {
-        "name":"seduction_dark","rpm":14.00,"series":"The Dark Seduction Files",
-        "topics":[
-            "A charismatic figure destroyed 23 lives over 8 years using the exact same method on every single target",
-            "A relationship that was later revealed to have been planned in complete detail three years before they ever met",
-            "The 14-stage emotional extraction system used to drain targets of their finances, identity, and relationships",
+        "name": "seduction_dark", "rpm": 14.00, "series": "The Dark Seduction Files",
+        "search_query": "dark psychology manipulation documentary true story",
+        "dread_style": "the horror of realising you were chosen, not met — the illusion of connection dismantled",
+        "implication": "the listener may have been targeted and interpreted the warning signs as love",
+        "topics": [
+            "A charismatic figure destroyed 23 lives over 8 years using the exact same 14-step method on every target",
+            "A relationship revealed to have been planned in complete detail three years before they ever met",
             "How one person convinced seven strangers to cut off their entire families within a single month",
+            "The manipulation blueprint used to drain targets of their finances, identity, and sense of reality",
         ],
-        "dread_style":"the horror of realising you were chosen, not met — the illusion of a relationship dismantled",
-        "implication":"the listener may have been targeted and interpreted the warning signs as love",
+        "dread_triggers": [
+            "the moment the target realised the relationship had never been real",
+            "the discovery of preparation that predated the first meeting by years",
+            "the pattern only visible in retrospect after it was too late",
+            "the phrase repeated word for word to every single target",
+        ],
     },
     {
-        "name":"psychological_trap","rpm":12.00,"series":"The Trap",
-        "topics":[
-            "A 9-stage system designed specifically to make targets financially, emotionally, and socially dependent",
+        "name": "psychological_trap", "rpm": 12.00, "series": "The Trap",
+        "search_query": "psychological trap gaslighting documentary investigation",
+        "dread_style": "the horror of a system — chaos was actually a designed process",
+        "implication": "the listener may currently be inside a trap and interpreting it as a difficult relationship",
+        "topics": [
+            "A 9-stage system designed to make targets financially, emotionally, and socially dependent",
             "How sustained gaslighting over 18 months made a clinical psychologist unable to trust her own memory",
-            "The psychological conditioning trap that has claimed over 4,000 documented victims across 12 countries",
-            "The social media manipulation campaign that systematically dismantled a person's entire sense of self",
+            "The psychological trap that claimed over 4,000 documented victims across 12 countries",
+            "The social media campaign that systematically dismantled a person's entire sense of identity",
         ],
-        "dread_style":"the horror of a system — the realisation that what felt like chaos was actually a designed process",
-        "implication":"the listener may currently be inside a trap and interpreting it as a bad relationship",
+        "dread_triggers": [
+            "the stage where the target stops trusting their own memory",
+            "the moment the system becomes invisible because the target defends it",
+            "the technique that makes leaving feel structurally impossible",
+            "the realisation that the confusion itself was being deliberately manufactured",
+        ],
     },
     {
-        "name":"supernatural_real","rpm":11.50,"series":"Evidence Files",
-        "topics":[
-            "A 2019 incident with 14 unconnected witnesses — classified by three government agencies within 72 hours",
-            "Every single occupant of the building reported the identical auditory experience — later confirmed by independent instruments",
-            "A medical case in which the patient accurately described events they could not have witnessed from their location",
-            "A location where 11 of 300 tourists reported the exact same vision on the same afternoon — none knew each other",
+        "name": "supernatural_real", "rpm": 11.50, "series": "Evidence Files",
+        "search_query": "unexplained paranormal evidence documentary classified",
+        "dread_style": "the horror of evidence that cannot be explained — the rational framework collapsing",
+        "implication": "the listener has probably had an experience they dismissed that deserves to be reconsidered",
+        "topics": [
+            "A 2019 incident with 14 unconnected witnesses — classified by three agencies within 72 hours",
+            "Every occupant of the building reported the identical auditory experience — confirmed by instruments",
+            "A medical case where the patient described events they could not have witnessed from their location",
+            "A location where 11 of 300 tourists reported the exact same vision on the same afternoon",
         ],
-        "dread_style":"the horror of evidence that cannot be explained — the collapse of the rational framework",
-        "implication":"the listener has probably had an experience they dismissed that deserves to be reconsidered",
+        "dread_triggers": [
+            "the evidence no rational explanation can account for",
+            "multiple unconnected witnesses describing the exact same impossible detail",
+            "the official response that implied far more than it denied",
+            "the recording of something that should not have been physically possible",
+        ],
     },
     {
-        "name":"obsession_dark","rpm":13.00,"series":"Consumed",
-        "topics":[
-            "4,380 consecutive days of obsessive behaviour — documented in meticulous handwritten detail",
-            "A stalker who embedded themselves as a trusted friend for three years before a single person noticed",
-            "An obsession that systematically removed every relationship, asset, and ambition the subject had built over seven years",
-            "A person who dedicated an entire decade to watching someone they had never spoken a single word to",
+        "name": "obsession_dark", "rpm": 13.00, "series": "Consumed",
+        "search_query": "obsession stalking dark documentary true crime",
+        "dread_style": "the horror of invisible fixation — a life shaped by someone watching from outside",
+        "implication": "the listener may have someone in their life whose interest extends far beyond what it appears",
+        "topics": [
+            "4,380 consecutive days of obsessive behaviour documented in handwritten detail across 47 notebooks",
+            "A stalker who embedded as a trusted friend for three years before a single person noticed",
+            "An obsession that removed every relationship, asset, and ambition the subject built over seven years",
+            "A person who dedicated a decade to watching someone they had never spoken a word to",
         ],
-        "dread_style":"the horror of invisible fixation — someone whose entire world revolves around a target who has no idea",
-        "implication":"the listener may have someone in their life whose interest is far beyond what it appears",
+        "dread_triggers": [
+            "the detail revealing how long the observation had actually been happening",
+            "the moment the target understood the full scope of what they had been living inside",
+            "the action proving the obsession had moved beyond passive watching",
+            "the evidence the obsession had quietly shaped the target's life without their knowledge",
+        ],
     },
 ]
 
 VOICES = {
-    "dark_horror":        ["en-US-DavisNeural","en-GB-RyanNeural"],
-    "seduction_dark":     ["en-GB-RyanNeural","en-US-AndrewNeural"],
-    "psychological_trap": ["en-US-BrianNeural","en-GB-ThomasNeural"],
-    "supernatural_real":  ["en-GB-RyanNeural","en-US-DavisNeural"],
+    "dark_horror":        ["en-US-DavisNeural", "en-GB-RyanNeural"],
+    "seduction_dark":     ["en-GB-RyanNeural",  "en-US-AndrewNeural"],
+    "psychological_trap": ["en-US-BrianNeural", "en-GB-ThomasNeural"],
+    "supernatural_real":  ["en-GB-RyanNeural",  "en-US-DavisNeural"],
     "obsession_dark":     ["en-US-AndrewNeural","en-GB-RyanNeural"],
 }
 
 BG_KEYWORDS = {
-    "dark_horror":        ["dark shadow night","abandoned house dark","dark forest fog"],
-    "seduction_dark":     ["dark silhouette","mystery dark room candle","dark neon city rain"],
-    "psychological_trap": ["dark corridor shadow","dark labyrinth","dark spiral staircase"],
-    "supernatural_real":  ["dark mysterious fog","abandoned building night","dark forest mist"],
-    "obsession_dark":     ["dark window rain","surveillance night","shadow watching"],
+    "dark_horror":        ["dark shadow night", "abandoned house dark", "horror forest night"],
+    "seduction_dark":     ["dark silhouette shadow", "mystery dark candle", "dark neon rain"],
+    "psychological_trap": ["dark corridor shadow", "dark labyrinth", "dark staircase"],
+    "supernatural_real":  ["dark mysterious fog", "abandoned building night", "dark forest mist"],
+    "obsession_dark":     ["dark window rain", "surveillance night", "shadow watching"],
 }
 
-# Psychological dread triggers mapped to niche
-DREAD_TRIGGERS = {
-    "dark_horror": [
-        "slow realisation that something was wrong long before they understood it",
-        "the moment the ordinary became permanently broken",
-        "the detail that made everything before it feel like a lie",
-        "the specific sound or sight that cannot be explained away",
-    ],
-    "seduction_dark": [
-        "the moment the target realised the relationship had never been real",
-        "the discovery of the planning that predated the first meeting",
-        "the pattern that only became visible in retrospect",
-        "the thing the manipulator said that they repeated to every single target",
-    ],
-    "psychological_trap": [
-        "the stage where the target stops trusting their own memory",
-        "the moment the system becomes invisible because the target defends it",
-        "the specific technique that makes leaving feel impossible",
-        "the realisation that the confusion was deliberately created",
-    ],
-    "supernatural_real": [
-        "the piece of evidence that the rational explanation cannot account for",
-        "the moment multiple unconnected witnesses describe the identical detail",
-        "the official response that implied more than it denied",
-        "the thing that was recorded that should not have been possible",
-    ],
-    "obsession_dark": [
-        "the detail that revealed how long the observation had been happening",
-        "the moment the target understood the full scope of what they were inside",
-        "the action that proved the obsession had moved beyond passive watching",
-        "the evidence that the obsession had shaped the target's life without their knowledge",
-    ],
-}
-
-# ─────────────────────────────────────────────────────────
+# ================================================================
 # UTILS
-# ─────────────────────────────────────────────────────────
+# ================================================================
 def log(m): print(m, flush=True)
 
 def tg(m):
     if not TG_TOKEN or not TG_CHAT: return
-    for chunk in [m[i:i+4000] for i in range(0,len(m),4000)]:
+    for chunk in [m[i:i+4000] for i in range(0, len(m), 4000)]:
         try:
-            requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                json={"chat_id":TG_CHAT,"text":chunk,"parse_mode":"HTML"}, timeout=15)
-        except Exception as e: log(f"TG error: {e}")
+            requests.post(
+                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                json={"chat_id": TG_CHAT, "text": chunk, "parse_mode": "HTML"},
+                timeout=15)
+        except Exception as e:
+            log(f"TG: {e}")
 
 def load_state():
     try: return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
@@ -196,99 +215,213 @@ def load_state():
 
 def save_state(s):
     try: STATE_FILE.write_text(json.dumps(s, indent=2))
-    except Exception as e: log(f"State save error: {e}")
+    except Exception as e: log(f"State save: {e}")
+
+def get_media_duration(path):
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30)
+        return float(r.stdout.strip())
+    except: return 0.0
 
 def run_ffmpeg(cmd, timeout=1800, label="ffmpeg"):
-    """Run an ffmpeg command with visible error output."""
     log(f"  [{label}] running...")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    if result.returncode != 0:
-        log(f"  [{label}] STDERR:\n{result.stderr[-3000:]}")
-        raise RuntimeError(f"{label} failed (code {result.returncode})")
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        log(f"  [{label}] STDERR: {r.stderr[-2000:]}")
+        raise RuntimeError(f"{label} failed (code {r.returncode})")
     log(f"  [{label}] OK")
-    return result
+    return r
 
-# ─────────────────────────────────────────────────────────
+def strip_md(text):
+    for _ in range(2):
+        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\*+([^*\n]+)\*+', r'\1', text)
+        text = re.sub(r'_+([^_\n]+)_+', r'\1', text)
+        text = re.sub(r'`+[^`]*`+', '', text)
+        text = re.sub(r'[#*_`\[\]{}<>\\]', '', text)
+    return text.strip()
+
+# ================================================================
+# CHECKPOINT / RESUME  [NEW #4]
+# ================================================================
+def ckpt_save(key, value):
+    data = {}
+    try:
+        if CKPT_FILE.exists():
+            data = json.loads(CKPT_FILE.read_text())
+    except: pass
+    data[key] = value
+    CKPT_FILE.write_text(json.dumps(data, indent=2))
+    log(f"  [ckpt] saved: {key}")
+
+def ckpt_load(key):
+    try:
+        if CKPT_FILE.exists():
+            val = json.loads(CKPT_FILE.read_text()).get(key)
+            if val is not None:
+                log(f"  [ckpt] resuming: {key}")
+                return val
+    except: pass
+    return None
+
+def ckpt_clear():
+    try: CKPT_FILE.unlink(missing_ok=True)
+    except: pass
+
+# ================================================================
 # AI CALLERS
-# ─────────────────────────────────────────────────────────
+# ================================================================
 def call_cerebras(prompt, tokens=8000):
     if not CEREBRAS_KEY: return None
     try:
         r = requests.post(CEREBRAS_URL,
-            headers={"Authorization":f"Bearer {CEREBRAS_KEY}","Content-Type":"application/json"},
-            json={"model":"llama-3.3-70b","messages":[{"role":"user","content":prompt}],
-                  "max_completion_tokens":min(tokens,8000),"temperature":0.88}, timeout=90)
+            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}],
+                  "max_completion_tokens": min(tokens, 8000), "temperature": 0.88}, timeout=90)
         if r.status_code == 200:
-            text = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-            if text and len(text.strip()) > 100: log("✓ Cerebras"); return text
-        else: log(f"Cerebras {r.status_code}: {r.text[:150]}")
-    except Exception as e: log(f"Cerebras error: {e}")
+            t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            if t and len(t.strip()) > 100: log("OK Cerebras"); return t
+        else: log(f"Cerebras {r.status_code}")
+    except Exception as e: log(f"Cerebras: {e}")
     return None
 
 def call_groq(prompt, tokens=8000):
     if not GROQ_KEY: return None
     try:
         r = requests.post(GROQ_URL,
-            headers={"Authorization":f"Bearer {GROQ_KEY}","Content-Type":"application/json"},
-            json={"model":"llama-3.3-70b-versatile","messages":[{"role":"user","content":prompt}],
-                  "temperature":0.88,"max_tokens":min(tokens,8000)}, timeout=90)
+            headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.88, "max_tokens": min(tokens, 8000)}, timeout=90)
         if r.status_code == 200:
-            text = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-            if text and len(text.strip()) > 100: log("✓ Groq"); return text
-        else: log(f"Groq {r.status_code}: {r.text[:150]}")
-    except Exception as e: log(f"Groq error: {e}")
+            t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            if t and len(t.strip()) > 100: log("OK Groq"); return t
+        else: log(f"Groq {r.status_code}")
+    except Exception as e: log(f"Groq: {e}")
     return None
 
 def call_gemini(prompt, tokens=8000):
     if not GEMINI_KEY: return None
     try:
         r = requests.post(f"{GEMINI_URL}?key={GEMINI_KEY}",
-            headers={"Content-Type":"application/json"},
-            json={"contents":[{"parts":[{"text":prompt}]}],
-                  "generationConfig":{"temperature":0.88,"maxOutputTokens":min(tokens,8192)},
-                  "safetySettings":[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_NONE"}]},
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}],
+                  "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 8192)},
+                  "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
             timeout=90)
         if r.status_code == 200:
-            c = r.json().get("candidates",[])
+            c = r.json().get("candidates", [])
             if c:
-                text = c[0]["content"]["parts"][0]["text"]
-                if text and len(text.strip()) > 100: log("✓ Gemini"); return text
-        else: log(f"Gemini {r.status_code}: {r.text[:150]}")
-    except Exception as e: log(f"Gemini error: {e}")
+                t = c[0]["content"]["parts"][0]["text"]
+                if t and len(t.strip()) > 100: log("OK Gemini"); return t
+        else: log(f"Gemini {r.status_code}")
+    except Exception as e: log(f"Gemini: {e}")
     return None
 
 def call_openrouter(prompt, tokens=8000):
     if not OPENROUTER_KEY: return None
     try:
         r = requests.post(OPENROUTER_URL,
-            headers={"Authorization":f"Bearer {OPENROUTER_KEY}","Content-Type":"application/json"},
-            json={"model":"meta-llama/llama-3.3-70b-instruct:free",
-                  "messages":[{"role":"user","content":prompt}],
-                  "max_tokens":min(tokens,8000),"temperature":0.88}, timeout=90)
+            headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
+            json={"model": "meta-llama/llama-3.3-70b-instruct:free",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": min(tokens, 8000), "temperature": 0.88}, timeout=90)
         if r.status_code == 200:
-            text = r.json()["choices"][0]["message"]["content"]
-            if text and len(text.strip()) > 100: log("✓ OpenRouter"); return text
-        else: log(f"OpenRouter {r.status_code}: {r.text[:150]}")
-    except Exception as e: log(f"OpenRouter error: {e}")
+            t = r.json()["choices"][0]["message"]["content"]
+            if t and len(t.strip()) > 100: log("OK OpenRouter"); return t
+        else: log(f"OpenRouter {r.status_code}")
+    except Exception as e: log(f"OpenRouter: {e}")
     return None
 
 def ai_generate(prompt, tokens=8000):
     for fn in [call_cerebras, call_groq, call_gemini, call_openrouter]:
-        result = fn(prompt, tokens)
-        if result: return result
+        r = fn(prompt, tokens)
+        if r: return r
     return None
 
-def strip_md(text):
-    for _ in range(2):
-        text = re.sub(r'^#{1,6}\s+','',text,flags=re.MULTILINE)
-        text = re.sub(r'\*+([^*\n]+)\*+',r'\1',text)
-        text = re.sub(r'_+([^_\n]+)_+',r'\1',text)
-        text = re.sub(r'`+[^`]*`+','',text)
-        text = re.sub(r'[#*_`\[\]{}<>\\]','',text)
-    return text.strip()
+# ================================================================
+# TREND INTELLIGENCE  [NEW #6]
+# ================================================================
+def fetch_trending_titles(niche, token):
+    try:
+        published_after = (datetime.datetime.utcnow() -
+                           datetime.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = requests.get(f"{YT_DATA_URL}/search",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "q": niche["search_query"], "type": "video",
+                    "order": "viewCount", "publishedAfter": published_after,
+                    "videoDuration": "long", "maxResults": 8,
+                    "relevanceLanguage": "en"}, timeout=20)
+        if r.status_code == 200:
+            items  = r.json().get("items", [])
+            titles = [i["snippet"]["title"] for i in items if i.get("snippet", {}).get("title")]
+            log(f"  Trend intel: {len(titles)} titles")
+            return titles
+        else: log(f"  Trend intel: {r.status_code}")
+    except Exception as e: log(f"  Trend intel (non-fatal): {e}")
+    return []
 
+def generate_trend_informed_topic(niche, trending_titles):
+    if not trending_titles:
+        return random.choice(niche["topics"])
+    titles_block = "\n".join(f"  - {t}" for t in trending_titles[:6])
+    prompt = f"""Analyse these top-performing YouTube titles in the {niche["name"].replace("_", " ")} niche published this month:
+
+{titles_block}
+
+Identify: what emotional hook is working, what story structure, what angle makes them viral.
+Then generate ONE original story topic sentence using the same emotional hook but completely different content.
+Topic should feel like a real documented case. Return ONLY the topic sentence."""
+    result = ai_generate(prompt, tokens=200)
+    if result:
+        topic = strip_md(result).strip().split("\n")[0].strip()
+        if len(topic) > 30:
+            log(f"  Trend topic: {topic[:80]}")
+            return topic
+    return random.choice(niche["topics"])
+
+# ================================================================
+# PERFORMANCE TRACKER  [NEW #8, #10]
+# ================================================================
+def track_episode(state, niche_name, score, voice, episode):
+    perf = state.get("performance", {})
+    n    = perf.get(niche_name, {"scores": [], "streak_below": 0})
+    n["scores"]       = (n["scores"] + [score])[-20:]
+    n["streak_below"] = (n["streak_below"] + 1) if score < 7.5 else 0
+    n["last_episode"] = episode
+    perf[niche_name]  = n
+    v = perf.get(f"voice_{voice}", {"scores": []})
+    v["scores"] = (v["scores"] + [score])[-20:]
+    perf[f"voice_{voice}"] = v
+    state["performance"] = perf
+    return state
+
+def pick_best_niche(state, scheduled_name):
+    perf   = state.get("performance", {})
+    streak = perf.get(scheduled_name, {}).get("streak_below", 0)
+    if streak < 3:
+        return scheduled_name
+    log(f"  Niche {scheduled_name} has {streak} below-gate episodes — swapping")
+    best_name = scheduled_name
+    best_avg  = 0.0
+    for n in NICHES:
+        if n["name"] == scheduled_name: continue
+        scores = perf.get(n["name"], {}).get("scores", [])
+        avg    = sum(scores) / len(scores) if scores else 7.5
+        if avg > best_avg:
+            best_avg  = avg
+            best_name = n["name"]
+    log(f"  Swapped to: {best_name} (avg {best_avg:.1f})")
+    return best_name
+
+# ================================================================
+# SCORE
+# ================================================================
 def score_result(r):
-    if not r: return 0.0, ["no result"]
+    if not r: return 0.0, []
     s = 5.0
     w = r.get("words", 0)
     if w >= MIN_WORDS: s += 2.8
@@ -298,336 +431,389 @@ def score_result(r):
     if v == 0:   s += 2.2
     elif v <= 2: s += 0.8
     else:        s -= 1.5
-    return min(round(s,1), 10.0), []
+    return min(round(s, 1), 10.0), []
 
-# ─────────────────────────────────────────────────────────
-# STAGE 1-A: PSYCHOLOGICAL SCRIPT GENERATION
-# ─────────────────────────────────────────────────────────
-def build_script_prompt(niche, topic, episode, attempt):
-    """
-    Build a 7-stage psychological script prompt.
-    This is what separates channels that retain viewers from channels that don't.
-    """
-    triggers = random.sample(DREAD_TRIGGERS.get(niche["name"], []), min(2, len(DREAD_TRIGGERS.get(niche["name"],[]))))
-    trigger_text = "\n".join(f"  - {t}" for t in triggers)
+# ================================================================
+# PSYCHOLOGICAL 7-STAGE SCRIPT  [IMPROVED]
+# ================================================================
+def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
+    triggers = niche.get("dread_triggers", [])
+    t1 = triggers[0] if len(triggers) > 0 else "the first sign something was wrong"
+    t2 = triggers[1] if len(triggers) > 1 else "the moment everything became clear"
+    t3 = triggers[2] if len(triggers) > 2 else "the detail that changed everything"
 
-    intensity = "dark and gripping"
-    if attempt == 2: intensity = "extremely dark, psychologically disturbing"
-    if attempt >= 3: intensity = "at maximum psychological intensity — deeply unsettling"
+    intensities = ["dark and gripping",
+                   "extremely dark, psychologically disturbing",
+                   "at maximum psychological intensity — viscerally unsettling"]
+    intensity = intensities[min(attempt - 1, 2)]
 
-    prompt = f"""You are writing a {intensity} investigative narration script for a dark documentary YouTube channel.
+    trend_note = ""
+    if trending_titles:
+        trend_note = "\nTREND CONTEXT — these hooks are performing right now:\n"
+        trend_note += "\n".join(f"  - {t}" for t in trending_titles[:4])
+        trend_note += "\nMatch their emotional intensity. Do not copy. Outdo them.\n"
 
-SERIES: {niche["series"]}
+    return f"""You are writing an {intensity} investigative narration script for a dark documentary YouTube channel.
+
+SERIES: {niche["series"]} | EPISODE: {episode}
 TOPIC: {topic}
-EPISODE: {episode}
 STYLE: {niche["dread_style"]}
+{trend_note}
+Follow this EXACT 7-stage structure. Do NOT label stages in the output:
 
-PSYCHOLOGICAL FRAMEWORK — follow this 7-stage structure EXACTLY:
+STAGE 1 — COLD OPEN (~100 words):
+Start mid-action. Most disturbing single fact in sentence one.
+NEVER say welcome back or today we look at. We are already inside the story.
 
-STAGE 1 — COLD OPEN (first 100 words):
-Begin mid-action. State the most disturbing single fact about this story in the very first sentence.
-Do NOT say "today we're looking at" or "welcome back." Start as if we are already inside the story.
-Example structure: "On [specific detail], [person] [disturbing action]. Nobody would find out for [time]."
+STAGE 2 — THE BEFORE (~200 words):
+Who was this person. Make the listener care. Specific real-feeling details.
+Ordinary life. One line at the end that signals the break is coming.
 
-STAGE 2 — THE BEFORE (next 200 words):
-Show who the person was before everything changed. Make the listener care.
-Specific details. Real-feeling texture. The ordinary life that is about to be permanently broken.
+STAGE 3 — FIRST SIGNALS (~250 words):
+Small wrong things. Explainable. {t1}.
+Listener feels dread building before characters do. One observation per sentence.
 
-STAGE 3 — FIRST SIGNALS (next 250 words):
-The small things that were wrong but explainable. The details that felt like coincidence.
-This is where {triggers[0] if triggers else 'the first warning signs'} becomes visible.
-The listener starts to feel the dread before the characters do.
+STAGE 4 — ESCALATION (~400 words):
+Things accelerate. Signs stop being dismissible. {t2}.
+Rhythm: short-short-short then one longer sentence.
+What they found. What they tried. Why it failed. What happened next.
 
-STAGE 4 — ESCALATION (next 400 words):
-Things accelerate. The signs stop being dismissible.
-Use short sentences. One sentence per breath. The pacing must create physical tension.
-Include: what they found, what they tried, why it did not work.
+STAGE 5 — FALSE RESOLUTION (~200 words):
+A moment where it seems finished. Relief. Normalcy briefly returns.
+End this stage with one quiet sentence that is wrong in a way the listener
+will only understand in retrospect.
 
-STAGE 5 — FALSE RESOLUTION (next 200 words):
-A moment where it seems like it might be over. The relief is real — but brief.
-This is essential. Without false resolution, the final reveal has no impact.
+STAGE 6 — THE REAL REVEAL (~650 words):
+{t3}. Everything reframes.
+One idea per paragraph. Short paragraphs. Let each land before the next.
+The listener must feel they are discovering it alongside you.
 
-STAGE 6 — THE REAL REVEAL (next 300 words):
-{triggers[1] if len(triggers) > 1 else 'The full scope of what actually happened'} becomes clear.
-This is the moment that reframes everything the listener thought they understood.
-Short paragraphs. One idea per paragraph. Let each one land.
-
-STAGE 7 — PSYCHOLOGICAL IMPLICATION + CTA (final 150 words):
+STAGE 7 — PSYCHOLOGICAL IMPLICATION + CTA (~200 words):
 {niche["implication"]}
-Do not state this directly — imply it. Let the listener arrive at the conclusion themselves.
-Final sentence must be: "Subscribe and hit the bell. You will not want to miss what we find next."
+Do not state this explicitly. Imply it. Let the listener arrive there.
+Last two sentences: Subscribe and hit the bell. You will not want to miss what we find next.
 
-HARD RULES:
-- Total: {MIN_WORDS} to {MAX_WORDS} words. Do NOT go below {MIN_WORDS}.
-- Maximum 15 words per sentence — this is narration, not prose
-- NO markdown: no asterisks, hashtags, bold, bullets, headers
-- Plain narration text ONLY
-- No stage labels in the output — write the script straight through
+ABSOLUTE RULES:
+- Total: {MIN_WORDS} to {MAX_WORDS} words. Never below {MIN_WORDS}.
+- Maximum 15 words per sentence. This is spoken narration.
+- ZERO markdown. No asterisks, hashtags, bold, bullets, headers.
+- Plain narration text only. Write straight through. Start with the cold open."""
 
-Write the complete script now. Begin with the cold open. Nothing before it."""
-
-    return prompt
-
-def generate_title_candidates(niche, topic):
-    """Generate 5 CTR-optimized title options and return the best one."""
-    prompt = f"""Generate 5 YouTube video titles for a dark investigative documentary.
-Series: {niche["series"]}
-Topic: {topic}
-
-Rules:
-- Each title 55-70 characters
-- Must open a psychological loop — curiosity that cannot be closed without watching
-- Use specific numbers, durations, or counts where they fit naturally
-- Dark, investigative, documentary tone — not sensational clickbait
-- No quotation marks. No colons unless essential.
-
-Return ONLY 5 titles, one per line, no numbering, no other text."""
-
-    result = ai_generate(prompt, tokens=400)
-    if not result:
-        return f"{niche['series']}: {topic[:55]}"
-
-    hook_words = ["never","nobody","secret","revealed","truth","years","days",
-                  "finally","hidden","classified","documented","found","knew","told"]
-    lines = [l.strip() for l in result.strip().splitlines() if 40 <= len(l.strip()) <= 75]
-
-    def title_score(t):
-        s = 0
-        if 55 <= len(t) <= 70: s += 3
-        for hw in hook_words:
-            if hw.lower() in t.lower(): s += 2
-        if any(c.isdigit() for c in t): s += 2
-        return s
-
-    if lines:
-        lines.sort(key=title_score, reverse=True)
-        return lines[0]
-    return f"{niche['series']}: {topic[:55]}"
-
-def generate_script_content(niche, topic, episode, attempt):
-    """Generate the full script using the psychological framework."""
-    prompt = build_script_prompt(niche, topic, episode, attempt)
-    result = ai_generate(prompt, tokens=8000)
-    if not result: return None
-
-    script = strip_md(strip_md(result))
-    wc     = len(script.split())
+def generate_script_content(niche, topic, episode, attempt, trending_titles=None):
+    raw = ai_generate(build_script_prompt(niche, topic, episode, attempt, trending_titles), tokens=8000)
+    if not raw: return None
+    script     = strip_md(strip_md(raw))
+    wc         = len(script.split())
     violations = len(re.findall(r'[#*_`\[\]{}<>\\]', script))
-
-    log(f"  Script: {wc} words, {violations} violations")
-
-    # Expand if too short
+    log(f"  Script: {wc}w, {violations} violations")
     if wc < MIN_WORDS:
         deficit = MIN_WORDS - wc
-        log(f"  Too short by {deficit} words. Expanding...")
-        expand = f"""This narration script is {wc} words and needs to reach {MIN_WORDS} words minimum.
-Expand it by {deficit} words. Deepen the psychological analysis in stages 3, 4, and 6.
-Add specific sensory details, witness reactions, and emotional texture.
-Keep ALL existing content. Add only to what is already there.
-Return the COMPLETE expanded script with NO markdown formatting.
+        log(f"  Short by {deficit}w — expanding...")
+        exp = f"""Expand this narration script by {deficit} words.
+Deepen stages 4 and 6. Add specific sensory details, witness reactions, evidence descriptions.
+Keep ALL existing text. Return the COMPLETE expanded script. NO markdown.
 
-SCRIPT:
 {script}"""
-        result2 = ai_generate(expand, tokens=8000)
-        if result2:
-            clean2 = strip_md(strip_md(result2))
-            if len(clean2.split()) > wc:
-                script = clean2
-                wc = len(script.split())
+        raw2 = ai_generate(exp, tokens=8000)
+        if raw2:
+            s2 = strip_md(strip_md(raw2))
+            if len(s2.split()) > wc:
+                script     = s2
+                wc         = len(script.split())
                 violations = len(re.findall(r'[#*_`\[\]{}<>\\]', script))
-                log(f"  Expanded to: {wc} words")
+                log(f"  Expanded: {wc}w")
+    return {"script": script, "words": wc, "violations": violations}
 
-    return {"script":script, "words":wc, "violations":violations}
+# ================================================================
+# TITLE + CHAPTERS  [NEW #2]
+# ================================================================
+def generate_titles(niche, topic, episode):
+    hook_words = ["never", "nobody", "secret", "revealed", "truth", "years", "days",
+                  "finally", "hidden", "classified", "documented", "knew", "told", "found"]
+    prompt = f"""Generate 5 YouTube titles for a dark investigative documentary.
+Series: {niche["series"]}, Episode {episode}. Topic: {topic}
+Rules: 55-70 chars each. Opens a psychological loop. Specific numbers where natural.
+Dark investigative tone. No colons unless essential. No quotes.
+Return ONLY 5 titles, one per line."""
+    raw  = ai_generate(prompt, tokens=400)
+    best = f"{niche['series']}: {topic[:55]}"
+    if raw:
+        lines = [l.strip() for l in raw.strip().splitlines() if 40 <= len(l.strip()) <= 75]
+        def ts(t):
+            s = 0
+            if 55 <= len(t) <= 70: s += 3
+            for hw in hook_words:
+                if hw.lower() in t.lower(): s += 2
+            if any(c.isdigit() for c in t): s += 2
+            return s
+        if lines:
+            lines.sort(key=ts, reverse=True)
+            best = lines[0]
+    return best
 
-# ─────────────────────────────────────────────────────────
-# STAGE 1-B: SEO DESCRIPTION GENERATOR
-# ─────────────────────────────────────────────────────────
-def generate_seo_description(niche, topic, title, episode, audio_duration_seconds=0):
-    """
-    Generate a 300-word SEO-rich description.
-    YouTube's search algorithm reads the first 200 characters heavily.
-    """
-    duration_min = int(audio_duration_seconds / 60) if audio_duration_seconds > 0 else 15
+def generate_chapters(audio_duration):
+    if audio_duration < 60:
+        return "0:00 Introduction"
+    total = sum(STAGE_WORDS)
+    lines = []
+    elapsed = 0.0
+    for i, (name, words) in enumerate(zip(STAGE_NAMES, STAGE_WORDS)):
+        mins = int(elapsed) // 60
+        secs = int(elapsed) % 60
+        lines.append(f"{mins}:{secs:02d} {name}")
+        elapsed += audio_duration * (words / total)
+    return "\n".join(lines)
 
+# ================================================================
+# DYNAMIC THUMBNAIL TEXT  [NEW #9]
+# ================================================================
+def generate_dynamic_thumbnail_text(script):
+    words  = script.split()
+    reveal = " ".join(words[int(len(words) * 0.55):int(len(words) * 0.75)])[:800]
+    prompt = f"""From this narration excerpt, extract the single most shocking 2-4 word phrase
+that would make someone stop scrolling on a thumbnail.
+Rules: 2-4 words ONLY. ALL CAPS. Must come from the text or paraphrase its worst moment. No punctuation.
+EXCERPT: {reveal}
+Return ONLY the phrase."""
+    raw = ai_generate(prompt, tokens=60)
+    if raw:
+        phrase = re.sub(r'[^A-Z0-9 ]', '', raw.strip().upper()).strip()
+        if 2 <= len(phrase.split()) <= 4:
+            return phrase
+    return " ".join(script.split()[:3]).upper()
+
+# ================================================================
+# SEO DESCRIPTION
+# ================================================================
+def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0):
+    dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
     prompt = f"""Write a YouTube video description for a dark investigative documentary.
-
-Title: {title}
-Series: {niche["series"]}, Episode {episode}
-Topic: {topic}
-Duration: approximately {duration_min} minutes
+Title: {title} | Series: {niche["series"]}, Episode {episode}
+Topic: {topic} | Duration: ~{dur_min} minutes
 
 Structure:
-1. First 2 sentences (the hook): Restate the core mystery/disturbing fact. Creates urgency to watch.
-2. Next 3-4 sentences: What the video investigates. Do NOT spoil the reveal.
-3. One line: "Watch until the end — the final revelation changes everything."
-4. Timestamps section (approximate, based on {duration_min} min video):
-   - 0:00 The opening
-   - 2:00 Background
-   - 5:00 First warning signs
-   - 9:00 Escalation
-   - 13:00 The reveal
-   - {duration_min-1}:00 What this means
-5. Keyword section: 10-15 natural sentences using these themes: dark documentary, true investigation,
-   psychological analysis, hidden truth, classified evidence, real story, disturbing facts,
-   {niche["name"].replace("_"," ")}, investigative narration, dark nonfiction
-6. Final line: "Subscribe for new investigations every week."
-7. Hashtag line: 8-10 relevant hashtags
+1. Two hook sentences on the core disturbing fact. Creates urgency to watch.
+2. Three sentences on what the investigation reveals. No spoilers.
+3. One line: Watch until the end — the final revelation changes everything.
+4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
+5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
+   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
+6. One line: New investigations every week — subscribe so you never miss one.
+7. Ten relevant hashtags
 
-Total: 280-350 words. No markdown. Plain text only. Real paragraphs."""
-
-    result = ai_generate(prompt, tokens=1200)
-    if result:
-        desc = strip_md(result)
-        # Append required AI disclosure
-        desc += "\n\n⚠️ This video uses AI-assisted narration and editing."
+Total: 280-350 words. Plain text. No markdown."""
+    raw = ai_generate(prompt, tokens=1000)
+    if raw:
+        desc  = strip_md(raw)
+        desc += "\n\n⚠️ This video features AI-assisted narration and editing."
         return desc
+    return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
+            f"{chapters_text}\n\n"
+            f"Subscribe for new investigations every week.\n\n"
+            f"#{niche['name'].replace('_', '')} #documentary #investigation\n\n"
+            f"⚠️ This video features AI-assisted narration and editing.")
 
-    # Fallback description
-    return (
-        f"{title}\n\n"
-        f"Episode {episode} of {niche['series']}. An investigation into {topic.lower()}.\n\n"
-        f"This channel documents real cases of {niche['name'].replace('_',' ')} through "
-        f"investigative narration and archival evidence.\n\n"
-        f"Subscribe for new investigations every week.\n\n"
-        f"#{niche['name'].replace('_','')} #documentary #investigation #darknonfiction\n\n"
-        f"⚠️ This video uses AI-assisted narration and editing."
-    )
-
-# ─────────────────────────────────────────────────────────
-# STAGE 1: FULL SCRIPT STAGE (runs generation + title)
-# ─────────────────────────────────────────────────────────
-def run_stage1(state):
-    log("="*70)
-    log("STAGE 1: Script Generation (Psychological Framework)")
-    log("="*70)
-
-    name  = DAY_NICHE.get(datetime.datetime.now().weekday(), "dark_horror")
-    niche = next(x for x in NICHES if x["name"] == name)
-
-    voice   = random.choice(VOICES.get(niche["name"], ["en-GB-RyanNeural"]))
-    topic   = random.choice(niche["topics"])
-    episode = state.get("episode_count", 0) + 1
-
-    log(f"Niche:   {niche['name']}")
-    log(f"Topic:   {topic}")
-    log(f"Voice:   {voice}")
-    log(f"Episode: {episode}")
-
-    best_result = None
-    best_score  = 0.0
-
-    for attempt in range(1, 4):
-        log(f"\nAttempt {attempt}/3...")
-        content = generate_script_content(niche, topic, episode, attempt)
-        score, _ = score_result(content)
-        log(f"Score: {score}/10")
-        if score > best_score:
-            best_score  = score
-            best_result = content
-        if score >= MIN_GATE:
-            log("✓ Quality gate passed")
-            break
-        elif attempt == 3 and score >= FINAL_GATE:
-            log(f"⚠ Final gate passed at {score}")
-            break
-        elif attempt < 3:
-            log(f"Below gate ({score} < {MIN_GATE}), retrying...")
-
-    if not best_result or best_score < FINAL_GATE:
-        log(f"FATAL: Script generation failed. Best: {best_score}/10")
-        tg(f"❌ Script generation failed. Best score: {best_score}/10")
-        sys.exit(1)
-
-    title    = generate_title_candidates(niche, topic)
-    tags     = ["documentary","investigation","true story","dark","mystery",
-                "psychological","narration","evidence","real","nonfiction",
-                niche["name"].replace("_",""), niche["series"].lower().replace(" ","")]
-    thumb_text = " ".join(topic.split()[:3]).upper()  # First 3 words in caps for thumbnail
-
-    result = {
-        "script":     best_result["script"],
-        "words":      best_result["words"],
-        "violations": best_result["violations"],
-        "title":      title,
-        "thumb_text": thumb_text,
-        "tags":       tags,
-        "topic":      topic,
-    }
-
-    log(f"\n✓ Stage 1 complete")
-    log(f"  Title:  {title}")
-    log(f"  Words:  {result['words']}")
-    log(f"  Score:  {best_score}/10")
-
-    tg(f"🎬 <b>Script Ready</b>\n📺 {title}\n📝 {result['words']} words | ⭐ {best_score}/10\n⏳ Generating audio now...")
-    return niche, voice, episode, result, best_score
-
-# ─────────────────────────────────────────────────────────
-# STAGE 2: AUDIO GENERATION
-# ─────────────────────────────────────────────────────────
-async def _tts_generate(text, voice, output_path):
-    import edge_tts
-    communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%", volume="+0%")
-    await communicate.save(output_path)
-
-def get_media_duration(path):
+# ================================================================
+# ELEVENLABS TTS  [NEW #5]
+# ================================================================
+def call_elevenlabs(script, niche_name, output_path):
+    if not ELEVENLABS_KEY: return False
+    voice_id = EL_VOICES.get(niche_name, "29vD33N1CtxCmqQRPOHJ")
+    chunks   = [script[i:i+4500] for i in range(0, len(script), 4500)]
+    parts    = []
     try:
-        r = subprocess.run(
-            ["ffprobe","-v","quiet","-show_entries","format=duration","-of","csv=p=0", str(path)],
-            capture_output=True, text=True, timeout=30)
-        return float(r.stdout.strip())
-    except: return 0.0
+        for idx, chunk in enumerate(chunks):
+            log(f"  ElevenLabs chunk {idx+1}/{len(chunks)}")
+            r = requests.post(f"{ELEVENLABS_URL}/{voice_id}",
+                headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
+                json={"text": chunk, "model_id": "eleven_monolingual_v1",
+                      "voice_settings": {"stability": 0.45, "similarity_boost": 0.82}},
+                timeout=120)
+            if r.status_code != 200:
+                log(f"  ElevenLabs {r.status_code}")
+                return False
+            part = str(WORK_DIR / f"el_{idx}.mp3")
+            with open(part, "wb") as f: f.write(r.content)
+            parts.append(part)
+            time.sleep(1)
+        if len(parts) == 1:
+            import shutil; shutil.copy(parts[0], output_path)
+        else:
+            lst = str(WORK_DIR / "el_list.txt")
+            with open(lst, "w") as f:
+                for p in parts: f.write(f"file '{p}'\n")
+            run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", lst, "-c", "copy", output_path], label="el-concat")
+        log("OK ElevenLabs")
+        return True
+    except Exception as e:
+        log(f"  ElevenLabs error: {e}")
+        return False
 
-def run_stage2_audio(script, voice):
-    log("="*70)
-    log("STAGE 2: Audio Generation")
-    log("="*70)
+# ================================================================
+# EDGE-TTS WITH SUBTITLE GENERATION  [NEW #1]
+# ================================================================
+async def _edge_tts_stream(text, voice, audio_path, vtt_path):
+    import edge_tts
+    communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+    try:
+        sub = edge_tts.SubMaker()
+        with open(audio_path, "wb") as af:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    af.write(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    sub.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
+        with open(vtt_path, "w", encoding="utf-8") as sf:
+            sf.write(sub.generate_subs())
+        return True
+    except Exception:
+        await communicate.save(audio_path)
+        return False
 
-    audio_file = str(WORK_DIR / "narration.mp3")
-    log(f"  Words: {len(script.split())}  |  Voice: {voice}")
+def vtt_to_ass(vtt_path, ass_path):
+    """Convert .vtt to styled .ass for FFmpeg subtitle burning."""
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
 
-    success = False
-    voices_to_try = [voice] + [v for v in
-        ["en-GB-RyanNeural","en-US-BrianNeural","en-US-DavisNeural","en-US-AndrewNeural"]
-        if v != voice]
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
 
-    for v in voices_to_try:
-        try:
-            log(f"  Trying voice: {v}")
-            asyncio.run(_tts_generate(script, v, audio_file))
-            if Path(audio_file).exists() and Path(audio_file).stat().st_size > 50000:
-                duration = get_media_duration(audio_file)
-                log(f"✓ Audio: {duration:.1f}s ({duration/60:.1f} min) via {v}")
-                return audio_file, duration, v
-        except Exception as e:
-            log(f"  {v} error: {e}")
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    def to_ass_time(t):
+        t = t.strip()
+        if t.count(":") == 1: t = "00:" + t
+        p = t.split(":")
+        h, m = int(p[0]), int(p[1])
+        s_ms = p[2].replace(",", ".")
+        s, ms = s_ms.split(".")
+        cs = int(ms[:2]) if len(ms) >= 2 else int(ms) * 10
+        return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
+    try:
+        lines  = Path(vtt_path).read_text(encoding="utf-8").splitlines()
+        events = []
+        i = 0
+        while i < len(lines):
+            if " --> " in lines[i]:
+                times = lines[i].split(" --> ")
+                start = to_ass_time(times[0])
+                end   = to_ass_time(times[1].split()[0])
+                i += 1
+                txt_parts = []
+                while i < len(lines) and lines[i].strip():
+                    txt_parts.append(lines[i].strip())
+                    i += 1
+                text  = re.sub(r'<[^>]+>', '', " ".join(txt_parts))
+                words = text.split()
+                chunks = [" ".join(words[j:j+6]) for j in range(0, len(words), 6)]
+                text  = "\\N".join(chunks)
+                events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
+            i += 1
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(header + "\n".join(events))
+        return True
+    except Exception as e:
+        log(f"  vtt->ass error: {e}")
+        return False
 
-    log("FATAL: All TTS voices failed")
-    tg("❌ Audio generation failed")
-    sys.exit(1)
+def generate_fallback_ass(script, audio_duration, ass_path):
+    """Approximate timing subtitles when edge-tts SubMaker unavailable."""
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
 
-# ─────────────────────────────────────────────────────────
-# STAGE 3: VIDEO DOWNLOAD
-# ─────────────────────────────────────────────────────────
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    def s2t(s):
+        h = int(s) // 3600; m = (int(s) % 3600) // 60
+        sc = int(s) % 60;   cs = int((s - int(s)) * 100)
+        return f"{h}:{m:02d}:{sc:02d}.{cs:02d}"
+    words   = script.split()
+    spw     = audio_duration / max(len(words), 1)   # seconds per word
+    chunks  = [words[i:i+6] for i in range(0, len(words), 6)]
+    events  = []
+    t       = 0.0
+    for chunk in chunks:
+        if t >= audio_duration: break
+        end  = min(t + spw * len(chunk), audio_duration)
+        text = " ".join(chunk)
+        events.append(f"Dialogue: 0,{s2t(t)},{s2t(end)},Default,,0,0,0,,{text}")
+        t = end
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(events))
+
+# ================================================================
+# AUDIO STAGE
+# ================================================================
+def run_audio_stage(script, niche_name, edge_voice):
+    audio_path = str(WORK_DIR / "narration.mp3")
+    vtt_path   = str(WORK_DIR / "captions.vtt")
+    ass_path   = str(WORK_DIR / "captions.ass")
+    has_ass    = False
+
+    log(f"  Words: {len(script.split())} | ElevenLabs: {'yes' if ELEVENLABS_KEY else 'no'}")
+
+    # Try ElevenLabs premium voice first
+    el_ok = call_elevenlabs(script, niche_name, audio_path)
+
+    if not el_ok:
+        voices_to_try = [edge_voice] + [v for v in
+            ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-DavisNeural"] if v != edge_voice]
+        for v in voices_to_try:
+            try:
+                log(f"  edge-tts: {v}")
+                got_subs = asyncio.run(_edge_tts_stream(script, v, audio_path, vtt_path))
+                if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
+                    if got_subs and Path(vtt_path).exists():
+                        has_ass = vtt_to_ass(vtt_path, ass_path)
+                    log(f"  OK edge-tts ({v}) | captions: {has_ass}")
+                    break
+            except Exception as e: log(f"  {v}: {e}")
+
+    if not Path(audio_path).exists() or Path(audio_path).stat().st_size < 10000:
+        raise RuntimeError("All TTS failed")
+
+    duration = get_media_duration(audio_path)
+    log(f"  Duration: {duration:.1f}s ({duration/60:.1f} min)")
+
+    if not has_ass:
+        log("  Generating approximate timing captions...")
+        generate_fallback_ass(script, duration, ass_path)
+        has_ass = True
+
+    return audio_path, duration, ass_path if has_ass else None
+
+# ================================================================
+# VIDEO DOWNLOAD
+# ================================================================
 def download_pixabay_video(keywords):
     if not PIXABAY_KEY: return None
     for kw in keywords:
         try:
             r = requests.get("https://pixabay.com/api/videos/",
-                params={"key":PIXABAY_KEY,"q":kw,"per_page":5,"video_type":"film","orientation":"horizontal"},
-                timeout=15)
+                params={"key": PIXABAY_KEY, "q": kw, "per_page": 5,
+                        "video_type": "film", "orientation": "horizontal"}, timeout=15)
             if r.status_code == 200 and r.json().get("hits"):
-                hit = max(r.json()["hits"], key=lambda h: h.get("duration",0))
-                url = hit["videos"]["medium"]["url"]
+                hit  = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                url  = hit["videos"]["medium"]["url"]
                 path = str(WORK_DIR / "background.mp4")
-                log(f"  Pixabay: '{kw}' ({hit.get('duration',0)}s)")
+                log(f"  Pixabay: {kw} ({hit.get('duration', 0)}s)")
                 with requests.get(url, timeout=60, stream=True) as dl:
                     dl.raise_for_status()
-                    with open(path,'wb') as f:
+                    with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000:
-                    log(f"✓ Pixabay video ({Path(path).stat().st_size//1024}KB)")
-                    return path
+                if Path(path).stat().st_size > 50000: return path
         except Exception as e: log(f"  Pixabay '{kw}': {e}")
     return None
 
@@ -636,647 +822,654 @@ def download_pexels_video(keywords):
     for kw in keywords:
         try:
             r = requests.get("https://api.pexels.com/videos/search",
-                headers={"Authorization":PEXELS_KEY},
-                params={"query":kw,"per_page":5,"orientation":"landscape"}, timeout=15)
+                headers={"Authorization": PEXELS_KEY},
+                params={"query": kw, "per_page": 5, "orientation": "landscape"}, timeout=15)
             if r.status_code == 200 and r.json().get("videos"):
-                video = r.json()["videos"][0]
-                files = sorted(video.get("video_files",[]), key=lambda f: f.get("width",0))
-                target = next((f for f in files if f.get("width",0)>=720), files[-1]) if files else None
+                video  = r.json()["videos"][0]
+                files  = sorted(video.get("video_files", []), key=lambda f: f.get("width", 0))
+                target = next((f for f in files if f.get("width", 0) >= 720), files[-1]) if files else None
                 if not target: continue
-                path = str(WORK_DIR / "background.mp4")
-                log(f"  Pexels: '{kw}'")
+                path   = str(WORK_DIR / "background.mp4")
+                log(f"  Pexels: {kw}")
                 with requests.get(target["link"], timeout=60, stream=True) as dl:
                     dl.raise_for_status()
-                    with open(path,'wb') as f:
+                    with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000:
-                    log(f"✓ Pexels video ({Path(path).stat().st_size//1024}KB)")
-                    return path
+                if Path(path).stat().st_size > 50000: return path
         except Exception as e: log(f"  Pexels '{kw}': {e}")
     return None
 
-def create_black_video_fallback(duration_seconds):
+def get_background_video(niche, audio_duration):
+    kws = BG_KEYWORDS.get(niche["name"], ["dark shadow night"])
+    v   = download_pixabay_video(kws)
+    if v: return v
+    v   = download_pexels_video(kws)
+    if v: return v
     path = str(WORK_DIR / "background.mp4")
-    duration = max(int(duration_seconds) + 10, 60)
-    run_ffmpeg([
-        "ffmpeg","-y","-f","lavfi",
-        "-i",f"color=c=black:size=1280x720:rate=24:duration={duration}",
-        "-c:v","libx264","-pix_fmt","yuv420p", path
-    ], label="black-video-fallback")
-    log(f"✓ Black video fallback ({duration}s)")
+    dur  = max(int(audio_duration) + 15, 60)
+    run_ffmpeg(["ffmpeg", "-y", "-f", "lavfi",
+        "-i", f"color=c=black:size=1280x720:rate=24:duration={dur}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", path], label="bg-fallback")
     return path
 
-def run_stage3_video(niche, audio_duration):
-    log("="*70)
-    log("STAGE 3: Background Video")
-    log("="*70)
-    keywords = BG_KEYWORDS.get(niche["name"], ["dark shadow night"])
-    v = download_pixabay_video(keywords)
-    if v: return v
-    log("  Pixabay failed → Pexels")
-    v = download_pexels_video(keywords)
-    if v: return v
-    log("  Both APIs failed → FFmpeg black fallback")
-    return create_black_video_fallback(audio_duration)
-
-# ─────────────────────────────────────────────────────────
-# STAGE 4: BACKGROUND MUSIC GENERATION
-# ─────────────────────────────────────────────────────────
-def generate_ambient_music(duration_seconds):
-    """
-    Generate dark ambient background music using FFmpeg.
-    Two-layer approach: deep bass sine drone + subtle high noise at very low volume.
-    Mixed to sit -25dB under normal narration so it's felt, not heard.
-    """
-    log("="*70)
-    log("STAGE 4: Background Music (FFmpeg ambient generator)")
-    log("="*70)
-
-    music_path = str(WORK_DIR / "music.mp3")
-    # Add 10 seconds buffer so music doesn't cut at end
-    duration = int(duration_seconds) + 15
-
-    # Layer 1: 55Hz bass drone (sub-bass felt more than heard)
-    # Layer 2: 110Hz secondary drone (adds body)
-    # Layer 3: Very low white noise (adds texture/atmosphere)
-    # Combined at very low volume, low-pass filtered for warmth
-    cmd = [
+# ================================================================
+# AMBIENT MUSIC
+# ================================================================
+def generate_ambient_music(duration):
+    path = str(WORK_DIR / "music.mp3")
+    dur  = int(duration) + 30
+    run_ffmpeg([
         "ffmpeg", "-y",
-        "-f","lavfi","-i",f"sine=frequency=55:duration={duration}",
-        "-f","lavfi","-i",f"sine=frequency=110:duration={duration}",
-        "-f","lavfi","-i",f"aevalsrc=random(0)*0.004:duration={duration}",
+        "-f", "lavfi", "-i", f"sine=frequency=55:duration={dur}",
+        "-f", "lavfi", "-i", f"sine=frequency=110:duration={dur}",
+        "-f", "lavfi", "-i", f"aevalsrc=random(0)*0.003:duration={dur}",
         "-filter_complex",
-        "[0]volume=0.06[a];"
-        "[1]volume=0.03[b];"
-        "[2]volume=0.5[c];"
-        "[a][b][c]amix=inputs=3:duration=first,"
-        "lowpass=f=300,"
-        "highpass=f=30,"
-        "volume=0.12[out]",
-        "-map","[out]",
-        "-c:a","mp3","-q:a","4",
-        music_path
-    ]
-    run_ffmpeg(cmd, label="music-gen")
-    log(f"✓ Ambient music generated ({duration}s)")
-    return music_path
+        "[0]volume=0.07[a];[1]volume=0.035[b];[2]volume=0.4[c];"
+        "[a][b][c]amix=inputs=3:duration=first,lowpass=f=280,highpass=f=28,volume=0.14[out]",
+        "-map", "[out]", "-c:a", "mp3", "-q:a", "4", path
+    ], label="music-gen")
+    return path
 
-# ─────────────────────────────────────────────────────────
-# STAGE 5: THUMBNAIL GENERATION
-# ─────────────────────────────────────────────────────────
+# ================================================================
+# INTRO + OUTRO  [NEW #7]
+# ================================================================
+def create_intro(series_name):
+    path = str(WORK_DIR / "intro.mp4")
+    text = series_name.replace("'", "").replace('"', "")
+    run_ffmpeg([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "color=c=black:size=1280x720:rate=24:duration=2",
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo:duration=2",
+        "-vf", f"drawtext=text='{text}':fontsize=72:fontcolor=red:x=(w-text_w)/2:y=(h-text_h)/2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", path
+    ], label="intro")
+    return path
+
+def create_outro():
+    path = str(WORK_DIR / "outro.mp4")
+    run_ffmpeg([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "color=c=black:size=1280x720:rate=24:duration=5",
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo:duration=5",
+        "-vf", "drawtext=text='SUBSCRIBE FOR MORE INVESTIGATIONS':fontsize=52:"
+               "fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", path
+    ], label="outro")
+    return path
+
+def concat_parts(parts, output_path):
+    existing = [p for p in parts if p and Path(p).exists()]
+    lst = str(WORK_DIR / "concat.txt")
+    with open(lst, "w") as f:
+        for p in existing: f.write(f"file '{p}'\n")
+    run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", lst, "-c", "copy", output_path], label="concat")
+    return output_path
+
+# ================================================================
+# THUMBNAIL  [NEW #9 — dynamic text from script]
+# ================================================================
 def generate_thumbnail(thumb_text, niche_name, title):
-    """
-    Create a 1280x720 thumbnail using Pillow.
-    Design: Black background, blood-red 3-word hook text (massive),
-    white subtitle text below, subtle red corner vignette.
-    """
-    log("="*70)
-    log("STAGE 5: Thumbnail Generation")
-    log("="*70)
-
     thumb_path = str(WORK_DIR / "thumbnail.jpg")
-
     try:
-        from PIL import Image, ImageDraw, ImageFont, ImageFilter
-
+        from PIL import Image, ImageDraw, ImageFont
         W, H = 1280, 720
-        img  = Image.new("RGB", (W, H), color=(0, 0, 0))
+        img  = Image.new("RGB", (W, H), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # ── Red vignette overlay (atmospheric) ──
-        vignette = Image.new("RGBA", (W, H), (0,0,0,0))
-        vdraw    = ImageDraw.Draw(vignette)
-        for i in range(180):
-            alpha = int(160 * (1 - i/180))
-            vdraw.rectangle([i, i, W-i, H-i], outline=(80,0,0,alpha))
-        img.paste(Image.new("RGB",(W,H),(80,0,0)),
-                  mask=vignette.split()[3])
+        vig  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        vd   = ImageDraw.Draw(vig)
+        for i in range(200):
+            a = int(150 * (1 - i / 200))
+            vd.rectangle([i, i, W-i, H-i], outline=(70, 0, 0, a))
+        img.paste(Image.new("RGB", (W, H), (70, 0, 0)), mask=vig.split()[3])
 
-        # ── Font paths (Ubuntu has these) ──
         font_paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-            "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
         ]
-        def get_font(size):
+        def get_font(sz):
             for fp in font_paths:
                 if Path(fp).exists():
-                    try: return ImageFont.truetype(fp, size)
+                    try: return ImageFont.truetype(fp, sz)
                     except: pass
             return ImageFont.load_default()
 
-        # ── Main hook text (blood red, huge) ──
-        # Split thumb_text into max 2 lines
         words = thumb_text.split()
-        if len(words) <= 3:
-            lines = [thumb_text]
-        else:
-            mid   = len(words) // 2
-            lines = [" ".join(words[:mid]), " ".join(words[mid:])]
+        lines = [thumb_text] if len(words) <= 3 else [
+            " ".join(words[:len(words)//2]), " ".join(words[len(words)//2:])]
 
-        font_main = get_font(120)
-        red_color = (200, 0, 0)
-        shadow_c  = (40, 0, 0)
-
-        total_text_h = len(lines) * 130
-        start_y = (H - total_text_h) // 2 - 40
-
+        fm   = get_font(115)
+        th   = len(lines) * 125
+        sy   = (H - th) // 2 - 30
         for i, line in enumerate(lines):
-            y = start_y + i * 130
-            bbox = draw.textbbox((0,0), line, font=font_main)
-            tw   = bbox[2] - bbox[0]
-            x    = (W - tw) // 2
-            # Shadow
-            draw.text((x+4, y+4), line, font=font_main, fill=shadow_c)
-            # Main text
-            draw.text((x, y), line, font=font_main, fill=red_color)
+            y    = sy + i * 125
+            bbox = draw.textbbox((0, 0), line, font=fm)
+            x    = (W - (bbox[2] - bbox[0])) // 2
+            for dx, dy in [(-3,-3),(3,-3),(-3,3),(3,3),(0,-4),(0,4),(-4,0),(4,0)]:
+                draw.text((x+dx, y+dy), line, font=fm, fill=(90, 0, 0))
+            draw.text((x, y), line, font=fm, fill=(210, 10, 10))
 
-        # ── Sub-title (white, smaller) ──
-        sub_text = title[:60] + ("…" if len(title) > 60 else "")
-        font_sub = get_font(36)
-        bbox_sub = draw.textbbox((0,0), sub_text, font=font_sub)
-        sub_x    = (W - (bbox_sub[2]-bbox_sub[0])) // 2
-        sub_y    = start_y + len(lines)*130 + 20
-        draw.text((sub_x+2, sub_y+2), sub_text, font=font_sub, fill=(30,30,30))
-        draw.text((sub_x, sub_y), sub_text, font=font_sub, fill=(220,220,220))
-
-        # ── Series badge (top-left corner) ──
-        font_badge = get_font(28)
-        badge_text = f"● DARK DOCUMENTARY"
-        draw.text((30, 25), badge_text, font=font_badge, fill=(160,0,0))
+        sub  = title[:65] + ("…" if len(title) > 65 else "")
+        fs   = get_font(34)
+        bb   = draw.textbbox((0, 0), sub, font=fs)
+        sx   = (W - (bb[2] - bb[0])) // 2
+        draw.text((sx+2, sy+th+20), sub, font=fs, fill=(20, 20, 20))
+        draw.text((sx,   sy+th+18), sub, font=fs, fill=(210, 210, 210))
+        draw.text((28, 22), "● DARK DOCUMENTARY", font=get_font(26), fill=(150, 0, 0))
 
         img.save(thumb_path, "JPEG", quality=95)
-        log(f"✓ Thumbnail created: {Path(thumb_path).stat().st_size//1024}KB")
+        log(f"OK Thumbnail: {Path(thumb_path).stat().st_size//1024}KB")
         return thumb_path
-
-    except ImportError:
-        log("  Pillow not available, using ImageMagick fallback")
-        return generate_thumbnail_imagemagick(thumb_text, title, thumb_path)
     except Exception as e:
-        log(f"  Pillow error: {e}, trying ImageMagick")
-        return generate_thumbnail_imagemagick(thumb_text, title, thumb_path)
-
-def generate_thumbnail_imagemagick(thumb_text, title, thumb_path):
-    """Fallback thumbnail using ImageMagick convert (pre-installed on Ubuntu)."""
-    safe_text  = thumb_text.replace("'","").replace('"','')[:30]
-    safe_title = title[:55].replace("'","").replace('"','')
-    cmd = [
-        "convert",
-        "-size","1280x720","xc:black",
-        "-fill","#C80000",
-        "-pointsize","120",
-        "-gravity","Center",
-        "-annotate","0", safe_text,
-        "-fill","#DCDCDC",
-        "-pointsize","36",
-        "-gravity","South",
-        "-annotate","0+0+60", safe_title,
-        "-fill","#A00000",
-        "-pointsize","28",
-        "-gravity","NorthWest",
-        "-annotate","0+30+25","● DARK DOCUMENTARY",
-        thumb_path
-    ]
+        log(f"  Pillow error: {e} — trying ImageMagick")
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=30)
-        log(f"✓ Thumbnail via ImageMagick")
+        safe  = thumb_text.replace("'", "")[:28]
+        stit  = title[:55].replace("'", "")
+        subprocess.run(["convert", "-size", "1280x720", "xc:black",
+            "-fill", "#C80000", "-pointsize", "115", "-gravity", "Center", "-annotate", "0", safe,
+            "-fill", "#D2D2D2", "-pointsize", "34", "-gravity", "South", "-annotate", "0+0+60", stit,
+            "-fill", "#960000", "-pointsize", "26", "-gravity", "NorthWest",
+            "-annotate", "0+28+22", "DARK DOCUMENTARY", thumb_path],
+            check=True, capture_output=True, timeout=30)
+        log("OK Thumbnail (ImageMagick)")
         return thumb_path
-    except Exception as e:
-        log(f"  ImageMagick error: {e} — skipping thumbnail")
-        return None
+    except Exception as e2:
+        log(f"  Thumbnail failed: {e2}")
+    return None
 
-# ─────────────────────────────────────────────────────────
-# STAGE 6: COMPOSE MAIN VIDEO
-# ─────────────────────────────────────────────────────────
-def compose_main_video(narration_path, bg_video_path, music_path, audio_duration):
-    """
-    Merge: looped background video + narration audio + ambient music → final.mp4
-    Music sits at -25dB under narration so it's atmospheric, not distracting.
-    """
-    log("="*70)
-    log("STAGE 6: Compose Main Video (video + narration + music)")
-    log("="*70)
+# ================================================================
+# VIDEO COMPOSITION  (video + narration + music + burned captions)
+# ================================================================
+def compose_video(narration_path, bg_path, music_path, ass_path,
+                  audio_duration, label="main"):
+    output   = str(WORK_DIR / f"composed_{label}.mp4")
+    bg_dur   = get_media_duration(bg_path)
+    loop_n   = max(int(audio_duration / max(bg_dur, 1)) + 2, 1)
+    has_mus  = music_path and Path(music_path).exists()
+    has_sub  = ass_path and Path(ass_path).exists()
 
-    for p in [narration_path, bg_video_path]:
-        if not Path(p).exists():
-            raise FileNotFoundError(f"Missing: {p}")
-
-    final_path = str(WORK_DIR / "final.mp4")
-    bg_duration = get_media_duration(bg_video_path)
-    loop_count  = max(int(audio_duration / max(bg_duration, 1)) + 2, 1)
-
-    log(f"  BG video:  {bg_duration:.1f}s → looped {loop_count}x")
-    log(f"  Narration: {audio_duration:.1f}s")
-    log(f"  Output:    {audio_duration:.1f}s")
-
-    has_music = music_path and Path(music_path).exists()
-
-    if has_music:
-        # 3-stream: video + narration + music
-        # Mix narration at 1.0 and music at 0.08 (very subtle atmosphere)
-        cmd = [
-            "ffmpeg","-y",
-            "-stream_loop", str(loop_count), "-i", bg_video_path,
-            "-i", narration_path,
-            "-i", music_path,
-            "-filter_complex",
-            "[1:a]volume=1.0[narr];"
-            "[2:a]volume=0.08[music];"
-            "[narr][music]amix=inputs=2:duration=first:dropout_transition=3[aout]",
-            "-map","0:v",
-            "-map","[aout]",
-            "-t", str(audio_duration),
-            "-c:v","libx264","-preset","fast","-crf","23",
-            "-c:a","aac","-b:a","192k",
-            "-pix_fmt","yuv420p",
-            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-            "-movflags","+faststart",
-            final_path
-        ]
-        log("  Composing with music layer...")
+    vf_scale = ("scale=1280:720:force_original_aspect_ratio=decrease,"
+                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2")
+    if has_sub:
+        safe = ass_path.replace("\\", "\\\\").replace(":", "\\:")
+        vf   = f"{vf_scale},subtitles='{safe}'"
+        log(f"  Burning captions from: {ass_path}")
     else:
-        # 2-stream: video + narration only
+        vf = vf_scale
+
+    if has_mus:
         cmd = [
-            "ffmpeg","-y",
-            "-stream_loop", str(loop_count), "-i", bg_video_path,
-            "-i", narration_path,
-            "-map","0:v", "-map","1:a",
-            "-t", str(audio_duration),
-            "-c:v","libx264","-preset","fast","-crf","23",
-            "-c:a","aac","-b:a","192k",
-            "-pix_fmt","yuv420p",
-            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-            "-movflags","+faststart",
-            final_path
-        ]
-        log("  Composing without music (music file unavailable)...")
-
-    run_ffmpeg(cmd, timeout=1800, label="compose-main")
-
-    if not Path(final_path).exists():
-        raise FileNotFoundError("Final video not created")
-
-    size_mb = Path(final_path).stat().st_size // (1024*1024)
-    log(f"✓ Main video composed: {size_mb}MB, {audio_duration/60:.1f} min")
-    return final_path
-
-# ─────────────────────────────────────────────────────────
-# STAGE 7: CREATE YOUTUBE SHORTS
-# ─────────────────────────────────────────────────────────
-def extract_audio_segment(narration_path, start_sec, duration_sec, output_path):
-    """Extract a segment from the narration audio."""
-    run_ffmpeg([
-        "ffmpeg","-y",
-        "-i", narration_path,
-        "-ss", str(start_sec),
-        "-t", str(duration_sec),
-        "-c:a","copy",
-        output_path
-    ], label=f"audio-segment-{int(start_sec)}s")
-
-def compose_short(narration_segment, bg_video_path, music_path,
-                  segment_duration, output_path, label="short"):
-    """
-    Compose a YouTube Short (vertical 1080x1920 or 720x1280).
-    Crop the landscape background to vertical using center crop.
-    """
-    bg_duration = get_media_duration(bg_video_path)
-    loop_count  = max(int(segment_duration / max(bg_duration, 1)) + 2, 1)
-    has_music   = music_path and Path(music_path).exists()
-
-    # Vertical crop: from 1280x720, crop center to 405x720, scale to 1080x1920
-    # OR simpler: crop to 9:16 aspect ratio from center
-    vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-          "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-          "crop=405:720:(iw-405)/2:0,"
-          "scale=1080:1920")
-
-    if has_music:
-        cmd = [
-            "ffmpeg","-y",
-            "-stream_loop", str(loop_count), "-i", bg_video_path,
-            "-i", narration_segment,
-            "-i", music_path,
+            "ffmpeg", "-y",
+            "-stream_loop", str(loop_n), "-i", bg_path,
+            "-i", narration_path, "-i", music_path,
             "-filter_complex",
-            "[1:a]volume=1.0[narr];"
-            "[2:a]volume=0.08[music];"
-            "[narr][music]amix=inputs=2:duration=first:dropout_transition=1[aout]",
-            "-map","0:v", "-map","[aout]",
-            "-t", str(segment_duration),
-            "-c:v","libx264","-preset","fast","-crf","23",
-            "-c:a","aac","-b:a","128k",
-            "-pix_fmt","yuv420p",
-            "-vf", vf,
-            "-movflags","+faststart",
-            output_path
+            "[1:a]volume=1.0[n];[2:a]volume=0.08[m];[n][m]amix=inputs=2:duration=first[aout]",
+            "-map", "0:v", "-map", "[aout]",
+            "-t", str(audio_duration),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p", "-vf", vf, "-movflags", "+faststart", output
         ]
     else:
         cmd = [
-            "ffmpeg","-y",
-            "-stream_loop", str(loop_count), "-i", bg_video_path,
-            "-i", narration_segment,
-            "-map","0:v", "-map","1:a",
-            "-t", str(segment_duration),
-            "-c:v","libx264","-preset","fast","-crf","23",
-            "-c:a","aac","-b:a","128k",
-            "-pix_fmt","yuv420p",
-            "-vf", vf,
-            "-movflags","+faststart",
-            output_path
+            "ffmpeg", "-y",
+            "-stream_loop", str(loop_n), "-i", bg_path, "-i", narration_path,
+            "-map", "0:v", "-map", "1:a",
+            "-t", str(audio_duration),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p", "-vf", vf, "-movflags", "+faststart", output
         ]
+    run_ffmpeg(cmd, timeout=1800, label=f"compose-{label}")
+    log(f"OK {label}: {Path(output).stat().st_size//(1024*1024)}MB")
+    return output
 
+# ================================================================
+# SHORTS CREATION
+# ================================================================
+def create_short(narration_path, bg_path, music_path, ass_path,
+                 start_sec, duration_sec, label):
+    seg_audio = str(WORK_DIR / f"{label}_seg.mp3")
+    output    = str(WORK_DIR / f"{label}.mp4")
+
+    run_ffmpeg(["ffmpeg", "-y", "-i", narration_path,
+        "-ss", str(start_sec), "-t", str(duration_sec), "-c:a", "copy", seg_audio],
+        label=f"{label}-cut")
+
+    bg_dur = get_media_duration(bg_path)
+    loop_n = max(int(duration_sec / max(bg_dur, 1)) + 2, 1)
+    has_mus = music_path and Path(music_path).exists()
+    has_sub = ass_path and Path(ass_path).exists()
+
+    vf_crop = ("scale=1280:720:force_original_aspect_ratio=decrease,"
+               "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+               "crop=405:720:(iw-405)/2:0,scale=1080:1920")
+    if has_sub:
+        safe = ass_path.replace("\\", "\\\\").replace(":", "\\:")
+        vf   = f"{vf_crop},subtitles='{safe}'"
+    else:
+        vf = vf_crop
+
+    if has_mus:
+        cmd = [
+            "ffmpeg", "-y",
+            "-stream_loop", str(loop_n), "-i", bg_path,
+            "-i", seg_audio, "-i", music_path,
+            "-filter_complex",
+            "[1:a]volume=1.0[n];[2:a]volume=0.08[m];[n][m]amix=inputs=2:duration=first[aout]",
+            "-map", "0:v", "-map", "[aout]",
+            "-t", str(duration_sec),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-pix_fmt", "yuv420p", "-vf", vf, "-movflags", "+faststart", output
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y",
+            "-stream_loop", str(loop_n), "-i", bg_path, "-i", seg_audio,
+            "-map", "0:v", "-map", "1:a",
+            "-t", str(duration_sec),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-pix_fmt", "yuv420p", "-vf", vf, "-movflags", "+faststart", output
+        ]
     run_ffmpeg(cmd, timeout=300, label=label)
-    return output_path
+    return output
 
-def create_shorts(narration_path, bg_video_path, music_path,
-                  audio_duration, title, niche):
-    """
-    Create 2 YouTube Shorts:
-      Short 1 (Teaser):  First 55s of narration — the cold open hook
-      Short 2 (Recap):   55s starting at 67% through — the reveal moment
-    """
-    log("="*70)
-    log("STAGE 7: Creating YouTube Shorts")
-    log("="*70)
-
-    SHORT_DURATION = 55  # Max 55s to stay under 60s Shorts limit
-    shorts = []
-
-    # ── Short 1: Teaser (first 55 seconds) ──
-    seg1_duration = min(SHORT_DURATION, audio_duration * 0.15)
-    seg1_duration = max(seg1_duration, 30)
-    seg1_audio    = str(WORK_DIR / "short1_audio.mp3")
-    seg1_video    = str(WORK_DIR / "short1.mp4")
-
-    log(f"  Short 1 (Teaser): 0s → {seg1_duration:.0f}s")
-    try:
-        extract_audio_segment(narration_path, 0, seg1_duration, seg1_audio)
-        compose_short(seg1_audio, bg_video_path, music_path,
-                      seg1_duration, seg1_video, label="short1")
-        shorts.append({
-            "path":        seg1_video,
-            "title":       f"{title[:60]} #Shorts",
-            "description": f"Full investigation: search for '{title}' on this channel.\n\n#Shorts #{niche['name'].replace('_','')} #documentary #dark",
-            "type":        "teaser"
-        })
-        log(f"✓ Short 1 created: {Path(seg1_video).stat().st_size//1024}KB")
-    except Exception as e:
-        log(f"  Short 1 failed (non-fatal): {e}")
-
-    # ── Short 2: Recap (starting at 67% through narration) ──
-    seg2_start    = audio_duration * 0.67
-    seg2_duration = min(SHORT_DURATION, audio_duration - seg2_start)
-    seg2_duration = max(seg2_duration, 20)
-    seg2_audio    = str(WORK_DIR / "short2_audio.mp3")
-    seg2_video    = str(WORK_DIR / "short2.mp4")
-
-    log(f"  Short 2 (Recap): {seg2_start:.0f}s → {seg2_start+seg2_duration:.0f}s")
-    try:
-        extract_audio_segment(narration_path, seg2_start, seg2_duration, seg2_audio)
-        compose_short(seg2_audio, bg_video_path, music_path,
-                      seg2_duration, seg2_video, label="short2")
-        shorts.append({
-            "path":        seg2_video,
-            "title":       f"The Truth Revealed — {title[:40]} #Shorts",
-            "description": f"Watch the full investigation: search '{title}' on this channel.\n\n#Shorts #{niche['name'].replace('_','')} #reveal #dark",
-            "type":        "recap"
-        })
-        log(f"✓ Short 2 created: {Path(seg2_video).stat().st_size//1024}KB")
-    except Exception as e:
-        log(f"  Short 2 failed (non-fatal): {e}")
-
-    return shorts
-
-# ─────────────────────────────────────────────────────────
+# ================================================================
 # YOUTUBE API
-# ─────────────────────────────────────────────────────────
+# ================================================================
+_tok_cache = {"token": None, "expires_at": 0}
+
 def get_yt_token():
-    r = requests.post("https://oauth2.googleapis.com/token",
-        data={"client_id":YT_CLIENT_ID,"client_secret":YT_CLIENT_SEC,
-              "refresh_token":YT_REFRESH,"grant_type":"refresh_token"}, timeout=30)
+    now = time.time()
+    if _tok_cache["token"] and now < _tok_cache["expires_at"] - 60:
+        return _tok_cache["token"]
+    r = requests.post(YT_TOKEN_URL,
+        data={"client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SEC,
+              "refresh_token": YT_REFRESH, "grant_type": "refresh_token"}, timeout=30)
     d = r.json()
     if "access_token" not in d:
         raise Exception(f"YouTube token failed: {d.get('error')} — {d.get('error_description')}")
-    log("✓ YouTube token obtained")
+    _tok_cache["token"]      = d["access_token"]
+    _tok_cache["expires_at"] = now + d.get("expires_in", 3600)
+    log("OK YouTube token")
     return d["access_token"]
 
 def upload_yt(path, title, desc, tags, token=None, privacy="public"):
-    """Upload a video to YouTube using chunked resumable upload."""
-    log(f"\n  Uploading: {Path(path).name} ({Path(path).stat().st_size//(1024*1024)}MB)")
-    log(f"  Title: {title[:80]}")
-
-    if not token:
-        token = get_yt_token()
-
-    file_size = Path(path).stat().st_size
-
-    # Initiate session
+    token = token or get_yt_token()
+    fs    = Path(path).stat().st_size
+    log(f"  Uploading: {Path(path).name} ({fs//(1024*1024)}MB)")
+    log(f"  Title: {title[:70]}")
     init = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "X-Upload-Content-Length": str(file_size),
-            "X-Upload-Content-Type": "video/mp4",
-        },
-        json={
-            "snippet": {"title":title[:100],"description":desc,"tags":tags[:15],"categoryId":"22"},
-            "status":  {"privacyStatus":privacy,"selfDeclaredMadeForKids":False,"madeForKids":False}
-        },
-        timeout=30
-    )
-    upload_url = init.headers.get("Location")
-    if not upload_url:
-        raise Exception(f"No upload URL. Status: {init.status_code}. Body: {init.text[:400]}")
+        f"{YT_UPLOAD_URL}/videos?uploadType=resumable&part=snippet,status",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                 "X-Upload-Content-Length": str(fs), "X-Upload-Content-Type": "video/mp4"},
+        json={"snippet": {"title": title[:100], "description": desc,
+                          "tags": tags[:15], "categoryId": "22"},
+              "status": {"privacyStatus": privacy,
+                         "selfDeclaredMadeForKids": False, "madeForKids": False}},
+        timeout=30)
+    url = init.headers.get("Location")
+    if not url:
+        raise Exception(f"No upload URL. {init.status_code}: {init.text[:300]}")
 
-    # Chunked upload with retry
-    CHUNK    = 16 * 1024 * 1024   # 16MB
+    CHUNK    = 16 * 1024 * 1024
     uploaded = 0
     retries  = 0
-
     with open(path, "rb") as f:
-        while uploaded < file_size:
-            chunk_data = f.read(CHUNK)
-            if not chunk_data: break
-            chunk_end = uploaded + len(chunk_data) - 1
+        while uploaded < fs:
+            data = f.read(CHUNK)
+            if not data: break
+            end = uploaded + len(data) - 1
             try:
-                up = requests.put(upload_url,
-                    headers={
-                        "Authorization":  f"Bearer {token}",
-                        "Content-Length": str(len(chunk_data)),
-                        "Content-Range":  f"bytes {uploaded}-{chunk_end}/{file_size}",
-                        "Content-Type":   "video/mp4",
-                    },
-                    data=chunk_data, timeout=600)
+                up = requests.put(url,
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Length": str(len(data)),
+                             "Content-Range": f"bytes {uploaded}-{end}/{fs}",
+                             "Content-Type": "video/mp4"},
+                    data=data, timeout=600)
                 if up.status_code in [200, 201]:
                     vid_id = up.json().get("id")
                     yt_url = f"https://www.youtube.com/watch?v={vid_id}"
-                    log(f"  ✓ Upload complete: {yt_url}")
+                    log(f"  OK uploaded: {yt_url}")
                     return yt_url, vid_id
                 elif up.status_code == 308:
-                    rh = up.headers.get("Range","")
-                    uploaded = int(rh.split("-")[1]) + 1 if rh else uploaded + len(chunk_data)
-                    log(f"  {int(uploaded*100/file_size)}% uploaded")
-                    retries = 0
-                elif up.status_code in [500,502,503,504]:
+                    rh       = up.headers.get("Range", "")
+                    uploaded = int(rh.split("-")[1]) + 1 if rh else uploaded + len(data)
+                    log(f"  {int(uploaded*100/fs)}%")
+                    retries  = 0
+                elif up.status_code in [500, 502, 503, 504]:
                     retries += 1
-                    if retries > 5: raise Exception(f"Upload failed after 5 retries ({up.status_code})")
-                    wait = 2 ** retries
-                    log(f"  Server error {up.status_code}, retry {retries}/5 in {wait}s")
-                    time.sleep(wait)
+                    if retries > 5: raise Exception(f"Server errors x{retries}")
+                    time.sleep(2 ** retries)
                 else:
-                    raise Exception(f"Upload failed HTTP {up.status_code}: {up.text[:300]}")
+                    raise Exception(f"HTTP {up.status_code}: {up.text[:200]}")
             except requests.exceptions.Timeout:
                 retries += 1
-                if retries > 5: raise Exception("Upload timed out repeatedly")
-                log(f"  Timeout, retry {retries}/5...")
+                if retries > 5: raise Exception("Repeated timeouts")
                 time.sleep(5)
-
-    raise Exception("Upload loop ended without completion")
+    raise Exception("Upload ended without completion")
 
 def upload_thumbnail(video_id, thumb_path, token):
-    """Upload custom thumbnail to a YouTube video."""
-    if not thumb_path or not Path(thumb_path).exists():
-        log("  No thumbnail to upload")
-        return
+    if not thumb_path or not Path(thumb_path).exists(): return
     try:
-        log(f"  Uploading thumbnail...")
         with open(thumb_path, "rb") as f:
             r = requests.post(
-                f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}&uploadType=media",
-                headers={"Authorization":f"Bearer {token}","Content-Type":"image/jpeg"},
-                data=f.read(), timeout=60
-            )
-        if r.status_code in [200,201]:
-            log("✓ Thumbnail uploaded")
-        else:
-            log(f"  Thumbnail upload failed: {r.status_code} — {r.text[:200]}")
-    except Exception as e:
-        log(f"  Thumbnail upload error (non-fatal): {e}")
+                f"{YT_UPLOAD_URL}/thumbnails/set?videoId={video_id}&uploadType=media",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "image/jpeg"},
+                data=f.read(), timeout=60)
+        if r.status_code in [200, 201]: log("OK Thumbnail uploaded")
+        else: log(f"  Thumbnail {r.status_code}")
+    except Exception as e: log(f"  Thumbnail (non-fatal): {e}")
 
-# ─────────────────────────────────────────────────────────
+def ensure_niche_playlist(token, niche_name, series_name):
+    """[NEW #3] Find or create a per-niche playlist."""
+    try:
+        r = requests.get(f"{YT_DATA_URL}/playlists",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "mine": "true", "maxResults": 50}, timeout=20)
+        if r.status_code == 200:
+            for item in r.json().get("items", []):
+                if series_name.lower() in item["snippet"]["title"].lower():
+                    pid = item["id"]
+                    log(f"  Playlist found: {pid}")
+                    return pid
+        r2 = requests.post(f"{YT_DATA_URL}/playlists",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet,status"},
+            json={"snippet": {"title": f"{series_name} — Full Investigations",
+                              "description": f"All episodes of {series_name}. New investigations weekly."},
+                  "status": {"privacyStatus": "public"}}, timeout=20)
+        if r2.status_code == 200:
+            pid = r2.json()["id"]
+            log(f"OK Playlist created: {pid}")
+            return pid
+    except Exception as e: log(f"  Playlist (non-fatal): {e}")
+    return None
+
+def add_to_playlist(token, playlist_id, video_id):
+    """[NEW #3] Add video to playlist."""
+    if not playlist_id: return
+    try:
+        r = requests.post(f"{YT_DATA_URL}/playlistItems",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"snippet": {"playlistId": playlist_id,
+                              "resourceId": {"kind": "youtube#video", "videoId": video_id}}},
+            timeout=20)
+        if r.status_code in [200, 201]: log("OK Added to playlist")
+        else: log(f"  Playlist add {r.status_code}")
+    except Exception as e: log(f"  Playlist add (non-fatal): {e}")
+
+def update_channel_description(token, latest_title, latest_url):
+    """[NEW #12] Update channel About with latest episode."""
+    try:
+        r = requests.get(f"{YT_DATA_URL}/channels",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "mine": "true"}, timeout=20)
+        if r.status_code != 200: return
+        ch_id = r.json()["items"][0]["id"]
+        desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
+                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
+                 "New episodes every weekday. Subscribe for weekly investigations.")
+        r2 = requests.put(f"{YT_DATA_URL}/channels",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"id": ch_id, "snippet": {"description": desc[:1000]}}, timeout=20)
+        if r2.status_code in [200, 201]: log("OK Channel description updated")
+        else: log(f"  Channel update {r2.status_code}")
+    except Exception as e: log(f"  Channel update (non-fatal): {e}")
+
+# ================================================================
 # CLEANUP
-# ─────────────────────────────────────────────────────────
+# ================================================================
 def cleanup():
     try:
         for f in glob.glob(str(WORK_DIR / "*")):
             if os.path.isfile(f): os.remove(f)
-        log("✓ Temp files cleaned")
-    except Exception as e:
-        log(f"Cleanup error (non-fatal): {e}")
+        log("OK Cleaned temp files")
+    except Exception as e: log(f"  Cleanup (non-fatal): {e}")
 
-# ─────────────────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────────────────
+# ================================================================
+# MAIN PIPELINE
+# ================================================================
 def main():
-    log("="*70)
-    log("DEEPDIVE EMPIRE v10.0")
-    log("="*70)
+    log("=" * 70)
+    log("DEEPDIVE EMPIRE v11.0 — ULTIMATE ENGINE")
+    log("=" * 70)
     log(f"Time:   {datetime.datetime.now().isoformat()}")
     log(f"Day:    {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][datetime.datetime.now().weekday()]}")
     log(f"Makeup: {IS_MAKEUP}")
-    log("="*70)
+    log("=" * 70)
 
-    state = load_state()
-    log(f"Episodes uploaded so far: {state.get('episode_count', 0)}")
+    state   = load_state()
+    episode = state.get("episode_count", 0) + 1
+    log(f"Episodes so far: {state.get('episode_count', 0)}")
+
+    if not IS_MAKEUP:
+        ckpt_clear()
 
     try:
-        # ── Stage 1: Script (psychological framework) ──
-        niche, voice, episode, result, score = run_stage1(state)
-
-        # ── Stage 2: Audio ──
-        audio_path, audio_duration, voice_used = run_stage2_audio(result["script"], voice)
-
-        # ── Stage 2B: SEO Description (uses actual duration now) ──
-        log("  Building SEO description...")
-        description = generate_seo_description(
-            niche, result["topic"], result["title"], episode, audio_duration)
-
-        # ── Stage 3: Background Video ──
-        bg_video_path = run_stage3_video(niche, audio_duration)
-
-        # ── Stage 4: Background Music ──
-        music_path = generate_ambient_music(audio_duration)
-
-        # ── Stage 5: Thumbnail ──
-        thumb_path = generate_thumbnail(result["thumb_text"], niche["name"], result["title"])
-
-        # ── Stage 6: Compose Main Video ──
-        final_video = compose_main_video(audio_path, bg_video_path, music_path, audio_duration)
-
-        # ── Stage 7: Create Shorts ──
-        shorts = create_shorts(audio_path, bg_video_path, music_path,
-                               audio_duration, result["title"], niche)
-
-        # ── Stage 8: Upload Main Video ──
-        log("="*70)
-        log("STAGE 8: Upload Main Video")
-        log("="*70)
+        # Get YT token early — needed for trend intel
         token = get_yt_token()
-        yt_url, video_id = upload_yt(
-            final_video, result["title"], description, result["tags"], token=token)
 
-        # ── Stage 9: Upload Thumbnail ──
-        log("="*70)
-        log("STAGE 9: Set Thumbnail")
-        log("="*70)
-        upload_thumbnail(video_id, thumb_path, token)
+        # ── STAGE 1: Niche + Trend Intel + Script ──
+        log("\n" + "=" * 70)
+        log("STAGE 1: Script Generation")
+        log("=" * 70)
+        s1 = ckpt_load("stage1")
+        if s1:
+            niche_name = s1["niche_name"]; niche = next(x for x in NICHES if x["name"] == niche_name)
+            topic = s1["topic"]; edge_voice = s1["edge_voice"]; script = s1["script"]
+            score = s1["score"]; thumb_text = s1["thumb_text"]; title = s1["title"]
+        else:
+            scheduled = DAY_NICHE.get(datetime.datetime.now().weekday(), "dark_horror")
+            niche_name = pick_best_niche(state, scheduled)
+            niche      = next(x for x in NICHES if x["name"] == niche_name)
+            edge_voice = random.choice(VOICES.get(niche_name, ["en-GB-RyanNeural"]))
 
-        # ── Stage 10: Upload Shorts ──
-        log("="*70)
-        log("STAGE 10: Upload Shorts")
-        log("="*70)
-        short_urls = []
-        for i, short in enumerate(shorts, 1):
-            log(f"\n  Short {i} ({short['type']}):")
+            log("  Fetching trending titles...")
+            trending = fetch_trending_titles(niche, token)
+            topic    = generate_trend_informed_topic(niche, trending)
+            log(f"  Topic: {topic[:80]}")
+
+            best_content = None; best_score = 0.0
+            for attempt in range(1, 4):
+                log(f"  Attempt {attempt}/3...")
+                content = generate_script_content(niche, topic, episode, attempt, trending)
+                sc, _   = score_result(content)
+                log(f"  Score: {sc}/10")
+                if sc > best_score: best_score = sc; best_content = content
+                if sc >= MIN_GATE: log("  OK gate passed"); break
+                elif attempt == 3 and sc >= FINAL_GATE: log(f"  OK final gate {sc}")
+                elif attempt < 3: log(f"  Below gate, retrying...")
+
+            if not best_content or best_score < FINAL_GATE:
+                raise RuntimeError(f"Script failed. Best: {best_score}/10")
+
+            script     = best_content["script"]
+            score      = best_score
+            title      = generate_titles(niche, topic, episode)
+            thumb_text = generate_dynamic_thumbnail_text(script)
+
+            ckpt_save("stage1", {"niche_name": niche_name, "topic": topic, "edge_voice": edge_voice,
+                                  "script": script, "score": score, "thumb_text": thumb_text, "title": title})
+
+        log(f"  Title:      {title}")
+        log(f"  Niche:      {niche_name}")
+        log(f"  Words:      {len(script.split())}")
+        log(f"  Score:      {score}/10")
+        log(f"  Thumb:      {thumb_text}")
+        tg(f"🎬 <b>Script Ready</b>\n📺 {title}\n📝 {len(script.split())} words | ⭐ {score}/10")
+
+        # ── STAGE 2: Audio + Captions ──
+        log("\n" + "=" * 70)
+        log("STAGE 2: Audio + Captions")
+        log("=" * 70)
+        s2 = ckpt_load("stage2")
+        if s2 and Path(s2["audio_path"]).exists():
+            audio_path = s2["audio_path"]; audio_duration = s2["audio_duration"]
+            ass_path   = s2.get("ass_path") if s2.get("ass_path") and Path(s2.get("ass_path","x")).exists() else None
+        else:
+            audio_path, audio_duration, ass_path = run_audio_stage(script, niche_name, edge_voice)
+            ckpt_save("stage2", {"audio_path": audio_path, "audio_duration": audio_duration, "ass_path": ass_path})
+
+        chapters_text = generate_chapters(audio_duration)
+        description   = generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration)
+
+        # ── STAGE 3: Background Video ──
+        log("\n" + "=" * 70)
+        log("STAGE 3: Background Video")
+        log("=" * 70)
+        s3 = ckpt_load("stage3")
+        if s3 and Path(s3["bg_path"]).exists():
+            bg_path = s3["bg_path"]
+        else:
+            bg_path = get_background_video(niche, audio_duration)
+            ckpt_save("stage3", {"bg_path": bg_path})
+
+        # ── STAGE 4: Music ──
+        log("\n" + "=" * 70)
+        log("STAGE 4: Ambient Music")
+        log("=" * 70)
+        s4 = ckpt_load("stage4")
+        if s4 and Path(s4["music_path"]).exists():
+            music_path = s4["music_path"]
+        else:
+            music_path = generate_ambient_music(audio_duration)
+            ckpt_save("stage4", {"music_path": music_path})
+
+        # ── STAGE 5: Thumbnail ──
+        log("\n" + "=" * 70)
+        log("STAGE 5: Thumbnail")
+        log("=" * 70)
+        thumb_path = generate_thumbnail(thumb_text, niche_name, title)
+
+        # ── STAGE 6: Compose Main (with intro + outro + burned captions) ──
+        log("\n" + "=" * 70)
+        log("STAGE 6: Compose Main Video")
+        log("=" * 70)
+        s6 = ckpt_load("stage6")
+        if s6 and Path(s6["final_path"]).exists():
+            final_path = s6["final_path"]
+        else:
+            intro_path  = create_intro(niche["series"])
+            outro_path  = create_outro()
+            composed    = compose_video(audio_path, bg_path, music_path,
+                                        ass_path, audio_duration, label="core")
+            final_path  = str(WORK_DIR / "final.mp4")
+            concat_parts([intro_path, composed, outro_path], final_path)
+            ckpt_save("stage6", {"final_path": final_path})
+        log(f"  Final: {Path(final_path).stat().st_size//(1024*1024)}MB")
+
+        # ── STAGE 7: YouTube Shorts ──
+        log("\n" + "=" * 70)
+        log("STAGE 7: YouTube Shorts")
+        log("=" * 70)
+        tags = ["documentary", "investigation", "true story", "dark", "mystery",
+                "psychological", "narration", "evidence", "real", "nonfiction",
+                niche_name.replace("_",""), niche["series"].lower().replace(" ","")]
+        shorts = []
+        for s_label, s_start, s_dur, s_type, s_title_fmt in [
+            ("short1", 0, min(55, max(audio_duration*0.12, 30)),
+             "teaser", f"{title[:60]} #Shorts"),
+            ("short2", audio_duration*0.67, min(55, max(audio_duration*0.20, 25)),
+             "recap",  f"The Truth — {title[:45]} #Shorts"),
+        ]:
             try:
-                s_url, _ = upload_yt(
-                    short["path"], short["title"], short["description"],
-                    result["tags"][:8], token=token)
-                short_urls.append(s_url)
+                p = create_short(audio_path, bg_path, music_path, ass_path,
+                                 s_start, s_dur, s_label)
+                shorts.append({
+                    "path":  p,
+                    "title": s_title_fmt,
+                    "desc":  f"Full investigation: '{title}'\n\n#Shorts #{niche_name.replace('_','')} #dark",
+                    "type":  s_type,
+                })
+                log(f"OK {s_label} ({s_dur:.0f}s)")
             except Exception as e:
-                log(f"  Short {i} upload failed (non-fatal): {e}")
+                log(f"  {s_label} failed (non-fatal): {e}")
 
-        # ── Update state ──
+        # ── STAGE 8: Playlist ──
+        log("\n" + "=" * 70)
+        log("STAGE 8: Playlist")
+        log("=" * 70)
+        playlist_id = state.get("playlists", {}).get(niche_name)
+        if not playlist_id:
+            playlist_id = ensure_niche_playlist(token, niche_name, niche["series"])
+            if playlist_id:
+                pl = state.get("playlists", {})
+                pl[niche_name] = playlist_id
+                state["playlists"] = pl
+
+        # ── STAGE 9: Upload Main ──
+        log("\n" + "=" * 70)
+        log("STAGE 9: Upload Main Video")
+        log("=" * 70)
+        yt_url, video_id = upload_yt(final_path, title, description, tags, token=token)
+
+        # ── STAGE 10: Thumbnail + Playlist ──
+        log("\n" + "=" * 70)
+        log("STAGE 10: Thumbnail + Playlist")
+        log("=" * 70)
+        upload_thumbnail(video_id, thumb_path, token)
+        add_to_playlist(token, playlist_id, video_id)
+
+        # ── STAGE 11: Upload Shorts ──
+        log("\n" + "=" * 70)
+        log("STAGE 11: Upload Shorts")
+        log("=" * 70)
+        short_urls = []
+        for sh in shorts:
+            try:
+                su, sid = upload_yt(sh["path"], sh["title"], sh["desc"], tags[:8], token=token)
+                short_urls.append(su)
+                add_to_playlist(token, playlist_id, sid)
+            except Exception as e:
+                log(f"  Short upload (non-fatal): {e}")
+
+        # ── STAGE 12: Channel description update ──
+        update_channel_description(token, title, yt_url)
+
+        # ── Finalise ──
+        state = track_episode(state, niche_name, score, edge_voice, episode)
         state["episode_count"]  = episode
         state["last_upload"]    = datetime.datetime.now().isoformat()
-        state["last_title"]     = result["title"]
+        state["last_title"]     = title
         state["last_url"]       = yt_url
         state["total_uploads"]  = state.get("total_uploads", 0) + 1
         state["total_shorts"]   = state.get("total_shorts", 0) + len(short_urls)
         save_state(state)
-
-        # ── Cleanup ──
+        ckpt_clear()
         cleanup()
 
-        # ── Final Telegram notification ──
-        shorts_text = "\n".join([f"🩳 {u}" for u in short_urls]) if short_urls else "⚠️ Shorts skipped"
-        success_msg = (
-            f"✅ <b>DeepDive Empire v10.0 — Published!</b>\n\n"
-            f"📺 <b>{result['title']}</b>\n"
-            f"🔗 {yt_url}\n\n"
-            f"🎯 Niche:    {niche['name']}\n"
-            f"🔊 Voice:    {voice_used}\n"
-            f"📝 Words:    {result['words']}\n"
-            f"⏱ Duration: {audio_duration/60:.1f} min\n"
-            f"⭐ Score:    {score}/10\n"
-            f"📊 Episode:  {episode} | Total: {state['total_uploads']}\n\n"
-            f"<b>Shorts:</b>\n{shorts_text}"
-        )
-        tg(success_msg)
+        perf     = state.get("performance", {}).get(niche_name, {})
+        avg_sc   = sum(perf.get("scores", [score])) / max(len(perf.get("scores", [score])), 1)
+        sh_lines = "\n".join(f"🩳 {u}" for u in short_urls) if short_urls else "none"
 
-        log("="*70)
-        log(f"✅ SUCCESS: {yt_url}")
-        for s_url in short_urls:
-            log(f"✅ SHORT:   {s_url}")
-        log("="*70)
+        tg(f"✅ <b>DeepDive Empire v11.0 — Published!</b>\n\n"
+           f"📺 <b>{title}</b>\n🔗 {yt_url}\n\n"
+           f"🎯 Niche: {niche_name}\n🔊 Voice: {edge_voice}\n"
+           f"📝 Words: {len(script.split())}\n⏱ Duration: {audio_duration/60:.1f} min\n"
+           f"⭐ Score: {score}/10 (avg: {avg_sc:.1f})\n"
+           f"📊 Episode: {episode} | Total: {state['total_uploads']}\n"
+           f"📋 Playlist: {'added' if playlist_id else 'none'}\n"
+           f"📌 Captions: {'burned in' if ass_path else 'none'}\n\n"
+           f"<b>Shorts:</b>\n{sh_lines}")
+
+        log("\n" + "=" * 70)
+        log(f"SUCCESS: {yt_url}")
+        for u in short_urls: log(f"SHORT:   {u}")
+        log("=" * 70)
 
     except Exception as e:
         import traceback
-        log(f"\nPIPELINE FAILED: {e}")
+        log(f"\nFAILED: {e}")
         log(traceback.format_exc())
-        tg(f"❌ <b>Pipeline FAILED</b>\n\nError: {str(e)[:500]}")
+        tg(f"❌ <b>Pipeline FAILED</b>\n\n{str(e)[:500]}\n\n"
+           f"Use is_makeup=true to resume from checkpoint.")
         sys.exit(1)
 
 if __name__ == "__main__":
