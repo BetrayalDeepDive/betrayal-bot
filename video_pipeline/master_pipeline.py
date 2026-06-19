@@ -279,7 +279,7 @@ def call_cerebras(prompt, tokens=8000):
     try:
         r = requests.post(CEREBRAS_URL,
             headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b", "messages": [{"role": "user", "content": prompt}],
+            json={"model": "llama3.1-70b", "messages": [{"role": "user", "content": prompt}],
                   "max_completion_tokens": min(tokens, 8000), "temperature": 0.88}, timeout=90)
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -337,9 +337,17 @@ def call_openrouter(prompt, tokens=8000):
     return None
 
 def ai_generate(prompt, tokens=8000):
-    for fn in [call_cerebras, call_groq, call_gemini, call_openrouter]:
+    """
+    Try each AI provider in order. Sleep 8s between failures so rate limits
+    from one provider don't immediately cascade to the next.
+    """
+    providers = [call_cerebras, call_groq, call_gemini, call_openrouter]
+    for i, fn in enumerate(providers):
         r = fn(prompt, tokens)
         if r: return r
+        if i < len(providers) - 1:
+            log(f"  Waiting 8s before next provider...")
+            time.sleep(8)
     return None
 
 # ================================================================
@@ -1275,6 +1283,8 @@ def main():
             trending = fetch_trending_titles(niche, token)
             topic    = generate_trend_informed_topic(niche, trending)
             log(f"  Topic: {topic[:80]}")
+            log("  Sleeping 10s after trend intel before script generation...")
+            time.sleep(10)
 
             best_content = None; best_score = 0.0
             for attempt in range(1, 4):
@@ -1285,7 +1295,9 @@ def main():
                 if sc > best_score: best_score = sc; best_content = content
                 if sc >= MIN_GATE: log("  OK gate passed"); break
                 elif attempt == 3 and sc >= FINAL_GATE: log(f"  OK final gate {sc}")
-                elif attempt < 3: log(f"  Below gate, retrying...")
+                elif attempt < 3:
+                    log(f"  Below gate — sleeping 20s before retry...")
+                    time.sleep(20)
 
             if not best_content or best_score < FINAL_GATE:
                 raise RuntimeError(f"Script failed. Best: {best_score}/10")
