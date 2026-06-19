@@ -1,4 +1,4 @@
-name: DeepDive Empire - Video Pipeline
+name: DeepDive Empire - Video Pipeline v8.0
 
 on:
   schedule:
@@ -37,7 +37,7 @@ jobs:
   make-video:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,6 +57,8 @@ jobs:
           CEREBRAS_API_KEY:       ${{ secrets.CEREBRAS_API_KEY }}
           OPENROUTER_API_KEY:     ${{ secrets.OPENROUTER_API_KEY }}
           PIXABAY_KEY:            ${{ secrets.PIXABAY_KEY }}
+          ELEVENLABS_API_KEY:     ${{ secrets.ELEVENLABS_API_KEY }}
+          PEXELS_API_KEY:         ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_CLIENT_ID:      ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET:  ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN:  ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
