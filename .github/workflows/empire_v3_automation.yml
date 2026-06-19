@@ -1,17 +1,17 @@
-name: DeepDive Empire - Video Pipeline v10.0
+name: DeepDive Empire - Video Pipeline v11.0
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # Monday    2 AM UTC = 7:30 AM IST
-    - cron: '0 2 * * 2'   # Tuesday
-    - cron: '0 2 * * 3'   # Wednesday
-    - cron: '0 2 * * 4'   # Thursday
-    - cron: '0 2 * * 5'   # Friday
-    - cron: '30 3 * * 0'  # Sunday 3:30 AM UTC — weekly report
+    - cron: '0 2 * * 1'   # Mon 7:30 AM IST
+    - cron: '0 2 * * 2'   # Tue
+    - cron: '0 2 * * 3'   # Wed
+    - cron: '0 2 * * 4'   # Thu
+    - cron: '0 2 * * 5'   # Fri
+    - cron: '30 3 * * 0'  # Sun 3:30 AM UTC — weekly report
   workflow_dispatch:
     inputs:
       is_makeup:
-        description: 'Makeup video (rerun failed day)'
+        description: 'Makeup/resume run (resumes from checkpoint)'
         required: false
         default: 'false'
         type: choice
@@ -19,13 +19,9 @@ on:
 
 env:
   PYTHONUNBUFFERED: 1
-  GITHUB_RUN_ID: ${{ github.run_id }}
 
 jobs:
 
-  # ────────────────────────────────────────────────────
-  # Weekly summary report (Sundays only)
-  # ────────────────────────────────────────────────────
   weekly-report:
     if: github.event.schedule == '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -33,42 +29,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: {python-version: '3.11'}
       - run: pip install requests --break-system-packages -q
       - name: Weekly report
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python video_pipeline/weekly_report.py || echo "Weekly report skipped"
+        run: python video_pipeline/weekly_report.py || echo "skipped"
 
-  # ────────────────────────────────────────────────────
-  # Main video pipeline (Mon–Fri)
-  # ────────────────────────────────────────────────────
   make-video:
     if: github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    permissions:
+      contents: write   # needed to commit state.json back to repo
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: {python-version: '3.11'}
 
-      # ── System dependencies ──
-      - name: Install system dependencies
+      - name: System dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg imagemagick -qq
 
-      # ── Python dependencies ──
-      # pillow  → thumbnail generation
-      # edge-tts → TTS via Python async API (no CLI needed)
-      # groq    → Groq API client
-      # requests → all HTTP calls
-      - name: Install Python dependencies
+      - name: Python dependencies
         run: |
           pip install \
             groq \
@@ -77,46 +64,43 @@ jobs:
             pillow \
             --break-system-packages -q
 
-      # ── Run pipeline ──
-      - name: Run master pipeline v10.0
+      - name: Run pipeline v11.0
         env:
-          # AI Script Providers (4 fallbacks in priority order)
-          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
-          CEREBRAS_API_KEY:   ${{ secrets.CEREBRAS_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # AI Script Providers (4 fallbacks)
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY:       ${{ secrets.GEMINI_API_KEY }}
+          CEREBRAS_API_KEY:     ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
 
-          # Video Sources (Pixabay primary, Pexels fallback)
-          PIXABAY_KEY:        ${{ secrets.PIXABAY_KEY }}
-          PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
+          # Premium TTS (optional — edge-tts used if missing)
+          ELEVENLABS_API_KEY:   ${{ secrets.ELEVENLABS_API_KEY }}
 
-          # YouTube Upload
-          YOUTUBE_CLIENT_ID:      ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET:  ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN:  ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          # Video Sources
+          PIXABAY_KEY:          ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:       ${{ secrets.PEXELS_API_KEY }}
+
+          # YouTube
+          YOUTUBE_CLIENT_ID:    ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
 
           # Notifications
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOKEN:       ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
 
-          # Run config
-          IS_MAKEUP: ${{ github.event.inputs.is_makeup || 'false' }}
+          IS_MAKEUP:            ${{ github.event.inputs.is_makeup || 'false' }}
 
         run: python -u video_pipeline/master_pipeline.py
 
-      # ── Persist state.json so episode count survives between runs ──
-      - name: Save state to repo
+      - name: Commit state.json to repo
         if: always()
         run: |
           git config user.name  "DeepDive Bot"
           git config user.email "bot@deepdive.local"
           git add video_pipeline/state.json || true
-          git diff --staged --quiet || git commit -m "chore: update state [skip ci]"
-          git push || echo "Nothing to push"
+          git diff --staged --quiet || git commit -m "chore: state update ep$(python3 -c "import json; d=json.load(open('video_pipeline/state.json')); print(d.get('episode_count',0))" 2>/dev/null || echo '?') [skip ci]"
+          git push || echo "nothing to push"
 
-  # ────────────────────────────────────────────────────
-  # Support bot (runs after make-video, always)
-  # ────────────────────────────────────────────────────
   support-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -125,19 +109,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: {python-version: '3.11'}
       - run: pip install groq requests --break-system-packages -q
       - name: Support bot
         env:
           GROQ_API_KEY:     ${{ secrets.GROQ_API_KEY }}
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python freelance/scripts/support_bot.py || echo "Done"
+        run: python freelance/scripts/support_bot.py || echo "done"
 
-  # ────────────────────────────────────────────────────
-  # Fiverr bot (runs after make-video, always)
-  # ────────────────────────────────────────────────────
   fiverr-bot:
     if: always() && github.event.schedule != '30 3 * * 0'
     runs-on: ubuntu-latest
@@ -146,8 +126,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        with: {python-version: '3.11'}
       - run: pip install groq requests --break-system-packages -q
       - name: Fiverr bot
         env:
@@ -155,4 +134,4 @@ jobs:
           GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python freelance/scripts/fiverr_bot.py || echo "Done"
+        run: python freelance/scripts/fiverr_bot.py || echo "done"
