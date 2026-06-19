@@ -42,7 +42,7 @@ IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 # ================================================================
 # ENDPOINTS
 # ================================================================
-GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 CEREBRAS_URL   = "https://api.cerebras.ai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
@@ -293,7 +293,7 @@ def call_groq(prompt, tokens=8000):
     try:
         r = requests.post(GROQ_URL,
             headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile",
+            json={"model": "llama-3.1-8b-instant",
                   "messages": [{"role": "user", "content": prompt}],
                   "temperature": 0.88, "max_tokens": min(tokens, 8000)}, timeout=90)
         if r.status_code == 200:
@@ -338,16 +338,17 @@ def call_openrouter(prompt, tokens=8000):
 
 def ai_generate(prompt, tokens=8000):
     """
-    Try each AI provider in order. Sleep 8s between failures so rate limits
-    from one provider don't immediately cascade to the next.
+    Provider order: Gemini first (1M tokens/day free), then OpenRouter,
+    then Groq (131k TPD on 8b-instant), then Cerebras last.
+    Sleep 10s between failures to avoid cascading rate limits.
     """
-    providers = [call_cerebras, call_groq, call_gemini, call_openrouter]
+    providers = [call_gemini, call_openrouter, call_groq, call_cerebras]
     for i, fn in enumerate(providers):
         r = fn(prompt, tokens)
         if r: return r
         if i < len(providers) - 1:
-            log(f"  Waiting 8s before next provider...")
-            time.sleep(8)
+            log(f"  Waiting 10s before next provider...")
+            time.sleep(10)
     return None
 
 # ================================================================
@@ -373,23 +374,19 @@ def fetch_trending_titles(niche, token):
     return []
 
 def generate_trend_informed_topic(niche, trending_titles):
+    """
+    Pick a topic informed by trends WITHOUT spending an AI token call.
+    If trending titles exist, we use a curated topic from the niche list
+    (they are already psychologically optimised) and note the trend angle.
+    The trend titles are instead passed to the script prompt to influence
+    tone and hook — not wasted on a separate AI summary call.
+    """
     if not trending_titles:
         return random.choice(niche["topics"])
-    titles_block = "\n".join(f"  - {t}" for t in trending_titles[:6])
-    prompt = f"""Analyse these top-performing YouTube titles in the {niche["name"].replace("_", " ")} niche published this month:
-
-{titles_block}
-
-Identify: what emotional hook is working, what story structure, what angle makes them viral.
-Then generate ONE original story topic sentence using the same emotional hook but completely different content.
-Topic should feel like a real documented case. Return ONLY the topic sentence."""
-    result = ai_generate(prompt, tokens=200)
-    if result:
-        topic = strip_md(result).strip().split("\n")[0].strip()
-        if len(topic) > 30:
-            log(f"  Trend topic: {topic[:80]}")
-            return topic
-    return random.choice(niche["topics"])
+    # Use a niche topic but log the trend context for the script prompt
+    topic = random.choice(niche["topics"])
+    log(f"  Trend-informed topic selected (no AI call): {topic[:80]}")
+    return topic
 
 # ================================================================
 # PERFORMANCE TRACKER  [NEW #8, #10]
@@ -461,51 +458,21 @@ def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
         trend_note += "\n".join(f"  - {t}" for t in trending_titles[:4])
         trend_note += "\nMatch their emotional intensity. Do not copy. Outdo them.\n"
 
-    return f"""You are writing an {intensity} investigative narration script for a dark documentary YouTube channel.
+    return f"""Write a {intensity} dark investigative documentary narration script.
 
-SERIES: {niche["series"]} | EPISODE: {episode}
-TOPIC: {topic}
-STYLE: {niche["dread_style"]}
+Topic: {topic}
+Series: {niche["series"]} Episode {episode}
 {trend_note}
-Follow this EXACT 7-stage structure. Do NOT label stages in the output:
+Structure (do NOT label sections — write continuously):
+1. COLD OPEN (100w): Start mid-action with the most disturbing fact. Never say "welcome back".
+2. THE BEFORE (200w): Who this person was. Make the listener care. End with one line signalling the break.
+3. FIRST SIGNALS (250w): Small explainable wrong things. {t1}. One observation per sentence.
+4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. What happened.
+5. FALSE RESOLUTION (200w): Brief relief. End with one quiet sentence that is wrong in a subtle way.
+6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Build layer by layer.
+7. IMPLICATION + CTA (200w): Imply — do not state — that {niche["implication"]}. End: "Subscribe and hit the bell. You will not want to miss what we find next."
 
-STAGE 1 — COLD OPEN (~100 words):
-Start mid-action. Most disturbing single fact in sentence one.
-NEVER say welcome back or today we look at. We are already inside the story.
-
-STAGE 2 — THE BEFORE (~200 words):
-Who was this person. Make the listener care. Specific real-feeling details.
-Ordinary life. One line at the end that signals the break is coming.
-
-STAGE 3 — FIRST SIGNALS (~250 words):
-Small wrong things. Explainable. {t1}.
-Listener feels dread building before characters do. One observation per sentence.
-
-STAGE 4 — ESCALATION (~400 words):
-Things accelerate. Signs stop being dismissible. {t2}.
-Rhythm: short-short-short then one longer sentence.
-What they found. What they tried. Why it failed. What happened next.
-
-STAGE 5 — FALSE RESOLUTION (~200 words):
-A moment where it seems finished. Relief. Normalcy briefly returns.
-End this stage with one quiet sentence that is wrong in a way the listener
-will only understand in retrospect.
-
-STAGE 6 — THE REAL REVEAL (~650 words):
-{t3}. Everything reframes.
-One idea per paragraph. Short paragraphs. Let each land before the next.
-The listener must feel they are discovering it alongside you.
-
-STAGE 7 — PSYCHOLOGICAL IMPLICATION + CTA (~200 words):
-{niche["implication"]}
-Do not state this explicitly. Imply it. Let the listener arrive there.
-Last two sentences: Subscribe and hit the bell. You will not want to miss what we find next.
-
-ABSOLUTE RULES:
-- Total: {MIN_WORDS} to {MAX_WORDS} words. Never below {MIN_WORDS}.
-- Maximum 15 words per sentence. This is spoken narration.
-- ZERO markdown. No asterisks, hashtags, bold, bullets, headers.
-- Plain narration text only. Write straight through. Start with the cold open."""
+Rules: {MIN_WORDS}-{MAX_WORDS} words total. Max 15 words per sentence. Zero markdown. Plain text only."""
 
 def generate_script_content(niche, topic, episode, attempt, trending_titles=None):
     raw = ai_generate(build_script_prompt(niche, topic, episode, attempt, trending_titles), tokens=8000)
@@ -1296,8 +1263,8 @@ def main():
                 if sc >= MIN_GATE: log("  OK gate passed"); break
                 elif attempt == 3 and sc >= FINAL_GATE: log(f"  OK final gate {sc}")
                 elif attempt < 3:
-                    log(f"  Below gate — sleeping 20s before retry...")
-                    time.sleep(20)
+                    log(f"  Below gate — sleeping 45s before retry...")
+                    time.sleep(45)
 
             if not best_content or best_score < FINAL_GATE:
                 raise RuntimeError(f"Script failed. Best: {best_score}/10")
