@@ -64,8 +64,8 @@ CKPT_FILE  = WORK_DIR / "checkpoint.json"
 # ================================================================
 MIN_WORDS  = 2000
 MAX_WORDS  = 2600
-MIN_GATE   = 7.0
-FINAL_GATE = 6.5
+MIN_GATE   = 7.5
+FINAL_GATE = 6.9
 
 # Word targets per stage (sum = MIN_WORDS baseline)
 STAGE_WORDS = [100, 200, 250, 400, 200, 650, 200]
@@ -285,7 +285,7 @@ def call_groq(prompt, tokens=8000):
             headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
             json={"model": "llama-3.1-8b-instant",
                   "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.88, "max_tokens": min(tokens, 3000)}, timeout=90)
+                  "temperature": 0.88, "max_tokens": min(tokens, 9000)}, timeout=90)
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             if t and len(t.strip()) > 100: log("OK Groq"); return t
@@ -302,7 +302,7 @@ def call_gemini(prompt, tokens=8000):
             r = requests.post(url,
                 headers={"Content-Type": "application/json"},
                 json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 4096)},
+                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 9000)},
                       "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
                 timeout=90)
             if r.status_code == 200:
@@ -338,7 +338,7 @@ def call_openrouter(prompt, tokens=8000):
                          "HTTP-Referer": "https://github.com/BetrayalDeepDive/betrayal-bot"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 3000), "temperature": 0.88}, timeout=90)
+                      "max_tokens": min(tokens, 9000), "temperature": 0.88}, timeout=90)
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
                 if t and len(t.strip()) > 100:
@@ -387,6 +387,40 @@ def fetch_trending_titles(niche, token):
         else: log(f"  Trend intel: {r.status_code}")
     except Exception as e: log(f"  Trend intel (non-fatal): {e}")
     return []
+
+def _research_viral_content(niche, original_topic):
+    """
+    When script quality falls below gate, research the last 2 years of
+    viral mega-videos (2M+ views) in this niche and generate a stronger
+    topic angle before the next attempt. Gives the AI better direction.
+    """
+    prompt = f"""You are a YouTube viral content strategist for dark investigative documentaries.
+
+Niche: {niche["name"].replace("_", " ")}
+Underperforming topic: {original_topic}
+
+Study what makes 2M+ view mega-videos in this niche over the last 2 years:
+- They open with a specific date, location, or number — never vague
+- They follow ONE person's story, not a general theme
+- They contain a twist that reframes everything the viewer thought they knew
+- The reveal feels impossible until the evidence is laid out
+
+Generate ONE stronger replacement topic sentence that:
+1. Is far more specific — real-feeling names, exact durations, precise counts
+2. Contains a built-in impossible detail that demands explanation
+3. Creates immediate psychological tension from the very first word
+4. Fits the {niche["series"]} series tone exactly
+
+Return ONLY the topic sentence. Nothing else."""
+
+    result = ai_generate(prompt, tokens=300)
+    if result:
+        t = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
+        if len(t) > 40:
+            log(f"  Viral angle: {t[:90]}")
+            return t
+    return None
+
 
 def generate_trend_informed_topic(niche, trending_titles):
     """
@@ -478,16 +512,19 @@ def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
 Topic: {topic}
 Series: {niche["series"]} Episode {episode}
 {trend_note}
+CRITICAL: The script MUST be between {MIN_WORDS} and {MAX_WORDS} words. Count carefully. This is non-negotiable.
+If you finish early, expand each section with more specific details, witness accounts, and evidence.
+
 Structure (do NOT label sections — write continuously):
 1. COLD OPEN (100w): Start mid-action with the most disturbing fact. Never say "welcome back".
-2. THE BEFORE (200w): Who this person was. Make the listener care. End with one line signalling the break.
-3. FIRST SIGNALS (250w): Small explainable wrong things. {t1}. One observation per sentence.
-4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. What happened.
-5. FALSE RESOLUTION (200w): Brief relief. End with one quiet sentence that is wrong in a subtle way.
-6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Build layer by layer.
+2. THE BEFORE (200w): Who this person was. Make the listener care. Specific real-feeling details. End with one line signalling the break.
+3. FIRST SIGNALS (250w): Small explainable wrong things. {t1}. One observation per sentence. Build dread slowly.
+4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. What they found. What they tried. What happened. Be specific.
+5. FALSE RESOLUTION (200w): Brief relief. Normalcy returns. End with one quiet sentence that is subtly wrong.
+6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Let each land. Be thorough — this is the longest section.
 7. IMPLICATION + CTA (200w): Imply — do not state — that {niche["implication"]}. End: "Subscribe and hit the bell. You will not want to miss what we find next."
 
-Rules: {MIN_WORDS}-{MAX_WORDS} words total. Max 15 words per sentence. Zero markdown. Plain text only."""
+Rules: MINIMUM {MIN_WORDS} words. Max 15 words per sentence. Zero markdown. Plain text only. Write all 7 sections in full."""
 
 def generate_script_content(niche, topic, episode, attempt, trending_titles=None):
     raw = ai_generate(build_script_prompt(niche, topic, episode, attempt, trending_titles), tokens=8000)
@@ -499,11 +536,20 @@ def generate_script_content(niche, topic, episode, attempt, trending_titles=None
     if wc < MIN_WORDS:
         deficit = MIN_WORDS - wc
         log(f"  Short by {deficit}w — expanding...")
-        exp = f"""Expand this narration script by {deficit} words.
-Deepen stages 4 and 6. Add specific sensory details, witness reactions, evidence descriptions.
-Keep ALL existing text. Return the COMPLETE expanded script. NO markdown.
+        exp = f"""This narration script needs EXACTLY {deficit} more words added to reach {MIN_WORDS} words total.
 
-{script}"""
+INSTRUCTIONS:
+- Expand Stage 4 (Escalation) with more specific details about what was discovered and what happened
+- Expand Stage 6 (The Real Reveal) with more evidence, reactions, and layer-by-layer revelations
+- Add specific witness reactions, timestamps, physical descriptions, and documentary-style details
+- Keep ALL existing text intact — only add, never remove
+- Return the COMPLETE expanded script from beginning to end
+- NO markdown, NO headers, NO labels — plain narration text only
+
+CURRENT SCRIPT ({len(script.split())} words — need {MIN_WORDS}):
+{script}
+
+Write the full expanded version now. Do not summarise. Do not explain. Just write the complete expanded script."""
         raw2 = ai_generate(exp, tokens=8000)
         if raw2:
             s2 = strip_md(strip_md(raw2))
@@ -1298,7 +1344,10 @@ def main():
                 if sc >= MIN_GATE: log("  OK gate passed"); break
                 elif attempt == 3 and sc >= FINAL_GATE: log(f"  OK final gate {sc}")
                 elif attempt < 3:
-                    log(f"  Below gate — sleeping 45s before retry...")
+                    log(f"  Score {sc} below 7.5 — researching viral content before retry...")
+                    viral_angle = _research_viral_content(niche, topic)
+                    if viral_angle: topic = viral_angle
+                    log("  Sleeping 45s before retry...")
                     time.sleep(45)
 
             if not best_content or best_score < FINAL_GATE:
