@@ -608,6 +608,14 @@ Total: 280-350 words. Plain text. No markdown."""
 # ================================================================
 def call_elevenlabs(script, niche_name, output_path):
     if not ELEVENLABS_KEY: return False
+    # Quick key validation — avoids wasting time on a 3-chunk run with an invalid key
+    try:
+        test = requests.get("https://api.elevenlabs.io/v1/user",
+            headers={"xi-api-key": ELEVENLABS_KEY}, timeout=10)
+        if test.status_code == 401:
+            log("  ElevenLabs key invalid (401) — skipping, using edge-tts")
+            return False
+    except Exception: pass
     voice_id = EL_VOICES.get(niche_name, "29vD33N1CtxCmqQRPOHJ")
     chunks   = [script[i:i+4500] for i in range(0, len(script), 4500)]
     parts    = []
@@ -644,9 +652,14 @@ def call_elevenlabs(script, niche_name, output_path):
 # EDGE-TTS WITH SUBTITLE GENERATION  [NEW #1]
 # ================================================================
 async def _edge_tts_stream(text, voice, audio_path, vtt_path):
+    """
+    Generate audio + word-level subtitles via edge-tts stream API.
+    IMPORTANT: communicate.stream() can only be called ONCE per object.
+    The fallback uses a completely fresh Communicate instance.
+    """
     import edge_tts
-    communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
     try:
+        communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
         sub = edge_tts.SubMaker()
         with open(audio_path, "wb") as af:
             async for chunk in communicate.stream():
@@ -657,9 +670,16 @@ async def _edge_tts_stream(text, voice, audio_path, vtt_path):
         with open(vtt_path, "w", encoding="utf-8") as sf:
             sf.write(sub.generate_subs())
         return True
-    except Exception:
-        await communicate.save(audio_path)
-        return False
+    except Exception as sub_err:
+        log(f"    SubMaker path failed: {sub_err} — falling back to save()")
+        # MUST create a brand-new Communicate object here.
+        # The original one's stream() is already consumed and cannot be reused.
+        try:
+            communicate_fresh = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+            await communicate_fresh.save(audio_path)
+            return False   # audio saved, no subtitle timing
+        except Exception as save_err:
+            raise RuntimeError(f"edge-tts save() also failed: {save_err}")
 
 def vtt_to_ass(vtt_path, ass_path):
     """Convert .vtt to styled .ass for FFmpeg subtitle burning."""
