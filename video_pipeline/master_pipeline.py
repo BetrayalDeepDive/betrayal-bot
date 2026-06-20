@@ -32,6 +32,8 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 PIXABAY_KEY    = os.environ.get("PIXABAY_KEY", "")
 PEXELS_KEY     = os.environ.get("PEXELS_API_KEY", "")
 ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+COHERE_KEY     = os.environ.get("COHERE_API_KEY", "")
+MISTRAL_KEY    = os.environ.get("MISTRAL_API_KEY", "")
 YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID", "")
 YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
 YT_REFRESH     = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
@@ -273,8 +275,44 @@ def ckpt_clear():
 # ================================================================
 # AI CALLERS
 # ================================================================
+# Known Cerebras model names (they change naming without notice)
+CEREBRAS_MODELS = [
+    "llama-3.3-70b",      # newest, highest quality
+    "llama3.3-70b",       # alternate naming format
+    "llama3.1-70b",       # stable 70b
+    "llama3.1-8b",        # fallback 8b
+]
+
 def call_cerebras(prompt, tokens=8000):
-    """Cerebras removed — consistently 404. Slot kept for future re-addition."""
+    """
+    Cerebras Cloud — 1M tokens/day free tier. Use as PRIMARY provider.
+    Tries multiple model names since Cerebras changes naming conventions.
+    """
+    if not CEREBRAS_KEY: return None
+    for model in CEREBRAS_MODELS:
+        try:
+            r = requests.post(CEREBRAS_URL,
+                headers={"Authorization": f"Bearer {CEREBRAS_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_completion_tokens": min(tokens, 12000),
+                      "temperature": 0.88},
+                timeout=120)
+            if r.status_code == 200:
+                t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if t and len(t.strip()) > 100:
+                    log(f"OK Cerebras ({model})")
+                    return t
+            elif r.status_code == 404:
+                log(f"  Cerebras {model}: 404 (wrong model name, trying next)")
+                continue
+            else:
+                log(f"  Cerebras {model}: {r.status_code} | {r.text[:150]}")
+                break
+        except Exception as e:
+            log(f"  Cerebras {model}: {e}")
+            break
     return None
 
 def call_groq(prompt, tokens=8000):
@@ -283,9 +321,9 @@ def call_groq(prompt, tokens=8000):
         # 8b-instant: 131k TPD. Cap at 3000 tokens to avoid 413 on large prompts.
         r = requests.post(GROQ_URL,
             headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama-3.1-8b-instant",
+            json={"model": "llama-3.3-70b-versatile",  # higher quality; 14.4k TPD fine when Gemini is primary
                   "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.88, "max_tokens": min(tokens, 9000)}, timeout=90)
+                  "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             if t and len(t.strip()) > 100: log("OK Groq"); return t
@@ -302,7 +340,7 @@ def call_gemini(prompt, tokens=8000):
             r = requests.post(url,
                 headers={"Content-Type": "application/json"},
                 json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 9000)},
+                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
                       "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
                 timeout=90)
             if r.status_code == 200:
@@ -314,7 +352,9 @@ def call_gemini(prompt, tokens=8000):
                         return t
             else:
                 log(f"Gemini {model}: {r.status_code} | {r.text[:300]}")
-                if r.status_code == 429: time.sleep(15)
+                if r.status_code == 429:
+                    log(f"  Gemini quota exhausted for today — resets at midnight PT")
+                    time.sleep(15)
                 elif r.status_code in [400, 404]: break  # wrong model — try next
         except Exception as e:
             log(f"Gemini {model}: {e}")
@@ -322,10 +362,10 @@ def call_gemini(prompt, tokens=8000):
 
 # Free models on OpenRouter — try in order until one responds
 OR_FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
-    "google/gemma-2-9b-it:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",   # best quality, try first
+    "meta-llama/llama-3.2-11b-vision-instruct:free",  # solid fallback
+    "microsoft/phi-3-medium-128k-instruct:free",      # reliable, high context
+    "meta-llama/llama-3.2-3b-instruct:free",          # last resort
 ]
 
 def call_openrouter(prompt, tokens=8000):
@@ -338,7 +378,7 @@ def call_openrouter(prompt, tokens=8000):
                          "HTTP-Referer": "https://github.com/BetrayalDeepDive/betrayal-bot"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 9000), "temperature": 0.88}, timeout=90)
+                      "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
                 if t and len(t.strip()) > 100:
@@ -351,13 +391,71 @@ def call_openrouter(prompt, tokens=8000):
             log(f"OpenRouter {model}: {e}")
     return None
 
+
+# ================================================================
+# COHERE — free tier, 20 RPM, strong long-form writing
+# ================================================================
+COHERE_URL = "https://api.cohere.com/v2/chat"
+
+def call_cohere(prompt, tokens=8000):
+    """Cohere Command R+ free tier — 20 RPM, excellent for structured long-form scripts."""
+    if not COHERE_KEY: return None
+    try:
+        r = requests.post(COHERE_URL,
+            headers={"Authorization": f"Bearer {COHERE_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": "command-r-plus",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": min(tokens, 4000),
+                  "temperature": 0.88},
+            timeout=120)
+        if r.status_code == 200:
+            t = r.json().get("message", {}).get("content", [{}])
+            text = t[0].get("text", "") if t else ""
+            if text and len(text.strip()) > 100:
+                log("OK Cohere")
+                return text
+        else:
+            log(f"  Cohere {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log(f"  Cohere: {e}")
+    return None
+
+
+# ================================================================
+# MISTRAL AI — free tier via La Plateforme, strong creative writing
+# ================================================================
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+
+def call_mistral(prompt, tokens=8000):
+    """Mistral AI free tier — reliable European servers, strong at structured writing."""
+    if not MISTRAL_KEY: return None
+    try:
+        r = requests.post(MISTRAL_URL,
+            headers={"Authorization": f"Bearer {MISTRAL_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": "mistral-small-latest",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": min(tokens, 4000),
+                  "temperature": 0.88},
+            timeout=120)
+        if r.status_code == 200:
+            t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            if t and len(t.strip()) > 100:
+                log("OK Mistral")
+                return t
+        else:
+            log(f"  Mistral {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log(f"  Mistral: {e}")
+    return None
+
 def ai_generate(prompt, tokens=8000):
     """
-    Provider order: Gemini first (1M tokens/day free), then OpenRouter,
-    then Groq (131k TPD on 8b-instant), then Cerebras last.
-    Sleep 10s between failures to avoid cascading rate limits.
+    Provider order: Cerebras → Gemini → Groq → OpenRouter → Cohere → Mistral
+    6 layers of fallback. Sleep 10s between failures.
     """
-    providers = [call_gemini, call_openrouter, call_groq]
+    providers = [call_cerebras, call_gemini, call_groq, call_openrouter, call_cohere, call_mistral]
     for i, fn in enumerate(providers):
         r = fn(prompt, tokens)
         if r: return r
@@ -507,6 +605,12 @@ def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
         trend_note += "\n".join(f"  - {t}" for t in trending_titles[:4])
         trend_note += "\nMatch their emotional intensity. Do not copy. Outdo them.\n"
 
+    # Map dread triggers to this niche
+    triggers = niche.get("dread_triggers", [])
+    t1 = triggers[0] if len(triggers) > 0 else "the first sign something was wrong"
+    t2 = triggers[1] if len(triggers) > 1 else "the moment everything became clear"
+    t3 = triggers[2] if len(triggers) > 2 else "the detail that reframed everything"
+
     return f"""Write a {intensity} dark investigative documentary narration script.
 
 Topic: {topic}
@@ -524,7 +628,36 @@ Structure (do NOT label sections — write continuously):
 6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Let each land. Be thorough — this is the longest section.
 7. IMPLICATION + CTA (200w): Imply — do not state — that {niche["implication"]}. End: "Subscribe and hit the bell. You will not want to miss what we find next."
 
-Rules: MINIMUM {MIN_WORDS} words. Max 15 words per sentence. Zero markdown. Plain text only. Write all 7 sections in full."""
+PSYCHOLOGICAL DREAD TRIGGERS — embed ALL 12 across the script naturally:
+1. PROXIMITY — this happened somewhere the listener has been or could easily go
+2. DURATION — it went on far longer than anyone realised before it was noticed
+3. SCALE — more people were involved or affected than the official count
+4. INSTITUTIONAL — the system that should have stopped it actively enabled it
+5. INVISIBILITY — it was completely invisible to everyone around it while it happened
+6. NORMALITY — the most disturbing detail is how ordinary everything appeared
+7. COMPLICITY — people who knew said nothing and continued as normal
+8. COMPETENCE — the people responsible for stopping it were aware and chose not to
+9. DETAIL — one hyper-specific detail that makes the whole thing undeniably real
+10. REVERSAL — the moment that reframes everything the listener thought they understood
+11. COST — what was permanently lost or destroyed that can never be recovered
+12. REPETITION — this has happened before, more than once, in the same pattern
+
+STAGE STRUCTURE — write continuously, do not label stages:
+1. COLD OPEN (100w): Most disturbing single fact. Specific date/time/location. Never say welcome back.
+2. THE BEFORE (200w): Who this person was. Make listener care. Ordinary life. Final line signals the break. [Triggers: NORMALITY, PROXIMITY]
+3. FIRST SIGNALS (250w): Small wrong things. Explainable. {t1}. One observation per sentence. [Triggers: INVISIBILITY, DURATION]
+4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. Specific evidence. [Triggers: SCALE, INSTITUTIONAL, COMPETENCE]
+5. FALSE RESOLUTION (200w): Brief relief. Normalcy returns. End with one quietly wrong sentence. [Triggers: COMPLICITY, REPETITION]
+6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Layer by layer. Be thorough. [Triggers: REVERSAL, DETAIL, COST]
+7. IMPLICATION + CTA (200w): Imply {niche["implication"]}. Do not state it directly. End with: "If you want to understand how this keeps happening, subscribe and hit the bell — because what we are investigating next is worse."
+
+CROSS-PROMOTION: In Stage 7, include one natural line referencing the channel series, e.g. "This is the {episode}th case in the {niche["series"]} files."
+
+RULES — non-negotiable:
+- EXACTLY {MIN_WORDS} to {MAX_WORDS} words. Count. If short, expand Stage 4 and Stage 6 with more evidence.
+- Maximum 15 words per sentence. This is spoken narration.
+- ZERO markdown, headers, bullets, asterisks, or formatting of any kind.
+- Plain flowing narration text only. Start immediately with the cold open."""
 
 def generate_script_content(niche, topic, episode, attempt, trending_titles=None):
     raw = ai_generate(build_script_prompt(niche, topic, episode, attempt, trending_titles), tokens=8000)
