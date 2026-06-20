@@ -42,8 +42,7 @@ IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 # ================================================================
 # ENDPOINTS
 # ================================================================
-GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-CEREBRAS_URL   = "https://api.cerebras.ai/v1/chat/completions"
+GEMINI_MODELS  = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
@@ -275,65 +274,81 @@ def ckpt_clear():
 # AI CALLERS
 # ================================================================
 def call_cerebras(prompt, tokens=8000):
-    if not CEREBRAS_KEY: return None
-    try:
-        r = requests.post(CEREBRAS_URL,
-            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama3.1-70b", "messages": [{"role": "user", "content": prompt}],
-                  "max_completion_tokens": min(tokens, 8000), "temperature": 0.88}, timeout=90)
-        if r.status_code == 200:
-            t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            if t and len(t.strip()) > 100: log("OK Cerebras"); return t
-        else: log(f"Cerebras {r.status_code}")
-    except Exception as e: log(f"Cerebras: {e}")
+    """Cerebras removed — consistently 404. Slot kept for future re-addition."""
     return None
 
 def call_groq(prompt, tokens=8000):
     if not GROQ_KEY: return None
     try:
+        # 8b-instant: 131k TPD. Cap at 3000 tokens to avoid 413 on large prompts.
         r = requests.post(GROQ_URL,
             headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
             json={"model": "llama-3.1-8b-instant",
                   "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.88, "max_tokens": min(tokens, 8000)}, timeout=90)
+                  "temperature": 0.88, "max_tokens": min(tokens, 3000)}, timeout=90)
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
             if t and len(t.strip()) > 100: log("OK Groq"); return t
-        else: log(f"Groq {r.status_code}")
+        else: log(f"Groq {r.status_code}: {r.text[:200]}")
     except Exception as e: log(f"Groq: {e}")
     return None
 
 def call_gemini(prompt, tokens=8000):
     if not GEMINI_KEY: return None
-    try:
-        r = requests.post(f"{GEMINI_URL}?key={GEMINI_KEY}",
-            headers={"Content-Type": "application/json"},
-            json={"contents": [{"parts": [{"text": prompt}]}],
-                  "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 8192)},
-                  "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
-            timeout=90)
-        if r.status_code == 200:
-            c = r.json().get("candidates", [])
-            if c:
-                t = c[0]["content"]["parts"][0]["text"]
-                if t and len(t.strip()) > 100: log("OK Gemini"); return t
-        else: log(f"Gemini {r.status_code}")
-    except Exception as e: log(f"Gemini: {e}")
+    base = "https://generativelanguage.googleapis.com/v1beta/models"
+    for model in GEMINI_MODELS:
+        try:
+            url = f"{base}/{model}:generateContent?key={GEMINI_KEY}"
+            r = requests.post(url,
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 4096)},
+                      "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
+                timeout=90)
+            if r.status_code == 200:
+                c = r.json().get("candidates", [])
+                if c:
+                    t = c[0]["content"]["parts"][0]["text"]
+                    if t and len(t.strip()) > 100:
+                        log(f"OK Gemini ({model})")
+                        return t
+            else:
+                log(f"Gemini {model}: {r.status_code} | {r.text[:300]}")
+                if r.status_code == 429: time.sleep(15)
+                elif r.status_code in [400, 404]: break  # wrong model — try next
+        except Exception as e:
+            log(f"Gemini {model}: {e}")
     return None
+
+# Free models on OpenRouter — try in order until one responds
+OR_FREE_MODELS = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
+    "google/gemma-2-9b-it:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+]
 
 def call_openrouter(prompt, tokens=8000):
     if not OPENROUTER_KEY: return None
-    try:
-        r = requests.post(OPENROUTER_URL,
-            headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
-            json={"model": "meta-llama/llama-3.3-70b-instruct:free",
-                  "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": min(tokens, 8000), "temperature": 0.88}, timeout=90)
-        if r.status_code == 200:
-            t = r.json()["choices"][0]["message"]["content"]
-            if t and len(t.strip()) > 100: log("OK OpenRouter"); return t
-        else: log(f"OpenRouter {r.status_code}")
-    except Exception as e: log(f"OpenRouter: {e}")
+    for model in OR_FREE_MODELS:
+        try:
+            r = requests.post(OPENROUTER_URL,
+                headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
+                         "Content-Type": "application/json",
+                         "HTTP-Referer": "https://github.com/BetrayalDeepDive/betrayal-bot"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 3000), "temperature": 0.88}, timeout=90)
+            if r.status_code == 200:
+                t = r.json()["choices"][0]["message"]["content"]
+                if t and len(t.strip()) > 100:
+                    log(f"OK OpenRouter ({model.split('/')[-1]})")
+                    return t
+            else:
+                log(f"OpenRouter {model.split('/')[-1]}: {r.status_code} | {r.text[:200]}")
+                if r.status_code == 429: time.sleep(3)
+        except Exception as e:
+            log(f"OpenRouter {model}: {e}")
     return None
 
 def ai_generate(prompt, tokens=8000):
@@ -342,7 +357,7 @@ def ai_generate(prompt, tokens=8000):
     then Groq (131k TPD on 8b-instant), then Cerebras last.
     Sleep 10s between failures to avoid cascading rate limits.
     """
-    providers = [call_gemini, call_openrouter, call_groq, call_cerebras]
+    providers = [call_gemini, call_openrouter, call_groq]
     for i, fn in enumerate(providers):
         r = fn(prompt, tokens)
         if r: return r
