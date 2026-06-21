@@ -444,6 +444,28 @@ def _call_mistral(prompt, tokens=9000):
         log(f"  Mistral: {e}")
     return None
 
+
+def load_pattern_memory(state):
+    """Return what script patterns scored highest in previous episodes."""
+    history = state.get("episode_history", [])
+    if not history: return ""
+    top = sorted(history, key=lambda x: x.get("score", 0), reverse=True)[:5]
+    if not top: return ""
+    lines = ["HIGHEST SCORING EPISODES — use their approach as inspiration:"]
+    for ep in top:
+        lines.append(f"  Score {ep.get('score',0)}/10: {ep.get('topic','')[:80]}")
+    return "\n".join(lines)
+
+def save_pattern_memory(state, episode, niche, topic, score):
+    history = state.get("episode_history", [])
+    history.append({
+        "episode": episode, "niche": niche,
+        "topic": topic[:100], "score": score,
+        "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+    })
+    state["episode_history"] = history[-50:]
+    return state
+
 def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     """
     6-provider chain: Cerebras (1M/day) → Gemini → Groq → OpenRouter → Cohere → Mistral
@@ -1114,6 +1136,32 @@ def check_audio_quality(mp3_path, dur_expected):
         log(f"  Quality check error: {e}")
         return False
 
+
+def apply_audio_post_processing(input_path, output_path):
+    """
+    Transform edge-tts flat TTS into cinematic investigative narrator quality.
+    EQ boosts presence, reverb adds room depth, compression smooths dynamics.
+    """
+    try:
+        af = (
+            "equalizer=f=80:width_type=o:width=2:g=3,"
+            "equalizer=f=2500:width_type=o:width=2:g=2,"
+            "equalizer=f=8000:width_type=o:width=2:g=-3,"
+            "aecho=0.8:0.85:40:0.25,"
+            "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
+            "loudnorm=I=-16:LRA=11:TP=-1.5"
+        )
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
+        ], capture_output=True, timeout=300, check=True)
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
+            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            return output_path
+    except Exception as e:
+        log(f"  Audio processing (non-fatal): {e}")
+    return input_path
+
 def run_stage3_audio(script_clean, voice_id, niche_name):
     log("\n"+"="*65)
     log(f"  STAGE 3: Human Voice Audio — {voice_id}")
@@ -1170,6 +1218,66 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
 # ════════════════════════════════════════════════════════════
 # STAGE 4: ANIMATION ENGINE — 5 SCENE TYPES
 # ════════════════════════════════════════════════════════════
+
+def render_connection_reveal(draw, W, H, nodes, progress, accent, font_sm):
+    """
+    Animate lines drawing between connection nodes.
+    Lines draw themselves progressively — cinematic reveal effect.
+    nodes: list of (x, y, label) tuples
+    """
+    if len(nodes) < 2: return
+    total_connections = len(nodes) - 1
+    for i in range(total_connections):
+        conn_progress = min(1.0, max(0.0,
+            (progress * total_connections - i)))
+        if conn_progress <= 0: continue
+        x1, y1 = nodes[i][0], nodes[i][1]
+        x2, y2 = nodes[i+1][0], nodes[i+1][1]
+        # Partial line draw
+        cx = int(x1 + (x2 - x1) * conn_progress)
+        cy = int(y1 + (y2 - y1) * conn_progress)
+        draw.line([(x1, y1), (cx, cy)], fill=accent, width=2)
+        # Pulsing node dot
+        r = 6
+        draw.ellipse([(x1-r, y1-r), (x1+r, y1+r)], fill=accent)
+        if conn_progress >= 1.0:
+            draw.ellipse([(x2-r, y2-r), (x2+r, y2+r)], fill=accent)
+
+def render_counting_number(draw, x, y, target_val, progress, font_lg, color):
+    """
+    Animate a number counting up from 0 to target_val.
+    Creates urgency — viewer feels the scale of the case.
+    """
+    current = int(target_val * min(progress * 1.5, 1.0))
+    text = f"{current:,}"
+    bbox = draw.textbbox((0,0), text, font=font_lg)
+    tw = bbox[2] - bbox[0]
+    draw.text((x - tw//2 + 1, y + 1), text, font=font_lg, fill=(20, 20, 20))
+    draw.text((x - tw//2, y), text, font=font_lg, fill=color)
+
+def render_classified_stamp(draw, W, H, progress, font_lg):
+    """
+    Stamp-reveal effect for classified evidence.
+    Red CLASSIFIED diagonal stamp appears at reveal moment.
+    """
+    if progress < 0.7: return
+    stamp_alpha = min(1.0, (progress - 0.7) / 0.3)
+    stamp_text  = "CLASSIFIED"
+    # Diagonal stamp in red
+    alpha_val = int(200 * stamp_alpha)
+    stamp_color = (200, 0, 0, alpha_val) if False else (200, 0, 0)
+    bbox = draw.textbbox((0,0), stamp_text, font=font_lg)
+    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+    cx, cy = W//2, H//2
+    draw.text((cx - tw//2 + 2, cy - th//2 + 2), stamp_text, font=font_lg, fill=(40,0,0))
+    draw.text((cx - tw//2, cy - th//2), stamp_text, font=font_lg, fill=stamp_color)
+    # Border lines of the stamp box
+    pad = 20
+    for thickness in range(1, 4):
+        draw.rectangle([cx-tw//2-pad, cy-th//2-pad,
+                        cx+tw//2+pad, cy+th//2+pad],
+                       outline=stamp_color, width=thickness)
+
 def render_frame_pil(style_name, scene, frame_idx, total_frames, scene_idx, total_scenes):
     style    = STYLES[style_name]
     bg, primary, accent, secondary = style["bg"], style["primary"], style["accent"], style["secondary"]
@@ -1640,9 +1748,19 @@ def main():
     tg(f"Stage 4: 1080p animated | Style: {style_name}\nUploading...")
 
     # Upload main video
+    # A/B thumbnail week tracking
+    week_number = datetime.datetime.now().isocalendar()[1]
+    ab_style    = "A" if week_number % 2 == 1 else "B"
+    state.setdefault("thumbnail_ab", {})["last_style"] = ab_style
+    log(f"  Thumbnail A/B style: {ab_style} (week {week_number})")
+
+    cross_promo = ("\n\n🔎 For dark psychological horror investigations: "
+                   "youtube.com/@BetrayalDeepDive")
     description = (f"Episode {episode} of {niche['series']}.\n{topic}\n\n"
                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
-                   f"Subscribe to The Evidence Room.")
+                   f"Subscribe to The Evidence Room."
+                   f"{cross_promo}\n\n"
+                   f"⚠️ AI-assisted narration and forensic analysis.")
     token_yt = get_yt_token()
     # Playlist for this niche
     playlist_id = state.get("playlists", {}).get(niche["name"])
