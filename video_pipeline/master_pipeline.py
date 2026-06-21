@@ -44,7 +44,7 @@ IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 # ================================================================
 # ENDPOINTS
 # ================================================================
-GEMINI_MODELS  = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
+GEMINI_MODELS  = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.0-pro"]  # 1.5-flash returns 404
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
@@ -339,13 +339,15 @@ CEREBRAS_MODELS = [
 
 def call_cerebras(prompt, tokens=8000):
     """
-    Cerebras Cloud — 1M tokens/day free tier. Use as PRIMARY provider.
-    Tries multiple model names since Cerebras changes naming conventions.
+    Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
+    URL + models hardcoded inside function — never relies on module scope.
     """
     if not CEREBRAS_KEY: return None
-    for model in CEREBRAS_MODELS:
+    _url = "https://api.cerebras.ai/v1/chat/completions"
+    _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+    for model in _models:
         try:
-            r = requests.post(CEREBRAS_URL,
+            r = requests.post(_url,
                 headers={"Authorization": f"Bearer {CEREBRAS_KEY}",
                          "Content-Type": "application/json"},
                 json={"model": model,
@@ -416,10 +418,10 @@ def call_gemini(prompt, tokens=8000):
 
 # Free models on OpenRouter — try in order until one responds
 OR_FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",   # best quality, try first
-    "meta-llama/llama-3.2-11b-vision-instruct:free",  # solid fallback
-    "microsoft/phi-3-medium-128k-instruct:free",      # reliable, high context
-    "meta-llama/llama-3.2-3b-instruct:free",          # last resort
+    "meta-llama/llama-3.3-70b-instruct:free",    # best quality
+    "meta-llama/llama-3.1-70b-instruct:free",    # solid fallback
+    "qwen/qwen-2.5-72b-instruct:free",           # strong alternative
+    "meta-llama/llama-3.2-3b-instruct:free",     # last resort
 ]
 
 def call_openrouter(prompt, tokens=8000):
@@ -642,6 +644,85 @@ def score_result(r):
 # ================================================================
 # PSYCHOLOGICAL 7-STAGE SCRIPT  [IMPROVED]
 # ================================================================
+def generate_best_cold_open(niche, topic, trending_titles=None):
+    """
+    Generate 3 cold open variants, score each on hook strength, return the best.
+    The cold open is the most important 30 seconds — it determines whether
+    YouTube promotes the video or buries it.
+    """
+    trend_hint = ""
+    if trending_titles:
+        trend_hint = f"These hooks are working in this niche right now:\n"
+        trend_hint += "\n".join(f"  - {t}" for t in trending_titles[:3])
+
+    prompt = f"""Generate exactly 3 different cold open variants for a dark documentary narration.
+Topic: {topic}
+Niche style: {niche["dread_style"]}
+{trend_hint}
+
+Each cold open must:
+- Be 80-120 words
+- Start with the single most disturbing fact — mid-action, no preamble
+- Never say "welcome back", "today", "in this video"
+- Use a specific date, time, or number in the first sentence
+- Create a question the listener cannot stop thinking about
+
+Format your response EXACTLY as:
+VARIANT_1:
+[cold open text here]
+VARIANT_2:
+[cold open text here]
+VARIANT_3:
+[cold open text here]
+
+Write all 3 now. Zero markdown."""
+
+    raw = ai_generate(prompt, tokens=1200)
+    if not raw:
+        return None
+
+    # Parse variants
+    variants = []
+    for i in range(1, 4):
+        pattern = f"VARIANT_{i}:"
+        next_p  = f"VARIANT_{i+1}:" if i < 3 else None
+        start = raw.find(pattern)
+        if start == -1: continue
+        start += len(pattern)
+        end   = raw.find(next_p, start) if next_p else len(raw)
+        text  = strip_md(raw[start:end].strip())
+        if len(text.split()) >= 60:
+            variants.append(text)
+
+    if not variants:
+        return None
+
+    # Score each variant on hook strength
+    def score_cold_open(text):
+        s = 0.0
+        words = text.lower()
+        # Specific numbers/dates signal
+        if re.search(r'\d', text): s += 2.0
+        # Short punchy sentences
+        sentences = [x.strip() for x in re.split(r'(?<=[.!?])\s+', text) if x.strip()]
+        if sentences:
+            avg_len = sum(len(x.split()) for x in sentences) / len(sentences)
+            if avg_len <= 10: s += 2.0
+            elif avg_len <= 13: s += 1.0
+        # Dread keywords
+        dread = ["discovered","found","nobody","never","years","days","inside","unknown","hidden","only"]
+        s += sum(0.4 for w in dread if w in words)
+        # Opens mid-action (no weak openers)
+        weak = ["in this", "today we", "welcome", "hello", "this is the story", "have you ever"]
+        if not any(w in words[:50] for w in weak): s += 1.5
+        return round(min(s, 10.0), 1)
+
+    scored = [(v, score_cold_open(v)) for v in variants]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    best_text, best_score = scored[0]
+    log(f"  Cold opens scored: {[s for _,s in scored]} — picked {best_score}/10")
+    return best_text
+
 def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
     triggers = niche.get("dread_triggers", [])
     t1 = triggers[0] if len(triggers) > 0 else "the first sign something was wrong"
@@ -745,6 +826,37 @@ Write the full expanded version now. Do not summarise. Do not explain. Just writ
                 wc         = len(script.split())
                 violations = len(re.findall(r'[#*_`\[\]{}<>\\]', script))
                 log(f"  Expanded: {wc}w")
+
+    # ── SECOND PASS: AI critic rewrites the 3 weakest moments ──
+    if wc >= MIN_WORDS:
+        log("  Running 2nd pass critique...")
+        critique_prompt = f"""You are a brutal script editor for dark documentary YouTube.
+Read this narration script and identify the 3 weakest moments — where a viewer would lose interest or skip.
+Then rewrite ONLY those 3 sections (keep everything else word-for-word).
+The rewrites must be: more specific, more visceral, shorter sentences, stronger hook.
+
+Rules for rewrites:
+- Each rewritten section must be MORE disturbing than the original
+- Use concrete details: exact dates, exact amounts, exact durations
+- Max 12 words per sentence in rewrites
+- Zero markdown in rewrites
+- Return the COMPLETE script with your 3 rewrites integrated
+
+SCRIPT:
+{script[:6000]}"""
+        raw3 = ai_generate(critique_prompt, tokens=9000)
+        if raw3:
+            s3 = strip_md(strip_md(raw3))
+            wc3 = len(s3.split())
+            v3  = len(re.findall(r'[#*_`\[\]{}<>\\]', s3))
+            if wc3 >= MIN_WORDS * 0.95 and v3 <= violations + 2:
+                script     = s3
+                wc         = wc3
+                violations = v3
+                log(f"  2nd pass: {wc}w — critic rewrote weakest sections")
+            else:
+                log(f"  2nd pass rejected (wc:{wc3} v:{v3}) — keeping original")
+
     return {"script": script, "words": wc, "violations": violations}
 
 # ================================================================
@@ -901,7 +1013,14 @@ async def _edge_tts_stream(text, voice, audio_path, vtt_path):
                 elif chunk["type"] == "WordBoundary":
                     sub.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
         with open(vtt_path, "w", encoding="utf-8") as sf:
-            sf.write(sub.generate_subs())
+            # edge-tts SubMaker API varies by version
+            try:
+                subs_text = sub.generate_subs()
+            except TypeError:
+                subs_text = getattr(sub, 'generate_subs', None)
+                if callable(subs_text):
+                    subs_text = subs_text()
+            sf.write(subs_text if isinstance(subs_text, str) else "WEBVTT\n")
         return True
     except Exception as sub_err:
         log(f"    SubMaker path failed: {sub_err} — falling back to save()")
@@ -999,6 +1118,94 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # ================================================================
 # AUDIO STAGE
 # ================================================================
+def inject_ssml_rate(script):
+    """
+    Split script into 7 stages by word proportion and inject
+    SSML prosody rate markers. Edge-tts supports rate parameter
+    but not inline SSML. Instead we split the audio into segments
+    with different rates and concatenate.
+    Returns list of (text_segment, rate_string) tuples.
+    """
+    words = script.split()
+    total = len(words)
+    # Stage word boundaries (proportional to STAGE_WORDS)
+    stage_rates = [
+        (100,  "-5%"),   # Cold open: urgent, attention-grabbing
+        (200,  "-8%"),   # The Before: normal documentary pace
+        (250,  "-8%"),   # First Signals: measured, building
+        (400,  "-5%"),   # Escalation: faster, momentum
+        (200,  "-12%"),  # False Resolution: slow, relief
+        (650,  "-18%"),  # Real Reveal: devastatingly slow
+        (200,  "-10%"),  # Implication + CTA: deliberate
+    ]
+    segments = []
+    idx = 0
+    for word_count, rate in stage_rates:
+        end = min(idx + word_count, total)
+        segment = " ".join(words[idx:end])
+        if segment.strip():
+            segments.append((segment, rate))
+        idx = end
+        if idx >= total:
+            break
+    # Any remaining words go to last rate
+    if idx < total:
+        remaining = " ".join(words[idx:])
+        if remaining.strip():
+            segments.append((remaining, "-10%"))
+    return segments
+
+async def _edge_tts_segment(text, voice, rate, path):
+    """Generate audio for one segment with a specific rate."""
+    import edge_tts
+    comm = edge_tts.Communicate(text=text, voice=voice, rate=rate)
+    await comm.save(path)
+
+def run_audio_with_ssml(script, niche_name, edge_voice):
+    """
+    Multi-rate audio: split script into 7 stage segments,
+    generate each with its own delivery rate, concatenate via FFmpeg.
+    Produces audio that sounds like a real documentary narrator.
+    """
+    segments = inject_ssml_rate(script)
+    log(f"  SSML segments: {len(segments)} at rates {[r for _,r in segments]}")
+
+    part_paths = []
+    for i, (text, rate) in enumerate(segments):
+        part_path = str(WORK_DIR / f"audio_seg_{i}.mp3")
+        voices_to_try = [edge_voice, "en-GB-RyanNeural", "en-US-BrianNeural"]
+        for v in voices_to_try:
+            try:
+                asyncio.run(_edge_tts_segment(text, v, rate, part_path))
+                if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
+                    part_paths.append(part_path)
+                    break
+            except Exception as e:
+                log(f"    Segment {i} {v}: {e}")
+        else:
+            log(f"  Segment {i} failed all voices — skipping")
+
+    if not part_paths:
+        return None, 0.0
+
+    if len(part_paths) == 1:
+        import shutil
+        out = str(WORK_DIR / "narration.mp3")
+        shutil.copy(part_paths[0], out)
+        return out, get_media_duration(out)
+
+    # Concatenate all segments
+    list_file = str(WORK_DIR / "seg_list.txt")
+    with open(list_file, "w") as f:
+        for p in part_paths:
+            f.write(f"file '{p}'\n")
+    out = str(WORK_DIR / "narration.mp3")
+    run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file, "-c", "copy", out], label="ssml-concat")
+    duration = get_media_duration(out)
+    log(f"  SSML audio: {duration:.1f}s ({duration/60:.1f} min)")
+    return out, duration
+
 def run_audio_stage(script, niche_name, edge_voice):
     audio_path = str(WORK_DIR / "narration.mp3")
     vtt_path   = str(WORK_DIR / "captions.vtt")
@@ -1009,6 +1216,19 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     # Try ElevenLabs premium voice first
     el_ok = call_elevenlabs(script, niche_name, audio_path)
+
+    if el_ok:
+        pass  # ElevenLabs doesn't support SSML rate — use as-is
+    else:
+        # Try SSML multi-rate audio (7 delivery speeds across 7 stages)
+        log("  Trying SSML dynamic-rate audio...")
+        ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
+        if ssml_path and ssml_dur > 60:
+            import shutil
+            shutil.copy(ssml_path, audio_path)
+            duration = ssml_dur
+            log(f"  SSML audio OK: {duration:.1f}s")
+            return audio_path, duration, None
 
     if not el_ok:
         voices_to_try = [edge_voice] + [v for v in
@@ -1106,7 +1326,120 @@ def download_pexels_video(keywords):
         except Exception as e: log(f"  Pexels '{kw}': {e}")
     return None
 
-def get_background_video(niche, audio_duration):
+def get_stage_matched_video(niche, script, audio_duration):
+    """
+    Stage-matched footage: extract keywords from each script stage,
+    search Pixabay for matching dark footage, concatenate 7 clips.
+    Falls back to single looped video if this fails.
+    """
+    words     = script.split()
+    total     = len(words)
+    # Stage boundaries (proportional)
+    stage_defs = [
+        (100,  "dark discovery opening"),
+        (200,  "ordinary life before dark"),
+        (250,  "warning signs shadows"),
+        (400,  "dark escalation danger"),
+        (200,  "calm relief break"),
+        (650,  "dark revelation truth exposed"),
+        (200,  "dark aftermath consequences"),
+    ]
+    stage_clips = []
+    idx = 0
+    stage_dur   = audio_duration / len(stage_defs)
+
+    for i, (word_count, base_kw) in enumerate(stage_defs):
+        end        = min(idx + word_count, total)
+        stage_text = " ".join(words[idx:end]).lower()
+        idx        = end
+
+        # Extract 2 most relevant nouns from stage text
+        # Simple approach: most common non-stopwords
+        stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
+                      "of","with","by","from","this","that","was","were","had","have",
+                      "it","its","he","she","they","their","his","her","be","been",
+                      "not","no","so","as","if","then","than","when","what","who"}
+        stage_words= [w.strip(".,!?;:") for w in stage_text.split()
+                      if len(w) > 4 and w not in stopwords]
+        from collections import Counter
+        top_nouns  = [w for w,_ in Counter(stage_words).most_common(2)]
+        kw         = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
+
+        clip_path  = str(WORK_DIR / f"stage_{i}.mp4")
+        log(f"  Stage {i+1} footage: '{kw[:40]}'")
+
+        # Try Pixabay then Pexels
+        downloaded = False
+        for search_kw in [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]:
+            try:
+                if not PIXABAY_KEY: break
+                r = requests.get("https://pixabay.com/api/videos/",
+                    params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
+                            "video_type": "film", "orientation": "horizontal"}, timeout=15)
+                if r.status_code == 200 and r.json().get("hits"):
+                    hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                    url = hit["videos"]["medium"]["url"]
+                    with requests.get(url, timeout=45, stream=True) as dl:
+                        dl.raise_for_status()
+                        with open(clip_path, "wb") as f:
+                            for chunk in dl.iter_content(32768): f.write(chunk)
+                    if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                        downloaded = True; break
+            except Exception as e:
+                log(f"    Stage {i+1} Pixabay: {e}")
+
+        if not downloaded:
+            # Generate black clip as fallback
+            dur = max(int(stage_dur), 8)
+            run_ffmpeg(["ffmpeg","-y","-f","lavfi",
+                f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
+                "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
+                label=f"stage-{i}-fallback")
+
+        if Path(clip_path).exists():
+            stage_clips.append((clip_path, stage_dur))
+
+    if len(stage_clips) < 3:
+        log("  Stage footage insufficient — falling back to single looped video")
+        return None
+
+    # Concatenate all stage clips scaled/padded to 1280x720
+    parts = []
+    for i, (clip, dur) in enumerate(stage_clips):
+        scaled = str(WORK_DIR / f"stage_{i}_scaled.mp4")
+        run_ffmpeg(["ffmpeg","-y","-i",clip,
+            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
+                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+            "-t",str(dur),"-c:v","libx264","-preset","ultrafast",
+            "-pix_fmt","yuv420p","-an", scaled], label=f"scale-{i}")
+        if Path(scaled).exists():
+            parts.append(scaled)
+
+    if not parts:
+        return None
+
+    list_file = str(WORK_DIR / "stage_list.txt")
+    combined  = str(WORK_DIR / "background_staged.mp4")
+    with open(list_file, "w") as f:
+        # Repeat to cover full duration
+        loops = max(1, int(audio_duration / (len(parts) * 8)) + 2)
+        for _ in range(loops):
+            for p in parts: f.write(f"file '{p}'\n")
+
+    run_ffmpeg(["ffmpeg","-y","-f","concat","-safe","0","-i",list_file,
+                "-c","copy","-t",str(audio_duration+5),combined], label="stage-concat")
+    if Path(combined).exists() and Path(combined).stat().st_size > 50000:
+        log(f"  Stage-matched video: {Path(combined).stat().st_size//(1024*1024)}MB")
+        return combined
+    return None
+
+def get_background_video(niche, audio_duration, script=""):
+    # Try stage-matched footage first (7 clips matching 7 script stages)
+    if script:
+        staged = get_stage_matched_video(niche, script, audio_duration)
+        if staged: return staged
+        log("  Stage-matched failed — using single keyword search")
+
     kws = BG_KEYWORDS.get(niche["name"], ["dark shadow night"])
     v   = download_pixabay_video(kws)
     if v: return v
@@ -1176,12 +1509,62 @@ def concat_parts(parts, output_path):
 # ================================================================
 # THUMBNAIL  [NEW #9 — dynamic text from script]
 # ================================================================
-def generate_thumbnail(thumb_text, niche_name, title):
-    thumb_path = str(WORK_DIR / "thumbnail.jpg")
+def fetch_pollinations_image(topic, niche_name, thumb_path):
+    """
+    Pollinations.ai — completely free, no API key, no account, no credit card.
+    Generates a dark cinematic image from a text prompt.
+    Returns True if image saved successfully.
+    """
+    niche_visual = {
+        "dark_horror":        "dark abandoned hallway shadows horror atmosphere cinematic",
+        "seduction_dark":     "dark silhouette noir cinematic moody dramatic shadows",
+        "psychological_trap": "dark labyrinth corridor shadows prison psychological",
+        "supernatural_real":  "dark fog mysterious paranormal abandoned building night",
+        "obsession_dark":     "surveillance night vision dark shadow watching cinematic",
+    }
+    visual_style = niche_visual.get(niche_name, "dark cinematic shadows dramatic")
+    # Build prompt: topic keywords + visual style + quality modifiers
+    topic_words = " ".join(topic.split()[:6])
+    prompt = (f"{topic_words}, {visual_style}, "
+              f"ultra dark atmospheric, cinematic lighting, documentary style, "
+              f"8k quality, no text, no people faces, dramatic shadows")
+    # URL encode the prompt
+    import urllib.parse
+    encoded = urllib.parse.quote(prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&nologo=true&seed={hash(topic)%9999}"
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        log("  Fetching Pollinations.ai thumbnail image...")
+        r = requests.get(url, timeout=45, stream=True)
+        if r.status_code == 200 and len(r.content) > 50000:
+            with open(thumb_path, "wb") as f:
+                f.write(r.content)
+            log(f"  Pollinations image: {Path(thumb_path).stat().st_size//1024}KB")
+            return True
+        else:
+            log(f"  Pollinations {r.status_code} — falling back to Pillow")
+    except Exception as e:
+        log(f"  Pollinations error (non-fatal): {e}")
+    return False
+
+def generate_thumbnail(thumb_text, niche_name, title, topic=""):
+    thumb_path = str(WORK_DIR / "thumbnail.jpg")
+
+    # Try Pollinations.ai first — free AI-generated dark cinematic image
+    pol_path = str(WORK_DIR / "pollinations_bg.jpg")
+    got_image = fetch_pollinations_image(topic or thumb_text, niche_name, pol_path)
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
         W, H = 1280, 720
-        img  = Image.new("RGB", (W, H), (0, 0, 0))
+        if got_image and Path(pol_path).exists():
+            # Use Pollinations AI image as background, darkened
+            bg_img = Image.open(pol_path).convert("RGB").resize((W, H))
+            # Darken significantly so text remains readable
+            from PIL import ImageEnhance
+            bg_img = ImageEnhance.Brightness(bg_img).enhance(0.25)
+            img = bg_img
+        else:
+            img = Image.new("RGB", (W, H), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         vig  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -1635,7 +2018,7 @@ def main():
         if s3 and Path(s3["bg_path"]).exists():
             bg_path = s3["bg_path"]
         else:
-            bg_path = get_background_video(niche, audio_duration)
+            bg_path = get_background_video(niche, audio_duration, script=script)
             ckpt_save("stage3", {"bg_path": bg_path})
 
         # ── STAGE 4: Music ──
@@ -1653,7 +2036,7 @@ def main():
         log("\n" + "=" * 70)
         log("STAGE 5: Thumbnail")
         log("=" * 70)
-        thumb_path = generate_thumbnail(thumb_text, niche_name, title)
+        thumb_path = generate_thumbnail(thumb_text, niche_name, title, topic=topic)
 
         # ── STAGE 6: Compose Main (with intro + outro + burned captions) ──
         log("\n" + "=" * 70)
@@ -1841,9 +2224,25 @@ def main():
         import traceback
         log(f"\nFAILED: {e}")
         log(traceback.format_exc())
-        tg(f"❌ <b>Pipeline FAILED</b>\n\n{str(e)[:500]}\n\n"
-           f"Use is_makeup=true to resume from checkpoint.")
-        sys.exit(1)
+        import traceback
+        tb = traceback.format_exc()
+        tg(f"❌ <b>Pipeline FAILED</b>\n\n{str(e)[:400]}\n\n"
+           f"Auto-retrying in 2 hours via is_makeup...")
+        # 3-attempt auto-retry system
+        for retry_num in range(1, 3):  # 2 more attempts = 3 total
+            log(f"Auto-retry {retry_num}/2 in 2 hours...")
+            time.sleep(7200)
+            log(f"Starting auto-retry {retry_num}...")
+            os.environ["IS_MAKEUP"] = "true"
+            try:
+                main()
+                return  # success
+            except Exception as retry_err:
+                if retry_num < 2:
+                    tg(f"⚠️ Retry {retry_num}/2 failed: {str(retry_err)[:200]}\nTrying again in 2h...")
+                else:
+                    tg(f"❌ All 3 attempts failed. Manual check needed.\nLast error: {str(retry_err)[:300]}")
+                    sys.exit(1)
 
 if __name__ == "__main__":
     main()
