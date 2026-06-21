@@ -326,6 +326,42 @@ Latest: {last_title[:55]}
 
 Auto-improvement complete. Next run: Sunday."""
 
+    # ── Write strategy file for pipelines to consume next week ──
+    strategy_data = {
+        "generated_date":       datetime.date.today().isoformat(),
+        "strategy":             strategy,
+        "competitor_patterns":  combined_patterns[:2000],
+        "top_competitor_titles": [v["title"] for vids in all_competitor_data.values()
+                                   for v in vids[:3]],
+        "recommended_topics":   [],   # populated by AI below
+        "winning_hook_format":  "",
+    }
+    # Extract specific topic recommendations from strategy text
+    topic_prompt = f"""From this strategy document, extract:
+1. The top 3 specific video topics recommended for next week (exact topic sentences)
+2. The single best hook format to use in titles
+
+Strategy:
+{strategy[:1000]}
+
+Return JSON only:
+{{"topics": ["topic1", "topic2", "topic3"], "hook_format": "one line"}}"""
+    topic_raw = ai(topic_prompt, tokens=400)
+    if topic_raw:
+        try:
+            import re as _re
+            json_match = _re.search(r'\{[^{}]+\}', topic_raw, _re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                strategy_data["recommended_topics"]  = parsed.get("topics", [])
+                strategy_data["winning_hook_format"] = parsed.get("hook_format", "")
+        except: pass
+
+    # Save to repo root for both pipelines to read
+    strategy_file = SCRIPT_DIR / "next_week_strategy.json"
+    strategy_file.write_text(json.dumps(strategy_data, indent=2))
+    log(f"  Strategy written: {strategy_file}")
+
     tg(report)
     log("\nWeekly report sent to Telegram")
     log(f"Strategy preview: {strategy[:200]}")
