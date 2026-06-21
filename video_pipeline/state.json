@@ -1,0 +1,25 @@
+{
+  "playlists": {
+    "dark_horror": "PLqZixoXroaTfKwQV1PEgbnoClEP8WD4ko"
+  },
+  "performance": {
+    "dark_horror": {
+      "scores": [
+        10.0
+      ],
+      "streak_below": 0,
+      "last_episode": 1
+    },
+    "voice_en-GB-RyanNeural": {
+      "scores": [
+        10.0
+      ]
+    }
+  },
+  "episode_count": 1,
+  "last_upload": "2026-06-21T07:45:15.986501",
+  "last_title": "Dark Hours: A family discovered something had been living inside th",
+  "last_url": "https://www.youtube.com/watch?v=yQUYvaa-U3w",
+  "total_uploads": 1,
+  "total_shorts": 2
+}
