@@ -445,6 +445,104 @@ def _call_mistral(prompt, tokens=9000):
     return None
 
 
+
+
+def run_stage_with_retry(stage_fn, stage_name, *args, max_attempts=3, **kwargs):
+    """
+    Run a pipeline stage with up to 3 attempts before escalating.
+    Handles transient failures (network timeouts, temp API errors)
+    in under 2 minutes instead of triggering the 2-hour full-pipeline retry.
+    """
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = stage_fn(*args, **kwargs)
+            if attempt > 1:
+                log(f"  Stage {stage_name}: OK on attempt {attempt}")
+            return result
+        except Exception as e:
+            last_err = e
+            if attempt < max_attempts:
+                log(f"  Stage {stage_name} attempt {attempt}/{max_attempts} failed: {e}")
+                log(f"  Retrying in 30s...")
+                time.sleep(30)
+            else:
+                log(f"  Stage {stage_name} FAILED after {max_attempts} attempts: {e}")
+    raise RuntimeError(f"Stage {stage_name} failed after {max_attempts} attempts: {last_err}")
+
+def load_weekly_strategy():
+    """
+    Read the strategy file written by weekly_report.py every Sunday.
+    Injects competitor intelligence and recommended topics into script generation.
+    Returns strategy context string or empty string if not available.
+    """
+    strategy_file = SCRIPT_DIR / "next_week_strategy.json"
+    try:
+        if strategy_file.exists():
+            data = json.loads(strategy_file.read_text())
+            # Only use if generated this week
+            generated = data.get("generated_date", "")
+            if generated:
+                gen_date = datetime.date.fromisoformat(generated)
+                days_old = (datetime.date.today() - gen_date).days
+                if days_old <= 7:
+                    lines = ["COMPETITOR INTELLIGENCE FROM THIS WEEK:"]
+                    topics = data.get("recommended_topics", [])
+                    if topics:
+                        lines.append("Recommended topics based on competitor gaps:")
+                        for t in topics[:3]:
+                            lines.append(f"  - {t}")
+                    hook_fmt = data.get("winning_hook_format", "")
+                    if hook_fmt:
+                        lines.append(f"Winning hook format: {hook_fmt}")
+                    top_titles = data.get("top_competitor_titles", [])
+                    if top_titles:
+                        lines.append("Top competitor titles this week:")
+                        for t in top_titles[:4]:
+                            lines.append(f"  - {t}")
+                    return "\n".join(lines)
+    except Exception as e:
+        log(f"  Strategy load (non-fatal): {e}")
+    return ""
+
+
+def select_best_voice(state, niche_name, available_voices):
+    """
+    After 5 episodes in a niche, lock in the voice that has produced
+    the highest average scores. Viewers build a relationship with THE voice.
+    Before 5 episodes: rotate to gather data.
+    """
+    perf = state.get("performance", {})
+    niche_episodes = [ep for ep in state.get("episode_history", [])
+                      if ep.get("niche") == niche_name]
+    if len(niche_episodes) < 5:
+        # Not enough data — rotate voices for data gathering
+        ep_count = len(niche_episodes)
+        voice = available_voices[ep_count % len(available_voices)]
+        log(f"  Voice (gathering data, ep {ep_count+1}/5): {voice}")
+        return voice
+
+    # Score each available voice by average episode score
+    voice_scores = {}
+    for ep in niche_episodes:
+        ep_ep = ep.get("episode", 0)
+        # Find voice from performance tracker
+        for key, val in perf.items():
+            if key.startswith("voice_") and isinstance(val, dict):
+                v_name = key.replace("voice_", "")
+                if v_name in available_voices:
+                    scores = val.get("scores", [])
+                    if scores:
+                        voice_scores[v_name] = sum(scores) / len(scores)
+
+    if voice_scores:
+        best = max(voice_scores, key=voice_scores.get)
+        log(f"  Voice (locked — best avg {voice_scores[best]:.1f}/10): {best}")
+        return best
+
+    # Fallback to first voice
+    return available_voices[0]
+
 def load_pattern_memory(state):
     """Return what script patterns scored highest in previous episodes."""
     history = state.get("episode_history", [])
@@ -568,6 +666,19 @@ Return ONLY valid JSON:
 # FRESH TOPIC ENGINE — Different topic every attempt
 # ════════════════════════════════════════════════════════════
 def get_fresh_topic(niche, attempt, intel, used_topics):
+    # On first attempt, use strategy topic if available
+    if attempt == 1:
+        try:
+            sf = SCRIPT_DIR / "next_week_strategy.json"
+            if sf.exists():
+                sd = json.loads(sf.read_text())
+                rec = [t for t in sd.get("recommended_topics", [])
+                       if t not in used_topics]
+                if rec:
+                    t = random.choice(rec)
+                    log(f"  Strategy topic (attempt 1): {t[:60]}")
+                    return t
+        except: pass
     is_archive = attempt > 8
     if not is_archive:
         fresh = intel.get("fresh_topic_ideas", niche["seed_topics"])
@@ -1136,6 +1247,118 @@ def check_audio_quality(mp3_path, dur_expected):
         log(f"  Quality check error: {e}")
         return False
 
+
+
+def fetch_pollinations_bg(topic, niche_name, out_path):
+    """
+    Free AI-generated dark cinematic background via Pollinations.ai.
+    No API key, no account, no credit card. Just a URL.
+    """
+    niche_visual = {
+        "forensic_finance":        "dark corporate office documents scattered forensic audit",
+        "criminal_investigation":  "dark crime scene evidence board shadows dramatic",
+        "corporate_exposure":      "dark boardroom shadows documents leaked classified",
+        "digital_forensics":       "dark server room code screens hacker surveillance",
+    }
+    style   = niche_visual.get(niche_name, "dark cinematic forensic investigation shadows")
+    topic_w = " ".join(topic.split()[:5])
+    prompt  = (f"{topic_w} {style} ultra dark atmospheric "
+               f"cinematic documentary no faces no text 8k dramatic")
+    import urllib.parse
+    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}"
+           f"?width=1280&height=720&nologo=true&seed={abs(hash(topic)) % 9999}")
+    try:
+        log("  Pollinations.ai: fetching forensic background...")
+        r = requests.get(url, timeout=45, stream=True)
+        if r.status_code == 200 and len(r.content) > 50000:
+            with open(out_path, "wb") as f:
+                f.write(r.content)
+            log(f"  Pollinations OK: {Path(out_path).stat().st_size // 1024}KB")
+            return True
+    except Exception as e:
+        log(f"  Pollinations (non-fatal): {e}")
+    return False
+
+def generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic, ab_style="A"):
+    """
+    Channel 2 thumbnail: Pollinations AI forensic background + Pillow overlay.
+    Falls back to pure Pillow if Pollinations unavailable.
+    """
+    thumb_path = str(WORK_DIR / "thumbnail.jpg")
+    pol_path   = str(WORK_DIR / "pol_bg.jpg")
+    got_bg     = fetch_pollinations_bg(topic, niche_name, pol_path)
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+        W, H = 1280, 720
+
+        if got_bg and Path(pol_path).exists():
+            img = Image.open(pol_path).convert("RGB").resize((W, H))
+            img = ImageEnhance.Brightness(img).enhance(0.22)  # very dark
+        else:
+            img = Image.new("RGB", (W, H), (5, 5, 10))
+
+        draw = ImageDraw.Draw(img)
+
+        # Dark gradient vignette overlay
+        for i in range(150):
+            alpha = int(180 * (1 - i / 150))
+            draw.rectangle([i, i, W-i, H-i], outline=(0, 0, 0, alpha) if False else (0,0,0))
+
+        # Font
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]
+        def get_font(sz):
+            for fp in font_paths:
+                if Path(fp).exists():
+                    try: return ImageFont.truetype(fp, sz)
+                    except: pass
+            return ImageFont.load_default()
+
+        # Forensic series badge
+        badge_font = get_font(22)
+        draw.text((24, 20), "● THE EVIDENCE ROOM", font=badge_font, fill=(180, 0, 0))
+
+        # Main hook text — A/B colour
+        words   = thumb_text.split()
+        lines   = ([thumb_text] if len(words) <= 3
+                   else [" ".join(words[:len(words)//2]),
+                         " ".join(words[len(words)//2:])])
+        fm      = get_font(108)
+        th_total= len(lines) * 118
+        sy      = (H - th_total) // 2 - 20
+
+        text_col   = (220, 15, 15) if ab_style == "A" else (255, 255, 255)
+        shadow_col = (60, 0, 0)    if ab_style == "A" else (0, 0, 0)
+
+        for i, line in enumerate(lines):
+            y    = sy + i * 118
+            bbox = draw.textbbox((0, 0), line, font=fm)
+            x    = (W - (bbox[2] - bbox[0])) // 2
+            for dx, dy in [(-3,-3),(3,-3),(-3,3),(3,3),(0,-4),(0,4)]:
+                draw.text((x+dx, y+dy), line, font=fm, fill=shadow_col)
+            draw.text((x, y), line, font=fm, fill=text_col)
+
+        # Sub-title
+        sub  = title[:60] + ("…" if len(title) > 60 else "")
+        fs   = get_font(30)
+        bb   = draw.textbbox((0, 0), sub, font=fs)
+        sx   = (W - (bb[2] - bb[0])) // 2
+        draw.text((sx, sy + th_total + 16), sub, font=fs, fill=(200, 200, 200))
+
+        # Evidence stamp border
+        draw.rectangle([8, 8, W-8, H-8], outline=(140, 0, 0), width=2)
+        draw.rectangle([14, 14, W-14, H-14], outline=(80, 0, 0), width=1)
+
+        img.save(thumb_path, "JPEG", quality=95)
+        log(f"  Thumbnail saved: {Path(thumb_path).stat().st_size // 1024}KB")
+        return thumb_path
+
+    except Exception as e:
+        log(f"  Thumbnail error: {e}")
+        return None
 
 def apply_audio_post_processing(input_path, output_path):
     """
@@ -1735,17 +1958,25 @@ def main():
 
     tg("Evidence Room generating video now...")
 
-    # Stage 3: Human voice audio
-    audio_path, duration, audio_sz, voice_used = run_stage3_audio(
-        script_clean, voice, niche["name"])
+    # Stage 3: Human voice audio — with stage-level retry
+    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
     tg(f"Stage 3: {voice_used} | {duration/60:.1f}min")
 
     # Stage 4: Animation (NO subtitles on main)
     log("\n"+"="*65)
     log("  STAGE 4: Rendering Animation")
     log("="*65)
-    video_path = render_and_encode(style_name, scenes, audio_path, duration)
+    video_path = run_stage_with_retry(
+        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
     tg(f"Stage 4: 1080p animated | Style: {style_name}\nUploading...")
+
+    # Generate AI thumbnail with Pollinations background
+    topic_used = used_topics[-1] if used_topics else niche["topics"][0]
+    thumb_path = generate_thumbnail_with_ai_bg(
+        title_str, best_thumbnail or "EVIDENCE FOUND",
+        niche["name"], topic_used, ab_style=ab_style)
+    log(f"  Thumbnail: {'OK' if thumb_path else 'using default'}")
 
     # Upload main video
     # A/B thumbnail week tracking
@@ -1772,9 +2003,24 @@ def main():
             state["playlists"] = pl
 
     try:
-        yt_url, vid_id = upload_yt(video_path, title_str, description, tags,
-                                   is_short=False, token=token_yt)
+        yt_url, vid_id = run_stage_with_retry(
+            upload_yt, "Upload", video_path, title_str, description, tags,
+            is_short=False, token=token_yt)
         add_to_playlist(token_yt, playlist_id, vid_id)
+        # Upload AI-generated thumbnail
+        if thumb_path and Path(thumb_path).exists():
+            try:
+                with open(thumb_path, "rb") as tf:
+                    tr = requests.post(
+                        f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+                        f"?videoId={vid_id}&uploadType=media",
+                        headers={"Authorization": f"Bearer {token_yt}",
+                                 "Content-Type": "image/jpeg"},
+                        data=tf.read(), timeout=60)
+                if tr.status_code in [200, 201]:
+                    log("  Thumbnail uploaded to YouTube OK")
+            except Exception as te:
+                log(f"  Thumbnail upload (non-fatal): {te}")
         log(f"  Main: {yt_url}")
     except Exception as e:
         tg(f"Evidence Room Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
