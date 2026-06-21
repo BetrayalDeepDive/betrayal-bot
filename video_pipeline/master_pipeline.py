@@ -187,11 +187,65 @@ VOICES = {
 }
 
 BG_KEYWORDS = {
-    "dark_horror":        ["dark shadow night", "abandoned house dark", "horror forest night"],
-    "seduction_dark":     ["dark silhouette shadow", "mystery dark candle", "dark neon rain"],
-    "psychological_trap": ["dark corridor shadow", "dark labyrinth", "dark staircase"],
-    "supernatural_real":  ["dark mysterious fog", "abandoned building night", "dark forest mist"],
-    "obsession_dark":     ["dark window rain", "surveillance night", "shadow watching"],
+    "dark_horror": [
+        "dark abandoned hallway",
+        "horror dark room shadows",
+        "dark empty corridor night",
+        "abandoned building interior dark",
+        "dark basement shadows",
+        "flickering light dark room",
+        "dark staircase shadows",
+        "rain on dark window night",
+    ],
+    "seduction_dark": [
+        "dark silhouette shadow person",
+        "dark room candle shadow",
+        "noir dark city rain",
+        "dark figure walking night",
+        "shadow person dark corridor",
+        "dark moody interior light",
+        "night city noir rain",
+        "dark mysterious shadow",
+    ],
+    "psychological_trap": [
+        "dark maze corridor",
+        "dark prison cell",
+        "shadow trap dark room",
+        "dark concrete corridor",
+        "surveillance camera dark",
+        "dark interrogation room",
+        "locked door dark shadow",
+        "dark underground tunnel",
+    ],
+    "supernatural_real": [
+        "dark fog mysterious",
+        "abandoned hospital dark",
+        "dark empty building night",
+        "shadow figure dark hallway",
+        "dark paranormal fog",
+        "empty dark room shadow",
+        "haunted building dark",
+        "dark window shadow night",
+    ],
+    "obsession_dark": [
+        "surveillance footage dark",
+        "dark window watching night",
+        "shadow person watching",
+        "dark street night rain",
+        "security camera footage dark",
+        "dark alley shadow figure",
+        "night vision dark footage",
+        "dark figure shadow watching",
+    ],
+}
+
+# Secondary keywords if primary returns nothing useful
+BG_KEYWORDS_FALLBACK = {
+    "dark_horror":        ["dark room", "night shadows", "dark corridor"],
+    "seduction_dark":     ["dark shadow", "night city", "dark figure"],
+    "psychological_trap": ["dark corridor", "shadows room", "dark concrete"],
+    "supernatural_real":  ["dark fog", "night building", "shadow dark"],
+    "obsession_dark":     ["surveillance dark", "shadow watching", "night dark"],
 }
 
 # ================================================================
@@ -987,23 +1041,46 @@ def run_audio_stage(script, niche_name, edge_voice):
 # VIDEO DOWNLOAD
 # ================================================================
 def download_pixabay_video(keywords):
+    """
+    Search Pixabay with niche-specific dark keywords.
+    Tries each keyword, picks the longest dark atmospheric result.
+    Falls back to secondary keywords if primary set returns nothing.
+    """
     if not PIXABAY_KEY: return None
-    for kw in keywords:
+
+    def try_keyword(kw):
         try:
             r = requests.get("https://pixabay.com/api/videos/",
-                params={"key": PIXABAY_KEY, "q": kw, "per_page": 5,
+                params={"key": PIXABAY_KEY, "q": kw, "per_page": 8,
                         "video_type": "film", "orientation": "horizontal"}, timeout=15)
             if r.status_code == 200 and r.json().get("hits"):
-                hit  = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
-                url  = hit["videos"]["medium"]["url"]
+                # Pick longest video (more loop material for longer episodes)
+                hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                url = hit["videos"]["medium"]["url"]
                 path = str(WORK_DIR / "background.mp4")
-                log(f"  Pixabay: {kw} ({hit.get('duration', 0)}s)")
+                log(f"  Pixabay OK: '{kw}' ({hit.get('duration', 0)}s)")
                 with requests.get(url, timeout=60, stream=True) as dl:
                     dl.raise_for_status()
                     with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000: return path
-        except Exception as e: log(f"  Pixabay '{kw}': {e}")
+                if Path(path).stat().st_size > 50000:
+                    return path
+        except Exception as e:
+            log(f"  Pixabay '{kw}': {e}")
+        return None
+
+    # Try primary keywords
+    for kw in keywords:
+        result = try_keyword(kw)
+        if result: return result
+
+    # Try fallback keywords (shorter, simpler terms)
+    log("  Pixabay primary keywords exhausted — trying fallback terms")
+    for kw in ["dark corridor", "dark room shadows", "night shadows dark",
+               "dark abstract", "shadow dark background"]:
+        result = try_keyword(kw)
+        if result: return result
+
     return None
 
 def download_pexels_video(keywords):
@@ -1012,7 +1089,8 @@ def download_pexels_video(keywords):
         try:
             r = requests.get("https://api.pexels.com/videos/search",
                 headers={"Authorization": PEXELS_KEY},
-                params={"query": kw, "per_page": 5, "orientation": "landscape"}, timeout=15)
+                params={"query": kw, "per_page": 8, "orientation": "landscape",
+                         "size": "large"}, timeout=15)
             if r.status_code == 200 and r.json().get("videos"):
                 video  = r.json()["videos"][0]
                 files  = sorted(video.get("video_files", []), key=lambda f: f.get("width", 0))
@@ -1218,6 +1296,48 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
 # ================================================================
 # SHORTS CREATION
 # ================================================================
+def _offset_ass_subtitles(ass_path, offset_seconds, output_path):
+    """
+    Shift all ASS subtitle timestamps back by offset_seconds.
+    Required when creating Shorts that start mid-way through the main audio —
+    the subtitle times need to be relative to the Short's start, not the main video.
+    """
+    def ass_to_sec(t):
+        # H:MM:SS.cc
+        try:
+            h, m, rest = t.split(":")
+            s, cs = rest.split(".")
+            return int(h)*3600 + int(m)*60 + int(s) + int(cs)/100
+        except: return 0.0
+
+    def sec_to_ass(total):
+        total = max(0.0, total)
+        h  = int(total) // 3600
+        m  = (int(total) % 3600) // 60
+        s  = int(total) % 60
+        cs = int(round((total - int(total)) * 100))
+        return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+    try:
+        lines = Path(ass_path).read_text(encoding="utf-8").splitlines()
+        out   = []
+        for line in lines:
+            if line.startswith("Dialogue:"):
+                parts = line.split(",", 9)
+                if len(parts) >= 3:
+                    start = ass_to_sec(parts[1].strip()) - offset_seconds
+                    end   = ass_to_sec(parts[2].strip()) - offset_seconds
+                    parts[1] = " " + sec_to_ass(start)
+                    parts[2] = sec_to_ass(end)
+                    line = ",".join(parts)
+            out.append(line)
+        Path(output_path).write_text("\n".join(out), encoding="utf-8")
+        return True
+    except Exception as e:
+        log(f"  ASS offset error: {e}")
+        return False
+
+
 def create_short(narration_path, bg_path, music_path, ass_path,
                  start_sec, duration_sec, label):
     seg_audio = str(WORK_DIR / f"{label}_seg.mp3")
@@ -1232,11 +1352,22 @@ def create_short(narration_path, bg_path, music_path, ass_path,
     has_mus = music_path and Path(music_path).exists()
     has_sub = ass_path and Path(ass_path).exists()
 
+    # Create time-offset subtitle file for this Short
+    # Subtitles must start at 0 relative to the Short, not the full video
+    short_ass = None
+    if has_sub:
+        short_ass_path = str(WORK_DIR / f"{label}_captions.ass")
+        if _offset_ass_subtitles(ass_path, start_sec, short_ass_path):
+            short_ass = short_ass_path
+            log(f"  Subtitles offset by {start_sec:.1f}s for {label}")
+        else:
+            log(f"  Subtitle offset failed — Short will have no subtitles")
+
     vf_crop = ("scale=1280:720:force_original_aspect_ratio=decrease,"
                "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
                "crop=405:720:(iw-405)/2:0,scale=1080:1920")
-    if has_sub:
-        safe = ass_path.replace("\\", "\\\\").replace(":", "\\:")
+    if short_ass:
+        safe = short_ass.replace("\\", "\\\\").replace(":", "\\:")
         vf   = f"{vf_crop},subtitles='{safe}'"
     else:
         vf = vf_crop
@@ -1563,30 +1694,72 @@ def main():
 
         # ── STAGE 7: YouTube Shorts ──
         log("\n" + "=" * 70)
-        log("STAGE 7: YouTube Shorts")
+        log("STAGE 7: YouTube Shorts — MANDATORY (both must succeed)")
         log("=" * 70)
         tags = ["documentary", "investigation", "true story", "dark", "mystery",
                 "psychological", "narration", "evidence", "real", "nonfiction",
                 niche_name.replace("_",""), niche["series"].lower().replace(" ","")]
+
+        # Short definitions — both are required, no exceptions
+        short_defs = [
+            {
+                "label":    "short1",
+                "start":    0,
+                "duration": min(55, max(audio_duration * 0.12, 30)),
+                "type":     "teaser",
+                "title":    f"{title[:60]} #Shorts",
+                "desc":     (f"What really happened?\n\n{title}\n\n"
+                             f"Full investigation on the channel.\n\n"
+                             f"#Shorts #{niche_name.replace('_','')} "
+                             f"#{niche['series'].replace(' ','')} #dark #documentary"),
+            },
+            {
+                "label":    "short2",
+                "start":    audio_duration * 0.67,
+                "duration": min(55, max(audio_duration * 0.20, 25)),
+                "type":     "recap",
+                "title":    f"The Truth Revealed — {title[:40]} #Shorts",
+                "desc":     (f"The reveal that changes everything.\n\n{title}\n\n"
+                             f"Full investigation on the channel.\n\n"
+                             f"#Shorts #{niche_name.replace('_','')} "
+                             f"#{niche['series'].replace(' ','')} #reveal #dark"),
+            },
+        ]
+
         shorts = []
-        for s_label, s_start, s_dur, s_type, s_title_fmt in [
-            ("short1", 0, min(55, max(audio_duration*0.12, 30)),
-             "teaser", f"{title[:60]} #Shorts"),
-            ("short2", audio_duration*0.67, min(55, max(audio_duration*0.20, 25)),
-             "recap",  f"The Truth — {title[:45]} #Shorts"),
-        ]:
-            try:
-                p = create_short(audio_path, bg_path, music_path, ass_path,
-                                 s_start, s_dur, s_label)
-                shorts.append({
-                    "path":  p,
-                    "title": s_title_fmt,
-                    "desc":  f"Full investigation: '{title}'\n\n#Shorts #{niche_name.replace('_','')} #dark",
-                    "type":  s_type,
-                })
-                log(f"OK {s_label} ({s_dur:.0f}s)")
-            except Exception as e:
-                log(f"  {s_label} failed (non-fatal): {e}")
+        for sd in short_defs:
+            label    = sd["label"]
+            success  = False
+            last_err = None
+
+            for attempt in range(1, 4):   # 3 attempts per Short — mandatory
+                try:
+                    log(f"  Creating {label} attempt {attempt}/3 "
+                        f"({sd['duration']:.0f}s @ {sd['start']:.0f}s)...")
+                    p = create_short(audio_path, bg_path, music_path, ass_path,
+                                     sd["start"], sd["duration"], f"{label}_a{attempt}")
+                    if not Path(p).exists() or Path(p).stat().st_size < 10000:
+                        raise RuntimeError(f"{label} output file missing or too small")
+                    sd["path"] = p
+                    shorts.append(sd)
+                    log(f"  OK {label} — {Path(p).stat().st_size // (1024*1024)}MB")
+                    success = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    log(f"  {label} attempt {attempt} failed: {e}")
+                    if attempt < 3:
+                        time.sleep(5)
+
+            if not success:
+                # Short creation is mandatory — raise to fail the whole pipeline
+                raise RuntimeError(
+                    f"CRITICAL: {label} could not be created after 3 attempts. "
+                    f"Last error: {last_err}. "
+                    f"Both Shorts are required every run."
+                )
+
+        log(f"  Both Shorts created successfully ({len(shorts)}/2)")
 
         # ── STAGE 8: Playlist ──
         log("\n" + "=" * 70)
@@ -1613,18 +1786,42 @@ def main():
         upload_thumbnail(video_id, thumb_path, token)
         add_to_playlist(token, playlist_id, video_id)
 
-        # ── STAGE 11: Upload Shorts ──
+        # ── STAGE 11: Upload Shorts — MANDATORY ──
         log("\n" + "=" * 70)
-        log("STAGE 11: Upload Shorts")
+        log("STAGE 11: Upload Shorts — MANDATORY (both must upload)")
         log("=" * 70)
         short_urls = []
         for sh in shorts:
-            try:
-                su, sid = upload_yt(sh["path"], sh["title"], sh["desc"], tags[:8], token=token)
-                short_urls.append(su)
-                add_to_playlist(token, playlist_id, sid)
-            except Exception as e:
-                log(f"  Short upload (non-fatal): {e}")
+            label    = sh["label"]
+            success  = False
+            last_err = None
+
+            for attempt in range(1, 4):   # 3 upload attempts per Short
+                try:
+                    log(f"  Uploading {label} attempt {attempt}/3...")
+                    su, sid = upload_yt(
+                        sh["path"], sh["title"], sh["desc"],
+                        tags[:8], token=token)
+                    short_urls.append(su)
+                    add_to_playlist(token, playlist_id, sid)
+                    log(f"  OK {label} uploaded: {su}")
+                    success = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    log(f"  {label} upload attempt {attempt} failed: {e}")
+                    if attempt < 3:
+                        log("  Waiting 15s before retry...")
+                        time.sleep(15)
+
+            if not success:
+                raise RuntimeError(
+                    f"CRITICAL: {label} upload failed after 3 attempts. "
+                    f"Last error: {last_err}. "
+                    f"Both Shorts must upload every run."
+                )
+
+        log(f"  Both Shorts uploaded ({len(short_urls)}/2)")
 
         # ── STAGE 12: Channel description update ──
         update_channel_description(token, title, yt_url)
