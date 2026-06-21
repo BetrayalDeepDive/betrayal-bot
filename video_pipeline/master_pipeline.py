@@ -746,11 +746,17 @@ def build_script_prompt(niche, topic, episode, attempt, trending_titles=None):
     t2 = triggers[1] if len(triggers) > 1 else "the moment everything became clear"
     t3 = triggers[2] if len(triggers) > 2 else "the detail that reframed everything"
 
+    # Load pattern memory — what scored highest in previous episodes
+    pattern_ctx  = load_pattern_memory(load_state())
+    strategy_ctx = load_weekly_strategy()
+    combined_ctx = "\n\n".join(filter(None, [pattern_ctx, strategy_ctx]))
+    pattern_section = f"\n{combined_ctx}\n" if combined_ctx else ""
+
     return f"""Write a {intensity} dark investigative documentary narration script.
 
 Topic: {topic}
 Series: {niche["series"]} Episode {episode}
-{trend_note}
+{trend_note}{pattern_section}
 CRITICAL: The script MUST be between {MIN_WORDS} and {MAX_WORDS} words. Count carefully. This is non-negotiable.
 If you finish early, expand each section with more specific details, witness accounts, and evidence.
 
@@ -938,14 +944,21 @@ Structure:
 
 Total: 280-350 words. Plain text. No markdown."""
     raw = ai_generate(prompt, tokens=1000)
+    cross_promo = (
+        "\n\n🔬 Also investigate with us on The Evidence Room — "
+        "forensic analysis, criminal investigations and corporate exposés: "
+        "youtube.com/@TheEvidenceRoom"
+    )
     if raw:
         desc  = strip_md(raw)
+        desc += cross_promo
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
         return desc
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
             f"{chapters_text}\n\n"
             f"Subscribe for new investigations every week.\n\n"
-            f"#{niche['name'].replace('_', '')} #documentary #investigation\n\n"
+            f"#{niche['name'].replace('_', '')} #documentary #investigation"
+            f"{cross_promo}\n\n"
             f"⚠️ This video features AI-assisted narration and editing.")
 
 # ================================================================
@@ -1250,6 +1263,10 @@ def run_audio_stage(script, niche_name, edge_voice):
     duration = get_media_duration(audio_path)
     log(f"  Duration: {duration:.1f}s ({duration/60:.1f} min)")
 
+    # Apply documentary-grade audio post-processing
+    processed_path = str(WORK_DIR / "narration_processed.mp3")
+    audio_path = apply_audio_post_processing(audio_path, processed_path)
+
     if not has_ass:
         log("  Generating approximate timing captions...")
         generate_fallback_ass(script, duration, ass_path)
@@ -1452,6 +1469,40 @@ def get_background_video(niche, audio_duration, script=""):
         "-c:v", "libx264", "-pix_fmt", "yuv420p", path], label="bg-fallback")
     return path
 
+
+def apply_audio_post_processing(input_path, output_path):
+    """
+    Professional documentary-grade audio processing via FFmpeg.
+    Transforms edge-tts flat TTS into cinematic narrator quality.
+
+    Chain:
+    1. EQ: boost 80Hz (depth) + boost 2.5kHz (presence) + cut 8kHz (harshness)
+    2. Light reverb: subtle room tone, makes voice feel embedded in space
+    3. Compression: smooth out loud/quiet variations
+    4. Loudness norm: broadcast standard -16 LUFS
+    """
+    try:
+        af = (
+            "equalizer=f=80:width_type=o:width=2:g=3,"      # low-end warmth/depth
+            "equalizer=f=2500:width_type=o:width=2:g=2,"    # presence/intelligibility
+            "equalizer=f=8000:width_type=o:width=2:g=-3,"   # remove harshness
+            "aecho=0.8:0.85:40:0.25,"                        # subtle room tone
+            "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
+            "loudnorm=I=-16:LRA=11:TP=-1.5"                 # broadcast loudness
+        )
+        run_ffmpeg([
+            "ffmpeg", "-y", "-i", input_path,
+            "-af", af,
+            "-c:a", "mp3", "-q:a", "2", output_path
+        ], label="audio-processing", timeout=300)
+
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
+            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            return output_path
+    except Exception as e:
+        log(f"  Audio processing failed (non-fatal): {e}")
+    return input_path  # fall back to unprocessed audio
+
 # ================================================================
 # AMBIENT MUSIC
 # ================================================================
@@ -1506,9 +1557,157 @@ def concat_parts(parts, output_path):
                 "-i", lst, "-c", "copy", output_path], label="concat")
     return output_path
 
+
+
+
+def run_stage_with_retry(stage_fn, stage_name, *args, max_attempts=3, **kwargs):
+    """
+    Run a pipeline stage with up to 3 attempts before escalating.
+    Handles transient failures (network timeouts, temp API errors)
+    in under 2 minutes instead of triggering the 2-hour full-pipeline retry.
+    """
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = stage_fn(*args, **kwargs)
+            if attempt > 1:
+                log(f"  Stage {stage_name}: OK on attempt {attempt}")
+            return result
+        except Exception as e:
+            last_err = e
+            if attempt < max_attempts:
+                log(f"  Stage {stage_name} attempt {attempt}/{max_attempts} failed: {e}")
+                log(f"  Retrying in 30s...")
+                time.sleep(30)
+            else:
+                log(f"  Stage {stage_name} FAILED after {max_attempts} attempts: {e}")
+    raise RuntimeError(f"Stage {stage_name} failed after {max_attempts} attempts: {last_err}")
+
+def load_weekly_strategy():
+    """
+    Read the strategy file written by weekly_report.py every Sunday.
+    Injects competitor intelligence and recommended topics into script generation.
+    Returns strategy context string or empty string if not available.
+    """
+    strategy_file = SCRIPT_DIR / "next_week_strategy.json"
+    try:
+        if strategy_file.exists():
+            data = json.loads(strategy_file.read_text())
+            # Only use if generated this week
+            generated = data.get("generated_date", "")
+            if generated:
+                gen_date = datetime.date.fromisoformat(generated)
+                days_old = (datetime.date.today() - gen_date).days
+                if days_old <= 7:
+                    lines = ["COMPETITOR INTELLIGENCE FROM THIS WEEK:"]
+                    topics = data.get("recommended_topics", [])
+                    if topics:
+                        lines.append("Recommended topics based on competitor gaps:")
+                        for t in topics[:3]:
+                            lines.append(f"  - {t}")
+                    hook_fmt = data.get("winning_hook_format", "")
+                    if hook_fmt:
+                        lines.append(f"Winning hook format: {hook_fmt}")
+                    top_titles = data.get("top_competitor_titles", [])
+                    if top_titles:
+                        lines.append("Top competitor titles this week:")
+                        for t in top_titles[:4]:
+                            lines.append(f"  - {t}")
+                    return "\n".join(lines)
+    except Exception as e:
+        log(f"  Strategy load (non-fatal): {e}")
+    return ""
+
+
+def select_best_voice(state, niche_name, available_voices):
+    """
+    After 5 episodes in a niche, lock in the voice that has produced
+    the highest average scores. Viewers build a relationship with THE voice.
+    Before 5 episodes: rotate to gather data.
+    """
+    perf = state.get("performance", {})
+    niche_episodes = [ep for ep in state.get("episode_history", [])
+                      if ep.get("niche") == niche_name]
+    if len(niche_episodes) < 5:
+        # Not enough data — rotate voices for data gathering
+        ep_count = len(niche_episodes)
+        voice = available_voices[ep_count % len(available_voices)]
+        log(f"  Voice (gathering data, ep {ep_count+1}/5): {voice}")
+        return voice
+
+    # Score each available voice by average episode score
+    voice_scores = {}
+    for ep in niche_episodes:
+        ep_ep = ep.get("episode", 0)
+        # Find voice from performance tracker
+        for key, val in perf.items():
+            if key.startswith("voice_") and isinstance(val, dict):
+                v_name = key.replace("voice_", "")
+                if v_name in available_voices:
+                    scores = val.get("scores", [])
+                    if scores:
+                        voice_scores[v_name] = sum(scores) / len(scores)
+
+    if voice_scores:
+        best = max(voice_scores, key=voice_scores.get)
+        log(f"  Voice (locked — best avg {voice_scores[best]:.1f}/10): {best}")
+        return best
+
+    # Fallback to first voice
+    return available_voices[0]
+
+def load_pattern_memory(state):
+    """
+    Load the top-performing script patterns from state.json.
+    Used to inform the next script generation with what actually worked.
+    """
+    history = state.get("episode_history", [])
+    if not history: return ""
+    # Sort by score, take top 5
+    top = sorted(history, key=lambda x: x.get("score", 0), reverse=True)[:5]
+    if not top: return ""
+    lines = ["WHAT HAS WORKED BEST FOR THIS CHANNEL (use as inspiration):"]
+    for ep in top:
+        lines.append(f"  Score {ep.get('score',0)}/10: {ep.get('topic','')[:80]}")
+        lines.append(f"    Hook: {ep.get('hook_type','')}")
+        lines.append(f"    Cold open style: {ep.get('cold_open_style','')}")
+    return "\n".join(lines)
+
+def save_pattern_memory(state, episode, niche_name, topic, score,
+                        hook_type="", cold_open_style=""):
+    """Store this episode's pattern data for future learning."""
+    history = state.get("episode_history", [])
+    history.append({
+        "episode":         episode,
+        "niche":           niche_name,
+        "topic":           topic[:100],
+        "score":           score,
+        "hook_type":       hook_type,
+        "cold_open_style": cold_open_style,
+        "date":            datetime.datetime.now().strftime("%Y-%m-%d"),
+    })
+    state["episode_history"] = history[-50:]  # keep last 50 episodes
+    return state
+
 # ================================================================
 # THUMBNAIL  [NEW #9 — dynamic text from script]
 # ================================================================
+
+def get_thumbnail_style(state, episode):
+    """
+    A/B thumbnail testing — alternate between 2 styles.
+    Style A: Blood red text on AI-generated dark background (weeks 1,3,5...)
+    Style B: White text with strong glow on darker AI background (weeks 2,4,6...)
+    Weekly report will identify which drives better CTR.
+    """
+    week_number = datetime.datetime.now().isocalendar()[1]
+    style       = "A" if week_number % 2 == 1 else "B"
+    state.setdefault("thumbnail_ab", {})
+    state["thumbnail_ab"]["last_style"]   = style
+    state["thumbnail_ab"]["last_episode"] = episode
+    log(f"  Thumbnail style: {style} (week {week_number})")
+    return style
+
 def fetch_pollinations_image(topic, niche_name, thumb_path):
     """
     Pollinations.ai — completely free, no API key, no account, no credit card.
@@ -1546,11 +1745,14 @@ def fetch_pollinations_image(topic, niche_name, thumb_path):
         log(f"  Pollinations error (non-fatal): {e}")
     return False
 
-def generate_thumbnail(thumb_text, niche_name, title, topic=""):
+def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
     thumb_path = str(WORK_DIR / "thumbnail.jpg")
+    state      = load_state()
+    ab_style   = get_thumbnail_style(state, episode)
+    save_state(state)
 
-    # Try Pollinations.ai first — free AI-generated dark cinematic image
-    pol_path = str(WORK_DIR / "pollinations_bg.jpg")
+    # Pollinations.ai AI-generated dark cinematic background
+    pol_path  = str(WORK_DIR / "pollinations_bg.jpg")
     got_image = fetch_pollinations_image(topic or thumb_text, niche_name, pol_path)
 
     try:
@@ -1597,9 +1799,16 @@ def generate_thumbnail(thumb_text, niche_name, title, topic=""):
             y    = sy + i * 125
             bbox = draw.textbbox((0, 0), line, font=fm)
             x    = (W - (bbox[2] - bbox[0])) // 2
+            # A/B style colours
+            if ab_style == "A":
+                shadow_col = (80, 0, 0)
+                text_col   = (220, 15, 15)
+            else:
+                shadow_col = (0, 0, 0)
+                text_col   = (255, 255, 255)
             for dx, dy in [(-3,-3),(3,-3),(-3,3),(3,3),(0,-4),(0,4),(-4,0),(4,0)]:
-                draw.text((x+dx, y+dy), line, font=fm, fill=(90, 0, 0))
-            draw.text((x, y), line, font=fm, fill=(210, 10, 10))
+                draw.text((x+dx, y+dy), line, font=fm, fill=shadow_col)
+            draw.text((x, y), line, font=fm, fill=text_col)
 
         sub  = title[:65] + ("…" if len(title) > 65 else "")
         fs   = get_font(34)
@@ -1952,7 +2161,7 @@ def main():
             scheduled = DAY_NICHE.get(datetime.datetime.now().weekday(), "dark_horror")
             niche_name = pick_best_niche(state, scheduled)
             niche      = next(x for x in NICHES if x["name"] == niche_name)
-            edge_voice = random.choice(VOICES.get(niche_name, ["en-GB-RyanNeural"]))
+            edge_voice = select_best_voice(state, niche_name, VOICES.get(niche_name, ["en-GB-RyanNeural"]))
 
             log("  Fetching trending titles...")
             trending = fetch_trending_titles(niche, token)
@@ -2004,7 +2213,8 @@ def main():
             audio_path = s2["audio_path"]; audio_duration = s2["audio_duration"]
             ass_path   = s2.get("ass_path") if s2.get("ass_path") and Path(s2.get("ass_path","x")).exists() else None
         else:
-            audio_path, audio_duration, ass_path = run_audio_stage(script, niche_name, edge_voice)
+            audio_path, audio_duration, ass_path = run_stage_with_retry(
+            run_audio_stage, "Audio", script, niche_name, edge_voice)
             ckpt_save("stage2", {"audio_path": audio_path, "audio_duration": audio_duration, "ass_path": ass_path})
 
         chapters_text = generate_chapters(audio_duration)
@@ -2018,7 +2228,8 @@ def main():
         if s3 and Path(s3["bg_path"]).exists():
             bg_path = s3["bg_path"]
         else:
-            bg_path = get_background_video(niche, audio_duration, script=script)
+            bg_path = run_stage_with_retry(
+                get_background_video, "BG-Video", niche, audio_duration, script=script)
             ckpt_save("stage3", {"bg_path": bg_path})
 
         # ── STAGE 4: Music ──
@@ -2036,7 +2247,7 @@ def main():
         log("\n" + "=" * 70)
         log("STAGE 5: Thumbnail")
         log("=" * 70)
-        thumb_path = generate_thumbnail(thumb_text, niche_name, title, topic=topic)
+        thumb_path = generate_thumbnail(thumb_text, niche_name, title, topic=topic, episode=episode)
 
         # ── STAGE 6: Compose Main (with intro + outro + burned captions) ──
         log("\n" + "=" * 70)
@@ -2140,7 +2351,8 @@ def main():
         log("\n" + "=" * 70)
         log("STAGE 9: Upload Main Video")
         log("=" * 70)
-        yt_url, video_id = upload_yt(final_path, title, description, tags, token=token)
+        yt_url, video_id = run_stage_with_retry(
+            upload_yt, "Upload", final_path, title, description, tags, token=token)
 
         # ── STAGE 10: Thumbnail + Playlist ──
         log("\n" + "=" * 70)
@@ -2191,6 +2403,9 @@ def main():
 
         # ── Finalise ──
         state = track_episode(state, niche_name, score, edge_voice, episode)
+        state = save_pattern_memory(state, episode, niche_name, topic, score,
+                                    hook_type="psychological_dread",
+                                    cold_open_style="mid-action specific date/number")
         state["episode_count"]  = episode
         state["last_upload"]    = datetime.datetime.now().isoformat()
         state["last_title"]     = title
