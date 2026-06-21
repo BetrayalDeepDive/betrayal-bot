@@ -50,7 +50,7 @@ TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── API endpoints ──────────────────────────────────────────
 GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
 CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions"
 OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
@@ -84,7 +84,7 @@ US_VOICES = [
     "en-US-AndrewNeural",       # Warm authoritative storyteller
     "en-US-BrianNeural",        # Deep calm commanding
     "en-US-ChristopherNeural",  # Serious documentary authoritative
-    "en-US-DavisNeural",        # Dark dramatic deep
+    "en-US-JasonNeural",        # Calm measured (DavisNeural unavailable on Actions)
     "en-US-EricNeural",         # Professional measured
     "en-US-GuyNeural",          # Commanding serious
     "en-US-JasonNeural",        # Calm measured deliberate
@@ -95,7 +95,7 @@ US_VOICES = [
 GB_VOICES = [
     "en-GB-RyanNeural",         # BBC documentary gravitas
     "en-GB-ThomasNeural",       # Cold measured cinematic
-    "en-GB-ElliotNeural",       # Deep calm investigative
+    "en-GB-NoahNeural",         # Deep calm investigative (ElliotNeural unavailable)
     "en-GB-NoahNeural",         # Measured dark deliberate
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
@@ -117,9 +117,21 @@ NICHE_VOICES = {
 
 # ── ANIMATION STYLES ────────────────────────────────────────
 STYLES = {
-    "dark_minimal":  {"bg":(2,2,10),    "primary":(255,255,255),"accent":(200,30,30), "secondary":(120,120,140),"desc":"Clinical dark — white/red on black"},
-    "cinematic":     {"bg":(5,10,25),   "primary":(220,235,255),"accent":(80,160,255),"secondary":(100,130,180),"desc":"Cinematic dark blue — glowing reveals"},
-    "documentary":   {"bg":(18,15,12),  "primary":(230,220,200),"accent":(180,40,20), "secondary":(140,120,100),"desc":"Documentary — aged documents stamps"},
+    "dark_minimal": {
+        "bg":(2,2,10), "primary":(255,255,255), "accent":(220,20,20),
+        "secondary":(120,120,140), "pulse":(180,0,0), "glow":(255,50,50),
+        "desc":"Clinical dark — blood red on absolute black, maximum psychological impact"
+    },
+    "cinematic": {
+        "bg":(3,6,18), "primary":(210,230,255), "accent":(60,140,255),
+        "secondary":(80,110,160), "pulse":(20,80,200), "glow":(100,180,255),
+        "desc":"Cinematic noir blue — glowing evidence reveals, deep shadow"
+    },
+    "documentary": {
+        "bg":(12,10,8), "primary":(235,225,205), "accent":(190,30,10),
+        "secondary":(130,110,90), "pulse":(160,20,0), "glow":(220,80,40),
+        "desc":"Aged classified document style — burnt edges, redaction marks, stamps"
+    },
 }
 DAY_STYLE = {0:"dark_minimal",1:"cinematic",2:"documentary",3:"dark_minimal",4:"cinematic"}
 
@@ -291,9 +303,11 @@ def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 
 def _call_cerebras(prompt, tokens=9000):
     if not CEREBRAS_KEY: return None
-    for model in CEREBRAS_MODELS:
+    _url = "https://api.cerebras.ai/v1/chat/completions"  # hardcoded — never rely on module scope
+    _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+    for model in _models:
         try:
-            r = requests.post(CEREBRAS_URL,
+            r = requests.post(_url,
                 headers={"Authorization": f"Bearer {CEREBRAS_KEY}",
                          "Content-Type": "application/json"},
                 json={"model": model,
@@ -371,7 +385,8 @@ def _call_groq(prompt, tokens=9000):
 def _call_openrouter(prompt, tokens=9000):
     if not OPENROUTER_KEY: return None
     for model in ["meta-llama/llama-3.3-70b-instruct:free",
-                  "microsoft/phi-3-medium-128k-instruct:free",
+                  "meta-llama/llama-3.1-70b-instruct:free",
+                  "qwen/qwen-2.5-72b-instruct:free",
                   "meta-llama/llama-3.2-3b-instruct:free"]:
         try:
             r = requests.post(OPENROUTER_URL,
@@ -708,7 +723,7 @@ LAW 5: MAX 13 words per sentence
 LAW 6: Never start 3 consecutive sentences with the same word
 LAW 7: Every paragraph darker than the previous
 LAW 8: Specific dates amounts document numbers transaction IDs
-LAW 9: {MIN_WORDS} to {MAX_WORDS} words — reach the minimum
+LAW 9: MINIMUM {MIN_WORDS} words — COUNT YOUR WORDS. If you finish under {MIN_WORDS}, add more to THE EVIDENCE TRAIL and THE HUMAN COST sections until you reach it. This is non-negotiable.
 LAW 10: ZERO section labels — pure seamless narration
 
 ━━━ NARRATIVE STRUCTURE ━━━
@@ -1017,22 +1032,87 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
 # STAGE 3: HUMAN VOICE AUDIO WITH QUALITY CHECK
 # ════════════════════════════════════════════════════════════
 async def _tts(text, voice_id, path):
-    import edge_tts
-    c = edge_tts.Communicate(text, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
-    await c.save(path)
+    """
+    Chunked TTS — splits long scripts at sentence boundaries every 3000 chars.
+    Prevents 'No audio was received' error on scripts over ~2000 words.
+    Concatenates chunks via FFmpeg.
+    """
+    import edge_tts, shutil
+    MAX_CHUNK = 3000
+
+    # Split at sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []; current = ""
+    for sent in sentences:
+        if len(current) + len(sent) > MAX_CHUNK and current:
+            chunks.append(current.strip())
+            current = sent
+        else:
+            current += (" " if current else "") + sent
+    if current.strip(): chunks.append(current.strip())
+
+    if len(chunks) <= 1:
+        # Short enough for single call
+        c = edge_tts.Communicate(text, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
+        await c.save(path)
+        return
+
+    log(f"    Chunked TTS: {len(chunks)} segments")
+    parts = []
+    for i, chunk in enumerate(chunks):
+        part = str(WORK_DIR / f"chunk_{i}_{voice_id[-8:]}.mp3")
+        try:
+            c = edge_tts.Communicate(chunk, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
+            await c.save(part)
+            if Path(part).exists() and Path(part).stat().st_size > 5000:
+                parts.append(part)
+        except Exception as e:
+            log(f"    Chunk {i} error: {e}")
+
+    if not parts:
+        raise Exception("All TTS chunks failed")
+
+    if len(parts) == 1:
+        shutil.copy(parts[0], path); return
+
+    lst = str(WORK_DIR / f"chunk_list_{voice_id[-8:]}.txt")
+    with open(lst, "w") as f:
+        for p in parts: f.write(f"file '{p}'\n")
+    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", lst, "-c", "copy", path],
+                   capture_output=True, timeout=600)
+    if not Path(path).exists():
+        raise Exception("Chunk concatenation failed")
 
 def check_audio_quality(mp3_path, dur_expected):
+    """
+    Fixed threshold: edge-tts outputs ~48kbps MP3, not 64kbps.
+    Old formula (sz < dur_expected * 8000) rejected valid 10MB files for 30-min audio.
+    Now: use ffprobe actual duration. Fall back to 500KB minimum size check.
+    """
     try:
         sz = Path(mp3_path).stat().st_size
-        if sz < dur_expected * 8000:
-            log(f"  Quality FAIL: {sz}b too small for {dur_expected:.0f}s")
+        if sz < 500000:  # Must be at least 500KB — catches empty/corrupt files
+            log(f"  Quality FAIL: {sz}b — file empty or corrupt")
             return False
-        if sz < 80000:
-            log(f"  Quality FAIL: {sz/1024:.0f}KB too small")
-            return False
-        log(f"  Quality OK: {sz/1024/1024:.1f}MB")
+        # Measure actual duration with ffprobe
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(mp3_path)],
+            capture_output=True, text=True, timeout=30)
+        if r.returncode == 0 and r.stdout.strip():
+            actual_dur = float(r.stdout.strip())
+            if actual_dur < dur_expected * 0.5:  # must be at least 50% of expected
+                log(f"  Quality FAIL: {actual_dur:.0f}s actual vs {dur_expected:.0f}s expected")
+                return False
+            log(f"  Quality OK: {sz/1024/1024:.1f}MB | {actual_dur:.0f}s")
+            return True
+        # ffprobe unavailable — accept if > 500KB
+        log(f"  Quality OK (size): {sz/1024/1024:.1f}MB")
         return True
-    except: return False
+    except Exception as e:
+        log(f"  Quality check error: {e}")
+        return False
 
 def run_stage3_audio(script_clean, voice_id, niche_name):
     log("\n"+"="*65)
@@ -1041,13 +1121,26 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     wc           = len(script_clean.split())
     dur_expected = (wc/125.0)*60.0
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
+    # Guaranteed working voices on GitHub Actions (tested)
+    GUARANTEED_VOICES = [
+        "en-GB-RyanNeural",      # BBC documentary gravitas — most reliable
+        "en-GB-ThomasNeural",    # Cold measured cinematic
+        "en-US-BrianNeural",     # Deep calm commanding
+        "en-US-ChristopherNeural", # Serious documentary
+        "en-US-AndrewNeural",    # Warm authoritative
+        "en-US-EricNeural",      # Professional measured
+        "en-US-GuyNeural",       # Commanding serious
+        "en-US-SteffanNeural",   # Professional clear
+        "en-GB-OliverNeural",    # Professional authoritative
+        "en-US-TonyNeural",      # Confident expressive
+    ]
     voice_queue  = [voice_id]
     for v in preferred:
         if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
-    for v in ALL_VOICES:
-        if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
+    for v in GUARANTEED_VOICES:
+        if v not in voice_queue: voice_queue.append(v)
 
-    for v in voice_queue[:8]:
+    for v in voice_queue[:12]:
         log(f"  Trying: {v}")
         mp3 = str(WORK_DIR/"audio.mp3")
         try:
@@ -1095,22 +1188,60 @@ def render_frame_pil(style_name, scene, frame_idx, total_frames, scene_idx, tota
 
     stype = scene.get("type","evidence_board")
 
-    # Style-specific background treatment
-    if style_name == "cinematic":
-        for y in range(0,H,4): draw.line([(0,y),(W,y)],fill=(20,40,80),width=1)
+    # Enhanced atmospheric backgrounds — psychological thriller grade
+    pulse = style.get("pulse", accent)
+    glow  = style.get("glow", accent)
+
+    if style_name == "dark_minimal":
+        # Vignette: red pulse from corners — creates dread
+        for i in range(0, min(frame_idx*3, 120), 6):
+            intensity = max(0, 40 - i)
+            draw.rectangle([i,i,W-i,H-i], outline=(intensity,0,0))
+        # Scanlines for digital surveillance feel
+        for y in range(0, H, 3):
+            draw.line([(0,y),(W,y)], fill=(0,0,0,60), width=1)
+
+    elif style_name == "cinematic":
+        # Deep blue atmospheric gradient
+        for y in range(0, H, 2):
+            intensity = int(15 * (1 - y/H))
+            draw.line([(0,y),(W,y)], fill=(intensity, intensity*2, intensity*4), width=1)
+        # Film grain
+        for _ in range(200):
+            gx, gy = random.randint(0,W), random.randint(0,H)
+            draw.point([(gx,gy)], fill=(random.randint(10,30),)*3)
+
     elif style_name == "documentary":
-        for y in range(0,H,8):
-            if random.random()<0.12: draw.line([(0,y),(W,y)],fill=(28,22,18),width=1)
+        # Aged paper texture with film grain
+        for y in range(0, H, 6):
+            if random.random() < 0.15:
+                draw.line([(0,y),(W,y)], fill=(22,18,14), width=1)
+        # Random damage spots
+        for _ in range(30):
+            dx, dy = random.randint(0,W), random.randint(0,H)
+            draw.ellipse([(dx-2,dy-2),(dx+2,dy+2)], fill=(8,6,4))
 
-    # Corner marks
-    draw.line([(0,0),(70,0)],fill=accent,width=2)
-    draw.line([(0,0),(0,70)],fill=accent,width=2)
-    draw.line([(W-70,H-1),(W,H-1)],fill=accent,width=2)
-    draw.line([(W-1,H-70),(W-1,H)],fill=accent,width=2)
+    # Glitch effect on high-tension frames (every 90 frames = 3s at 30fps)
+    if frame_idx % 90 < 3:
+        for _ in range(5):
+            gy = random.randint(0, H)
+            shift = random.randint(-8, 8)
+            draw.line([(0,gy),(W,gy)], fill=glow, width=1)
 
-    # Watermark
-    draw.text((30,H-38),"THE EVIDENCE ROOM",font=font_xs,fill=secondary)
-    draw.text((W-260,H-38),f"SCENE {scene_idx+1}/{total_scenes}",font=font_xs,fill=secondary)
+    # Dramatic corner marks with glow
+    for thickness, color in [(3, pulse), (1, glow)]:
+        draw.line([(0,0),(80,0)], fill=color, width=thickness)
+        draw.line([(0,0),(0,80)], fill=color, width=thickness)
+        draw.line([(W-80,H-1),(W,H-1)], fill=color, width=thickness)
+        draw.line([(W-1,H-80),(W-1,H)], fill=color, width=thickness)
+
+    # Classification watermark — feels like classified footage
+    draw.text((30,H-42), "THE EVIDENCE ROOM — CLASSIFIED", font=font_xs, fill=secondary)
+    draw.text((W-200,H-42), f"CASE {scene_idx+1:03d}/{total_scenes:03d}", font=font_xs, fill=secondary)
+    # Live recording indicator
+    if frame_idx % 60 < 30:  # blink every second
+        draw.ellipse([(W-30,15),(W-15,30)], fill=accent)
+        draw.text((W-55,14), "REC", font=font_xs, fill=accent)
 
     # Scene title
     title = scene.get("title","EVIDENCE")
@@ -1145,23 +1276,52 @@ def _render_timeline(draw,scene,progress,style,font_md,font_sm,font_xs):
         if a>0.3: draw.text((lx+80,y-14),item,font=font_sm,fill=primary)
 
 def _render_document(draw,scene,progress,style,style_name,font_md,font_sm,font_mono):
+    """Enhanced document scene: typewriter reveal, redaction lines, dramatic stamp."""
     lines=scene.get("lines",["CONFIDENTIAL"]); stamp=scene.get("stamp","")
     primary,accent,secondary=style["primary"],style["accent"],style["secondary"]
-    px,py,dw,dh=200,160,W-400,H-280
-    pc=(12,12,18) if style_name!="documentary" else (20,16,12)
-    draw.rectangle([(px,py),(px+dw,py+dh)],fill=pc,outline=secondary,width=1)
-    draw.line([(px+20,py+60),(px+dw-20,py+60)],fill=secondary,width=1)
+    glow=style.get("glow",accent)
+    px,py,dw,dh=160,120,W-320,H-240
+    pc=(8,8,14) if style_name!="documentary" else (16,12,9)
+    # Outer glow effect on document border
+    for offset in [4,2,1]:
+        draw.rectangle([(px-offset,py-offset),(px+dw+offset,py+dh+offset)],
+                       outline=accent if offset==1 else (accent[0]//4,accent[1]//4,accent[2]//4))
+    draw.rectangle([(px,py),(px+dw,py+dh)],fill=pc,outline=secondary,width=2)
+    # Header bar
+    draw.rectangle([(px,py),(px+dw,py+55)],fill=(accent[0]//3,accent[1]//3,accent[2]//3))
+    draw.text((px+20,py+14),"CLASSIFIED — RESTRICTED ACCESS",font=font_sm,fill=glow)
+    draw.line([(px+15,py+58),(px+dw-15,py+58)],fill=accent,width=2)
     n=len(lines)
     for i,line in enumerate(lines):
-        lp=(progress*(n+1))-i
+        lp=(progress*(n+1.5))-i
         if lp<=0: continue
-        a=min(1.0,lp); y=py+80+i*55
-        color=primary if not line.startswith("[") else secondary
-        draw.text((px+40,y),line,font=font_mono,fill=color)
-    if stamp and progress>0.7:
-        sx,sy=px+dw-280,py+dh-200
-        draw.rectangle([(sx,sy),(sx+240,sy+100)],outline=accent,width=3)
-        draw.text((sx+15,sy+15),stamp,font=font_md,fill=accent)
+        a=min(1.0,lp); y=py+75+i*58
+        # Typewriter effect: reveal characters gradually
+        chars_to_show = int(len(line) * min(1.0, (lp)*3))
+        visible = line[:chars_to_show]
+        # Redacted lines start with [
+        if line.startswith("["):
+            # Black redaction bar
+            bb = draw.textbbox((0,0),line,font=font_mono)
+            tw = bb[2]-bb[0]
+            draw.rectangle([(px+40,y-2),(px+40+tw+8,y+28)],fill=(0,0,0))
+            if progress>0.85:  # Reveal after 85% — dramatic moment
+                draw.text((px+40,y),line.strip("[]"),font=font_mono,fill=accent)
+        else:
+            draw.text((px+40,y),visible,font=font_mono,fill=primary)
+            # Cursor blink at current typing position
+            if chars_to_show < len(line) and int(progress*20)%2==0:
+                cw = draw.textbbox((0,0),visible,font=font_mono)[2]
+                draw.line([(px+42+cw,y),(px+42+cw,y+24)],fill=glow,width=2)
+    # Dramatic stamp reveal
+    if stamp and progress>0.75:
+        stamp_alpha = min(1.0,(progress-0.75)*4)
+        sx,sy=px+dw-300,py+dh-170
+        draw.rectangle([(sx,sy),(sx+270,sy+120)],outline=accent,width=4)
+        for thickness in [4,2]:
+            draw.line([(sx,sy),(sx+270,sy+120)],fill=accent,width=thickness)
+            draw.line([(sx+270,sy),(sx,sy+120)],fill=accent,width=thickness)
+        draw.text((sx+20,sy+35),stamp,font=font_md,fill=accent)
 
 def _render_data_reveal(draw,scene,progress,style,font_lg,font_md,font_sm):
     items=scene.get("items",[]); label=scene.get("label","DATA")
@@ -1544,6 +1704,9 @@ def main():
     dec = "APPROVED" if decision=="approved" else "AUTO-APPROVED"
     ev  = int(5000*0.9)
     er  = round((ev/1000)*niche["rpm"],2)
+    log("Pipeline complete — clearing checkpoint")
+    ckpt_clear()
+
     tg(f"EVIDENCE ROOM PUBLISHED — {dec}\n\n"
        f"{title_str}\n"
        f"Style: {style_name} | Ep{episode}\n"
@@ -1557,5 +1720,37 @@ def main():
        f"Artifacts deleted.")
     log(f"\nCOMPLETE: {yt_url}")
 
+def main_with_retry():
+    """Run main() with up to 3 auto-retries on failure (2 hour gap between each)."""
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            main()
+            return  # success
+        except SystemExit as e:
+            if e.code == 0:
+                return  # clean exit (rejected/skipped)
+            if attempt < max_retries:
+                wait_hours = 2
+                tg(f"⚠️ Evidence Room attempt {attempt}/{max_retries} failed.\n"
+                   f"Auto-retrying in {wait_hours}h...")
+                log(f"Auto-retry {attempt}/{max_retries} in {wait_hours}h...")
+                time.sleep(wait_hours * 3600)
+                log(f"Starting retry attempt {attempt + 1}/{max_retries}...")
+            else:
+                tg(f"❌ Evidence Room FAILED after {max_retries} attempts. Manual check needed.")
+                sys.exit(1)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            if attempt < max_retries:
+                tg(f"⚠️ Evidence Room attempt {attempt}/{max_retries} crashed: {str(e)[:200]}\n"
+                   f"Auto-retrying in 2h...")
+                log(f"Crash: {e}\nRetrying in 2h...")
+                time.sleep(7200)
+            else:
+                tg(f"❌ Evidence Room FAILED {max_retries}x: {str(e)[:300]}")
+                sys.exit(1)
+
 if __name__ == "__main__":
-    main()
+    main_with_retry()
