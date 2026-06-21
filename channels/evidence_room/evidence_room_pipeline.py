@@ -33,24 +33,43 @@ from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from PIL import Image, ImageDraw, ImageFont
-from groq import Groq
 
 # ── CREDENTIALS ─────────────────────────────────────────────
-GROQ_KEY      = os.environ["GROQ_API_KEY"]
-GEMINI_KEY    = os.environ["GEMINI_API_KEY"]
-YT_CLIENT_ID  = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
-YT_CLIENT_SEC = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
-YT_REFRESH    = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
-TG_TOKEN      = os.environ["TELEGRAM_TOKEN"]
-TG_CHAT       = os.environ["TELEGRAM_CHAT_ID"]
+# ── Core credentials ──────────────────────────────────────
+GROQ_KEY        = os.environ.get("GROQ_API_KEY", "")
+GEMINI_KEY      = os.environ.get("GEMINI_API_KEY", "")
+CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
+OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
+COHERE_KEY      = os.environ.get("COHERE_API_KEY", "")
+MISTRAL_KEY     = os.environ.get("MISTRAL_API_KEY", "")
+YT_CLIENT_ID    = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
+YT_CLIENT_SEC   = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
+YT_REFRESH      = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
+TG_TOKEN        = os.environ.get("TELEGRAM_TOKEN", "")
+TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-groq_client   = Groq(api_key=GROQ_KEY)
-GEMINI_URL    = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent"
+# ── API endpoints ──────────────────────────────────────────
+GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions"
+OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
+GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
+COHERE_URL      = "https://api.cohere.com/v2/chat"
+MISTRAL_URL     = "https://api.mistral.ai/v1/chat/completions"
+YT_UPLOAD_URL   = "https://www.googleapis.com/upload/youtube/v3"
+YT_DATA_URL     = "https://www.googleapis.com/youtube/v3"
+YT_TOKEN_URL    = "https://oauth2.googleapis.com/token"
+
+# ── Paths — state in REPO (persists between runs) ─────────
+SCRIPT_DIR    = Path(__file__).parent
 WORK_DIR      = Path("/tmp/evidence_room")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
-STATE_FILE    = WORK_DIR / "state.json"
-INTEL_FILE    = WORK_DIR / "intel.json"
+STATE_FILE    = SCRIPT_DIR / "state.json"   # persists in repo
+INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
+CKPT_FILE     = WORK_DIR / "checkpoint.json"
+
+# Cerebras model names to try in order
+CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
 
 W, H, FPS   = 1920, 1080, 30
 MIN_WORDS   = 1800
@@ -182,6 +201,34 @@ DREAD_TRIGGERS = {
 # ════════════════════════════════════════════════════════════
 # UTILITIES
 # ════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════
+# CHECKPOINT / RESUME  (same system as Channel 1)
+# ═══════════════════════════════════════════════════════════
+def ckpt_save(key, value):
+    data = {}
+    try:
+        if CKPT_FILE.exists():
+            data = json.loads(CKPT_FILE.read_text())
+    except: pass
+    data[key] = value
+    CKPT_FILE.write_text(json.dumps(data, indent=2))
+    log(f"  [ckpt] saved: {key}")
+
+def ckpt_load(key):
+    try:
+        if CKPT_FILE.exists():
+            val = json.loads(CKPT_FILE.read_text()).get(key)
+            if val is not None:
+                log(f"  [ckpt] resuming: {key}")
+                return val
+    except: pass
+    return None
+
+def ckpt_clear():
+    try: CKPT_FILE.unlink(missing_ok=True)
+    except: pass
+
 def log(msg): print(msg, flush=True)
 
 def tg(msg):
@@ -237,55 +284,172 @@ def load_intel():
 
 def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 
-def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0"):
-    url = GEMINI_URL if model=="2.0" else GEMINI_LITE_URL
-    for attempt in range(5):
+# ═══════════════════════════════════════════════════════════
+# 6-PROVIDER AI CHAIN — Cerebras → Gemini → Groq → OR → Cohere → Mistral
+# Same architecture as Channel 1 (master_pipeline.py)
+# ═══════════════════════════════════════════════════════════
+
+def _call_cerebras(prompt, tokens=9000):
+    if not CEREBRAS_KEY: return None
+    for model in CEREBRAS_MODELS:
+        try:
+            r = requests.post(CEREBRAS_URL,
+                headers={"Authorization": f"Bearer {CEREBRAS_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_completion_tokens": min(tokens, 12000),
+                      "temperature": 0.88}, timeout=120)
+            if r.status_code == 200:
+                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+                if t and len(t.strip()) > 100:
+                    log(f"  OK Cerebras ({model})")
+                    return t
+            elif r.status_code == 404:
+                continue  # wrong model name, try next
+            else:
+                log(f"  Cerebras {model}: {r.status_code}")
+                break
+        except Exception as e:
+            log(f"  Cerebras: {e}")
+            break
+    return None
+
+def _call_gemini(prompt, tokens=9000):
+    if not GEMINI_KEY: return None
+    for url in [GEMINI_URL, GEMINI_LITE_URL]:
         try:
             r = requests.post(f"{url}?key={GEMINI_KEY}",
-                headers={"Content-Type":"application/json"},
-                json={"contents":[{"parts":[{"text":prompt}]}],
-                      "generationConfig":{"temperature":temp,"maxOutputTokens":min(tokens,8192)},
-                      "safetySettings":[{"category":c,"threshold":"BLOCK_NONE"} for c in
-                          ["HARM_CATEGORY_HARASSMENT","HARM_CATEGORY_HATE_SPEECH",
-                           "HARM_CATEGORY_SEXUALLY_EXPLICIT","HARM_CATEGORY_DANGEROUS_CONTENT"]]},
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": {"temperature": 0.88,
+                                           "maxOutputTokens": min(tokens, 12000)},
+                      "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
+                                         for c in ["HARM_CATEGORY_HARASSMENT",
+                                                   "HARM_CATEGORY_HATE_SPEECH",
+                                                   "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                                   "HARM_CATEGORY_DANGEROUS_CONTENT"]]},
                 timeout=90)
-            if r.status_code==200:
-                c = r.json().get("candidates",[])
-                if c: return c[0]["content"]["parts"][0]["text"]
-            elif r.status_code==429:
-                wait = 60*(attempt+1)
-                log(f"  Gemini {model} 429 — wait {wait}s")
-                time.sleep(wait)
-            else: time.sleep(20)
+            if r.status_code == 200:
+                c = r.json().get("candidates", [])
+                if c:
+                    t = c[0]["content"]["parts"][0]["text"]
+                    if t and len(t.strip()) > 100:
+                        log("  OK Gemini")
+                        return t
+            elif r.status_code == 429:
+                log(f"  Gemini 429 — quota, trying next model...")
+                time.sleep(10)
+            else:
+                log(f"  Gemini {r.status_code}: {r.text[:150]}")
         except Exception as e:
-            log(f"  Gemini {model} err: {str(e)[:60]}")
-            time.sleep(20)
-    raise Exception(f"Gemini {model} failed")
+            log(f"  Gemini: {e}")
+    return None
+
+def _call_groq(prompt, tokens=9000):
+    if not GROQ_KEY: return None
+    try:
+        r = requests.post(GROQ_URL,
+            headers={"Authorization": f"Bearer {GROQ_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "temperature": 0.88,
+                  "max_tokens": min(tokens, 4800)},  # TPM limit is 6000
+            timeout=90)
+        if r.status_code == 200:
+            t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+            if t and len(t.strip()) > 100:
+                log("  OK Groq")
+                return t
+        else:
+            log(f"  Groq {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        log(f"  Groq: {e}")
+    return None
+
+def _call_openrouter(prompt, tokens=9000):
+    if not OPENROUTER_KEY: return None
+    for model in ["meta-llama/llama-3.3-70b-instruct:free",
+                  "microsoft/phi-3-medium-128k-instruct:free",
+                  "meta-llama/llama-3.2-3b-instruct:free"]:
+        try:
+            r = requests.post(OPENROUTER_URL,
+                headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 4000), "temperature": 0.88},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json()["choices"][0]["message"]["content"]
+                if t and len(t.strip()) > 100:
+                    log(f"  OK OpenRouter ({model.split('/')[-1]})")
+                    return t
+        except Exception as e:
+            log(f"  OpenRouter: {e}")
+    return None
+
+def _call_cohere(prompt, tokens=9000):
+    if not COHERE_KEY: return None
+    try:
+        r = requests.post(COHERE_URL,
+            headers={"Authorization": f"Bearer {COHERE_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": "command-r-plus",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": min(tokens, 4000), "temperature": 0.88},
+            timeout=120)
+        if r.status_code == 200:
+            t = r.json().get("message",{}).get("content",[{}])
+            text = t[0].get("text","") if t else ""
+            if text and len(text.strip()) > 100:
+                log("  OK Cohere")
+                return text
+    except Exception as e:
+        log(f"  Cohere: {e}")
+    return None
+
+def _call_mistral(prompt, tokens=9000):
+    if not MISTRAL_KEY: return None
+    try:
+        r = requests.post(MISTRAL_URL,
+            headers={"Authorization": f"Bearer {MISTRAL_KEY}",
+                     "Content-Type": "application/json"},
+            json={"model": "mistral-small-latest",
+                  "messages": [{"role": "user", "content": prompt}],
+                  "max_tokens": min(tokens, 4000), "temperature": 0.88},
+            timeout=120)
+        if r.status_code == 200:
+            t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+            if t and len(t.strip()) > 100:
+                log("  OK Mistral")
+                return t
+    except Exception as e:
+        log(f"  Mistral: {e}")
+    return None
+
+def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
+    """
+    6-provider chain: Cerebras (1M/day) → Gemini → Groq → OpenRouter → Cohere → Mistral
+    10s sleep between failures to avoid cascading rate limits.
+    """
+    providers = [_call_cerebras, _call_gemini, _call_groq,
+                 _call_openrouter, _call_cohere, _call_mistral]
+    for i, fn in enumerate(providers):
+        result = fn(prompt, tokens)
+        if result: return result
+        if i < len(providers) - 1:
+            log(f"  Waiting 10s before next provider...")
+            time.sleep(10)
+    raise Exception("All 6 AI providers failed")
+
+# Compatibility alias
+def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0"):
+    return _call_gemini(prompt, tokens) or ai(prompt, tokens=tokens)
 
 def call_groq(prompt, temp=0.7, tokens=2000):
-    for attempt in range(4):
-        try:
-            r = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role":"user","content":prompt}],
-                temperature=temp, max_tokens=min(tokens,2000))
-            return r.choices[0].message.content
-        except Exception as e:
-            if "429" in str(e) or "rate_limit" in str(e).lower():
-                wait = min(90*(2**attempt),360)
-                log(f"  Groq 429 — wait {wait}s")
-                time.sleep(wait)
-            else: raise
-    raise Exception("Groq failed")
-
-def ai(prompt, temp=0.85, tokens=7000, prefer="gemini"):
-    """Gemini-first. Groq only for small metadata requests."""
-    if tokens > 500:
-        try: return call_gemini(prompt, temp, tokens, "2.0")
-        except: return call_gemini(prompt, temp, tokens, "1.5")
-    else:
-        try: return call_groq(prompt, temp, min(tokens,2000))
-        except: return call_gemini(prompt, temp, tokens, "2.0")
+    return _call_groq(prompt, min(tokens, 4800)) or ai(prompt, tokens=min(tokens, 4800))
 
 def strip_md(text):
     for _ in range(2):
@@ -1136,50 +1300,118 @@ def make_short_with_subs(video_path, script_clean, stype, total_dur):
                         "-c:a","aac","-b:a","128k",raw], capture_output=True, timeout=180)
     if not Path(raw).exists() or Path(raw).stat().st_size<400000:
         log(f"  Short {stype} clip failed"); return None
-    srt = generate_short_srt(script_clean, start, short_dur)
-    if not srt: return raw
-    sub_style = ("FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,"
-                 "OutlineColour=&H00000000,BackColour=&HCC000000,"
-                 "Bold=1,Outline=3,Shadow=1,Alignment=2,MarginL=40,MarginR=40,MarginV=130,BorderStyle=3")
-    subprocess.run(["ffmpeg","-y","-i",raw,f"-vf","subtitles={srt}:force_style='{sub_style}'",
-                    "-c:v","libx264","-preset","fast","-crf","21","-c:a","copy",final],
-                   capture_output=True, timeout=180)
-    if Path(final).exists() and Path(final).stat().st_size>400000:
-        log(f"  Short ({stype}): {Path(final).stat().st_size/1024/1024:.1f}MB + subtitles")
-        if Path(raw).exists(): Path(raw).unlink()
-        return final
-    return raw if Path(raw).exists() else None
+    # Subtitles disabled — timing sync not reliable enough
+    # Short is the raw clip — no subtitle burn
+    log(f"  Short ({stype}): {Path(raw).stat().st_size/1024/1024:.1f}MB — no subtitles")
+    return raw
 
 
 # ════════════════════════════════════════════════════════════
 # STAGE 6: UPLOAD
 # ════════════════════════════════════════════════════════════
+_tok_cache = {"token": None, "expires_at": 0}
+
 def get_yt_token():
-    r = requests.post("https://oauth2.googleapis.com/token",data={
-        "client_id":YT_CLIENT_ID,"client_secret":YT_CLIENT_SEC,
-        "refresh_token":YT_REFRESH,"grant_type":"refresh_token"})
+    now = time.time()
+    if _tok_cache["token"] and now < _tok_cache["expires_at"] - 60:
+        return _tok_cache["token"]
+    r = requests.post(YT_TOKEN_URL,
+        data={"client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SEC,
+              "refresh_token": YT_REFRESH, "grant_type": "refresh_token"}, timeout=30)
     d = r.json()
-    if "access_token" not in d: raise Exception(f"YT token failed: {d}")
+    if "access_token" not in d:
+        raise Exception(f"YT token failed: {d.get('error')} — {d.get('error_description')}")
+    _tok_cache["token"]      = d["access_token"]
+    _tok_cache["expires_at"] = now + d.get("expires_in", 3600)
     return d["access_token"]
 
-def upload_yt(path, title, description, tags, is_short=False):
-    token = get_yt_token()
-    if is_short: title = f"#Shorts {title[:50]}"
+def upload_yt(path, title, description, tags, is_short=False, token=None):
+    """Chunked resumable upload with retry — same as Channel 1."""
+    token = token or get_yt_token()
+    if is_short: title = f"{title[:55]} #Shorts"
+    fs = Path(path).stat().st_size
+    log(f"  Uploading: {Path(path).name} ({fs//(1024*1024)}MB)")
+
     init = requests.post(
-        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-        headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"},
-        json={"snippet":{"title":title,"description":description,"tags":tags,"categoryId":"22"},
-              "status":{"privacyStatus":"public","selfDeclaredMadeForKids":False}})
-    url = init.headers.get("Location")
-    if not url: raise Exception(f"No URL: {init.text[:200]}")
-    sz = Path(path).stat().st_size
-    log(f"  Uploading {sz/1024/1024:.0f}MB...")
-    with open(path,"rb") as f:
-        up = requests.put(url,headers={"Content-Length":str(sz),"Content-Type":"video/mp4"},
-                         data=f,timeout=2400)
-    if up.status_code in [200,201]:
-        return f"https://www.youtube.com/watch?v={up.json().get('id')}"
-    raise Exception(f"Upload {up.status_code}")
+        f"{YT_UPLOAD_URL}/videos?uploadType=resumable&part=snippet,status",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                 "X-Upload-Content-Length": str(fs), "X-Upload-Content-Type": "video/mp4"},
+        json={"snippet": {"title": title[:100], "description": description,
+                          "tags": tags[:15], "categoryId": "22"},
+              "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False,
+                         "madeForKids": False}}, timeout=30)
+    upload_url = init.headers.get("Location")
+    if not upload_url:
+        raise Exception(f"No upload URL: {init.status_code}: {init.text[:200]}")
+
+    CHUNK = 16 * 1024 * 1024
+    uploaded = 0; retries = 0
+    with open(path, "rb") as f:
+        while uploaded < fs:
+            data = f.read(CHUNK)
+            if not data: break
+            end = uploaded + len(data) - 1
+            try:
+                up = requests.put(upload_url,
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Length": str(len(data)),
+                             "Content-Range": f"bytes {uploaded}-{end}/{fs}",
+                             "Content-Type": "video/mp4"},
+                    data=data, timeout=600)
+                if up.status_code in [200, 201]:
+                    vid_id = up.json().get("id")
+                    url = f"https://www.youtube.com/watch?v={vid_id}"
+                    log(f"  Uploaded: {url}")
+                    return url, vid_id
+                elif up.status_code == 308:
+                    rh = up.headers.get("Range", "")
+                    uploaded = int(rh.split("-")[1]) + 1 if rh else uploaded + len(data)
+                    log(f"  {int(uploaded*100/fs)}%"); retries = 0
+                elif up.status_code in [500, 502, 503, 504]:
+                    retries += 1
+                    if retries > 5: raise Exception(f"Server errors x{retries}")
+                    time.sleep(2 ** retries)
+                else:
+                    raise Exception(f"HTTP {up.status_code}: {up.text[:200]}")
+            except requests.exceptions.Timeout:
+                retries += 1
+                if retries > 5: raise Exception("Repeated timeouts")
+                time.sleep(5)
+    raise Exception("Upload ended without completion")
+
+def ensure_playlist(token, niche_name, series_name):
+    """Auto-create per-niche playlist, return playlist_id."""
+    try:
+        r = requests.get(f"{YT_DATA_URL}/playlists",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "mine": "true", "maxResults": 50}, timeout=20)
+        if r.status_code == 200:
+            for item in r.json().get("items", []):
+                if series_name.lower() in item["snippet"]["title"].lower():
+                    return item["id"]
+        r2 = requests.post(f"{YT_DATA_URL}/playlists",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet,status"},
+            json={"snippet": {"title": f"{series_name} — All Cases",
+                              "description": f"Every investigation from {series_name}."},
+                  "status": {"privacyStatus": "public"}}, timeout=20)
+        if r2.status_code == 200:
+            pid = r2.json()["id"]
+            log(f"  Playlist created: {pid}"); return pid
+    except Exception as e: log(f"  Playlist (non-fatal): {e}")
+    return None
+
+def add_to_playlist(token, playlist_id, video_id):
+    if not playlist_id: return
+    try:
+        requests.post(f"{YT_DATA_URL}/playlistItems",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"snippet": {"playlistId": playlist_id,
+                              "resourceId": {"kind": "youtube#video", "videoId": video_id}}},
+            timeout=20)
+        log("  Added to playlist")
+    except Exception as e: log(f"  Playlist add (non-fatal): {e}")
 
 def cleanup():
     for f in ["audio.mp3","audio.wav","raw.mp4","final.mp4",
@@ -1251,31 +1483,62 @@ def main():
     description = (f"Episode {episode} of {niche['series']}.\n{topic}\n\n"
                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
                    f"Subscribe to The Evidence Room.")
+    token_yt = get_yt_token()
+    # Playlist for this niche
+    playlist_id = state.get("playlists", {}).get(niche["name"])
+    if not playlist_id:
+        playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
+        if playlist_id:
+            pl = state.get("playlists", {})
+            pl[niche["name"]] = playlist_id
+            state["playlists"] = pl
+
     try:
-        yt_url = upload_yt(video_path, title_str, description, tags, is_short=False)
+        yt_url, vid_id = upload_yt(video_path, title_str, description, tags,
+                                   is_short=False, token=token_yt)
+        add_to_playlist(token_yt, playlist_id, vid_id)
         log(f"  Main: {yt_url}")
     except Exception as e:
         tg(f"Evidence Room Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
 
-    # 2 Shorts WITH subtitles
-    shorts = []
-    for stype in ["teaser","recap"]:
-        try:
-            sp = make_short_with_subs(video_path, script_clean, stype, duration)
-            if sp:
-                su = upload_yt(sp, f"{title_str[:46]} — {stype.upper()}", description, tags, is_short=True)
+    # 2 Shorts — MANDATORY, 3 attempts each, no silent failures
+    shorts = []; token_yt = get_yt_token()
+    for stype in ["teaser", "recap"]:
+        success = False; last_err = None
+        for attempt in range(1, 4):
+            try:
+                log(f"  Creating Short ({stype}) attempt {attempt}/3...")
+                sp = make_short_with_subs(video_path, script_clean, stype, duration)
+                if not sp or not Path(sp).exists() or Path(sp).stat().st_size < 400000:
+                    raise RuntimeError(f"Short ({stype}) file too small or missing")
+                log(f"  Uploading Short ({stype}) attempt {attempt}/3...")
+                su, sid = upload_yt(
+                    sp, f"{title_str[:46]} — {stype.upper()}",
+                    description, tags, is_short=True, token=token_yt)
+                add_to_playlist(token_yt, playlist_id, sid)
                 shorts.append(f"Short {stype}: {su}")
-                log(f"  {shorts[-1]}")
-        except Exception as e: log(f"  Short {stype} err: {e}")
+                log(f"  OK Short {stype}: {su}")
+                success = True; break
+            except Exception as e:
+                last_err = e
+                log(f"  Short {stype} attempt {attempt} failed: {e}")
+                if attempt < 3: time.sleep(10)
+        if not success:
+            raise RuntimeError(
+                f"CRITICAL: Short ({stype}) failed after 3 attempts. "
+                f"Last error: {last_err}. Both Shorts are required every run.")
 
     cleanup()
+    ckpt_clear()
 
     # Update state
-    state["last_style"] = style_name
-    state["last_niche"]  = niche["name"]
-    state["last_voice"]  = voice_used
-    state["last_title"]  = title_str
-    state["last_url"]    = yt_url
+    state["last_style"]    = style_name
+    state["last_niche"]    = niche["name"]
+    state["last_voice"]    = voice_used
+    state["last_title"]    = title_str
+    state["last_url"]      = yt_url
+    state["total_uploads"] = state.get("total_uploads", 0) + 1
+    state["total_shorts"]  = state.get("total_shorts", 0) + len(shorts)
     save_state(state)
 
     dec = "APPROVED" if decision=="approved" else "AUTO-APPROVED"
