@@ -1,38 +1,83 @@
-name: The Evidence Room — Animated Pipeline
+name: The Evidence Room — Animated Pipeline v3.0
 
 on:
   schedule:
-    - cron: "0 5 * * 1"   # Monday    10:30 AM IST (2hrs after Ch1)
+    - cron: "0 5 * * 1"   # Monday    10:30 AM IST
     - cron: "0 5 * * 2"   # Tuesday   10:30 AM IST
     - cron: "0 5 * * 3"   # Wednesday 10:30 AM IST
     - cron: "0 5 * * 4"   # Thursday  10:30 AM IST
     - cron: "0 5 * * 5"   # Friday    10:30 AM IST
   workflow_dispatch:
+    inputs:
+      is_makeup:
+        description: 'Resume from checkpoint'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+env:
+  PYTHONUNBUFFERED: "1"
 
 jobs:
 
   make-animated-video:
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    permissions:
+      contents: write   # needed to commit state.json + intel.json back to repo
+
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
 
-      - name: Install dependencies
+      - name: System dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-dejavu -qq
-          pip install groq requests edge-tts pillow matplotlib numpy --break-system-packages -q
+          sudo apt-get install -y ffmpeg fonts-dejavu imagemagick -qq
 
-      - name: Run Evidence Room pipeline
+      - name: Python dependencies
+        run: |
+          pip install \
+            requests \
+            edge-tts \
+            pillow \
+            matplotlib \
+            numpy \
+            --break-system-packages -q
+
+      - name: Run Evidence Room pipeline v3.0
         env:
-          PYTHONUNBUFFERED:            "1"
-          GROQ_API_KEY:                ${{ secrets.GROQ_API_KEY }}
+          # AI Providers — 6-layer fallback chain (Cerebras first)
+          CEREBRAS_API_KEY:            ${{ secrets.CEREBRAS_API_KEY }}
           GEMINI_API_KEY:              ${{ secrets.GEMINI_API_KEY }}
-          EVIDENCE_YT_CLIENT_ID:      ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
-          EVIDENCE_YT_CLIENT_SECRET:  ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
-          EVIDENCE_YT_REFRESH_TOKEN:  ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          GROQ_API_KEY:                ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY:          ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY:              ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:             ${{ secrets.MISTRAL_API_KEY }}
+
+          # YouTube — Channel 2 credentials
+          EVIDENCE_YT_CLIENT_ID:       ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
+          EVIDENCE_YT_CLIENT_SECRET:   ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
+          EVIDENCE_YT_REFRESH_TOKEN:   ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+
+          # Notifications
           TELEGRAM_TOKEN:              ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:            ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_APP_PASSWORD:          ${{ secrets.GMAIL_APP_PASSWORD }}
+
+          IS_MAKEUP:                   ${{ github.event.inputs.is_makeup || 'false' }}
+
         run: python -u channels/evidence_room/evidence_room_pipeline.py
+
+      - name: Commit state + intel to repo
+        if: always()
+        run: |
+          git config user.name  "Evidence Room Bot"
+          git config user.email "bot@evidenceroom.local"
+          git add channels/evidence_room/state.json || true
+          git add channels/evidence_room/intel.json || true
+          git diff --staged --quiet || git commit -m "chore: evidence-room state update [skip ci]"
+          git push || echo "nothing to push"
