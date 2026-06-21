@@ -1257,14 +1257,9 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     has_mus  = music_path and Path(music_path).exists()
     has_sub  = ass_path and Path(ass_path).exists()
 
-    vf_scale = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-                 "pad=1280:720:(ow-iw)/2:(oh-ih)/2")
-    if has_sub:
-        safe = ass_path.replace("\\", "\\\\").replace(":", "\\:")
-        vf   = f"{vf_scale},subtitles='{safe}'"
-        log(f"  Burning captions from: {ass_path}")
-    else:
-        vf = vf_scale
+    # Subtitles disabled — timing sync not reliable enough for dark content
+    vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
+          "pad=1280:720:(ow-iw)/2:(oh-ih)/2")
 
     if has_mus:
         cmd = [
@@ -1352,25 +1347,10 @@ def create_short(narration_path, bg_path, music_path, ass_path,
     has_mus = music_path and Path(music_path).exists()
     has_sub = ass_path and Path(ass_path).exists()
 
-    # Create time-offset subtitle file for this Short
-    # Subtitles must start at 0 relative to the Short, not the full video
-    short_ass = None
-    if has_sub:
-        short_ass_path = str(WORK_DIR / f"{label}_captions.ass")
-        if _offset_ass_subtitles(ass_path, start_sec, short_ass_path):
-            short_ass = short_ass_path
-            log(f"  Subtitles offset by {start_sec:.1f}s for {label}")
-        else:
-            log(f"  Subtitle offset failed — Short will have no subtitles")
-
-    vf_crop = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-               "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-               "crop=405:720:(iw-405)/2:0,scale=1080:1920")
-    if short_ass:
-        safe = short_ass.replace("\\", "\\\\").replace(":", "\\:")
-        vf   = f"{vf_crop},subtitles='{safe}'"
-    else:
-        vf = vf_crop
+    # Subtitles disabled on Shorts — timing sync not reliable
+    vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
+          "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+          "crop=405:720:(iw-405)/2:0,scale=1080:1920")
 
     if has_mus:
         cmd = [
