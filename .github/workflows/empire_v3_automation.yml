@@ -80,6 +80,8 @@ jobs:
           OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY }}
           COHERE_API_KEY:       ${{ secrets.COHERE_API_KEY }}
           MISTRAL_API_KEY:      ${{ secrets.MISTRAL_API_KEY }}
+          SAMBANOVA_API_KEY:    ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY_2:     ${{ secrets.GEMINI_API_KEY_2 }}
 
           # Premium TTS (optional — edge-tts used if missing)
           ELEVENLABS_API_KEY:   ${{ secrets.ELEVENLABS_API_KEY }}
@@ -107,6 +109,7 @@ jobs:
           git config user.name  "DeepDive Bot"
           git config user.email "bot@deepdive.local"
           git add video_pipeline/state.json || true
+          git add video_pipeline/checkpoint.json || true
           git diff --staged --quiet || git commit -m "chore: state update ep$(python3 -c "import json; d=json.load(open('video_pipeline/state.json')); print(d.get('episode_count',0))" 2>/dev/null || echo '?') [skip ci]"
           git push || echo "nothing to push"
 
