@@ -225,6 +225,142 @@ Be extremely specific. Give exact topic suggestions, not categories. Max 300 wor
     return ai(prompt, tokens=600) or "Strategy generation unavailable."
 
 # ── MAIN ──────────────────────────────────────────────────────
+
+# ================================================================
+# RETENTION ANALYSIS
+# Pulls per-video retention curves from YouTube Analytics API.
+# Maps drop-off timestamps to script stages.
+# Writes specific stage fixes to next_week_strategy.json.
+# ================================================================
+
+def get_video_retention(token, video_id):
+    """
+    Pull audience retention curve for a specific video.
+    Returns list of (elapsed_ratio, watch_ratio) tuples.
+    elapsed_ratio: 0.0 to 1.0 (position in video)
+    watch_ratio:   0.0 to 1.0 (fraction still watching)
+    """
+    try:
+        r = requests.get(
+            "https://youtubeanalytics.googleapis.com/v2/reports",
+            headers={"Authorization": f"Bearer {token}"},
+            params={
+                "ids":        "channel==MINE",
+                "metrics":    "audienceWatchRatio",
+                "dimensions": "elapsedVideoTimeRatio",
+                "filters":    f"video=={video_id}",
+                "sort":       "elapsedVideoTimeRatio",
+            }, timeout=20)
+        if r.status_code == 200:
+            rows = r.json().get("rows", [])
+            return [(float(row[0]), float(row[1])) for row in rows]
+        elif r.status_code == 403:
+            log(f"  Retention: Analytics API not enabled (need YouTube Analytics scope)")
+        else:
+            log(f"  Retention {r.status_code}: {r.text[:100]}")
+    except Exception as e:
+        log(f"  Retention error (non-fatal): {e}")
+    return []
+
+
+def find_retention_dropoffs(retention_curve):
+    """
+    Find the 3 biggest drop-off points in the retention curve.
+    A drop-off is where the retention falls fastest — viewers leaving.
+    Returns list of (elapsed_ratio, drop_magnitude) sorted by magnitude.
+    """
+    if len(retention_curve) < 5:
+        return []
+    dropoffs = []
+    for i in range(1, len(retention_curve) - 1):
+        elapsed, current = retention_curve[i]
+        _, prev = retention_curve[i - 1]
+        drop = prev - current
+        if drop > 0.005:  # meaningful drop (> 0.5% of remaining viewers)
+            dropoffs.append((elapsed, drop))
+    # Sort by magnitude, return top 3
+    dropoffs.sort(key=lambda x: x[1], reverse=True)
+    return dropoffs[:3]
+
+
+def map_retention_to_stage(elapsed_ratio):
+    """
+    Map a timestamp (as fraction of video) to the script stage
+    that was playing at that point. Uses STAGE_WORDS proportions.
+    """
+    stage_words = [100, 200, 250, 400, 200, 650, 200]
+    stage_names = [
+        "Cold Open", "The Before", "First Signals",
+        "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"
+    ]
+    total = sum(stage_words)
+    cumulative = 0
+    for i, (words, name) in enumerate(zip(stage_words, stage_names)):
+        cumulative += words
+        if elapsed_ratio <= cumulative / total:
+            return i + 1, name
+    return 7, "Implication + CTA"
+
+
+def generate_stage_fix(stage_num, stage_name, drop_magnitude, ai_fn):
+    """
+    Use AI to generate a specific fix for the underperforming stage.
+    """
+    severity = "slightly" if drop_magnitude < 0.03 else "significantly"
+    prompt = f"""Stage {stage_num} ({stage_name}) of our dark documentary scripts is {severity} losing viewers.
+
+Common reasons viewers leave at this stage:
+- Pacing too slow (too many similar sentences in a row)
+- Not enough new information being revealed
+- Tension deflated (contradiction between tone and content)
+- Too vague (lacks specific details, dates, numbers)
+
+Write ONE specific instruction (max 30 words) for how to fix Stage {stage_name} in next week's script.
+Be specific about what to change. Return only the instruction."""
+
+    result = ai_fn(prompt, tokens=100)
+    if result:
+        return result.strip()[:200]
+    return f"Add more specific evidence and shorten sentences in the {stage_name} stage."
+
+
+def analyse_channel_retention(token, video_ids, details, ai_fn):
+    """
+    Analyse retention for all videos this week.
+    Returns dict of stage fixes to apply next week.
+    """
+    stage_drops = {}  # stage_num -> list of drop magnitudes
+    total_videos_analysed = 0
+
+    for vid_id in video_ids[:5]:  # analyse up to 5 videos
+        curve = get_video_retention(token, vid_id)
+        if not curve:
+            continue
+        total_videos_analysed += 1
+        dropoffs = find_retention_dropoffs(curve)
+        for elapsed, magnitude in dropoffs:
+            stage_num, stage_name = map_retention_to_stage(elapsed)
+            if stage_num not in stage_drops:
+                stage_drops[stage_num] = {"drops": [], "name": stage_name}
+            stage_drops[stage_num]["drops"].append(magnitude)
+
+    if not stage_drops:
+        log("  Retention: no drop-off data yet (need more video views)")
+        return {}, total_videos_analysed
+
+    # Average the drops across videos, find worst stage
+    stage_fixes = {}
+    worst_stage = max(stage_drops.items(),
+                      key=lambda x: sum(x[1]["drops"]) / len(x[1]["drops"]))
+    stage_num, data = worst_stage
+    avg_drop = sum(data["drops"]) / len(data["drops"])
+    fix = generate_stage_fix(stage_num, data["name"], avg_drop, ai_fn)
+    stage_fixes[data["name"]] = fix
+    log(f"  Retention: worst stage = {data['name']} (avg drop {avg_drop:.1%})")
+    log(f"  Fix: {fix[:80]}")
+
+    return stage_fixes, total_videos_analysed
+
 def main():
     log("=" * 60)
     log("DeepDive Empire — Weekly Self-Improvement Engine")
@@ -249,6 +385,12 @@ def main():
     rows = get_own_analytics(token)
     video_ids = [r[0] for r in rows[:10]] if rows else []
     details   = get_video_details(token, video_ids)
+
+    # Retention analysis — find which script stages lose viewers
+    log("\n[1b] Analysing viewer retention curves...")
+    stage_fixes, vids_analysed = analyse_channel_retention(
+        token, video_ids, details, ai)
+    log(f"  Analysed {vids_analysed} videos for retention data")
     own_perf_lines = []
     for d in details[:5]:
         t   = d["snippet"]["title"][:50]
@@ -299,6 +441,11 @@ def main():
         f"<b>{n.replace('_',' ').upper()}</b>\n{a[:300]}"
         for n, a in list(competitor_analyses.items())[:3])
 
+    stage_fix_str = "\n".join(
+        f"  Stage fix → {name}: {fix[:80]}"
+        for name, fix in stage_fixes.items()
+    ) or "Not enough view data yet (need 100+ views per video)"
+
     report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report</b>
 Week ending {datetime.date.today().strftime('%B %d, %Y')}
 
@@ -319,6 +466,9 @@ Latest: {last_title[:55]}
 <b>NEXT WEEK STRATEGY</b>
 {strategy[:800]}
 
+<b>RETENTION ANALYSIS</b>
+{stage_fix_str}
+
 <b>SYSTEM STATUS</b>
 ✅ Intel recalibrated for next week
 ✅ Title scoring model updated
@@ -328,13 +478,19 @@ Auto-improvement complete. Next run: Sunday."""
 
     # ── Write strategy file for pipelines to consume next week ──
     strategy_data = {
-        "generated_date":       datetime.date.today().isoformat(),
-        "strategy":             strategy,
-        "competitor_patterns":  combined_patterns[:2000],
+        "generated_date":        datetime.date.today().isoformat(),
+        "strategy":              strategy,
+        "competitor_patterns":   combined_patterns[:2000],
         "top_competitor_titles": [v["title"] for vids in all_competitor_data.values()
                                    for v in vids[:3]],
-        "recommended_topics":   [],   # populated by AI below
-        "winning_hook_format":  "",
+        "recommended_topics":    [],   # populated by AI below
+        "winning_hook_format":   "",
+        "stage_fixes":           stage_fixes,    # retention-based script improvements
+        "retention_note":        (
+            f"Analysed {vids_analysed} videos. "
+            + (f"Fix priority: {list(stage_fixes.keys())}"
+               if stage_fixes else "Not enough views yet for retention data.")
+        ),
     }
     # Extract specific topic recommendations from strategy text
     topic_prompt = f"""From this strategy document, extract:
