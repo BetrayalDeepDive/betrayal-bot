@@ -34,6 +34,8 @@ PEXELS_KEY     = os.environ.get("PEXELS_API_KEY", "")
 ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 COHERE_KEY     = os.environ.get("COHERE_API_KEY", "")
 MISTRAL_KEY    = os.environ.get("MISTRAL_API_KEY", "")
+SAMBANOVA_KEY  = os.environ.get("SAMBANOVA_API_KEY", "")
+GEMINI_KEY_2   = os.environ.get("GEMINI_API_KEY_2", "")  # backup Gemini key
 YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID", "")
 YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
 YT_REFRESH     = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
@@ -59,7 +61,7 @@ SCRIPT_DIR = Path(__file__).parent
 WORK_DIR   = Path("/tmp/deepdive")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = SCRIPT_DIR / "state.json"
-CKPT_FILE  = WORK_DIR / "checkpoint.json"
+CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner restarts
 
 # ================================================================
 # CONFIG
@@ -340,12 +342,13 @@ CEREBRAS_MODELS = [
 def call_cerebras(prompt, tokens=8000):
     """
     Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
-    URL + models hardcoded inside function — never relies on module scope.
+    URL + models hardcoded — never relies on module scope.
+    401 = bad key. 404 = wrong model name. 429 = rate limit.
     """
     if not CEREBRAS_KEY:
-        log("  Cerebras: SKIPPED — CEREBRAS_API_KEY not in GitHub Secrets")
+        log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
         return None
-    _url = "https://api.cerebras.ai/v1/chat/completions"
+    _url    = "https://api.cerebras.ai/v1/chat/completions"
     _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
@@ -360,8 +363,13 @@ def call_cerebras(prompt, tokens=8000):
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) > 100:
-                    log(f"OK Cerebras ({model})")
+                    log(f"  OK Cerebras ({model})")
                     return t
+            elif r.status_code == 401:
+                log("  Cerebras 401 UNAUTHORIZED — API key is WRONG or EXPIRED.")
+                log("  Fix: go to https://cloud.cerebras.ai/ → API Keys → create new key")
+                log("  Then update CEREBRAS_API_KEY in GitHub Secrets.")
+                return None  # Wrong key — no point trying other model names
             elif r.status_code == 404:
                 log(f"  Cerebras {model}: 404 (wrong model name, trying next)")
                 continue
@@ -390,32 +398,50 @@ def call_groq(prompt, tokens=8000):
     return None
 
 def call_gemini(prompt, tokens=8000):
-    if not GEMINI_KEY: return None
+    """
+    Tries primary GEMINI_API_KEY first.
+    If 429 quota exhausted, tries backup GEMINI_API_KEY_2.
+    Create a second Google Cloud project for a free second key — doubles quota.
+    """
+    keys = [k for k in [GEMINI_KEY, GEMINI_KEY_2] if k]
+    if not keys:
+        log("  Gemini: GEMINI_API_KEY not set")
+        return None
     base = "https://generativelanguage.googleapis.com/v1beta/models"
-    for model in GEMINI_MODELS:
-        try:
-            url = f"{base}/{model}:generateContent?key={GEMINI_KEY}"
-            r = requests.post(url,
-                headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
-                      "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
-                timeout=90)
-            if r.status_code == 200:
-                c = r.json().get("candidates", [])
-                if c:
-                    t = c[0]["content"]["parts"][0]["text"]
-                    if t and len(t.strip()) > 100:
-                        log(f"OK Gemini ({model})")
-                        return t
-            else:
-                log(f"Gemini {model}: {r.status_code} | {r.text[:300]}")
-                if r.status_code == 429:
-                    log(f"  Gemini quota exhausted for today — resets at midnight PT")
-                    time.sleep(15)
-                elif r.status_code in [400, 404]: break  # wrong model — try next
-        except Exception as e:
-            log(f"Gemini {model}: {e}")
+    for key_idx, active_key in enumerate(keys):
+        key_label = "primary" if key_idx == 0 else "backup"
+        quota_hit = False
+        for model in GEMINI_MODELS:
+            try:
+                url = f"{base}/{model}:generateContent?key={active_key}"
+                r = requests.post(url,
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt}]}],
+                          "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
+                          "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
+                    timeout=90)
+                if r.status_code == 200:
+                    c = r.json().get("candidates", [])
+                    if c:
+                        t = c[0]["content"]["parts"][0]["text"]
+                        if t and len(t.strip()) > 100:
+                            log(f"  OK Gemini ({model})")
+                            return t
+                elif r.status_code == 429:
+                    log(f"  Gemini ({key_label}) quota exhausted — resets midnight PT")
+                    if key_idx == 0 and GEMINI_KEY_2:
+                        log("  Trying backup Gemini key (GEMINI_API_KEY_2)...")
+                    quota_hit = True
+                    break  # break model loop, try next key
+                elif r.status_code in [400, 404]:
+                    log(f"  Gemini {model}: {r.status_code} — skipping model")
+                    break
+                else:
+                    log(f"  Gemini {model}: {r.status_code} | {r.text[:200]}")
+            except Exception as e:
+                log(f"  Gemini {model}: {e}")
+        if not quota_hit:
+            break  # succeeded or non-quota failure — don't try backup key
     return None
 
 # Free models on OpenRouter — try in order until one responds
@@ -489,6 +515,44 @@ def call_cohere(prompt, tokens=8000):
 # ================================================================
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 
+
+def call_sambanova(prompt, tokens=8000):
+    """
+    SambaNova Cloud — free tier, no daily quota wall, llama-3.3-70b.
+    Sign up free at https://cloud.sambanova.ai — takes 2 minutes.
+    Add SAMBANOVA_API_KEY to GitHub Secrets.
+    1,000 requests/day free. Fast inference.
+    """
+    if not SAMBANOVA_KEY:
+        log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
+        return None
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+        try:
+            r = requests.post(SAMBANOVA_URL,
+                headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 8192),
+                      "temperature": 0.88},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+                if t and len(t.strip()) > 100:
+                    log(f"  OK SambaNova ({model.split('-')[2]})")
+                    return t
+            elif r.status_code == 401:
+                log("  SambaNova 401 — API key invalid. Check SAMBANOVA_API_KEY secret.")
+                return None
+            elif r.status_code == 429:
+                log("  SambaNova 429 — daily limit reached")
+                return None
+            else:
+                log(f"  SambaNova {r.status_code}: {r.text[:120]}")
+        except Exception as e:
+            log(f"  SambaNova: {e}")
+    return None
+
 def call_mistral(prompt, tokens=8000):
     """Mistral AI free tier — reliable European servers, strong at structured writing."""
     if not MISTRAL_KEY:
@@ -519,7 +583,10 @@ def ai_generate(prompt, tokens=8000):
     Provider order: Cerebras → Gemini → Groq → OpenRouter → Cohere → Mistral
     6 layers of fallback. Sleep 10s between failures.
     """
-    providers = [call_cerebras, call_gemini, call_groq, call_openrouter, call_cohere, call_mistral]
+    # Provider order: primary free → backup free → quota-based → fallbacks
+    # SambaNova is between Cerebras and Gemini — same quality, no quota wall
+    providers = [call_cerebras, call_sambanova, call_gemini,
+                 call_groq, call_openrouter, call_cohere, call_mistral]
     for i, fn in enumerate(providers):
         r = fn(prompt, tokens)
         if r: return r
@@ -2636,6 +2703,54 @@ def cleanup():
 # ================================================================
 # MAIN PIPELINE
 # ================================================================
+
+def run_provider_health_check():
+    """
+    Tests all AI providers at pipeline startup.
+    Fires BEFORE script generation so you see exactly what works.
+    Results sent to Telegram so you can see them in the approval gate.
+    """
+    log("\n" + "="*65)
+    log("  AI PROVIDER HEALTH CHECK")
+    log("="*65)
+    test = "Reply with exactly: OK"
+    results = {}
+
+    checks = [
+        ("Cerebras",    call_cerebras),
+        ("SambaNova",   call_sambanova),
+        ("Gemini",      call_gemini),
+        ("Groq",        call_groq),
+        ("OpenRouter",  call_openrouter),
+        ("Cohere",      call_cohere),
+        ("Mistral",     call_mistral),
+    ]
+    working = []
+    for name, fn in checks:
+        try:
+            r = fn(test, tokens=50)
+            status = "✅ WORKING" if r else "❌ NO RESPONSE"
+            if r: working.append(name)
+        except Exception as e:
+            status = f"❌ ERROR: {str(e)[:60]}"
+        results[name] = status
+        log(f"  {name:12s}: {status}")
+
+    log("="*65)
+
+    # Alert to Telegram so Mohammed can see it without checking logs
+    status_lines = "\n".join(f"  {n}: {s}" for n, s in results.items())
+    if len(working) == 0:
+        tg(f"🚨 CRITICAL: ALL AI PROVIDERS FAILED\n{status_lines}\n\nPipeline cannot continue.")
+        raise RuntimeError("All AI providers failed health check")
+    elif len(working) < 3:
+        tg(f"⚠️ Only {len(working)} AI provider(s) working:\n{status_lines}")
+    else:
+        log(f"  {len(working)}/7 providers working — OK to proceed")
+
+    return working
+
+
 def main():
     log("=" * 70)
     log("DEEPDIVE EMPIRE v11.0 — ULTIMATE ENGINE")
