@@ -66,7 +66,7 @@ WORK_DIR      = Path("/tmp/evidence_room")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE    = SCRIPT_DIR / "state.json"   # persists in repo
 INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
-CKPT_FILE     = WORK_DIR / "checkpoint.json"
+CKPT_FILE     = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner restarts
 
 # Cerebras model names to try in order
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
