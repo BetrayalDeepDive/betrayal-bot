@@ -42,8 +42,6 @@ CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
 OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
 COHERE_KEY      = os.environ.get("COHERE_API_KEY", "")
 MISTRAL_KEY     = os.environ.get("MISTRAL_API_KEY", "")
-SAMBANOVA_KEY   = os.environ.get("SAMBANOVA_API_KEY", "")
-GEMINI_KEY_2    = os.environ.get("GEMINI_API_KEY_2", "")  # backup key
 YT_CLIENT_ID    = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
 YT_CLIENT_SEC   = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
 YT_REFRESH      = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
@@ -58,7 +56,6 @@ OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
 COHERE_URL      = "https://api.cohere.com/v2/chat"
 MISTRAL_URL     = "https://api.mistral.ai/v1/chat/completions"
-SAMBANOVA_URL   = "https://api.sambanova.ai/v1/chat/completions"
 YT_UPLOAD_URL   = "https://www.googleapis.com/upload/youtube/v3"
 YT_DATA_URL     = "https://www.googleapis.com/youtube/v3"
 YT_TOKEN_URL    = "https://oauth2.googleapis.com/token"
@@ -69,7 +66,7 @@ WORK_DIR      = Path("/tmp/evidence_room")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE    = SCRIPT_DIR / "state.json"   # persists in repo
 INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
-CKPT_FILE     = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner restarts
+CKPT_FILE     = WORK_DIR / "checkpoint.json"
 
 # Cerebras model names to try in order
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
@@ -259,12 +256,37 @@ def tg(msg):
 
 def tg_updates(offset=None):
     try:
-        params = {"timeout":25}
+        params = {"timeout": 25, "allowed_updates": ["message","callback_query"]}
         if offset: params["offset"] = offset
         r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
-                        params=params, timeout=30)
-        return r.json().get("result",[])
+                         params=params, timeout=30)
+        return r.json().get("result", [])
     except: return []
+
+def tg_buttons(text, chat_id=None):
+    """Send Telegram message with APPROVE / REJECT / CHANGE inline buttons."""
+    keyboard = {"inline_keyboard": [[
+        {"text": "✅ APPROVE",        "callback_data": "approved"},
+        {"text": "❌ REJECT",         "callback_data": "rejected"},
+        {"text": "✏️ CHANGE TITLE",   "callback_data": "change"},
+    ]]}
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": chat_id or TG_CHAT,
+                  "text": text, "parse_mode": "HTML",
+                  "reply_markup": keyboard}, timeout=15)
+        return r.json().get("result", {}).get("message_id")
+    except Exception as e:
+        log(f"  tg_buttons error: {e}")
+        return None
+
+def tg_answer_callback(callback_id, answer_text="Got it"):
+    """Dismiss the spinning loader on the button after it's pressed."""
+    try:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_id, "text": answer_text}, timeout=10)
+    except: pass
 
 def send_gmail(subject, html_body):
     pwd = os.environ.get("GMAIL_APP_PASSWORD","")
@@ -324,10 +346,6 @@ def _call_cerebras(prompt, tokens=9000):
                 if t and len(t.strip()) > 100:
                     log(f"  OK Cerebras ({model})")
                     return t
-            elif r.status_code == 401:
-                log("  Cerebras 401 UNAUTHORIZED — key is WRONG/EXPIRED.")
-                log("  Fix: https://cloud.cerebras.ai/ → API Keys → new key → update GitHub Secret")
-                return None
             elif r.status_code == 404:
                 continue  # wrong model name, try next
             else:
@@ -441,38 +459,6 @@ def _call_cohere(prompt, tokens=9000):
                 return text
     except Exception as e:
         log(f"  Cohere: {e}")
-    return None
-
-
-def _call_sambanova(prompt, tokens=9000):
-    """SambaNova — free tier, 1000 req/day, llama-3.3-70b. Sign up at cloud.sambanova.ai"""
-    if not SAMBANOVA_KEY:
-        log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
-        return None
-    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
-        try:
-            r = requests.post(SAMBANOVA_URL,
-                headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
-                         "Content-Type": "application/json"},
-                json={"model": model,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 8192),
-                      "temperature": 0.88}, timeout=90)
-            if r.status_code == 200:
-                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
-                    log(f"  OK SambaNova ({model.split('-')[2]})")
-                    return t
-            elif r.status_code == 401:
-                log("  SambaNova 401 — API key invalid. Check SAMBANOVA_API_KEY secret.")
-                return None
-            elif r.status_code == 429:
-                log("  SambaNova 429 — daily limit reached")
-                return None
-            else:
-                log(f"  SambaNova {r.status_code}: {r.text[:100]}")
-        except Exception as e:
-            log(f"  SambaNova: {e}")
     return None
 
 def _call_mistral(prompt, tokens=9000):
@@ -621,8 +607,8 @@ def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     6-provider chain: Cerebras (1M/day) → Gemini → Groq → OpenRouter → Cohere → Mistral
     10s sleep between failures to avoid cascading rate limits.
     """
-    providers = [_call_cerebras, _call_sambanova, _call_gemini,
-                 _call_groq, _call_openrouter, _call_cohere, _call_mistral]
+    providers = [_call_cerebras, _call_gemini, _call_groq,
+                 _call_openrouter, _call_cohere, _call_mistral]
     for i, fn in enumerate(providers):
         result = fn(prompt, tokens)
         if result: return result
@@ -1090,6 +1076,21 @@ def run_stage1(state):
         if attempt in [1,5,9]:
             thumbnail_text     = generate_thumbnail_text(niche, topic, intel)
             title_str, tscores = generate_and_score_titles(niche, topic, intel, episode)
+            # Title CTR gate — minimum 6.5/10, regenerate if below
+            if tscores and tscores[0][1] < 6.5:
+                log(f"  Title gate FAIL: {tscores[0][1]}/10 < 6.5 — regenerating titles...")
+                regen = ai(
+                    f"Generate 5 stronger YouTube titles for: {topic}\n"
+                    f"Niche: {niche['name']}\n"
+                    f"Rules: Start with a NUMBER. Be specific, dark, visceral. Under 70 chars.\n"
+                    f"Must score 7+/10 CTR. Return 5 titles, one per line.", tokens=300)
+                if regen:
+                    new_titles = [l.strip() for l in regen.splitlines() if len(l.strip()) > 15][:5]
+                    new_scored = generate_and_score_titles(niche, new_titles[0] if new_titles else topic, intel, episode)[1] if new_titles else tscores
+                    if new_scored and new_scored[0][1] > tscores[0][1]:
+                        tscores  = new_scored
+                        title_str = new_scored[0][0]
+                        log(f"  Title regenerated: {new_scored[0][1]}/10 — {title_str[:50]}")
             best_thumbnail = thumbnail_text
             best_title_str = title_str
             best_title_scores = tscores
@@ -1147,17 +1148,23 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
     top_titles   = "\n".join(f"  {s}/10: {t[:55]}" for t,s in title_scores[:3])
     preview      = script_clean[:450].replace("<","").replace(">","")
 
-    tg(f"EVIDENCE ROOM APPROVAL NEEDED\n\n"
-       f"Title: {title_str}\n\n"
-       f"Niche: {niche['name']} | RPM: ${niche['rpm']}\n"
-       f"Style: {STYLES[style_name]['desc']}\n"
-       f"Voice: {voice}\n"
-       f"Script: {len(script_clean.split())}w | Score: {score}/10\n"
-       f"Thumbnail: {thumbnail_text}\n\n"
-       f"Auto-uploads at {deadline_str}\n"
-       f"Reply APPROVE or REJECT")
+    approval_text = (
+        f"🔬 <b>EVIDENCE ROOM — APPROVAL NEEDED</b>\n\n"
+        f"📌 <b>Title:</b> {title_str}\n\n"
+        f"🎯 <b>Niche:</b> {niche['name']} | ${niche['rpm']} RPM\n"
+        f"🎨 <b>Style:</b> {STYLES[style_name]['desc']}\n"
+        f"🎙️ <b>Voice:</b> {voice}\n"
+        f"📝 <b>Script:</b> {len(script_clean.split())}w | {score}/10\n"
+        f"🖼️ <b>Thumbnail:</b> {thumbnail_text}\n\n"
+        f"📊 <b>Title CTR Scores:</b>\n{top_titles}\n\n"
+        f"⏰ Auto-uploads at {deadline_str}\n\n"
+        f"👇 <b>Press a button or reply: APPROVE / REJECT / CHANGE</b>"
+    )
+    # Send with inline buttons
+    tg_buttons(approval_text)
     time.sleep(1)
-    tg(f"TITLE CTR SCORES:\n{top_titles}\n\nSCRIPT PREVIEW:\n{preview}...")
+    # Send script preview as separate message
+    tg(f"📖 <b>Script Preview:</b>\n<code>{preview}...</code>")
 
     html = f"""<!DOCTYPE html><html><body style="background:#0a0a0f;color:#e0e0e0;font-family:Arial,sans-serif;padding:20px;">
 <div style="max-width:660px;margin:0 auto;background:#12121a;border:1px solid #2a2a3a;border-radius:8px;overflow:hidden;">
@@ -1192,12 +1199,30 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
     while datetime.datetime.now() < deadline:
         time.sleep(30)
         for u in tg_updates(offset):
-            offset = u["update_id"]+1
+            offset = u["update_id"] + 1
+            # Button press handler
+            if "callback_query" in u:
+                cb   = u["callback_query"]
+                data = cb.get("data", "")
+                cbid = cb.get("id", "")
+                if data == "approved":
+                    tg_answer_callback(cbid, "Approved!")
+                    tg("APPROVED. Generating video now...")
+                    return "approved"
+                elif data == "rejected":
+                    tg_answer_callback(cbid, "Rejected")
+                    tg("REJECTED. Stopping pipeline.")
+                    return "rejected"
+                elif data == "change":
+                    tg_answer_callback(cbid, "Send new title as text")
+                    tg("Reply with your preferred title.")
+                continue
+            # Text fallback
             txt = u.get("message",{}).get("text","").upper().strip()
             cid = str(u.get("message",{}).get("chat",{}).get("id",""))
             if cid == str(TG_CHAT):
                 if any(w in txt for w in ["APPROVE","YES","GO","OK","UPLOAD"]):
-                    tg("APPROVED. Generating Evidence Room video now.")
+                    tg("APPROVED. Generating video now...")
                     return "approved"
                 if any(w in txt for w in ["REJECT","NO","SKIP","CANCEL"]):
                     tg("REJECTED. Skipping today.")
@@ -1205,10 +1230,10 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
         mins = int((deadline-datetime.datetime.now()).total_seconds()/60)
         if 13<=mins<=17 and "15" not in reminded:
             reminded.add("15")
-            tg(f"15 min until auto-upload\n{title_str}\nReply APPROVE or REJECT")
+            tg_buttons(f"⏰ 15 min until auto-upload\n\n<b>{title_str}</b>\n\nPress button or reply APPROVE / REJECT")
         elif 3<=mins<=6 and "5" not in reminded:
             reminded.add("5")
-            tg("5 MIN — AUTO-UPLOADING SOON\nReply APPROVE or REJECT NOW")
+            tg_buttons("🚨 5 MIN — AUTO-UPLOADING SOON\nPress APPROVE or REJECT NOW")
     tg("30 min expired — AUTO-APPROVED. Generating now.")
     return "auto_approved"
 
@@ -2068,36 +2093,6 @@ def cleanup():
 # ════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════
-
-def run_provider_health_check():
-    """Test all AI providers at startup — fires before script generation."""
-    log("\n" + "="*65)
-    log("  AI PROVIDER HEALTH CHECK")
-    log("="*65)
-    test = "Reply with exactly: OK"
-    working = []
-    for name, fn in [("Cerebras", _call_cerebras), ("SambaNova", _call_sambanova),
-                     ("Gemini", _call_gemini), ("Groq", _call_groq),
-                     ("OpenRouter", _call_openrouter), ("Cohere", _call_cohere),
-                     ("Mistral", _call_mistral)]:
-        try:
-            r = fn(test, 50)
-            status = "✅" if r else "❌ NO RESPONSE"
-            if r: working.append(name)
-        except Exception as e:
-            status = f"❌ {str(e)[:50]}"
-        log(f"  {name:12s}: {status}")
-    log("="*65)
-    if not working:
-        tg("🚨 ALL AI PROVIDERS FAILED — pipeline cannot continue.")
-        raise RuntimeError("All AI providers failed")
-    elif len(working) < 3:
-        tg(f"⚠️ Only {len(working)} provider(s) working: {', '.join(working)}")
-    else:
-        log(f"  {len(working)}/7 working — OK")
-    return working
-
-
 def main():
     # Stagger start to avoid API conflicts with Channel 1
     delay = random.randint(90, 150)
@@ -2268,6 +2263,13 @@ def main():
                 f"CRITICAL: Short ({stype}) failed after 3 attempts. "
                 f"Last error: {last_err}. Both Shorts are required every run.")
 
+    # Generate 2 standalone niche Shorts (additional to teaser/recap)
+    log("\n  Creating standalone niche Shorts...")
+    standalone = create_and_upload_standalone_shorts(
+        token_yt, niche, topic_used or niche["topics"][0],
+        voice_used, description, tags, playlist_id, title_str)
+    log(f"  Standalone Shorts uploaded: {len(standalone)}")
+
     cleanup()
     ckpt_clear()
 
@@ -2299,6 +2301,302 @@ def main():
        f"Est 30-day: {ev:,} views | ${er} (Rs.{int(er*83):,})\n"
        f"Artifacts deleted.")
     log(f"\nCOMPLETE: {yt_url}")
+
+
+# ════════════════════════════════════════════════════════════
+# STANDALONE NICHE SHORTS GENERATOR
+# Generates 2 additional Shorts BEYOND the teaser/recap clips.
+# These are ORIGINAL 30-45 second content — not clips from main video.
+# Each targets a different keyword, drives traffic independently.
+# Revenue driver: Shorts algorithm surfaces these to cold audiences.
+# ════════════════════════════════════════════════════════════
+
+SHORTS_TEMPLATES = {
+    "forensic_finance": [
+        "The one financial warning sign that nobody acted on",
+        "The document trail that exposed the entire fraud",
+        "The red flag in the accounts that changed everything",
+    ],
+    "criminal_investigation": [
+        "The single piece of evidence that broke the whole case",
+        "Why investigators almost missed the most important clue",
+        "The detail in the scene that proved it was not an accident",
+    ],
+    "corporate_exposure": [
+        "The internal memo that exposed the cover-up",
+        "How the whistleblower knew before anyone else did",
+        "The document they tried to destroy and failed",
+    ],
+    "digital_forensics": [
+        "The digital trace that was impossible to erase",
+        "How investigators recovered the deleted files",
+        "The metadata that revealed the entire timeline",
+    ],
+}
+
+def generate_standalone_short_script(niche_name, topic, short_num):
+    """
+    Generate a 45-second standalone Short script optimised for the Shorts algorithm.
+    Key: viewers decide in 3 seconds whether to keep watching or swipe.
+    Structure: Immediate hook → Fast context → Single devastating reveal → CTA
+    ~120-130 words = 45 seconds at natural TTS pace.
+    """
+    angles = {
+        0: "the single most shocking documented fact from this case",
+        1: "the warning sign that everyone missed before it was too late",
+    }
+    angle = angles.get(short_num, angles[0])
+
+    prompt = f"""Write a 45-second YouTube Shorts narration script.
+Topic: {topic}
+Focus angle: {angle}
+Niche feel: {niche_name.replace('_', ' ')} — dark, investigative, forensic
+
+CRITICAL STRUCTURE:
+Line 1 (HOOK — 3 seconds): Start with a specific number, date, or dollar amount.
+  Mid-action. No "today we", no "welcome", no "in this video".
+  Example style: "On March 4th, $4.2 million vanished."
+Lines 2-4 (CONTEXT — 15 seconds): Three short punchy sentences. Max 10 words each.
+Lines 5-6 (REVEAL — 20 seconds): The one fact that changes everything.
+  Must feel documented and real.
+Line 7 (CTA — 5 seconds): "Full investigation on our channel." or "Watch the full case above."
+
+RULES — non-negotiable:
+- Exactly 120-130 words total
+- Every sentence max 12 words
+- Include at least ONE specific number or date
+- No markdown, no headers, no asterisks
+- Plain narration text only
+
+Write the script:"""
+
+    result = ai(prompt, tokens=350)
+    if result:
+        # Strip any markdown artifacts
+        clean = result.strip().replace("**", "").replace("##", "").replace("*", "")
+        words = clean.split()
+        # Cap at 130 words
+        if len(words) > 132:
+            clean = " ".join(words[:130])
+        log(f"  Short {short_num+1} script: {len(clean.split())}w")
+        return clean
+    return None
+
+async def generate_short_audio(script, voice, out_path):
+    """Generate audio for standalone Short using edge-tts."""
+    import edge_tts
+    try:
+        comm = edge_tts.Communicate(text=script, voice=voice, rate="-5%")  # Shorts need faster pace
+        await comm.save(out_path)
+        if Path(out_path).exists() and Path(out_path).stat().st_size > 50000:
+            return True
+    except Exception as e:
+        log(f"  Short audio error: {e}")
+    return False
+
+def create_standalone_short_video(script, audio_path, niche_name, short_num):
+    """
+    Create animated Short video from script + audio.
+    Simple single-scene animation: dark background + animated text overlay.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    W, H = 1080, 1920  # Vertical for Shorts
+
+    # Get audio duration
+    dur_result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_streams", audio_path],
+        capture_output=True, text=True)
+    duration = 45.0
+    try:
+        import json as _json
+        streams = _json.loads(dur_result.stdout).get("streams", [])
+        for s in streams:
+            if s.get("codec_type") == "audio":
+                duration = float(s.get("duration", 45.0))
+                break
+    except: pass
+
+    # Animated Shorts video — Channel 2 brand is animation
+    # Generate multiple frames that pulse and reveal text progressively
+    from PIL import Image, ImageDraw, ImageFont
+    bg_colors = {
+        "forensic_finance":       (8, 12, 20),
+        "criminal_investigation": (12, 5, 5),
+        "corporate_exposure":     (5, 8, 12),
+        "digital_forensics":      (5, 15, 10),
+    }
+    bg = bg_colors.get(niche_name, (8, 8, 15))
+
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]
+    def gf(sz):
+        for fp in font_paths:
+            if Path(fp).exists():
+                try: return ImageFont.truetype(fp, sz)
+                except: pass
+        return ImageFont.load_default()
+
+    # Split script into 3 display sections
+    sents = [s.strip() for s in script.replace("\n", " ").split(".") if len(s.strip()) > 5]
+    sections = [
+        " ".join(sents[:2]),    # Hook
+        " ".join(sents[2:5]),   # Context
+        " ".join(sents[5:]),    # Reveal + CTA
+    ]
+
+    frames_dir = WORK_DIR / f"short_frames_{short_num}"
+    frames_dir.mkdir(exist_ok=True)
+
+    fps = 24
+    total_frames = int(duration * fps)
+    section_frames = total_frames // 3
+
+    frame_list = []
+    for section_idx, section_text in enumerate(sections):
+        words_s = section_text.split()
+        for fi in range(section_frames):
+            progress = fi / section_frames
+            img  = Image.new("RGB", (W, H), bg)
+            draw = ImageDraw.Draw(img)
+
+            # Animated red progress bar at top
+            bar_w = int(W * ((section_idx * section_frames + fi) / total_frames))
+            draw.rectangle([0, 0, bar_w, 10], fill=(200, 0, 0))
+            draw.rectangle([0, 0, W, 10], outline=(60, 0, 0), width=1)
+
+            # Channel badge
+            draw.text((40, 30), "● THE EVIDENCE ROOM", font=gf(26), fill=(160, 0, 0))
+
+            # Section counter dots
+            for dot_i in range(3):
+                color = (200, 0, 0) if dot_i <= section_idx else (40, 40, 40)
+                draw.ellipse([W//2 - 30 + dot_i*25, H - 80,
+                              W//2 - 14 + dot_i*25, H - 64], fill=color)
+
+            # Animated text reveal — words fade in progressively
+            visible_words = max(1, int(len(words_s) * min(progress * 1.8, 1.0)))
+            display_text = " ".join(words_s[:visible_words])
+
+            # Word wrap at 22 chars
+            wrapped = []
+            current = []
+            for word in display_text.split():
+                current.append(word)
+                if len(" ".join(current)) > 22:
+                    wrapped.append(" ".join(current[:-1]))
+                    current = [word]
+            if current:
+                wrapped.append(" ".join(current))
+
+            fm = gf(72)
+            total_h = len(wrapped) * 85
+            start_y = (H - total_h) // 2
+
+            for li, line in enumerate(wrapped[:6]):
+                y = start_y + li * 85
+                bbox = draw.textbbox((0, 0), line, font=fm)
+                x = (W - (bbox[2] - bbox[0])) // 2
+                # Shadow
+                for dx, dy in [(-2,-2),(2,-2),(-2,2),(2,2)]:
+                    draw.text((x+dx, y+dy), line, font=fm, fill=(30, 0, 0))
+                draw.text((x, y), line, font=fm,
+                          fill=(220, 15, 15) if section_idx == 0 else (230, 230, 230))
+
+            # Pulsing border on reveal section
+            if section_idx == 2:
+                pulse = int(abs(progress - 0.5) * 200)
+                draw.rectangle([4, 4, W-4, H-4],
+                                outline=(pulse, 0, 0), width=3)
+
+            fpath = str(frames_dir / f"f{section_idx:01d}_{fi:04d}.jpg")
+            img.save(fpath, "JPEG", quality=85)
+            frame_list.append(fpath)
+
+    # Write frames list for ffmpeg
+    list_file = str(WORK_DIR / f"short_list_{short_num}.txt")
+    with open(list_file, "w") as lf:
+        for fp in frame_list:
+            lf.write(f"file '{fp}'\nduration {1/fps}\n")
+
+    out_path = str(WORK_DIR / f"standalone_short_{short_num}.mp4")
+    # Combine animated frames + audio — NO subtitles
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", list_file,
+        "-i", audio_path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac", "-b:a", "128k",
+        "-t", str(duration + 0.3), "-shortest",
+        out_path
+    ], capture_output=True, timeout=300)
+
+    if Path(out_path).exists() and Path(out_path).stat().st_size > 200000:
+        log(f"  Standalone Short {short_num}: {Path(out_path).stat().st_size//(1024*1024)}MB")
+        return out_path
+    return None
+
+def create_and_upload_standalone_shorts(token, niche, topic, voice, description,
+                                        tags, playlist_id, title_str):
+    """
+    Generate 2 standalone niche Shorts and upload them.
+    These are ADDITIONAL to the teaser/recap clips.
+    Each targets different search keywords, driving independent traffic.
+    """
+    standalone_uploaded = []
+
+    for short_num in range(2):
+        try:
+            log(f"\n  Standalone Short {short_num+1}/2...")
+
+            # Generate script
+            script = generate_standalone_short_script(niche["name"], topic, short_num)
+            if not script:
+                log(f"  Short {short_num+1} script failed — skipping")
+                continue
+
+            # Generate audio
+            audio_out = str(WORK_DIR / f"standalone_short_audio_{short_num}.mp3")
+            ok = asyncio.run(generate_short_audio(script, voice, audio_out))
+            if not ok:
+                log(f"  Short {short_num+1} audio failed — skipping")
+                continue
+
+            # Create video
+            video_out = create_standalone_short_video(script, audio_out,
+                                                      niche["name"], short_num)
+            if not video_out:
+                log(f"  Short {short_num+1} video failed — skipping")
+                continue
+
+            # Upload
+            short_title = (
+                f"{script.split('.')[0][:50]} #Shorts"
+                if short_num == 0
+                else f"THE EVIDENCE ROOM: {topic[:35]} #Shorts"
+            )
+            short_desc = (
+                f"{script[:200]}\n\n"
+                f"Watch the full investigation: {title_str}\n\n"
+                f"🔔 Subscribe: youtube.com/@TheEvidenceRoom\n"
+                f"#{niche['name'].replace('_','')} #shorts #forensic #investigation"
+            )
+
+            su, sid = upload_yt(video_out, short_title, short_desc,
+                                tags[:8], is_short=True, token=token)
+            if playlist_id:
+                add_to_playlist(token, playlist_id, sid)
+            standalone_uploaded.append(su)
+            log(f"  Standalone Short {short_num+1} uploaded: {su}")
+
+        except Exception as e:
+            log(f"  Standalone Short {short_num+1} error (non-fatal): {e}")
+
+    return standalone_uploaded
+
 
 def main_with_retry():
     """Run main() with up to 3 auto-retries on failure (2 hour gap between each)."""
