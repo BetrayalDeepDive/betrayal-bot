@@ -266,6 +266,39 @@ def tg(m):
         except Exception as e:
             log(f"TG: {e}")
 
+def tg_buttons(text):
+    """Send Telegram message with ✅ APPROVE / ❌ REJECT / ✏️ CHANGE inline buttons."""
+    if not TG_TOKEN or not TG_CHAT: return None
+    keyboard = {"inline_keyboard": [[
+        {"text": "✅ APPROVE",      "callback_data": "approved"},
+        {"text": "❌ REJECT",       "callback_data": "rejected"},
+        {"text": "✏️ CHANGE TITLE", "callback_data": "change"},
+    ]]}
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": TG_CHAT, "text": text,
+                  "parse_mode": "HTML", "reply_markup": keyboard}, timeout=15)
+        return r.json().get("result", {}).get("message_id")
+    except: return None
+
+def tg_answer_callback(callback_id, answer_text="Got it"):
+    """Dismiss button spinner after press."""
+    try:
+        requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_id, "text": answer_text}, timeout=10)
+    except: pass
+
+def tg_get_updates(offset=None):
+    """Get updates including button callbacks."""
+    try:
+        params = {"timeout": 25,
+                  "allowed_updates": ["message", "callback_query"]}
+        if offset: params["offset"] = offset
+        r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                         params=params, timeout=30)
+        return r.json().get("result", [])
+    except: return []
+
 def load_state():
     try: return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
     except: return {}
@@ -1089,21 +1122,40 @@ def generate_titles(niche, topic, episode):
 Series: {niche["series"]}, Episode {episode}. Topic: {topic}
 Rules: 55-70 chars each. Opens a psychological loop. Specific numbers where natural.
 Dark investigative tone. No colons unless essential. No quotes.
+IMPORTANT: Start with a NUMBER or specific statistic for highest CTR.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
     best = f"{niche['series']}: {topic[:55]}"
+    best_score = 0
     if raw:
-        lines = [l.strip() for l in raw.strip().splitlines() if 40 <= len(l.strip()) <= 75]
+        lines = [l.strip() for l in raw.strip().splitlines() if 30 <= len(l.strip()) <= 80]
         def ts(t):
             s = 0
             if 55 <= len(t) <= 70: s += 3
             for hw in hook_words:
                 if hw.lower() in t.lower(): s += 2
-            if any(c.isdigit() for c in t): s += 2
+            if any(c.isdigit() for c in t): s += 3  # number bonus
             return s
         if lines:
             lines.sort(key=ts, reverse=True)
-            best = lines[0]
+            best       = lines[0]
+            best_score = ts(best)
+
+    # Title CTR gate — if best score is low, regenerate with stronger prompt
+    if best_score < 7:
+        log(f"  Title gate: score {best_score} — regenerating with NUMBER+NOUN prompt...")
+        regen = ai_generate(
+            f"Generate 5 dark documentary YouTube titles for: {topic}\n"
+            f"MUST start with a specific NUMBER (days/victims/years/dollars).\n"
+            f"Under 68 chars. Visceral, specific, dark. No generic phrases.\n"
+            f"Return 5 titles, one per line.", tokens=300)
+        if regen:
+            new_lines = [l.strip() for l in regen.splitlines() if 30 <= len(l.strip()) <= 80]
+            if new_lines:
+                new_lines.sort(key=ts, reverse=True)
+                if ts(new_lines[0]) > best_score:
+                    best = new_lines[0]
+                    log(f"  Title regenerated: {ts(best)} — {best[:55]}")
     return best
 
 def generate_chapters(audio_duration):
@@ -1800,6 +1852,15 @@ NICHE_AUDIO_PROFILES = {
     ),
 }
 DEFAULT_AUDIO_PROFILE = NICHE_AUDIO_PROFILES["dark_horror"]
+
+# Dark footage keywords for standalone Shorts per niche
+NICHE_SHORT_KEYWORDS = {
+    "dark_horror":        "dark abandoned shadow horror atmospheric",
+    "seduction_dark":     "dark silhouette shadow noir dramatic",
+    "psychological_trap": "dark corridor psychology shadow mind",
+    "supernatural_real":  "dark fog mysterious night paranormal",
+    "obsession_dark":     "dark surveillance shadow night watching",
+}
 
 # ================================================================
 # AMBIENT MUSIC
@@ -2751,6 +2812,97 @@ def run_provider_health_check():
     return working
 
 
+def generate_ch1_short_script(niche_name, topic, short_num):
+    """45-second standalone Short script optimised for Shorts algorithm."""
+    angles = {
+        0: "the single most psychologically disturbing documented fact",
+        1: "the warning sign that was visible but ignored — and what happened next",
+    }
+    prompt = (
+        f"Write a 45-second YouTube Shorts narration script.\n"
+        f"Topic: {topic}\nFocus: {angles.get(short_num, angles[0])}\n"
+        f"Tone: Dark investigative psychological documentary\n\n"
+        f"STRUCTURE:\n"
+        f"Line 1 (HOOK 3sec): Specific number/date/fact. Mid-action. No intro.\n"
+        f"Lines 2-4 (BUILD 20sec): Three short sentences max 10 words each.\n"
+        f"Lines 5-6 (REVEAL 15sec): Most disturbing documented detail.\n"
+        f"Line 7 (CTA 5sec): Follow for the full investigation.\n\n"
+        f"RULES: 120-130 words total. No markdown. Plain text only."
+    )
+    result = ai_generate(prompt, tokens=350)
+    if result:
+        clean = result.strip().replace("**","").replace("##","").replace("*","")
+        words = clean.split()
+        return " ".join(words[:130]) if len(words) > 132 else clean
+    return None
+
+def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
+    """Create standalone Short: dark atmospheric footage + narration. No subtitles."""
+    audio_out = str(WORK_DIR / f"ch1_short_audio_{short_num}.mp3")
+    try:
+        import edge_tts as _edge
+        async def _gen():
+            comm = _edge.Communicate(text=script, voice=edge_voice, rate="-5%")
+            await comm.save(audio_out)
+        asyncio.run(_gen())
+    except Exception as e:
+        log(f"  Short {short_num+1} audio: {e}"); return None
+
+    if not Path(audio_out).exists() or Path(audio_out).stat().st_size < 20000:
+        return None
+
+    try:
+        import json as _j
+        dp = subprocess.run(["ffprobe","-v","quiet","-print_format","json",
+                             "-show_streams",audio_out], capture_output=True, text=True)
+        dur = 45.0
+        for s in _j.loads(dp.stdout).get("streams",[]):
+            if s.get("codec_type") == "audio":
+                dur = float(s.get("duration", 45.0)); break
+    except: dur = 45.0
+
+    kw  = NICHE_SHORT_KEYWORDS.get(niche_name, "dark shadow atmospheric")
+    bg  = None
+    if PIXABAY_KEY:
+        try:
+            r = requests.get("https://pixabay.com/api/videos/",
+                params={"key": PIXABAY_KEY, "q": kw, "per_page": 3}, timeout=15)
+            if r.status_code == 200 and r.json().get("hits"):
+                url = r.json()["hits"][0]["videos"]["medium"]["url"]
+                bgp = str(WORK_DIR / f"ch1_short_bg_{short_num}.mp4")
+                with requests.get(url, timeout=30, stream=True) as dl:
+                    with open(bgp, "wb") as f:
+                        for chunk in dl.iter_content(32768): f.write(chunk)
+                if Path(bgp).exists() and Path(bgp).stat().st_size > 50000:
+                    bg = bgp
+        except: pass
+
+    out = str(WORK_DIR / f"ch1_standalone_short_{short_num}.mp4")
+    if bg:
+        # Real footage — vertical crop, darkened, NO subtitles
+        run_ffmpeg(["ffmpeg","-y","-stream_loop","-1","-i",bg,"-i",audio_out,
+            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
+                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+                  "crop=405:720:(iw-405)/2:0,scale=1080:1920,"
+                  "eq=brightness=-0.3:contrast=1.3",
+            "-c:v","libx264","-preset","fast","-crf","22",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","128k",
+            "-t",str(dur+0.3),"-shortest",out],
+            label=f"ch1-short-{short_num}", timeout=180)
+    else:
+        run_ffmpeg(["ffmpeg","-y","-f","lavfi",
+            "-i","color=c=black:size=1080x1920:rate=24",
+            "-i",audio_out,"-c:v","libx264","-preset","fast","-crf","22",
+            "-pix_fmt","yuv420p","-c:a","aac","-b:a","128k",
+            "-t",str(dur+0.3),"-shortest",out],
+            label=f"ch1-short-fallback-{short_num}", timeout=120)
+
+    if Path(out).exists() and Path(out).stat().st_size > 200000:
+        log(f"  Ch1 Short {short_num+1}: {Path(out).stat().st_size//(1024*1024)}MB")
+        return out
+    return None
+
+
 def main():
     log("=" * 70)
     log("DEEPDIVE EMPIRE v11.0 — ULTIMATE ENGINE")
@@ -2831,7 +2983,64 @@ def main():
         log(f"  Words:      {len(script.split())}")
         log(f"  Score:      {score}/10")
         log(f"  Thumb:      {thumb_text}")
-        tg(f"🎬 <b>Script Ready</b>\n📺 {title}\n📝 {len(script.split())} words | ⭐ {score}/10")
+
+        # ── APPROVAL GATE — Telegram with inline buttons ──
+        deadline_str = (datetime.datetime.now() +
+                        datetime.timedelta(minutes=30)).strftime("%I:%M %p")
+        preview = script[:400].replace("<","").replace(">","")
+        approval_msg = (
+            f"🎬 <b>DARK HOURS — APPROVAL NEEDED</b>\n\n"
+            f"📌 <b>Title:</b> {title}\n\n"
+            f"🎯 <b>Niche:</b> {niche_name}\n"
+            f"📝 <b>Script:</b> {len(script.split())}w | {score}/10\n"
+            f"🖼️ <b>Thumbnail:</b> {thumb_text}\n\n"
+            f"⏰ Auto-uploads at {deadline_str}\n\n"
+            f"👇 <b>Press a button or reply APPROVE / REJECT</b>"
+        )
+        tg_buttons(approval_msg)
+        tg(f"📖 <b>Preview:</b>\n<code>{preview}...</code>")
+
+        # Poll for response — 30 minutes then auto-approve
+        offset    = None
+        deadline  = time.time() + 1800
+        decision  = "auto"
+        last_warn = 0.0
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            if remaining < 900 and time.time() - last_warn > 300:
+                tg_buttons(f"⏰ {int(remaining/60)} min left — APPROVE or REJECT\n{title}")
+                last_warn = time.time()
+            for upd in tg_get_updates(offset):
+                offset = upd["update_id"] + 1
+                # Button press
+                if "callback_query" in upd:
+                    cb   = upd["callback_query"]
+                    data = cb.get("data","")
+                    cbid = cb.get("id","")
+                    if data == "approved":
+                        tg_answer_callback(cbid, "Approved!")
+                        tg("✅ <b>APPROVED.</b> Producing video now...")
+                        decision = "approved"; break
+                    elif data == "rejected":
+                        tg_answer_callback(cbid, "Rejected")
+                        tg("❌ <b>REJECTED.</b> Stopping pipeline.")
+                        sys.exit(0)
+                    elif data == "change":
+                        tg_answer_callback(cbid, "Reply with new title")
+                        tg("✏️ Reply with your preferred title as text.")
+                    continue
+                # Text fallback
+                txt = (upd.get("message") or {}).get("text","").strip().upper()
+                if any(w in txt for w in ["APPROVE","YES","GO","OK"]):
+                    tg("✅ <b>APPROVED.</b> Producing video now...")
+                    decision = "approved"; break
+                if any(w in txt for w in ["REJECT","NO","SKIP"]):
+                    tg("❌ <b>REJECTED.</b> Stopping pipeline.")
+                    sys.exit(0)
+            if decision != "auto": break
+            time.sleep(10)
+        if decision == "auto":
+            tg("⏰ 30 min expired — <b>AUTO-APPROVED.</b> Producing now...")
 
         # ── STAGE 2: Audio + Captions ──
         log("\n" + "=" * 70)
@@ -3064,6 +3273,26 @@ def main():
 
         # ── STAGE 12: Channel description update ──
         update_channel_description(token, title, yt_url)
+
+        # ── STAGE 13: Standalone niche Shorts (original content, not clips) ──
+        log("\n" + "=" * 70)
+        log("STAGE 13: Standalone Niche Shorts — 2 original pieces")
+        log("=" * 70)
+        for sn in range(2):
+            try:
+                ss = generate_ch1_short_script(niche_name, topic, sn)
+                if not ss:
+                    log(f"  Short {sn+1} script failed — skipping"); continue
+                sv = create_ch1_standalone_short(ss, niche_name, sn, edge_voice)
+                if not sv:
+                    log(f"  Short {sn+1} video failed — skipping"); continue
+                stitle = f"{ss.split('.')[0][:50]} #Shorts"
+                sdesc  = (f"{ss[:200]}\n\nWatch the full investigation above.\n"
+                          f"#{niche_name.replace('_','')} #shorts #documentary #darkhorror")
+                su, _ = upload_yt(sv, stitle, sdesc, tags[:8], token=token)
+                log(f"  Standalone Short {sn+1} uploaded: {su}")
+            except Exception as e:
+                log(f"  Standalone Short {sn+1} (non-fatal — won't stop pipeline): {e}")
 
         # ── Finalise ──
         state = track_episode(state, niche_name, score, edge_voice, episode)
