@@ -50,7 +50,7 @@ TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── API endpoints ──────────────────────────────────────────
 GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+GEMINI_LITE_URL = ""  # no working fallback — gemini-2.0-flash only
 CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions"
 OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
@@ -302,8 +302,10 @@ def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 # ═══════════════════════════════════════════════════════════
 
 def _call_cerebras(prompt, tokens=9000):
-    if not CEREBRAS_KEY: return None
-    _url = "https://api.cerebras.ai/v1/chat/completions"  # hardcoded — never rely on module scope
+    if not CEREBRAS_KEY:
+        log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
+        return None
+    _url = "https://api.cerebras.ai/v1/chat/completions"
     _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
@@ -330,8 +332,13 @@ def _call_cerebras(prompt, tokens=9000):
     return None
 
 def _call_gemini(prompt, tokens=9000):
-    if not GEMINI_KEY: return None
-    for url in [GEMINI_URL, GEMINI_LITE_URL]:
+    if not GEMINI_KEY:
+        log("  Gemini: SKIPPED (GEMINI_API_KEY not set)")
+        return None
+    # Only gemini-2.0-flash works on v1beta endpoint.
+    # gemini-1.5-pro and gemini-1.5-flash both return 404 on v1beta.
+    # When quota is 429, move immediately to next provider.
+    for url in [GEMINI_URL]:
         try:
             r = requests.post(f"{url}?key={GEMINI_KEY}",
                 headers={"Content-Type": "application/json"},
@@ -383,7 +390,9 @@ def _call_groq(prompt, tokens=9000):
     return None
 
 def _call_openrouter(prompt, tokens=9000):
-    if not OPENROUTER_KEY: return None
+    if not OPENROUTER_KEY:
+        log("  OpenRouter: OPENROUTER_API_KEY secret not set — skipping")
+        return None
     for model in ["meta-llama/llama-3.3-70b-instruct:free",
                   "meta-llama/llama-3.1-70b-instruct:free",
                   "qwen/qwen-2.5-72b-instruct:free",
@@ -406,7 +415,9 @@ def _call_openrouter(prompt, tokens=9000):
     return None
 
 def _call_cohere(prompt, tokens=9000):
-    if not COHERE_KEY: return None
+    if not COHERE_KEY:
+        log("  Cohere: COHERE_API_KEY secret not set — skipping")
+        return None
     try:
         r = requests.post(COHERE_URL,
             headers={"Authorization": f"Bearer {COHERE_KEY}",
@@ -426,7 +437,9 @@ def _call_cohere(prompt, tokens=9000):
     return None
 
 def _call_mistral(prompt, tokens=9000):
-    if not MISTRAL_KEY: return None
+    if not MISTRAL_KEY:
+        log("  Mistral: MISTRAL_API_KEY secret not set — skipping")
+        return None
     try:
         r = requests.post(MISTRAL_URL,
             headers={"Authorization": f"Bearer {MISTRAL_KEY}",
@@ -1249,6 +1262,36 @@ def check_audio_quality(mp3_path, dur_expected):
 
 
 
+def fetch_case_relevant_image_ch2(topic, niche_name, out_path):
+    """Case-relevant image search for Channel 2 thumbnails."""
+    stopwords = {"a","an","the","and","or","in","on","to","of","with","was","been","have"}
+    topic_words = [w.strip(".,!?") for w in topic.lower().split()
+                   if len(w) > 3 and w not in stopwords]
+    search_kw = " ".join(topic_words[:3])
+    niche_mod = {
+        "forensic_finance":       "dark corporate financial documents",
+        "criminal_investigation": "dark crime evidence investigation",
+        "corporate_exposure":     "dark corporate shadow documents",
+        "digital_forensics":      "dark technology screen code shadow",
+    }
+    full_query = f"{search_kw} {niche_mod.get(niche_name, 'dark investigation')}"
+    # Try Pixabay/Pexels using existing keys
+    if PIXABAY_KEY:
+        try:
+            r = requests.get("https://pixabay.com/api/",
+                params={"key": PIXABAY_KEY, "q": full_query, "image_type": "photo",
+                        "orientation": "horizontal", "per_page": 3}, timeout=15)
+            if r.status_code == 200 and r.json().get("hits"):
+                url = r.json()["hits"][0].get("webformatURL")
+                if url:
+                    ir = requests.get(url, timeout=20)
+                    if ir.status_code == 200 and len(ir.content) > 20000:
+                        with open(out_path, "wb") as f: f.write(ir.content)
+                        log(f"  Case image Ch2: {search_kw}")
+                        return True
+        except: pass
+    return False
+
 def fetch_pollinations_bg(topic, niche_name, out_path):
     """
     Free AI-generated dark cinematic background via Pollinations.ai.
@@ -1713,6 +1756,42 @@ def _render_evidence_board(draw,scene,progress,style,font_md,font_sm,font_xs):
             else:
                 draw.text((cx+15,cy+24),item,font=font_sm,fill=primary)
 
+
+# Ken Burns motion profiles per scene type
+# Slow camera movement creates documentary cinematography feel
+SCENE_MOTION = {
+    "timeline":        "zoompan=z='min(zoom+0.0008,1.3)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+    "document_reveal": "zoompan=z='min(zoom+0.001,1.4)':d=1:x='iw/2-(iw/zoom/2)':y='ih*0.3-(ih/zoom*0.3)'",
+    "data_reveal":     "zoompan=z='if(lte(zoom,1.0),1.3,max(1.001,zoom-0.001))':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+    "connection_map":  "zoompan=z='1.2+0.05*sin(2*PI*on/100)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'",
+    "evidence_board":  "zoompan=z='min(zoom+0.0006,1.25)':d=1:x='(iw-iw/zoom)*on/n':y='ih/2-(ih/zoom/2)'",
+}
+
+def apply_ken_burns(input_path, output_path, scene_type, fps=24, duration=None):
+    """
+    Apply Ken Burns (slow zoom/pan) motion to a video scene.
+    Makes animated frames feel cinematic — industry standard for documentary.
+    Falls back to original if filter fails.
+    """
+    motion = SCENE_MOTION.get(scene_type, SCENE_MOTION["timeline"])
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"{motion},scale=1920:1080:flags=lanczos",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-c:a", "copy",
+        ]
+        if duration:
+            cmd += ["-t", str(duration)]
+        cmd.append(output_path)
+        run_ffmpeg(cmd, label=f"ken-burns-{scene_type}", timeout=600)
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 100000:
+            log(f"  Ken Burns ({scene_type}): OK")
+            return output_path
+    except Exception as e:
+        log(f"  Ken Burns (non-fatal, using original): {e}")
+    return input_path
+
 def render_and_encode(style_name, scenes, audio_path, duration):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
@@ -1870,6 +1949,38 @@ def upload_yt(path, title, description, tags, is_short=False, token=None):
                 time.sleep(5)
     raise Exception("Upload ended without completion")
 
+
+def post_creator_comment(token, video_id, niche_name, title, episode):
+    """Post engagement-driving creator comment immediately after upload."""
+    niche_hooks = {
+        "forensic_finance":       "What financial warning sign do you think most people miss?",
+        "criminal_investigation": "Which piece of evidence in this case do you find most disturbing?",
+        "corporate_exposure":     "Have you ever seen this happen at a company you know?",
+        "digital_forensics":      "Did you know your digital footprint tells this much about you?",
+    }
+    hook = niche_hooks.get(niche_name, "What detail in this case changed how you see it?")
+    comment = (
+        f"🔬 {hook}\n\n"
+        f"Leave your answer below — every case has details that never make the news.\n\n"
+        f"🔔 New forensic investigation every weekday\n"
+        f"🌑 Dark horror investigations: youtube.com/@BetrayalDeepDive\n\n"
+        f"#{niche_name.replace('_','')} #forensic #investigation #documentary #episode{episode}"
+    )
+    try:
+        r = requests.post(
+            "https://www.googleapis.com/youtube/v3/commentThreads",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"snippet": {"videoId": video_id,
+                              "topLevelComment": {"snippet": {"textOriginal": comment}}}},
+            timeout=30)
+        if r.status_code == 200:
+            log("  Creator comment posted OK")
+        else:
+            log(f"  Creator comment {r.status_code} (non-fatal)")
+    except Exception as e:
+        log(f"  Creator comment (non-fatal): {e}")
+
 def ensure_playlist(token, niche_name, series_name):
     """Auto-create per-niche playlist, return playlist_id."""
     try:
@@ -1932,6 +2043,13 @@ def main():
 
     state = load_state()
 
+    # Pre-define cross-stage variables (prevents NameError if any stage errors)
+    used_topics    = []
+    topic_used     = ""
+    best_thumbnail = "EVIDENCE FOUND"
+    best_title_str = ""
+    ab_style       = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+
     # Startup notification
     tg(f"Evidence Room v2.0 Starting\n"
        f"Time: {datetime.datetime.now().strftime('%I:%M %p')}\n"
@@ -1943,6 +2061,33 @@ def main():
     (niche, topic, voice, style_name, episode,
      script_clean, scenes, title_str, thumbnail_text,
      title_scores, score, tags, intel) = run_stage1(state)
+
+    # Enhance tags with competitive niche-specific SEO tags
+    CH2_NICHE_TAGS = {
+        "forensic_finance":       ["forensic finance documentary","financial fraud investigation",
+                                   "money laundering exposed","corporate fraud documentary",
+                                   "financial crime narration","forensic accounting youtube"],
+        "criminal_investigation": ["criminal investigation documentary","forensic investigation",
+                                   "true crime documentary narration","crime evidence documentary"],
+        "corporate_exposure":     ["corporate corruption exposed","corporate fraud documentary",
+                                   "whistleblower documentary","corporate crime investigation"],
+        "digital_forensics":      ["digital forensics documentary","cybercrime investigation",
+                                   "digital evidence exposed","cyber investigation narration"],
+    }
+    tags = list(set(tags + CH2_NICHE_TAGS.get(niche["name"], [])))[:15]
+
+    # Upgrade thumbnail to NUMBER+NOUN format for higher CTR
+    if thumbnail_text and not any(c.isdigit() for c in thumbnail_text):
+        try:
+            num_p = (f"Forensic topic: {topic[:60]}\n"
+                     "Generate 2-3 word thumbnail text in NUMBER+NOUN format.\n"
+                     "Examples: '$2.4M GONE' '14 ACCOUNTS' '7 WITNESSES' '4380 DAYS'\n"
+                     "Use a specific number from the case. Return ONLY the phrase.")
+            num_r = ai(num_p, tokens=40)
+            if num_r and any(c.isdigit() for c in num_r.strip()):
+                thumbnail_text = num_r.strip().upper()[:20]
+                log(f"  Thumbnail upgraded to NUMBER+NOUN: {thumbnail_text}")
+        except: pass
 
     elapsed = time.time()
     tg(f"Evidence Room Stage 1 Complete\n"
@@ -1972,10 +2117,10 @@ def main():
     tg(f"Stage 4: 1080p animated | Style: {style_name}\nUploading...")
 
     # Generate AI thumbnail with Pollinations background
-    topic_used = used_topics[-1] if used_topics else niche["topics"][0]
+    # `topic` is already unpacked from run_stage1() result — use it directly
     thumb_path = generate_thumbnail_with_ai_bg(
         title_str, best_thumbnail or "EVIDENCE FOUND",
-        niche["name"], topic_used, ab_style=ab_style)
+        niche["name"], topic, ab_style=ab_style)
     log(f"  Thumbnail: {'OK' if thumb_path else 'using default'}")
 
     # Upload main video
@@ -2021,6 +2166,8 @@ def main():
                     log("  Thumbnail uploaded to YouTube OK")
             except Exception as te:
                 log(f"  Thumbnail upload (non-fatal): {te}")
+        post_creator_comment(token_yt, vid_id, niche["name"],
+                             title_str, episode)
         log(f"  Main: {yt_url}")
     except Exception as e:
         tg(f"Evidence Room Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
