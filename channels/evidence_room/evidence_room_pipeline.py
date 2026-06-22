@@ -42,6 +42,8 @@ CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
 OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
 COHERE_KEY      = os.environ.get("COHERE_API_KEY", "")
 MISTRAL_KEY     = os.environ.get("MISTRAL_API_KEY", "")
+SAMBANOVA_KEY   = os.environ.get("SAMBANOVA_API_KEY", "")
+GEMINI_KEY_2    = os.environ.get("GEMINI_API_KEY_2", "")  # backup key
 YT_CLIENT_ID    = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
 YT_CLIENT_SEC   = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
 YT_REFRESH      = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
@@ -56,6 +58,7 @@ OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
 COHERE_URL      = "https://api.cohere.com/v2/chat"
 MISTRAL_URL     = "https://api.mistral.ai/v1/chat/completions"
+SAMBANOVA_URL   = "https://api.sambanova.ai/v1/chat/completions"
 YT_UPLOAD_URL   = "https://www.googleapis.com/upload/youtube/v3"
 YT_DATA_URL     = "https://www.googleapis.com/youtube/v3"
 YT_TOKEN_URL    = "https://oauth2.googleapis.com/token"
@@ -321,6 +324,10 @@ def _call_cerebras(prompt, tokens=9000):
                 if t and len(t.strip()) > 100:
                     log(f"  OK Cerebras ({model})")
                     return t
+            elif r.status_code == 401:
+                log("  Cerebras 401 UNAUTHORIZED — key is WRONG/EXPIRED.")
+                log("  Fix: https://cloud.cerebras.ai/ → API Keys → new key → update GitHub Secret")
+                return None
             elif r.status_code == 404:
                 continue  # wrong model name, try next
             else:
@@ -434,6 +441,38 @@ def _call_cohere(prompt, tokens=9000):
                 return text
     except Exception as e:
         log(f"  Cohere: {e}")
+    return None
+
+
+def _call_sambanova(prompt, tokens=9000):
+    """SambaNova — free tier, 1000 req/day, llama-3.3-70b. Sign up at cloud.sambanova.ai"""
+    if not SAMBANOVA_KEY:
+        log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
+        return None
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+        try:
+            r = requests.post(SAMBANOVA_URL,
+                headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 8192),
+                      "temperature": 0.88}, timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+                if t and len(t.strip()) > 100:
+                    log(f"  OK SambaNova ({model.split('-')[2]})")
+                    return t
+            elif r.status_code == 401:
+                log("  SambaNova 401 — API key invalid. Check SAMBANOVA_API_KEY secret.")
+                return None
+            elif r.status_code == 429:
+                log("  SambaNova 429 — daily limit reached")
+                return None
+            else:
+                log(f"  SambaNova {r.status_code}: {r.text[:100]}")
+        except Exception as e:
+            log(f"  SambaNova: {e}")
     return None
 
 def _call_mistral(prompt, tokens=9000):
@@ -582,8 +621,8 @@ def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     6-provider chain: Cerebras (1M/day) → Gemini → Groq → OpenRouter → Cohere → Mistral
     10s sleep between failures to avoid cascading rate limits.
     """
-    providers = [_call_cerebras, _call_gemini, _call_groq,
-                 _call_openrouter, _call_cohere, _call_mistral]
+    providers = [_call_cerebras, _call_sambanova, _call_gemini,
+                 _call_groq, _call_openrouter, _call_cohere, _call_mistral]
     for i, fn in enumerate(providers):
         result = fn(prompt, tokens)
         if result: return result
@@ -2029,6 +2068,36 @@ def cleanup():
 # ════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════
+
+def run_provider_health_check():
+    """Test all AI providers at startup — fires before script generation."""
+    log("\n" + "="*65)
+    log("  AI PROVIDER HEALTH CHECK")
+    log("="*65)
+    test = "Reply with exactly: OK"
+    working = []
+    for name, fn in [("Cerebras", _call_cerebras), ("SambaNova", _call_sambanova),
+                     ("Gemini", _call_gemini), ("Groq", _call_groq),
+                     ("OpenRouter", _call_openrouter), ("Cohere", _call_cohere),
+                     ("Mistral", _call_mistral)]:
+        try:
+            r = fn(test, 50)
+            status = "✅" if r else "❌ NO RESPONSE"
+            if r: working.append(name)
+        except Exception as e:
+            status = f"❌ {str(e)[:50]}"
+        log(f"  {name:12s}: {status}")
+    log("="*65)
+    if not working:
+        tg("🚨 ALL AI PROVIDERS FAILED — pipeline cannot continue.")
+        raise RuntimeError("All AI providers failed")
+    elif len(working) < 3:
+        tg(f"⚠️ Only {len(working)} provider(s) working: {', '.join(working)}")
+    else:
+        log(f"  {len(working)}/7 working — OK")
+    return working
+
+
 def main():
     # Stagger start to avoid API conflicts with Channel 1
     delay = random.randint(90, 150)
