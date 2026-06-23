@@ -42,6 +42,8 @@ CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
 OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
 COHERE_KEY      = os.environ.get("COHERE_API_KEY", "")
 MISTRAL_KEY     = os.environ.get("MISTRAL_API_KEY", "")
+SAMBANOVA_KEY   = os.environ.get("SAMBANOVA_API_KEY", "")  # 1000 req/day free — cloud.sambanova.ai
+GEMINI_KEY_2    = os.environ.get("GEMINI_API_KEY_2", "")   # backup Gemini key — doubles quota
 YT_CLIENT_ID    = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
 YT_CLIENT_SEC   = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
 YT_REFRESH      = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
@@ -52,6 +54,7 @@ TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
 GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 GEMINI_LITE_URL = ""  # no working fallback — gemini-2.0-flash only
 CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions"
+SAMBANOVA_URL   = "https://api.sambanova.ai/v1/chat/completions"   # v12: added
 OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL        = "https://api.groq.com/openai/v1/chat/completions"
 COHERE_URL      = "https://api.cohere.com/v2/chat"
@@ -483,6 +486,81 @@ def _call_mistral(prompt, tokens=9000):
     return None
 
 
+# v12: SambaNova — added to Ch2 (was only in Ch1 before)
+def _call_sambanova(prompt, tokens=9000):
+    """
+    SambaNova Cloud — free tier, 1000 req/day, llama-3.3-70b.
+    Sign up free at https://cloud.sambanova.ai
+    Add SAMBANOVA_API_KEY to GitHub Secrets.
+    """
+    if not SAMBANOVA_KEY:
+        log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
+        return None
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+        try:
+            r = requests.post(SAMBANOVA_URL,
+                headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 8192),
+                      "temperature": 0.88},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+                if t and len(t.strip()) > 100:
+                    log(f"  OK SambaNova ({model.split('-')[2]})")
+                    return t
+            elif r.status_code == 401:
+                log("  SambaNova 401 — key invalid"); return None
+            elif r.status_code == 429:
+                log("  SambaNova 429 — daily limit"); return None
+        except Exception as e:
+            log(f"  SambaNova: {e}")
+    return None
+
+
+# v12: GEMINI_KEY_2 dual-key for Ch2 (doubles Gemini quota)
+def _call_gemini_with_fallback(prompt, tokens=9000):
+    """Try primary Gemini key, then backup key if 429 quota hit."""
+    keys = [k for k in [GEMINI_KEY, GEMINI_KEY_2] if k]
+    if not keys:
+        log("  Gemini: GEMINI_API_KEY not set")
+        return None
+    for key_idx, active_key in enumerate(keys):
+        key_label = "primary" if key_idx == 0 else "backup"
+        try:
+            r = requests.post(f"{GEMINI_URL}?key={active_key}",
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": {"temperature": 0.88,
+                                           "maxOutputTokens": min(tokens, 12000)},
+                      "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
+                                         for c in ["HARM_CATEGORY_HARASSMENT",
+                                                   "HARM_CATEGORY_HATE_SPEECH",
+                                                   "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                                   "HARM_CATEGORY_DANGEROUS_CONTENT"]]},
+                timeout=90)
+            if r.status_code == 200:
+                c = r.json().get("candidates", [])
+                if c:
+                    t = c[0]["content"]["parts"][0]["text"]
+                    if t and len(t.strip()) > 100:
+                        log(f"  OK Gemini ({key_label})")
+                        return t
+            elif r.status_code == 429:
+                log(f"  Gemini ({key_label}) 429 quota — {'trying backup key' if key_idx == 0 and GEMINI_KEY_2 else 'exhausted'}")
+                if key_idx == 0 and GEMINI_KEY_2:
+                    continue  # try backup key
+                return None
+            else:
+                log(f"  Gemini ({key_label}): {r.status_code}")
+        except Exception as e:
+            log(f"  Gemini: {e}")
+        break
+    return None
+
+
 
 
 def run_stage_with_retry(stage_fn, stage_name, *args, max_attempts=3, **kwargs):
@@ -604,22 +682,22 @@ def save_pattern_memory(state, episode, niche, topic, score):
 
 def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     """
-    6-provider chain: Cerebras (1M/day) → Gemini → Groq → OpenRouter → Cohere → Mistral
+    v12: 7-provider chain: Cerebras → SambaNova → Gemini(+backup key) → Groq → OR → Cohere → Mistral
     10s sleep between failures to avoid cascading rate limits.
     """
-    providers = [_call_cerebras, _call_gemini, _call_groq,
-                 _call_openrouter, _call_cohere, _call_mistral]
+    providers = [_call_cerebras, _call_sambanova, _call_gemini_with_fallback,
+                 _call_groq, _call_openrouter, _call_cohere, _call_mistral]
     for i, fn in enumerate(providers):
         result = fn(prompt, tokens)
         if result: return result
         if i < len(providers) - 1:
             log(f"  Waiting 10s before next provider...")
             time.sleep(10)
-    raise Exception("All 6 AI providers failed")
+    raise Exception("All 7 AI providers failed")
 
 # Compatibility alias
 def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0"):
-    return _call_gemini(prompt, tokens) or ai(prompt, tokens=tokens)
+    return _call_gemini_with_fallback(prompt, tokens) or ai(prompt, tokens=tokens)
 
 def call_groq(prompt, temp=0.7, tokens=2000):
     return _call_groq(prompt, min(tokens, 4800)) or ai(prompt, tokens=min(tokens, 4800))
@@ -856,757 +934,263 @@ def build_dread_prompt_er():
     return "\n".join(f"DREAD {t.upper()}: {DREAD_TRIGGERS[t]}" for t in triggers if t in DREAD_TRIGGERS)
 
 def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel, prev_title=""):
-    temp     = min(0.82 + attempt*0.012, 0.94)
-    darkness = min(30 + attempt*7, 96)
-    dread    = build_dread_prompt_er()
-    hooks    = intel.get("top_hook_formulas",["The evidence was there the entire time. Nobody looked at it correctly."])
-    hook_ex  = "\n".join(f"  PROVEN HOOK {i+1}: {h}" for i,h in enumerate(hooks[:3]))
-    retention = intel.get("retention_hooks",["What the next document revealed changed the entire investigation"])
-    ret_str  = "\n".join(f"  RETENTION HOOK at {['30','60','80'][i]}pct: {r}" for i,r in enumerate(retention[:3]))
-    power    = intel.get("niche_specific_power_words",["documented","evidence","records","concealed"])
-    viral    = intel.get("what_makes_videos_viral","Methodical evidence revelation building to undeniable conclusion")
-    cross    = f'\nNaturally reference our previous investigation: "{prev_title}" in your closing.' if prev_title else ""
+    """
+    v2 script generation for Ch2 (The Evidence Room):
+    1. Research anchors prevent vague AI output
+    2. Forensic documentary prompt with stage-specific structure
+    3. Stage-level scoring + targeted rewrite of 2 worst stages
+    4. Scene JSON extracted separately after narration
+    """
+    temp  = min(0.82 + attempt * 0.012, 0.94)
+    hooks = intel.get("top_hook_formulas", ["The documents confirmed what investigators had suspected."])
+    power = intel.get("niche_specific_power_words", ["documented","verified","traced","confirmed"])
+    viral = intel.get("what_makes_videos_viral", "Specific documented evidence that viewers can verify")
+    retention = intel.get("retention_hooks", ["The next document changes the entire case"])
+    cross = f'\nReference previous investigation: "{prev_title}" naturally in closing.' if prev_title else ""
 
-    prompt = f"""You are the greatest forensic documentary narrator alive.
-You write for The Evidence Room — an animated forensic investigation YouTube channel.
-Episode {episode} of "{niche['series']}". Darkness: {darkness}%.
+    # Research anchors
+    anchors = {}
+    try:
+        anchor_prompt = (
+            f"Generate specific realistic anchors for a forensic documentary about: {topic}\n"
+            f"Return ONLY valid JSON (no backticks):\n"
+            f'{{"case_duration":"e.g. 4380 days — twelve years",' 
+            f'"people_affected":"e.g. 847 confirmed victims",'
+            f'"discovery_date":"e.g. October 14 2019",'
+            f'"key_document":"e.g. a 47-page internal audit dated March 2011",'
+            f'"financial_figure":"e.g. $2.4 million over eleven years",'
+            f'"institutional_failure":"e.g. 23 filed reports that reached no supervisor"}}' 
+        )
+        ar = ai(anchor_prompt, temp=0.65, tokens=300, prefer="groq")
+        if ar:
+            ar = re.sub(r"```json|```", "", ar).strip()
+            m  = re.search(r"\{[\s\S]*?\}", ar)
+            if m:
+                anchors = json.loads(m.group())
+                log(f"  Anchors: {len(anchors)} fields")
+    except Exception as e:
+        log(f"  Anchors (non-fatal): {e}")
 
-INVESTIGATION TODAY: {topic}
-Animation style: {STYLES[style_name]['desc']}
-{cross}
+    anchor_block = ""
+    if anchors:
+        anchor_block = "\n\nUSE THESE SPECIFIC DETAILS:\n" + "\n".join(
+            f"  {k}: {v}" for k, v in anchors.items() if v)
 
-━━━ VIRAL INTELLIGENCE FROM TOP 20 VIDEOS ━━━
-{hook_ex}
-WHAT MAKES VIDEOS VIRAL: {viral}
-POWER WORDS: {', '.join(power)}
-RETENTION ARCHITECTURE:
-{ret_str}
+    stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
 
-━━━ PSYCHOLOGICAL DREAD SYSTEM ━━━
-{dread}
+    prompt = f"""Write a forensic investigative documentary narration script.
+Style: precisely documented, evidence-driven, animated forensic format.
 
-━━━ THE 10 LAWS ━━━
-LAW 1: ZERO markdown — no symbols whatsoever
-LAW 2: ZERO stage directions
-LAW 3: ZERO AI phrases (moreover furthermore in conclusion etc)
-LAW 4: PURE SPOKEN ENGLISH — every word speakable naturally
-LAW 5: MAX 13 words per sentence
-LAW 6: Never start 3 consecutive sentences with the same word
-LAW 7: Every paragraph darker than the previous
-LAW 8: Specific dates amounts document numbers transaction IDs
-LAW 9: MINIMUM {MIN_WORDS} words — COUNT YOUR WORDS. If you finish under {MIN_WORDS}, add more to THE EVIDENCE TRAIL and THE HUMAN COST sections until you reach it. This is non-negotiable.
-LAW 10: ZERO section labels — pure seamless narration
+CASE: {topic}
+SERIES: {niche['series']} — Episode {episode}
+VIRAL HOOKS: {chr(10).join(f"  \'{h}\'" for h in hooks[:3])}
+POWER WORDS: {", ".join(power[:6])}
+{anchor_block}{cross}
 
-━━━ NARRATIVE STRUCTURE ━━━
-OPENING HOOK (4 sentences):
-A document. A number. A date. Something found that was not supposed to be found.
-The specific detail that cracked everything open. The exact moment it was discovered.
-One number that does not match. The question that follows the listener forever.
+TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
 
-THE INVESTIGATION BEGINS (350-400 words):
-The original case. What it appeared to be. The people who appeared to be clean.
-Reference what is shown on screen naturally: this document, these records, this timestamp.
-Apply INVISIBILITY and NORMALITY triggers.
+SEVEN-STAGE FORENSIC STRUCTURE — write continuously, no labels:
 
-THE EVIDENCE TRAIL (400-500 words):
-The documents. The data. The records that do not add up.
-Walk through the evidence methodically. Each piece building on the last.
-Apply DETAIL and COMPETENCE triggers.
+STAGE 1 — CASE FILE OPEN ({stage_targets[1]} words)
+Sentence 1: exact case reference — number, date, or document ID.
+Sentence 2: specific location of the discovery.
+Sentence 3: the question this investigation will answer.
+Forbidden: "welcome back", "today we investigate", "in this video"
 
-USE RETENTION HOOK 1 HERE.
+STAGE 2 — THE SUBJECT ({stage_targets[2]} words)
+Establish the entity — person, company, or system — as completely ordinary.
+Specific details. Specific routine. Make the viewer care about what is about to be lost.
+Final sentence signals something is about to break — without stating it.
+Forbidden: "little did they know", "unbeknownst to", "but fate had other plans"
 
-THE PATTERN EMERGES (350-400 words):
-When you put every document side by side, the pattern becomes undeniable.
-What it proves. What it means. Apply SCALE and DURATION triggers.
+STAGE 3 — FIRST ANOMALIES ({stage_targets[3]} words)
+Small discrepancies. Each individually explainable. One per sentence.
+Start with the smallest. Build accumulation. Each one specific and documented.
+Forbidden: "suddenly", "out of nowhere", "shockingly", "without warning"
 
-THE COLLAPSE (200-250 words):
-The moment the investigation broke the case open.
-The specific document or data point that made concealment impossible.
+STAGE 4 — THE EVIDENCE BUILDS ({stage_targets[4]} words)
+One short sentence reframes Stage 3 entirely.
+Documents arrive. Records are pulled. Each piece more specific than the last.
+Short sentences then one longer. Real-feeling case references.
+Forbidden: vague quantities — not "many reports" but "forty-seven reports"
 
-USE RETENTION HOOK 2 HERE.
+STAGE 5 — FALSE CLOSURE ({stage_targets[5]} words)
+Case appears resolved. Specific timeframe. Viewer exhales.
+Final sentence: quietly, specifically wrong — not dramatic, not flagged.
+Forbidden: "but it wasn't over", "however", "or so they thought"
 
-THE REVELATION (150-200 words):
-What was really happening behind the documented facade.
-Apply REVERSAL trigger.
+STAGE 6 — THE FULL RECORD ({stage_targets[6]} words)
+One short sentence destroys the false closure.
+Then one finding per paragraph. Ordered by impact — each more significant.
+Document references, file numbers, specific dates, specific figures.
+Forbidden: "in conclusion", "to summarise", "as we can see"
 
-THE HUMAN COST (300-350 words):
-The specific people. What they lost. Apply COST and INSTITUTIONAL triggers.
+STAGE 7 — CASE IMPLICATIONS ({stage_targets[7]} words)
+Imply — never state — that this case is part of a larger pattern.
+Subscribe CTA at emotional peak. Reference series.{cross}
+Forbidden: "subscribe and like", "hit the bell", "don't forget to"
 
-USE RETENTION HOOK 3 HERE.
+RULES:
+1. Maximum 13 words per sentence. Every sentence.
+2. Zero markdown. Zero AI filler phrases.
+3. Every number specific. Every date specific. Every location specific.
+4. Write continuously — no stage labels, no headers.
+5. Start immediately with Stage 1.
 
-THE VERDICT (150-200 words):
-What the evidence proved. What accountability followed or failed to follow.
-
-THE CLOSE (100 words):
-Haunting line connecting to next episode.
-Natural subscribe call to The Evidence Room.
-{f"Reference previous investigation: {prev_title}." if prev_title else ""}
-
-━━━ ALSO GENERATE SCENE BREAKDOWN ━━━
-After writing the complete narration, add exactly 10 dashes on a new line, then provide:
-{{"title":"YouTube title 55-65 chars","thumbnail_text":"3 WORDS ALL CAPS","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"],"scenes":[
-{{"type":"timeline","duration":8,"title":"THE FRAUD BEGINS","items":["2019: First anomaly","2020: Pattern grows","2021: Scale increases","2022: Exposure"],"label":"EVIDENCE TIMELINE"}},
-{{"type":"document","duration":7,"title":"EXHIBIT A","lines":["INTERNAL MEMO — CONFIDENTIAL","Date: March 4 2019","RE: Risk Assessment Override","Authorized by: [REDACTED]"],"stamp":"CLASSIFIED"}},
-{{"type":"data_reveal","duration":7,"title":"THE NUMBERS","items":["$4.7M","$12.3M","$28.9M","$47.2M"],"label":"FUNDS TRACED"}},
-{{"type":"connection_map","duration":8,"title":"THE NETWORK","nodes":["ACCOUNT A","SHELL CO B","OFFSHORE C","FINAL D"],"label":"MONEY TRAIL"}},
-{{"type":"evidence_board","duration":10,"title":"CASE SUMMARY","items":["Documents: 847","Transactions: 2,340","Accounts: 40","Duration: 12 years"],"label":"COMPILED EVIDENCE"}}
+After writing the complete narration, add exactly 10 dashes on a new line, then provide scene JSON:
+{{"title":"YouTube title 55-65 chars","thumbnail_text":"3 WORDS ALL CAPS with number","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"],"scenes":[
+{{"type":"timeline","duration":8,"title":"CASE TIMELINE","events":["Event 1: date","Event 2: date","Event 3: date","Event 4: date"],"label":"CHRONOLOGY"}},
+{{"type":"document_reveal","duration":7,"title":"THE KEY DOCUMENT","lines":["CASE FILE — RESTRICTED","Reference: [case number]","Finding: [key finding]","Status: [outcome]"],"stamp":"CLASSIFIED"}},
+{{"type":"data_reveal","duration":7,"title":"THE NUMBERS","items":["$X.XM","XX YEARS","XXX VICTIMS","XX REPORTS"],"label":"CASE STATISTICS"}},
+{{"type":"connection_map","duration":8,"title":"THE NETWORK","nodes":["ORIGIN","ENABLER","SYSTEM","OUTCOME"],"label":"HOW IT CONNECTED"}},
+{{"type":"evidence_board","duration":10,"title":"EVIDENCE SUMMARY","items":["Finding 1","Finding 2","Finding 3","Finding 4"],"label":"CASE EVIDENCE"}}
 ]}}
 
-WRITE NARRATION FIRST ({MIN_WORDS}-{MAX_WORDS} words), THEN 10 DASHES, THEN JSON."""
+Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON."""
 
     raw   = ai(prompt, temp=temp, tokens=7000, prefer="gemini")
-    parts = raw.split("----------")
+    parts = raw.split("----------") if raw else [""]
     clean = strip_md(strip_md(parts[0].strip()))
     wc    = len(clean.split())
 
-    # Expansion if short
-    for exp in range(2):
-        if wc >= MIN_WORDS: break
+    # Expansion rounds
+    for exp_round in range(2):
+        if wc >= MIN_WORDS:
+            break
         deficit = MIN_WORDS - wc
-        log(f"  {wc}w — expanding round {exp+1}...")
-        expand = f"""This forensic narration is {wc} words. Needs {MIN_WORDS} minimum.
-ADD {deficit} words by expanding:
-1. THE EVIDENCE TRAIL — add 3 more specific documents with exact dates and amounts
-2. THE HUMAN COST — add 2 more specific named people with specific losses
-3. THE VERDICT — add deeper analysis of what the evidence proved
-Rules: Zero markdown. Pure spoken English. Max 13 words per sentence.
-Return COMPLETE script with additions.
-SCRIPT: {clean}"""
-        try:
-            raw2   = ai(expand, temp=0.82, tokens=7000, prefer="gemini")
-            clean2 = strip_md(strip_md(raw2))
-            if len(clean2.split()) > wc:
-                clean = clean2; wc = len(clean.split())
+        log(f"  {wc}w short — expanding round {exp_round+1}...")
+        exp = (
+            f"This forensic documentary script is {wc} words. Needs {MIN_WORDS} minimum.\n"
+            f"Expand the Evidence Builds section and the Full Record section only.\n"
+            f"Add specific case references, exact figures, exact dates, investigator reactions.\n"
+            f"Max 13 words per sentence. Zero markdown.\n"
+            f"Return the COMPLETE expanded script.\n\nSCRIPT:\n{clean}"
+        )
+        raw2 = ai(exp, temp=0.82, tokens=7000, prefer="gemini")
+        if raw2:
+            c2 = strip_md(strip_md(raw2))
+            if len(c2.split()) > wc:
+                clean = c2
+                wc    = len(clean.split())
                 log(f"  Expanded to {wc}w")
-        except Exception as e:
-            log(f"  Expand err: {e}"); break
 
-    # Parse scenes from JSON part
-    scenes, title, thumbnail_text, tags = [], f"The Evidence Room: {topic[:45]}", "EVIDENCE FOUND", \
-        [niche["name"],"investigation","forensics","evidence","crime","documentary","animated","exposed","shocking","deepdive"]
+    # Stage-level scoring + targeted rewrite of 2 worst stages
+    if wc >= MIN_WORDS:
+        try:
+            words      = clean.split()
+            total      = len(words)
+            targets_l  = [110, 210, 260, 420, 170, 680, 190]
+            total_t    = sum(targets_l)
+            stage_txts = []
+            pos = 0
+            for i, tgt in enumerate(targets_l):
+                share = tgt / total_t
+                end   = pos + int(total * share) if i < 6 else total
+                stage_txts.append(" ".join(words[pos:end]))
+                pos   = end
+
+            stage_names = ["CASE OPEN","SUBJECT","ANOMALIES","EVIDENCE",
+                           "CLOSURE","FULL RECORD","IMPLICATIONS"]
+            forbidden_per = [
+                ["welcome back","today we investigate"],
+                ["little did they know","unbeknownst"],
+                ["suddenly","out of nowhere","without warning"],
+                [],
+                ["but it wasn't over","or so they thought"],
+                ["in conclusion","to summarise"],
+                ["subscribe and like","hit the bell"],
+            ]
+            stage_scores = []
+            for i, (stext, sname, starget, sforbidden) in enumerate(
+                    zip(stage_txts, stage_names, targets_l, forbidden_per)):
+                sc    = 5.0
+                ratio = len(stext.split()) / max(starget, 1)
+                if 0.85 <= ratio <= 1.15:   sc += 2.0
+                elif 0.70 <= ratio <= 1.30: sc += 0.8
+                else:                       sc -= 1.5
+                sc -= sum(0.8 for f in sforbidden if f in stext.lower())
+                sents = [s for s in re.split(r"(?<=[.!?])\s+", stext) if s.strip()]
+                long  = [s for s in sents if len(s.split()) > 13]
+                if len(long) / max(len(sents), 1) > 0.2:
+                    sc -= 0.8
+                ai_ph = ["moreover","furthermore","it is worth noting","in conclusion"]
+                sc   -= sum(0.4 for p in ai_ph if p in stext.lower())
+                stage_scores.append(round(min(max(sc, 0), 10), 1))
+
+            log(f"  Stage scores: {" | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))}")
+            worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
+
+            for idx in worst_two:
+                if stage_scores[idx] >= 7.5:
+                    continue
+                rewrite_p = (
+                    f"Rewrite ONLY this forensic documentary stage. Return ONLY the rewritten stage.\n\n"
+                    f"STAGE: {stage_names[idx]} (target: {targets_l[idx]} words)\n"
+                    f"TOPIC: {topic[:100]}\n"
+                    f"SCORE: {stage_scores[idx]}/10 — sentences too long or too vague\n\n"
+                    f"RULES:\n"
+                    f"- Max 13 words per sentence.\n"
+                    f"- Every number specific (not 'many' but '47').\n"
+                    f"- Every date specific (not 'years ago' but 'March 2011').\n"
+                    f"- Zero markdown. Zero AI filler.\n"
+                    f"- Target: {targets_l[idx]} words (±15% ok).\n\n"
+                    f"ORIGINAL:\n{stage_txts[idx]}\n\nRewrite now:"
+                )
+                new_s = ai(rewrite_p, temp=0.82, tokens=2000, prefer="groq")
+                if new_s:
+                    new_s = strip_md(new_s)
+                    if len(new_s.split()) > 30:
+                        clean = clean.replace(stage_txts[idx], new_s, 1)
+                        log(f"  Stage {stage_names[idx]} rewritten")
+
+            wc = len(clean.split())
+            log(f"  After targeted rewrite: {wc}w")
+        except Exception as e:
+            log(f"  Stage rewrite (non-fatal): {e}")
+
+    # Parse scene JSON
+    scenes, title, thumbnail_text, tags = [], f"The Evidence Room: {topic[:45]}", "CASE DOCUMENTED", \
+        [niche["name"],"forensic","investigation","animated","crime","evidence","documentary",
+         "exposed","deepdive","case"]
     if len(parts) > 1:
         try:
-            jt = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','',re.sub(r'```json|```','',parts[1]).strip())
-            m = re.search(r'\{[\s\S]*\}',jt)
+            jt = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]","",re.sub(r"```json|```","",parts[1]).strip())
+            m  = re.search(r"\{[\s\S]*\}", jt)
             if m:
-                data = json.loads(m.group())
-                scenes        = data.get("scenes",[])
-                title         = data.get("title",title)
-                thumbnail_text = data.get("thumbnail_text",thumbnail_text)
-                tags          = data.get("tags",tags)
-        except Exception as e: log(f"  Scene JSON err: {e}")
+                data  = json.loads(m.group())
+                scenes        = data.get("scenes", [])
+                title         = data.get("title", title)
+                thumbnail_text = data.get("thumbnail_text", thumbnail_text)
+                tags          = data.get("tags", tags)
+        except Exception as e:
+            log(f"  Scene JSON (non-fatal): {e}")
 
     # Fallback scenes
     if not scenes:
         scenes = [
-            {"type":"timeline","duration":8,"title":"THE INVESTIGATION",
-             "items":["Phase 1: Discovery","Phase 2: Analysis","Phase 3: Exposure"],"label":"CASE TIMELINE"},
-            {"type":"data_reveal","duration":7,"title":"THE EVIDENCE",
-             "items":["$47M","12 Years","40 Accounts","847 Documents"],"label":"KEY FINDINGS"},
-            {"type":"document","duration":7,"title":"EXHIBIT A",
-             "lines":["INTERNAL DOCUMENT","DATE: REDACTED","CLASSIFICATION: CONFIDENTIAL","STATUS: EVIDENCE"],"stamp":"CLASSIFIED"},
+            {"type":"timeline","duration":8,"title":"CASE TIMELINE",
+             "events":["Event 1","Event 2","Event 3","Event 4"],"label":"CHRONOLOGY"},
+            {"type":"document_reveal","duration":7,"title":"KEY DOCUMENT",
+             "lines":["CASE FILE — RESTRICTED","Reference: CF-2019-447",
+                      "Finding: pattern confirmed","Status: under review"],"stamp":"CLASSIFIED"},
+            {"type":"data_reveal","duration":7,"title":"THE NUMBERS",
+             "items":["$2.4M","12 YEARS","847 CASES","47 REPORTS"],"label":"STATISTICS"},
             {"type":"connection_map","duration":8,"title":"THE NETWORK",
-             "nodes":["ACCOUNT A","SHELL B","OFFSHORE C","DESTINATION D"],"label":"MONEY TRAIL"},
-            {"type":"evidence_board","duration":10,"title":"CASE SUMMARY",
-             "items":["Documents: 847","Transactions: 2340","Accounts: 40","Duration: 12 years"],"label":"COMPILED EVIDENCE"},
+             "nodes":["ORIGIN","ENABLER","SYSTEM","OUTCOME"],"label":"CONNECTION"},
+            {"type":"evidence_board","duration":10,"title":"EVIDENCE",
+             "items":["Document 1","Document 2","Pattern","Conclusion"],"label":"EVIDENCE"},
         ]
 
-    violations = len(re.findall(r'[#*_`\[\]{}<>\\]', clean))
+    violations = len(re.findall(r"[#*_`\[\]{}<>\\]", clean))
+
+    # CTA injection
+    if len(clean.split()) >= 400:
+        clean = _inject_ctas_er(clean, niche.get("name","forensic_finance"))
+        wc    = len(clean.split())
+
     log(f"  Script: {wc}w | {violations} MD | {len(scenes)} scenes")
     return clean, scenes, title, thumbnail_text, tags, violations
 
-def score_script_er(script_clean, wc, violations):
-    issues, score = [], 5.0
-    if wc >= MIN_WORDS:   score+=2.8
-    elif wc >= 1500:      score+=0.8;  issues.append(f"{wc}w short")
-    elif wc >= 1000:      score-=1.5;  issues.append(f"SHORT: {wc}w")
-    else:                 score-=4.0;  issues.append(f"FATAL: {wc}w")
-    if violations==0:     score+=2.2
-    elif violations<=2:   score+=0.5;  issues.append(f"{violations} md")
-    else:                 score-=1.5;  issues.append(f"FATAL: {violations} md")
-    sents = [x for x in re.split(r'(?<=[.!?])\s+',script_clean) if len(x.split())>2]
-    if sents:
-        avg = sum(len(x.split()) for x in sents)/len(sents)
-        if avg<=11:       score+=1.5
-        elif avg<=13:     score+=1.0
-        elif avg<=15:     score+=0.4
-        else:             score-=0.5; issues.append(f"Avg {avg:.0f}w")
-    hook = script_clean[:350].lower()
-    ew = ["document","evidence","records","pattern","concealed","revealed","traced","verified","proved","fraud"]
-    hs = sum(1 for w in ew if w in hook)
-    if hs>=4:             score+=1.0
-    elif hs>=2:           score+=0.5
-    else:                 issues.append("Weak forensic hook")
-    ai_phrases = ["moreover","furthermore","it is worth noting","in conclusion","interestingly","it should be noted"]
-    ai_count = sum(1 for p in ai_phrases if p in script_clean.lower())
-    if ai_count>0:        score-=ai_count*0.3; issues.append(f"{ai_count} AI phrases")
-    if "subscribe" in script_clean[-400:].lower(): score+=0.2
-    return min(round(score,1),10.0), issues
-
-
-# ════════════════════════════════════════════════════════════
-# STAGE 1: 13-ATTEMPT ENGINE
-# ════════════════════════════════════════════════════════════
-def run_stage1(state):
-    log("\n"+"="*65)
-    log("  STAGE 1: 13-Attempt Evidence Room Script Engine")
-    log(f"  Quality floor: {MIN_GATE} | Final floor: {FINAL_GATE}")
-    log("="*65)
-
-    niche, voice, style_name = get_niche_voice_style(state)
-    episode  = (datetime.datetime.now().timetuple().tm_yday//3)+1
-    prev_title = state.get("last_title","")
-    intel    = run_viral_intelligence(niche)
-    used_topics = []
-    gate     = MIN_GATE
-    best_score = 0.0
-    best_script = best_scenes = best_title_str = best_thumbnail = best_tags = best_title_scores = None
-
-    log(f"\nNiche: {niche['name']} | ${niche['rpm']} RPM | Ep{episode}")
-    log(f"Style: {style_name} | Voice: {voice}")
-
-    for attempt in range(1, 9):
-        if attempt == 8:        gate = FINAL_GATE
-        elif attempt >= 6:      gate = 7.0
-        elif attempt >= 4:      gate = 7.2
-
-        topic = get_fresh_topic(niche, attempt, intel, used_topics)
-        used_topics.append(topic)
-
-        if attempt in [1,5,9]:
-            thumbnail_text     = generate_thumbnail_text(niche, topic, intel)
-            title_str, tscores = generate_and_score_titles(niche, topic, intel, episode)
-            # Title CTR gate — minimum 6.5/10, regenerate if below
-            if tscores and tscores[0][1] < 6.5:
-                log(f"  Title gate FAIL: {tscores[0][1]}/10 < 6.5 — regenerating titles...")
-                regen = ai(
-                    f"Generate 5 stronger YouTube titles for: {topic}\n"
-                    f"Niche: {niche['name']}\n"
-                    f"Rules: Start with a NUMBER. Be specific, dark, visceral. Under 70 chars.\n"
-                    f"Must score 7+/10 CTR. Return 5 titles, one per line.", tokens=300)
-                if regen:
-                    new_titles = [l.strip() for l in regen.splitlines() if len(l.strip()) > 15][:5]
-                    new_scored = generate_and_score_titles(niche, new_titles[0] if new_titles else topic, intel, episode)[1] if new_titles else tscores
-                    if new_scored and new_scored[0][1] > tscores[0][1]:
-                        tscores  = new_scored
-                        title_str = new_scored[0][0]
-                        log(f"  Title regenerated: {new_scored[0][1]}/10 — {title_str[:50]}")
-            best_thumbnail = thumbnail_text
-            best_title_str = title_str
-            best_title_scores = tscores
-            log(f"Thumbnail: {thumbnail_text}")
-
-        log(f"\nAttempt {attempt}/8 (gate:{gate}) {'[ARCHIVE]' if attempt>8 else '[FRESH]'}...")
-        log(f"Topic: {topic[:80]}")
-
-        try:
-            script_clean, scenes, title, thumb, tags, violations = generate_script_and_scenes(
-                niche, topic, style_name, episode, attempt, intel, prev_title)
-            wc = len(script_clean.split())
-            score, issues = score_script_er(script_clean, wc, violations)
-            log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
-            if issues: log(f"  {' | '.join(issues[:3])}")
-
-            if score > best_score:
-                best_score  = score
-                best_script = script_clean
-                best_scenes = scenes
-                if thumb and thumb != "EVIDENCE FOUND": best_thumbnail = thumb
-            if score >= gate:
-                log(f"\nSCRIPT APPROVED: {score}/10 | Attempt {attempt}\n")
-                return (niche, topic, voice, style_name, episode,
-                        best_script, best_scenes, best_title_str,
-                        best_thumbnail, best_title_scores, score, tags, intel)
-            time.sleep(3)
-        except Exception as e:
-            log(f"  Error: {str(e)[:80]}")
-            time.sleep(15)
-
-    if best_script and best_score >= FINAL_GATE:
-        log(f"\nUsing best: {best_score}/10 after 13 attempts")
-        tg(f"Note: Publishing {best_score}/10 after 13 attempts.")
-        return (niche, used_topics[-1], voice, style_name, episode,
-                best_script, best_scenes, best_title_str,
-                best_thumbnail, best_title_scores, best_score, [], intel)
-
-    state["last_niche"] = niche["name"]; save_state(state)
-    tg(f"Evidence Room Day Skipped\nBest: {best_score}/10 after 13 attempts\nNiche: {niche['name']}")
-    sys.exit(0)
-
-
-# ════════════════════════════════════════════════════════════
-# STAGE 2: APPROVAL GATE — Telegram + Gmail
-# BEFORE video generation
-# ════════════════════════════════════════════════════════════
-def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumbnail_text, title_scores, score):
-    log("\n"+"="*65)
-    log("  STAGE 2: Approval Gate — Telegram + Gmail")
-    log("="*65)
-
-    deadline     = datetime.datetime.now() + datetime.timedelta(minutes=30)
-    deadline_str = deadline.strftime('%I:%M %p')
-    top_titles   = "\n".join(f"  {s}/10: {t[:55]}" for t,s in title_scores[:3])
-    preview      = script_clean[:450].replace("<","").replace(">","")
-
-    approval_text = (
-        f"🔬 <b>EVIDENCE ROOM — APPROVAL NEEDED</b>\n\n"
-        f"📌 <b>Title:</b> {title_str}\n\n"
-        f"🎯 <b>Niche:</b> {niche['name']} | ${niche['rpm']} RPM\n"
-        f"🎨 <b>Style:</b> {STYLES[style_name]['desc']}\n"
-        f"🎙️ <b>Voice:</b> {voice}\n"
-        f"📝 <b>Script:</b> {len(script_clean.split())}w | {score}/10\n"
-        f"🖼️ <b>Thumbnail:</b> {thumbnail_text}\n\n"
-        f"📊 <b>Title CTR Scores:</b>\n{top_titles}\n\n"
-        f"⏰ Auto-uploads at {deadline_str}\n\n"
-        f"👇 <b>Press a button or reply: APPROVE / REJECT / CHANGE</b>"
-    )
-    # Send with inline buttons
-    tg_buttons(approval_text)
-    time.sleep(1)
-    # Send script preview as separate message
-    tg(f"📖 <b>Script Preview:</b>\n<code>{preview}...</code>")
-
-    html = f"""<!DOCTYPE html><html><body style="background:#0a0a0f;color:#e0e0e0;font-family:Arial,sans-serif;padding:20px;">
-<div style="max-width:660px;margin:0 auto;background:#12121a;border:1px solid #2a2a3a;border-radius:8px;overflow:hidden;">
-<div style="background:#0a1a0a;border-bottom:3px solid #2288cc;padding:20px 26px;">
-  <div style="font-size:10px;color:#888;letter-spacing:3px">THE EVIDENCE ROOM — APPROVAL NEEDED</div>
-  <div style="font-size:19px;font-weight:bold;color:#fff;margin-top:5px">{title_str}</div>
-  <div style="font-size:11px;color:#4499cc;margin-top:5px">Auto-uploads at {deadline_str}</div>
-</div>
-<div style="padding:20px 26px;border-bottom:1px solid #2a2a3a;">
-  <table style="width:100%;font-size:12px;border-collapse:collapse">
-    <tr><td style="color:#666;padding:3px 0;width:110px">Niche</td><td>{niche['name']} — ${niche['rpm']} RPM</td></tr>
-    <tr><td style="color:#666;padding:3px 0">Style</td><td>{STYLES[style_name]['desc']}</td></tr>
-    <tr><td style="color:#666;padding:3px 0">Voice</td><td>{voice}</td></tr>
-    <tr><td style="color:#666;padding:3px 0">Score</td><td>{score}/10</td></tr>
-    <tr><td style="color:#666;padding:3px 0">Thumbnail</td><td style="color:#2288cc;font-weight:bold;font-size:14px">{thumbnail_text}</td></tr>
-  </table>
-</div>
-<div style="padding:18px 26px;border-bottom:1px solid #2a2a3a;">
-  <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:8px">TITLE CTR SCORES</div>
-  {"".join(f'<div style="padding:6px 10px;margin:3px 0;background:{"#1a2a1a" if i==0 else "#151520"};border-left:3px solid {"#22cc44" if i==0 else "#333"};border-radius:0 4px 4px 0"><span style="color:{"#22cc44" if i==0 else "#666"};font-size:10px">{s}/10{"  WINNER" if i==0 else ""}</span><br><span style="color:#e0e0e0;font-size:12px">{t}</span></div>' for i,(t,s) in enumerate(title_scores[:5]))}
-</div>
-<div style="padding:18px 26px;">
-  <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:8px">SCRIPT PREVIEW</div>
-  <div style="background:#0d0d15;border:1px solid #1a1a2a;border-radius:4px;padding:14px;font-size:12px;line-height:1.7;color:#ccc;font-style:italic">{preview.replace(chr(10),'<br>')}...</div>
-</div>
-</div></body></html>"""
-    send_gmail(f"[Evidence Room] Approve: {title_str[:50]} — auto at {deadline_str}", html)
-
-    updates = tg_updates()
-    offset  = (max(u["update_id"] for u in updates)+1) if updates else 0
-    reminded = set()
-    while datetime.datetime.now() < deadline:
-        time.sleep(30)
-        for u in tg_updates(offset):
-            offset = u["update_id"] + 1
-            # Button press handler
-            if "callback_query" in u:
-                cb   = u["callback_query"]
-                data = cb.get("data", "")
-                cbid = cb.get("id", "")
-                if data == "approved":
-                    tg_answer_callback(cbid, "Approved!")
-                    tg("APPROVED. Generating video now...")
-                    return "approved"
-                elif data == "rejected":
-                    tg_answer_callback(cbid, "Rejected")
-                    tg("REJECTED. Stopping pipeline.")
-                    return "rejected"
-                elif data == "change":
-                    tg_answer_callback(cbid, "Send new title as text")
-                    tg("Reply with your preferred title.")
-                continue
-            # Text fallback
-            txt = u.get("message",{}).get("text","").upper().strip()
-            cid = str(u.get("message",{}).get("chat",{}).get("id",""))
-            if cid == str(TG_CHAT):
-                if any(w in txt for w in ["APPROVE","YES","GO","OK","UPLOAD"]):
-                    tg("APPROVED. Generating video now...")
-                    return "approved"
-                if any(w in txt for w in ["REJECT","NO","SKIP","CANCEL"]):
-                    tg("REJECTED. Skipping today.")
-                    return "rejected"
-        mins = int((deadline-datetime.datetime.now()).total_seconds()/60)
-        if 13<=mins<=17 and "15" not in reminded:
-            reminded.add("15")
-            tg_buttons(f"⏰ 15 min until auto-upload\n\n<b>{title_str}</b>\n\nPress button or reply APPROVE / REJECT")
-        elif 3<=mins<=6 and "5" not in reminded:
-            reminded.add("5")
-            tg_buttons("🚨 5 MIN — AUTO-UPLOADING SOON\nPress APPROVE or REJECT NOW")
-    tg("30 min expired — AUTO-APPROVED. Generating now.")
-    return "auto_approved"
-
-
-# ════════════════════════════════════════════════════════════
-# STAGE 3: HUMAN VOICE AUDIO WITH QUALITY CHECK
-# ════════════════════════════════════════════════════════════
-async def _tts(text, voice_id, path):
-    """
-    Chunked TTS — splits long scripts at sentence boundaries every 3000 chars.
-    Prevents 'No audio was received' error on scripts over ~2000 words.
-    Concatenates chunks via FFmpeg.
-    """
-    import edge_tts, shutil
-    MAX_CHUNK = 3000
-
-    # Split at sentence boundaries
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks = []; current = ""
-    for sent in sentences:
-        if len(current) + len(sent) > MAX_CHUNK and current:
-            chunks.append(current.strip())
-            current = sent
-        else:
-            current += (" " if current else "") + sent
-    if current.strip(): chunks.append(current.strip())
-
-    if len(chunks) <= 1:
-        # Short enough for single call
-        c = edge_tts.Communicate(text, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
-        await c.save(path)
-        return
-
-    log(f"    Chunked TTS: {len(chunks)} segments")
-    parts = []
-    for i, chunk in enumerate(chunks):
-        part = str(WORK_DIR / f"chunk_{i}_{voice_id[-8:]}.mp3")
-        try:
-            c = edge_tts.Communicate(chunk, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
-            await c.save(part)
-            if Path(part).exists() and Path(part).stat().st_size > 5000:
-                parts.append(part)
-        except Exception as e:
-            log(f"    Chunk {i} error: {e}")
-
-    if not parts:
-        raise Exception("All TTS chunks failed")
-
-    if len(parts) == 1:
-        shutil.copy(parts[0], path); return
-
-    lst = str(WORK_DIR / f"chunk_list_{voice_id[-8:]}.txt")
-    with open(lst, "w") as f:
-        for p in parts: f.write(f"file '{p}'\n")
-    subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", lst, "-c", "copy", path],
-                   capture_output=True, timeout=600)
-    if not Path(path).exists():
-        raise Exception("Chunk concatenation failed")
-
-def check_audio_quality(mp3_path, dur_expected):
-    """
-    Fixed threshold: edge-tts outputs ~48kbps MP3, not 64kbps.
-    Old formula (sz < dur_expected * 8000) rejected valid 10MB files for 30-min audio.
-    Now: use ffprobe actual duration. Fall back to 500KB minimum size check.
-    """
-    try:
-        sz = Path(mp3_path).stat().st_size
-        if sz < 500000:  # Must be at least 500KB — catches empty/corrupt files
-            log(f"  Quality FAIL: {sz}b — file empty or corrupt")
-            return False
-        # Measure actual duration with ffprobe
-        r = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "csv=p=0", str(mp3_path)],
-            capture_output=True, text=True, timeout=30)
-        if r.returncode == 0 and r.stdout.strip():
-            actual_dur = float(r.stdout.strip())
-            if actual_dur < dur_expected * 0.5:  # must be at least 50% of expected
-                log(f"  Quality FAIL: {actual_dur:.0f}s actual vs {dur_expected:.0f}s expected")
-                return False
-            log(f"  Quality OK: {sz/1024/1024:.1f}MB | {actual_dur:.0f}s")
-            return True
-        # ffprobe unavailable — accept if > 500KB
-        log(f"  Quality OK (size): {sz/1024/1024:.1f}MB")
-        return True
-    except Exception as e:
-        log(f"  Quality check error: {e}")
-        return False
-
-
-
-def fetch_case_relevant_image_ch2(topic, niche_name, out_path):
-    """Case-relevant image search for Channel 2 thumbnails."""
-    stopwords = {"a","an","the","and","or","in","on","to","of","with","was","been","have"}
-    topic_words = [w.strip(".,!?") for w in topic.lower().split()
-                   if len(w) > 3 and w not in stopwords]
-    search_kw = " ".join(topic_words[:3])
-    niche_mod = {
-        "forensic_finance":       "dark corporate financial documents",
-        "criminal_investigation": "dark crime evidence investigation",
-        "corporate_exposure":     "dark corporate shadow documents",
-        "digital_forensics":      "dark technology screen code shadow",
-    }
-    full_query = f"{search_kw} {niche_mod.get(niche_name, 'dark investigation')}"
-    # Try Pixabay/Pexels using existing keys
-    if PIXABAY_KEY:
-        try:
-            r = requests.get("https://pixabay.com/api/",
-                params={"key": PIXABAY_KEY, "q": full_query, "image_type": "photo",
-                        "orientation": "horizontal", "per_page": 3}, timeout=15)
-            if r.status_code == 200 and r.json().get("hits"):
-                url = r.json()["hits"][0].get("webformatURL")
-                if url:
-                    ir = requests.get(url, timeout=20)
-                    if ir.status_code == 200 and len(ir.content) > 20000:
-                        with open(out_path, "wb") as f: f.write(ir.content)
-                        log(f"  Case image Ch2: {search_kw}")
-                        return True
-        except: pass
-    return False
-
-def fetch_pollinations_bg(topic, niche_name, out_path):
-    """
-    Free AI-generated dark cinematic background via Pollinations.ai.
-    No API key, no account, no credit card. Just a URL.
-    """
-    niche_visual = {
-        "forensic_finance":        "dark corporate office documents scattered forensic audit",
-        "criminal_investigation":  "dark crime scene evidence board shadows dramatic",
-        "corporate_exposure":      "dark boardroom shadows documents leaked classified",
-        "digital_forensics":       "dark server room code screens hacker surveillance",
-    }
-    style   = niche_visual.get(niche_name, "dark cinematic forensic investigation shadows")
-    topic_w = " ".join(topic.split()[:5])
-    prompt  = (f"{topic_w} {style} ultra dark atmospheric "
-               f"cinematic documentary no faces no text 8k dramatic")
-    import urllib.parse
-    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}"
-           f"?width=1280&height=720&nologo=true&seed={abs(hash(topic)) % 9999}")
-    try:
-        log("  Pollinations.ai: fetching forensic background...")
-        r = requests.get(url, timeout=45, stream=True)
-        if r.status_code == 200 and len(r.content) > 50000:
-            with open(out_path, "wb") as f:
-                f.write(r.content)
-            log(f"  Pollinations OK: {Path(out_path).stat().st_size // 1024}KB")
-            return True
-    except Exception as e:
-        log(f"  Pollinations (non-fatal): {e}")
-    return False
-
-def generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic, ab_style="A"):
-    """
-    Channel 2 thumbnail: Pollinations AI forensic background + Pillow overlay.
-    Falls back to pure Pillow if Pollinations unavailable.
-    """
-    thumb_path = str(WORK_DIR / "thumbnail.jpg")
-    pol_path   = str(WORK_DIR / "pol_bg.jpg")
-    got_bg     = fetch_pollinations_bg(topic, niche_name, pol_path)
-
-    try:
-        from PIL import Image, ImageDraw, ImageFont, ImageEnhance
-        W, H = 1280, 720
-
-        if got_bg and Path(pol_path).exists():
-            img = Image.open(pol_path).convert("RGB").resize((W, H))
-            img = ImageEnhance.Brightness(img).enhance(0.22)  # very dark
-        else:
-            img = Image.new("RGB", (W, H), (5, 5, 10))
-
-        draw = ImageDraw.Draw(img)
-
-        # Dark gradient vignette overlay
-        for i in range(150):
-            alpha = int(180 * (1 - i / 150))
-            draw.rectangle([i, i, W-i, H-i], outline=(0, 0, 0, alpha) if False else (0,0,0))
-
-        # Font
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
-        def get_font(sz):
-            for fp in font_paths:
-                if Path(fp).exists():
-                    try: return ImageFont.truetype(fp, sz)
-                    except: pass
-            return ImageFont.load_default()
-
-        # Forensic series badge
-        badge_font = get_font(22)
-        draw.text((24, 20), "● THE EVIDENCE ROOM", font=badge_font, fill=(180, 0, 0))
-
-        # Main hook text — A/B colour
-        words   = thumb_text.split()
-        lines   = ([thumb_text] if len(words) <= 3
-                   else [" ".join(words[:len(words)//2]),
-                         " ".join(words[len(words)//2:])])
-        fm      = get_font(108)
-        th_total= len(lines) * 118
-        sy      = (H - th_total) // 2 - 20
-
-        text_col   = (220, 15, 15) if ab_style == "A" else (255, 255, 255)
-        shadow_col = (60, 0, 0)    if ab_style == "A" else (0, 0, 0)
-
-        for i, line in enumerate(lines):
-            y    = sy + i * 118
-            bbox = draw.textbbox((0, 0), line, font=fm)
-            x    = (W - (bbox[2] - bbox[0])) // 2
-            for dx, dy in [(-3,-3),(3,-3),(-3,3),(3,3),(0,-4),(0,4)]:
-                draw.text((x+dx, y+dy), line, font=fm, fill=shadow_col)
-            draw.text((x, y), line, font=fm, fill=text_col)
-
-        # Sub-title
-        sub  = title[:60] + ("…" if len(title) > 60 else "")
-        fs   = get_font(30)
-        bb   = draw.textbbox((0, 0), sub, font=fs)
-        sx   = (W - (bb[2] - bb[0])) // 2
-        draw.text((sx, sy + th_total + 16), sub, font=fs, fill=(200, 200, 200))
-
-        # Evidence stamp border
-        draw.rectangle([8, 8, W-8, H-8], outline=(140, 0, 0), width=2)
-        draw.rectangle([14, 14, W-14, H-14], outline=(80, 0, 0), width=1)
-
-        img.save(thumb_path, "JPEG", quality=95)
-        log(f"  Thumbnail saved: {Path(thumb_path).stat().st_size // 1024}KB")
-        return thumb_path
-
-    except Exception as e:
-        log(f"  Thumbnail error: {e}")
-        return None
-
-def apply_audio_post_processing(input_path, output_path):
-    """
-    Transform edge-tts flat TTS into cinematic investigative narrator quality.
-    EQ boosts presence, reverb adds room depth, compression smooths dynamics.
-    """
-    try:
-        af = (
-            "equalizer=f=80:width_type=o:width=2:g=3,"
-            "equalizer=f=2500:width_type=o:width=2:g=2,"
-            "equalizer=f=8000:width_type=o:width=2:g=-3,"
-            "aecho=0.8:0.85:40:0.25,"
-            "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
-            "loudnorm=I=-16:LRA=11:TP=-1.5"
-        )
-        subprocess.run([
-            "ffmpeg", "-y", "-i", input_path,
-            "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
-        ], capture_output=True, timeout=300, check=True)
-        if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
-            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
-            return output_path
-    except Exception as e:
-        log(f"  Audio processing (non-fatal): {e}")
-    return input_path
-
-def run_stage3_audio(script_clean, voice_id, niche_name):
-    log("\n"+"="*65)
-    log(f"  STAGE 3: Human Voice Audio — {voice_id}")
-    log("="*65)
-    wc           = len(script_clean.split())
-    dur_expected = (wc/125.0)*60.0
-    preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
-    # Guaranteed working voices on GitHub Actions (tested)
-    GUARANTEED_VOICES = [
-        "en-GB-RyanNeural",      # BBC documentary gravitas — most reliable
-        "en-GB-ThomasNeural",    # Cold measured cinematic
-        "en-US-BrianNeural",     # Deep calm commanding
-        "en-US-ChristopherNeural", # Serious documentary
-        "en-US-AndrewNeural",    # Warm authoritative
-        "en-US-EricNeural",      # Professional measured
-        "en-US-GuyNeural",       # Commanding serious
-        "en-US-SteffanNeural",   # Professional clear
-        "en-GB-OliverNeural",    # Professional authoritative
-        "en-US-TonyNeural",      # Confident expressive
-    ]
-    voice_queue  = [voice_id]
-    for v in preferred:
-        if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
-    for v in GUARANTEED_VOICES:
-        if v not in voice_queue: voice_queue.append(v)
-
-    for v in voice_queue[:12]:
-        log(f"  Trying: {v}")
-        mp3 = str(WORK_DIR/"audio.mp3")
-        try:
-            asyncio.run(_tts(script_clean, v, mp3))
-            if not Path(mp3).exists(): continue
-            if not check_audio_quality(mp3, dur_expected):
-                log(f"  {v} failed quality — trying next")
-                continue
-            sz  = Path(mp3).stat().st_size
-            dur = dur_expected
-            log(f"  ACCEPTED: {v} | {sz/1024/1024:.1f}MB | ~{dur/60:.1f}min")
-            wav = str(WORK_DIR/"audio.wav")
-            try:
-                subprocess.run(["ffmpeg","-y","-i",mp3,"-acodec","pcm_s16le","-ar","24000","-ac","1",wav],
-                               capture_output=True, timeout=300)
-                if Path(wav).exists() and Path(wav).stat().st_size>100000:
-                    return wav, dur, sz, v
-            except: pass
-            return mp3, dur, sz, v
-        except Exception as e:
-            log(f"  {v} err: {str(e)[:60]}")
-            time.sleep(3)
-    tg("Evidence Room Stage 3 FAILED — all voices failed")
-    sys.exit(1)
-
-
-# ════════════════════════════════════════════════════════════
-# STAGE 4: ANIMATION ENGINE — 5 SCENE TYPES
-# ════════════════════════════════════════════════════════════
-
-def render_connection_reveal(draw, W, H, nodes, progress, accent, font_sm):
-    """
-    Animate lines drawing between connection nodes.
-    Lines draw themselves progressively — cinematic reveal effect.
-    nodes: list of (x, y, label) tuples
-    """
-    if len(nodes) < 2: return
-    total_connections = len(nodes) - 1
-    for i in range(total_connections):
-        conn_progress = min(1.0, max(0.0,
-            (progress * total_connections - i)))
-        if conn_progress <= 0: continue
-        x1, y1 = nodes[i][0], nodes[i][1]
-        x2, y2 = nodes[i+1][0], nodes[i+1][1]
-        # Partial line draw
-        cx = int(x1 + (x2 - x1) * conn_progress)
-        cy = int(y1 + (y2 - y1) * conn_progress)
-        draw.line([(x1, y1), (cx, cy)], fill=accent, width=2)
-        # Pulsing node dot
-        r = 6
-        draw.ellipse([(x1-r, y1-r), (x1+r, y1+r)], fill=accent)
-        if conn_progress >= 1.0:
-            draw.ellipse([(x2-r, y2-r), (x2+r, y2+r)], fill=accent)
-
-def render_counting_number(draw, x, y, target_val, progress, font_lg, color):
-    """
-    Animate a number counting up from 0 to target_val.
-    Creates urgency — viewer feels the scale of the case.
-    """
-    current = int(target_val * min(progress * 1.5, 1.0))
-    text = f"{current:,}"
-    bbox = draw.textbbox((0,0), text, font=font_lg)
-    tw = bbox[2] - bbox[0]
-    draw.text((x - tw//2 + 1, y + 1), text, font=font_lg, fill=(20, 20, 20))
-    draw.text((x - tw//2, y), text, font=font_lg, fill=color)
-
-def render_classified_stamp(draw, W, H, progress, font_lg):
-    """
-    Stamp-reveal effect for classified evidence.
-    Red CLASSIFIED diagonal stamp appears at reveal moment.
-    """
-    if progress < 0.7: return
-    stamp_alpha = min(1.0, (progress - 0.7) / 0.3)
-    stamp_text  = "CLASSIFIED"
-    # Diagonal stamp in red
-    alpha_val = int(200 * stamp_alpha)
-    stamp_color = (200, 0, 0, alpha_val) if False else (200, 0, 0)
-    bbox = draw.textbbox((0,0), stamp_text, font=font_lg)
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    cx, cy = W//2, H//2
-    draw.text((cx - tw//2 + 2, cy - th//2 + 2), stamp_text, font=font_lg, fill=(40,0,0))
-    draw.text((cx - tw//2, cy - th//2), stamp_text, font=font_lg, fill=stamp_color)
-    # Border lines of the stamp box
-    pad = 20
-    for thickness in range(1, 4):
-        draw.rectangle([cx-tw//2-pad, cy-th//2-pad,
-                        cx+tw//2+pad, cy+th//2+pad],
-                       outline=stamp_color, width=thickness)
 
 def render_frame_pil(style_name, scene, frame_idx, total_frames, scene_idx, total_scenes):
     style    = STYLES[style_name]
@@ -1856,6 +1440,45 @@ def apply_ken_burns(input_path, output_path, scene_type, fps=24, duration=None):
         log(f"  Ken Burns (non-fatal, using original): {e}")
     return input_path
 
+def fetch_pollinations_bg(topic, niche_name, out_path):
+    """v2: delegates to thumbnail_engine_v2 background fetcher."""
+    try:
+        from thumbnail_engine_v2 import fetch_background
+        import hashlib
+        seed   = int(hashlib.md5(topic.encode()).hexdigest()[:8], 16) % 99999
+        result = fetch_background(topic, niche_name, seed, str(WORK_DIR))
+        if result and Path(result).exists():
+            import shutil
+            shutil.copy(result, out_path)
+            return True
+    except Exception as e:
+        log(f"  fetch_pollinations_bg (non-fatal): {e}")
+    return False
+
+
+def generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic,
+                                   ab_style="A", episode=1, channel_name="The Evidence Room"):
+    """v2 thumbnail: three-layer composition via thumbnail_engine_v2."""
+    try:
+        from thumbnail_engine_v2 import generate_thumbnail_v2
+        result = generate_thumbnail_v2(
+            title        = title,
+            thumb_text   = thumb_text,
+            niche_name   = niche_name,
+            topic        = topic,
+            channel_name = channel_name,
+            episode      = episode,
+            work_dir     = str(WORK_DIR),
+            ab_variant   = ab_style,
+        )
+        if result and Path(result).exists():
+            log(f"  Thumbnail v2 ({niche_name}): {Path(result).stat().st_size//1024}KB")
+            return result
+    except Exception as e:
+        log(f"  Thumbnail v2 (non-fatal): {e}")
+    return None
+
+
 def render_and_encode(style_name, scenes, audio_path, duration):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
@@ -1972,8 +1595,13 @@ def upload_yt(path, title, description, tags, is_short=False, token=None):
                  "X-Upload-Content-Length": str(fs), "X-Upload-Content-Type": "video/mp4"},
         json={"snippet": {"title": title[:100], "description": description,
                           "tags": tags[:15], "categoryId": "22"},
-              "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False,
-                         "madeForKids": False}}, timeout=30)
+              "status": {
+                  "privacyStatus": "public",
+                  "selfDeclaredMadeForKids": False,
+                  "madeForKids": False,
+                  "containsSyntheticMedia": True   # mandatory AI disclosure since Mar 2024
+              }},
+                timeout=30)
     upload_url = init.headers.get("Location")
     if not upload_url:
         raise Exception(f"No upload URL: {init.status_code}: {init.text[:200]}")
@@ -2079,6 +1707,92 @@ def add_to_playlist(token, playlist_id, video_id):
         log("  Added to playlist")
     except Exception as e: log(f"  Playlist add (non-fatal): {e}")
 
+# ════════════════════════════════════════════════════════════
+# v12.0 NEW FUNCTIONS — TRAFFIC & REVENUE MAXIMISATION
+# ════════════════════════════════════════════════════════════
+
+def generate_dedicated_short_title_ch2(main_title, short_type, niche_name):
+    """Dedicated Short title for Ch2 — forensic investigation angle."""
+    prompts = {
+        "teaser": f"Write a YouTube Shorts title that creates maximum curiosity for a forensic investigation. "
+                  f"Topic: {main_title[:80]}. Under 55 chars, starts with a document/evidence/number fact. Return ONLY the title.",
+        "recap":  f"Write a YouTube Shorts title revealing the key evidence found. "
+                  f"Topic: {main_title[:80]}. Under 55 chars, implies proof was found. Return ONLY the title.",
+    }
+    type_key = "teaser" if "teaser" in short_type.lower() else "recap"
+    try:
+        result = ai(prompts[type_key], tokens=80)
+        if result:
+            title = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
+            if 15 < len(title) < 65:
+                log(f"  Short title Ch2: {title}")
+                return title
+    except Exception as e:
+        log(f"  Short title Ch2 (non-fatal): {e}")
+    defaults = {"teaser": "What the Records Revealed", "recap": "Evidence Found — Full Case Above"}
+    return defaults.get(type_key, main_title[:50])
+
+
+def post_short_creator_comment_ch2(token, video_id, niche_name, main_title):
+    """Pinned creator comment on each Ch2 Short. Drives early engagement signals."""
+    short_hooks = {
+        "forensic_finance":       "What financial warning sign do you wish more people understood?",
+        "criminal_investigation": "What detail in this case makes it impossible to look away?",
+        "corporate_exposure":     "Have you ever seen corporate documents like these in real life?",
+        "digital_forensics":      "Did you know how much of your digital trail can be reconstructed?",
+    }
+    hook = short_hooks.get(niche_name, "What was the most disturbing piece of evidence?")
+    comment = (
+        f"🔬 {hook}\n\n"
+        f"Full forensic investigation ↑ above.\n"
+        f"🔔 New case every weekday → subscribe\n"
+        f"🌑 Dark horror: youtube.com/@BetrayalDeepDive\n"
+        f"🧠 Mass manipulation: youtube.com/@TheControlFiles\n\n"
+        f"#{niche_name.replace('_','')} #shorts #forensic #investigation"
+    )
+    try:
+        r = requests.post(
+            "https://www.googleapis.com/youtube/v3/commentThreads",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"snippet": {"videoId": video_id,
+                              "topLevelComment": {"snippet": {"textOriginal": comment}}}},
+            timeout=30)
+        if r.status_code == 200: log("  Short creator comment Ch2 OK")
+        else: log(f"  Short comment {r.status_code} (non-fatal)")
+    except Exception as e:
+        log(f"  Short comment (non-fatal): {e}")
+
+
+def build_ch2_cross_promo(is_short=False):
+    """Three-channel cross-promotion for Ch2 descriptions."""
+    if is_short:
+        return (
+            "\n\n🌑 Dark horror investigations: youtube.com/@BetrayalDeepDive"
+            "\n🧠 Mass manipulation exposed: youtube.com/@TheControlFiles"
+        )
+    return (
+        "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive"
+        "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
+        "\n\n📺 New investigation every weekday on all three channels."
+    )
+
+
+def track_episode_ch2(state, niche_name, score, voice, episode):
+    """Performance tracker for Ch2 — same as Ch1's track_episode."""
+    perf = state.get("performance", {})
+    n    = perf.get(niche_name, {"scores": [], "streak_below": 0})
+    n["scores"]       = (n["scores"] + [score])[-20:]
+    n["streak_below"] = (n["streak_below"] + 1) if score < 7.3 else 0
+    n["last_episode"] = episode
+    perf[niche_name]  = n
+    v = perf.get(f"voice_{voice}", {"scores": []})
+    v["scores"] = (v["scores"] + [score])[-20:]
+    perf[f"voice_{voice}"] = v
+    state["performance"] = perf
+    return state
+
+
 def cleanup():
     for f in ["audio.mp3","audio.wav","raw.mp4","final.mp4",
               "short_teaser.mp4","short_recap.mp4","s_teaser_raw.mp4","s_recap_raw.mp4"]:
@@ -2125,6 +1839,9 @@ def main():
     (niche, topic, voice, style_name, episode,
      script_clean, scenes, title_str, thumbnail_text,
      title_scores, score, tags, intel) = run_stage1(state)
+
+    # v12: fix topic_used bug — assign from stage1 result
+    topic_used = topic
 
     # Enhance tags with competitive niche-specific SEO tags
     CH2_NICHE_TAGS = {
@@ -2194,9 +1911,11 @@ def main():
     state.setdefault("thumbnail_ab", {})["last_style"] = ab_style
     log(f"  Thumbnail A/B style: {ab_style} (week {week_number})")
 
-    cross_promo = ("\n\n🔎 For dark psychological horror investigations: "
-                   "youtube.com/@BetrayalDeepDive")
-    description = (f"Episode {episode} of {niche['series']}.\n{topic}\n\n"
+    # v12: three-channel cross-promo + SEO-optimised first 100 chars
+    cross_promo = build_ch2_cross_promo(is_short=False)
+    seo_first = f"DOCUMENTED: {topic[:60]}."  # first 100 chars — shown in YouTube search
+    description = (f"{seo_first}\n\n"
+                   f"Episode {episode} of {niche['series']}.\n\n"
                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
                    f"Subscribe to The Evidence Room."
                    f"{cross_promo}\n\n"
@@ -2238,6 +1957,12 @@ def main():
 
     # 2 Shorts — MANDATORY, 3 attempts each, no silent failures
     shorts = []; token_yt = get_yt_token()
+    # v12: generate dedicated Short titles before the loop
+    short_cross = build_ch2_cross_promo(is_short=True)
+    short_titles = {
+        "teaser": generate_dedicated_short_title_ch2(title_str, "teaser", niche["name"]),
+        "recap":  generate_dedicated_short_title_ch2(title_str, "recap",  niche["name"]),
+    }
     for stype in ["teaser", "recap"]:
         success = False; last_err = None
         for attempt in range(1, 4):
@@ -2247,10 +1972,15 @@ def main():
                 if not sp or not Path(sp).exists() or Path(sp).stat().st_size < 400000:
                     raise RuntimeError(f"Short ({stype}) file too small or missing")
                 log(f"  Uploading Short ({stype}) attempt {attempt}/3...")
+                short_desc = (f"Full forensic investigation above.\n\n{title_str}\n"
+                              f"{short_cross}\n\n"
+                              f"#{niche['name'].replace('_','')} #shorts #forensic")
                 su, sid = upload_yt(
-                    sp, f"{title_str[:46]} — {stype.upper()}",
-                    description, tags, is_short=True, token=token_yt)
+                    sp, short_titles[stype],
+                    short_desc, tags, is_short=True, token=token_yt)
                 add_to_playlist(token_yt, playlist_id, sid)
+                # v12: pinned creator comment on Short
+                post_short_creator_comment_ch2(token_yt, sid, niche["name"], title_str)
                 shorts.append(f"Short {stype}: {su}")
                 log(f"  OK Short {stype}: {su}")
                 success = True; break
@@ -2266,14 +1996,18 @@ def main():
     # Generate 2 standalone niche Shorts (additional to teaser/recap)
     log("\n  Creating standalone niche Shorts...")
     standalone = create_and_upload_standalone_shorts(
-        token_yt, niche, topic_used or niche["topics"][0],
+        token_yt, niche, topic_used or niche["seed_topics"][0],
         voice_used, description, tags, playlist_id, title_str)
     log(f"  Standalone Shorts uploaded: {len(standalone)}")
 
     cleanup()
     ckpt_clear()
 
-    # Update state
+    # v12: performance tracker + save pattern memory
+    state = track_episode_ch2(state, niche["name"], score, voice_used,
+                               (datetime.datetime.now().timetuple().tm_yday//3)+1)
+    state = save_pattern_memory(state, (datetime.datetime.now().timetuple().tm_yday//3)+1,
+                                niche["name"], topic, score)
     state["last_style"]    = style_name
     state["last_niche"]    = niche["name"]
     state["last_voice"]    = voice_used
@@ -2289,6 +2023,27 @@ def main():
     log("Pipeline complete — clearing checkpoint")
     ckpt_clear()
 
+    # v12: first-hour sprint — background growth engine call
+    try:
+        import subprocess
+        env_ext = os.environ.copy()
+        env_ext.update({
+            "GROWTH_ENGINE_MODE":  "sprint",
+            "SPRINT_VIDEO_URL":    yt_url,
+            "SPRINT_VIDEO_TITLE":  title_str,
+            "SPRINT_CHANNEL_ID":   "evidence_room",
+            "SPRINT_NICHE":        niche["name"],
+            "SPRINT_SHORTS_URLS":  ",".join(s.split(": ",1)[-1] for s in shorts),
+            "SPRINT_SCORE":        str(score),
+        })
+        subprocess.Popen(
+            ["python3", str(Path(__file__).parent.parent /
+                           "channels/growth_engine/growth_engine.py")],
+            env=env_ext)
+        log("  Growth engine sprint launched (background)")
+    except Exception as ge:
+        log(f"  Growth engine (non-fatal): {ge}")
+
     tg(f"EVIDENCE ROOM PUBLISHED — {dec}\n\n"
        f"{title_str}\n"
        f"Style: {style_name} | Ep{episode}\n"
@@ -2299,6 +2054,7 @@ def main():
        f"Main: {yt_url}\n"
        f"{chr(10).join(shorts)}\n\n"
        f"Est 30-day: {ev:,} views | ${er} (Rs.{int(er*83):,})\n"
+       f"🚀 First-hour sprint: watch + Hype within 60 min\n"
        f"Artifacts deleted.")
     log(f"\nCOMPLETE: {yt_url}")
 
