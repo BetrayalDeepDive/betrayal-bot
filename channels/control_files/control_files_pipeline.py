@@ -2206,235 +2206,213 @@ def cleanup():
 # MAIN
 # ════════════════════════════════════════════════════════════
 def main():
-    # Stagger 3h after Channel 2 to avoid API conflicts
-    delay = random.randint(90,150)
-    log(f"  Starting in {delay}s to avoid API conflicts...")
-    time.sleep(delay)
+    """
+    Two-phase controller for Ch3 (The Control Files).
+    PIPELINE_PHASE=generate : generate + save pending_upload.json
+    PIPELINE_PHASE=upload   : read pending, upload to YouTube
+    """
+    from phase_manager import (get_pipeline_phase, save_pending,
+                                load_pending, clear_pending, check_pending_age,
+                                is_already_uploaded)
 
-    log("\n"+"="*65)
-    log("  THE CONTROL FILES v1.0 — ANIMATED CONTROL PIPELINE")
-    log("  20 Human Voices | 13 Attempts | 7.3 Quality Floor")
-    log("  No subs on main | Subs on Shorts | Telegram + Gmail")
-    log("  Channel 3 of DeepDive Empire")
-    log("="*65)
+    phase      = get_pipeline_phase()
+    SCRIPT_DIR = Path(__file__).parent
+    state      = load_state()
 
-    state = load_state()
+    log(f"\nCONTROL FILES v14.0 — Phase: {phase.upper()}")
+    log(f"Time: {datetime.datetime.now().strftime('%a %d %b %Y %I:%M %p IST')}")
 
-    # Pre-define cross-stage variables
-    used_topics    = []
-    best_thumbnail = "MIND CONTROLLED"
-    best_title_str = ""
-    ab_style       = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+    # ── UPLOAD PHASE ──────────────────────────────────────────
+    if phase == "upload":
+        pending = load_pending(SCRIPT_DIR)
+        if not pending or is_already_uploaded(pending):
+            tg("⚠️ Ch3 Upload: no pending video. Generation may have failed.")
+            sys.exit(0)
+        is_fresh, hours_old = check_pending_age(pending, max_hours=30)
+        if not is_fresh:
+            tg(f"⚠️ Ch3 Upload: pending is {hours_old}h old — uploading anyway.")
 
-    # Startup notification
-    tg(f"Control Files v1.0 Starting\n"
-       f"Time: {datetime.datetime.now().strftime('%I:%M %p')} IST\n"
-       f"Quality floor: {MIN_GATE} | 13-attempt engine\n"
-       f"Approval request in ~15 min.")
-    log("Startup notification sent")
+        title        = pending["title"]
+        description  = pending["description"]
+        tags         = pending["tags"]
+        niche_name   = pending["niche_name"]
+        video_path   = pending["video_path"]
+        thumb_path   = pending.get("thumbnail_path","")
+        shorts       = pending.get("shorts_clips", [])
+        script_clean = pending.get("script_clean","")
+        duration     = pending.get("duration", 0)
+        score        = pending.get("score", 0)
+        voice_used   = pending.get("voice_used","")
+        episode      = pending.get("episode", 1)
+        playlist_id  = pending.get("playlist_id","")
+        short_titles = pending.get("short_titles", {})
+        short_cross  = pending.get("short_cross","")
 
-    # Stage 1: Script
-    (niche, topic, voice, style_name, episode,
-     script_clean, scenes, title_str, thumbnail_text,
-     title_scores, score, tags, intel) = run_stage1(state)
+        if not Path(video_path).exists():
+            tg(f"❌ Ch3 Upload FAILED: video missing at {video_path}"); sys.exit(1)
 
-    # Enhance tags with competitive SEO
-    CH3_NICHE_TAGS = {
-        "cult_psychology":    ["cult psychology documentary","how cults work","cult manipulation",
-                               "high control groups","cult indoctrination exposed","cult recovery"],
-        "propaganda_systems": ["propaganda documentary","how propaganda works","media manipulation",
-                               "information warfare exposed","psychological warfare documentary"],
-        "social_engineering": ["social engineering psychology","manipulation tactics exposed",
-                               "influence psychology documentary","persuasion techniques dark"],
-        "mass_deception":     ["mass deception documentary","information manipulation",
-                               "psyops exposed","narrative control documentary","astroturfing exposed"],
-    }
-    tags = list(set(tags + CH3_NICHE_TAGS.get(niche["name"],[]) + ["thecontrolfiles","animated"]))[:15]
-
-    # Upgrade thumbnail to NUMBER+NOUN format
-    if thumbnail_text and not any(c.isdigit() for c in thumbnail_text):
-        try:
-            num_p = (f"Psychological control topic: {topic[:60]}\n"
-                     "Generate 2-3 word thumbnail text in NUMBER+NOUN format.\n"
-                     "Examples: '97% COMPLIANT' '6 STAGES' '3 BILLION PEOPLE' '18 MONTHS'\n"
-                     "Use a specific number from the case. Return ONLY the phrase.")
-            num_r = ai(num_p, tokens=40)
-            if num_r and any(c.isdigit() for c in num_r.strip()):
-                thumbnail_text = num_r.strip().upper()[:20]
-                log(f"  Thumbnail upgraded to NUMBER+NOUN: {thumbnail_text}")
-        except: pass
-
-    tg(f"Control Files Stage 1 Complete\n"
-       f"{niche['name']} | {len(script_clean.split())}w | {score}/10\n"
-       f"Title: {title_str[:60]}\nSending approval now...")
-
-    # Stage 2: Approval gate
-    decision = run_stage2_approval(
-        title_str, niche, voice, style_name, script_clean,
-        thumbnail_text, title_scores, score)
-    if decision == "rejected":
-        log("Rejected."); sys.exit(0)
-
-    tg("Control Files generating video now...")
-
-    # Stage 3: Audio
-    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
-    tg(f"Stage 3: {voice_used} | {duration/60:.1f}min")
-
-    # Stage 4: Animation
-    log("\n"+"="*65)
-    log("  STAGE 4: Rendering Animation")
-    log("="*65)
-    video_path = run_stage_with_retry(
-        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
-    tg(f"Stage 4: 1080p animated | Style: {style_name}\nUploading...")
-
-    # Generate thumbnail
-    week_number = datetime.datetime.now().isocalendar()[1]
-    ab_style    = "A" if week_number % 2 == 1 else "B"
-    thumb_path  = generate_thumbnail(title_str, thumbnail_text, niche["name"], topic, ab_style)
-    log(f"  Thumbnail: {'OK' if thumb_path else 'using default'}")
-
-    # v12: SEO-optimised description + three-channel cross-promo + affiliate CTAs
-    cross_promo = build_ch3_cross_promo(is_short=False)
-    affiliate_cta = (
-        "\n\n— RESOURCES —\n"
-        "If this investigation affected you personally, professional support is available below.\n"
-        "Psychology courses referenced in this investigation are linked below."
-    )
-    seo_first = f"EXPOSED: {topic[:60]}."  # SEO-optimised first 100 chars
-    description = (
-        f"{seo_first}\n\n"
-        f"Episode {episode} of {niche['series']}.\n\n"
-        f"Every technique. Every mechanism. Every documented case — animated.\n\n"
-        f"Subscribe to The Control Files."
-        f"{cross_promo}"
-        f"{affiliate_cta}\n\n"
-        f"⚠️ AI-assisted narration and psychological investigation."
-    )
-
-    token_yt   = get_yt_token()
-    playlist_id = state.get("playlists",{}).get(niche["name"])
-    if not playlist_id:
-        playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
-        if playlist_id:
-            pl = state.get("playlists",{})
-            pl[niche["name"]] = playlist_id
-            state["playlists"] = pl
-
-    # Upload main video
-    try:
+        token_yt = get_yt_token()
         yt_url, vid_id = run_stage_with_retry(
-            upload_yt, "Upload", video_path, title_str, description, tags,
+            upload_yt, "Upload", video_path, title, description, tags,
             is_short=False, token=token_yt)
-        add_to_playlist(token_yt, playlist_id, vid_id)
+
+        if playlist_id: add_to_playlist(token_yt, playlist_id, vid_id)
+
         if thumb_path and Path(thumb_path).exists():
             try:
                 with open(thumb_path,"rb") as tf:
                     tr = requests.post(
                         f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
                         f"?videoId={vid_id}&uploadType=media",
-                        headers={"Authorization":f"Bearer {token_yt}","Content-Type":"image/jpeg"},
+                        headers={"Authorization":f"Bearer {token_yt}",
+                                 "Content-Type":"image/jpeg"},
                         data=tf.read(), timeout=60)
-                if tr.status_code in [200,201]: log("  Thumbnail uploaded OK")
-            except Exception as te: log(f"  Thumbnail upload (non-fatal): {te}")
-        post_creator_comment(token_yt, vid_id, niche["name"], title_str, episode)
-        log(f"  Main: {yt_url}")
-    except Exception as e:
-        tg(f"Control Files Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
+                if tr.status_code in [200,201]: log("  Thumbnail uploaded")
+            except Exception as te: log(f"  Thumbnail (non-fatal): {te}")
 
-    # 2 Shorts — MANDATORY
-    # v12: dedicated Short titles
-    short_cross = build_ch3_cross_promo(is_short=True)
-    short_titles = {
+        post_creator_comment(token_yt, vid_id, niche_name, title, episode)
+
+        short_urls = []
+        short_cross_b = build_ch3_cross_promo(is_short=True)
+        for sd in shorts:
+            sp = sd.get("path","")
+            if not sp or not Path(sp).exists(): continue
+            try:
+                st    = short_titles.get(sd.get("type","teaser"), title[:50])
+                sdesc = (f"Full investigation above.\n\n{title}\n"
+                         f"{short_cross_b}\n\n#{niche_name.replace('_','')} #shorts #psychology")
+                su, sid = upload_yt(sp, st, sdesc, tags, is_short=True, token=token_yt)
+                add_to_playlist(token_yt, playlist_id, sid)
+                post_short_creator_comment_ch3(token_yt, sid, niche_name, title)
+                short_urls.append(su); log(f"  Short uploaded: {su}")
+            except Exception as e: log(f"  Short (non-fatal): {e}")
+
+        if script_clean and duration > 0:
+            try:
+                from growth_engine import upload_srt_captions
+                upload_srt_captions(token_yt, vid_id, script_clean, duration, "control_files")
+            except Exception as e: log(f"  SRT (non-fatal): {e}")
+
+        update_channel_description(token_yt, niche_name)
+        clear_pending(SCRIPT_DIR)
+
+        state["last_title"]    = title
+        state["last_url"]      = yt_url
+        state["last_voice"]    = voice_used
+        state["total_uploads"] = state.get("total_uploads",0)+1
+        save_state(state)
+
+        try:
+            env_ext = os.environ.copy()
+            env_ext.update({
+                "GROWTH_ENGINE_MODE": "sprint",
+                "SPRINT_VIDEO_URL":   yt_url,
+                "SPRINT_VIDEO_TITLE": title,
+                "SPRINT_CHANNEL_ID":  "control_files",
+                "SPRINT_NICHE":       niche_name,
+                "SPRINT_SHORTS_URLS": ",".join(short_urls),
+                "SPRINT_SCORE":       str(score),
+            })
+            subprocess.Popen(
+                ["python3", str(Path(__file__).parent.parent /
+                               "growth_engine/growth_engine.py")],
+                env=env_ext)
+        except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
+
+        tg(f"✅ <b>The Control Files — LIVE</b>\n\n"
+           f"<b>{title}</b>\n🔗 {yt_url}\n\n"
+           f"Niche: {niche_name} | Score: {score}/10 | Ep{episode}\n"
+           f"🚀 First-hour sprint active")
+        log(f"\nUPLOAD COMPLETE: {yt_url}")
+        return
+
+    # ── GENERATE PHASE ────────────────────────────────────────
+    (niche, topic, voice, style_name, episode,
+     script_clean, scenes, title_str, thumbnail_text,
+     title_scores, score, tags, intel) = run_stage1(state)
+
+    ab_style    = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+    cross_promo = build_ch3_cross_promo(is_short=False)
+    seo_first   = f"EXPOSED: {topic[:60]}."
+    description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
+                   f"Investigative documentary — every case documented.\n\n"
+                   f"Subscribe to The Control Files.{cross_promo}\n\n"
+                   f"⚠️ AI-assisted narration and investigation.")
+
+    token_yt    = get_yt_token()
+    playlist_id = state.get("playlists",{}).get(niche["name"])
+    if not playlist_id:
+        playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
+        if playlist_id:
+            pl = state.get("playlists",{}); pl[niche["name"]] = playlist_id
+            state["playlists"] = pl
+
+    # Audio
+    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+
+    # Video
+    video_path = run_stage_with_retry(
+        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
+
+    # Thumbnail
+    thumb_path = generate_thumbnail(
+        title_str, thumbnail_text, niche["name"], topic, ab_style,
+        episode=episode, channel_name="The Control Files")
+
+    # Shorts clips (generate only)
+    short_clips = []
+    short_titles_d = {
         "teaser": generate_dedicated_short_title_ch3(title_str, "teaser", niche["name"]),
         "recap":  generate_dedicated_short_title_ch3(title_str, "recap",  niche["name"]),
     }
-    shorts = []; token_yt = get_yt_token()
     for stype in ["teaser","recap"]:
-        success = False; last_err = None
-        for attempt in range(1,4):
-            try:
-                log(f"  Creating Short ({stype}) attempt {attempt}/3...")
-                sp = make_short_with_subs(video_path, script_clean, stype, duration)
-                if not sp or not Path(sp).exists() or Path(sp).stat().st_size < 400000:
-                    raise RuntimeError(f"Short ({stype}) file too small or missing")
-                short_desc = (f"Full investigation above.\n\n{title_str}\n"
-                              f"{short_cross}\n\n"
-                              f"#{niche['name'].replace('_','')} #shorts #psychology #manipulation")
-                su, sid = upload_yt(sp, short_titles[stype],
-                                    short_desc, tags, is_short=True, token=token_yt)
-                add_to_playlist(token_yt, playlist_id, sid)
-                # v12: pinned creator comment on Short
-                post_short_creator_comment_ch3(token_yt, sid, niche["name"], title_str)
-                shorts.append(f"Short {stype}: {su}")
-                log(f"  OK Short {stype}: {su}")
-                success=True; break
-            except Exception as e:
-                last_err=e; log(f"  Short {stype} attempt {attempt} failed: {e}")
-                if attempt<3: time.sleep(10)
-        if not success:
-            raise RuntimeError(f"CRITICAL: Short ({stype}) failed after 3 attempts. Last: {last_err}")
+        try:
+            sp = make_short_with_subs(video_path, script_clean, stype, duration)
+            if sp and Path(sp).exists():
+                short_clips.append({"type": stype, "path": sp})
+        except Exception as e: log(f"  Short clip {stype} (non-fatal): {e}")
 
-    # Update channel description
-    update_channel_description(token_yt, niche["name"])
+    save_pending(SCRIPT_DIR, {
+        "title":          title_str,
+        "description":    description,
+        "tags":           list(set(tags))[:15],
+        "niche_name":     niche["name"],
+        "video_path":     video_path,
+        "audio_path":     audio_path,
+        "thumbnail_path": thumb_path or "",
+        "script_clean":   script_clean,
+        "duration":       duration,
+        "score":          score,
+        "voice_used":     voice_used,
+        "episode":        episode,
+        "playlist_id":    playlist_id or "",
+        "style_name":     style_name,
+        "ab_style":       ab_style,
+        "shorts_clips":   short_clips,
+        "short_titles":   short_titles_d,
+        "short_cross":    build_ch3_cross_promo(is_short=True),
+        "topic":          topic,
+    })
 
-    cleanup()
+    state["last_niche"] = niche["name"]
+    save_state(state)
     ckpt_clear()
 
-    # Update state
-    state["last_style"]    = style_name
-    state["last_niche"]    = niche["name"]
-    state["last_voice"]    = voice_used
-    state["last_title"]    = title_str
-    state["last_url"]      = yt_url
-    state["total_uploads"] = state.get("total_uploads",0)+1
-    state["total_shorts"]  = state.get("total_shorts",0)+len(shorts)
-    save_state(state)
+    if phase == "generate":
+        tg(f"✅ <b>Ch3 Generated — queued for upload</b>\n\n"
+           f"<b>{title_str}</b>\n"
+           f"Niche: {niche['name']} | Score: {score}/10\n"
+           f"Style: {style_name} | {duration/60:.1f}min\n"
+           f"Uploading at: 12:30 AM IST (7 PM UTC)")
+        log("\nGENERATE COMPLETE — queued for upload")
+        return
 
-    dec = "APPROVED" if decision=="approved" else "AUTO-APPROVED"
-    ev  = int(5000*0.9)
-    er  = round((ev/1000)*niche["rpm"],2)
-
-    # v12: first-hour sprint — background growth engine call
-    try:
-        import subprocess
-        env_ext = os.environ.copy()
-        env_ext.update({
-            "GROWTH_ENGINE_MODE":  "sprint",
-            "SPRINT_VIDEO_URL":    yt_url,
-            "SPRINT_VIDEO_TITLE":  title_str,
-            "SPRINT_CHANNEL_ID":   "control_files",
-            "SPRINT_NICHE":        niche["name"],
-            "SPRINT_SHORTS_URLS":  ",".join(s.split(": ",1)[-1] for s in shorts),
-            "SPRINT_SCORE":        str(score),
-        })
-        subprocess.Popen(
-            ["python3", str(Path(__file__).parent.parent /
-                           "growth_engine/growth_engine.py")],
-            env=env_ext)
-        log("  Growth engine sprint launched (background)")
-    except Exception as ge:
-        log(f"  Growth engine (non-fatal): {ge}")
-
-    tg(f"CONTROL FILES PUBLISHED — {dec}\n\n"
-       f"{title_str}\n"
-       f"Style: {style_name} | Ep{episode}\n"
-       f"Niche: {niche['name']} | ${niche['rpm']} RPM\n"
-       f"Voice: {voice_used} | {duration/60:.1f}min\n"
-       f"Score: {score}/10 | Thumbnail: {thumbnail_text} [{ab_style}]\n"
-       f"No subs on main | Subs on Shorts\n\n"
-       f"Main: {yt_url}\n"
-       f"{chr(10).join(shorts)}\n\n"
-       f"Est 30-day: {ev:,} views | ${er} (Rs.{int(er*83):,})\n"
-       f"🚀 First-hour sprint: watch + Hype within 60 min\n"
-       f"Artifacts deleted.")
-    log(f"\nCOMPLETE: {yt_url}")
+    os.environ["PIPELINE_PHASE"] = "upload"
+    main()
 
 
 def main_with_retry():
-    """Run main() with up to 3 auto-retries (2h gap each)."""
     max_retries = 3
     for attempt in range(1, max_retries+1):
         try:
@@ -2442,19 +2420,17 @@ def main_with_retry():
         except SystemExit as e:
             if e.code == 0: return
             if attempt < max_retries:
-                tg(f"⚠️ Control Files attempt {attempt}/{max_retries} failed.\nAuto-retrying in 2h...")
-                log(f"Auto-retry {attempt}/{max_retries} in 2h...")
+                tg(f"⚠️ Ch3 attempt {attempt}/{max_retries} failed.\nRetrying in 2h...")
                 time.sleep(7200)
             else:
-                tg(f"❌ Control Files FAILED after {max_retries} attempts. Manual check needed.")
+                tg(f"❌ Ch3 FAILED after {max_retries} attempts.")
                 sys.exit(1)
         except Exception as e:
             if attempt < max_retries:
-                tg(f"⚠️ Control Files attempt {attempt}/{max_retries} crashed: {str(e)[:200]}\nAuto-retrying in 2h...")
-                log(f"Crash: {e}\nRetrying in 2h...")
+                tg(f"⚠️ Ch3 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 2h...")
                 time.sleep(7200)
             else:
-                tg(f"❌ Control Files FAILED {max_retries}x: {str(e)[:300]}")
+                tg(f"❌ Ch3 FAILED {max_retries}x: {str(e)[:300]}")
                 sys.exit(1)
 
 
