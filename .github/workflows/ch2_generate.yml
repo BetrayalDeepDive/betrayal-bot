@@ -1,0 +1,80 @@
+# ============================================================
+# EVIDENCE ROOM — Ch2 Generation Workflow
+# Phase 1: GENERATE only
+# Runs: Mon-Fri 12:30 AM IST = 19:00 UTC (3.5h after Ch1 generate)
+# Token quota gap: 3.5 hours ensures Cerebras/Gemini quotas recovered
+# ============================================================
+name: Ch2 Evidence Room — Generate
+
+on:
+  schedule:
+    - cron: '0 19 * * 1-5'   # 12:30 AM IST | Mon-Fri
+  workflow_dispatch:
+    inputs:
+      is_makeup:
+        description: 'Resume from checkpoint'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "generate"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation -qq
+          pip install requests pillow edge-tts -q
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      - name: Generate video (no upload)
+        env:
+          CEREBRAS_API_KEY:   ${{ secrets.CEREBRAS_API_KEY }}
+          SAMBANOVA_API_KEY:  ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:   ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY:     ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:    ${{ secrets.MISTRAL_API_KEY }}
+          PIXABAY_KEY:        ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
+          TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          PIPELINE_PHASE:     "generate"
+          IS_MAKEUP:          ${{ github.event.inputs.is_makeup || 'false' }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          python -u channels/evidence_room/evidence_room_pipeline.py
+
+      - name: Commit generated artifacts + state
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add channels/evidence_room/state.json \
+                  channels/evidence_room/intel.json \
+                  channels/evidence_room/pending_upload.json || true
+          git diff --staged --quiet || git commit -m "chore: ch2 generated [skip ci]"
+          git push origin main || true
