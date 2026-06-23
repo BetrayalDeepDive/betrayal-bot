@@ -1,0 +1,61 @@
+# ============================================================
+# EVIDENCE ROOM — Ch2 Upload Workflow
+# Phase 2: UPLOAD only
+# Runs: Tue-Sat 11:30 PM IST = 18:00 UTC (1h after Ch1 upload)
+# US: 2 PM ET | UK: 7 PM BST — indexed by 8-9 PM ET peak
+# ============================================================
+name: Ch2 Evidence Room — Upload
+
+on:
+  schedule:
+    - cron: '0 18 * * 2-6'   # 11:30 PM IST | Tue-Sat
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "upload"
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests pillow -q
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      - name: Upload pre-generated video
+        env:
+          EVIDENCE_YT_CLIENT_ID:     ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
+          EVIDENCE_YT_CLIENT_SECRET: ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
+          EVIDENCE_YT_REFRESH_TOKEN: ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
+          PIPELINE_PHASE:            "upload"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          python -u channels/evidence_room/evidence_room_pipeline.py
+
+      - name: Commit upload state
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add channels/evidence_room/state.json \
+                  channels/evidence_room/pending_upload.json || true
+          git diff --staged --quiet || git commit -m "chore: ch2 uploaded [skip ci]"
+          git push origin main || true
