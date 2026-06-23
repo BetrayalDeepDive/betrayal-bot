@@ -3235,432 +3235,123 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
 
 
 def main():
+    """
+    Two-phase pipeline controller.
+    PIPELINE_PHASE=generate : runs script/audio/video/thumbnail, saves pending_upload.json
+    PIPELINE_PHASE=upload   : reads pending_upload.json, uploads to YouTube
+    PIPELINE_PHASE=full     : legacy single-run mode (backward compatible)
+    """
+    from phase_manager import (get_pipeline_phase, save_pending,
+                                load_pending, clear_pending, check_pending_age,
+                                is_already_uploaded)
+
+    phase = get_pipeline_phase()
     log("=" * 70)
-    log("DEEPDIVE EMPIRE v11.0 — ULTIMATE ENGINE")
-    log("=" * 70)
-    log(f"Time:   {datetime.datetime.now().isoformat()}")
-    log(f"Day:    {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][datetime.datetime.now().weekday()]}")
-    log(f"Makeup: {IS_MAKEUP}")
+    log(f"BETRAYAL DEEPDIVE v14.0 — Phase: {phase.upper()}")
+    log(f"Time (IST): {datetime.datetime.now().strftime('%a %d %b %Y %I:%M %p')}")
     log("=" * 70)
 
-    state   = load_state()
-    episode = state.get("episode_count", 0) + 1
-    log(f"Episodes so far: {state.get('episode_count', 0)}")
+    SCRIPT_DIR = Path(__file__).parent
+    state = load_state()
 
-    if not IS_MAKEUP:
-        ckpt_clear()
+    # ══════════════════════════════════════════════════════════
+    # UPLOAD PHASE — reads pending_upload.json, uploads, done
+    # ══════════════════════════════════════════════════════════
+    if phase == "upload":
+        pending = load_pending(SCRIPT_DIR)
+        if not pending or is_already_uploaded(pending):
+            tg("⚠️ Ch1 Upload: no pending video found. Generation may have failed last night.")
+            log("No pending upload — exiting.")
+            sys.exit(0)
 
-    try:
-        # Get YT token early — needed for trend intel
+        is_fresh, hours_old = check_pending_age(pending, max_hours=30)
+        if not is_fresh:
+            tg(f"⚠️ Ch1 Upload: pending video is {hours_old}h old — may be stale. Uploading anyway.")
+
+        log(f"Loading pending video ({hours_old}h old): {pending.get('title','?')[:60]}")
+        title       = pending["title"]
+        description = pending["description"]
+        tags        = pending["tags"]
+        niche_name  = pending["niche_name"]
+        video_path  = pending["video_path"]
+        thumb_path  = pending.get("thumbnail_path","")
+        shorts      = pending.get("shorts_clips", [])
+        script_clean= pending.get("script_clean","")
+        duration    = pending.get("duration", 0)
+        score       = pending.get("score", 0)
+        edge_voice  = pending.get("voice_used","")
+        episode     = pending.get("episode", 1)
+        playlist_id = pending.get("playlist_id","")
+        short_titles= pending.get("short_titles", {})
+        short_cross = pending.get("short_cross", "")
+
+        # Verify video file exists
+        if not Path(video_path).exists():
+            tg(f"❌ Ch1 Upload FAILED: video file missing at {video_path}")
+            sys.exit(1)
+
         token = get_yt_token()
 
-        # ── STAGE 1: Niche + Trend Intel + Script ──
-        log("\n" + "=" * 70)
-        log("STAGE 1: Script Generation")
-        log("=" * 70)
-        s1 = ckpt_load("stage1")
-        if s1:
-            niche_name = s1["niche_name"]; niche = next(x for x in NICHES if x["name"] == niche_name)
-            topic = s1["topic"]; edge_voice = s1["edge_voice"]; script = s1["script"]
-            score = s1["score"]; thumb_text = s1["thumb_text"]; title = s1["title"]
-        else:
-            scheduled = DAY_NICHE.get(datetime.datetime.now().weekday(), "dark_horror")
-            niche_name = pick_best_niche(state, scheduled)
-            niche      = next(x for x in NICHES if x["name"] == niche_name)
-            edge_voice = select_best_voice(state, niche_name, VOICES.get(niche_name, ["en-GB-RyanNeural"]))
+        # Upload main video
+        yt_url, vid_id = run_stage_with_retry(
+            upload_yt, "Upload",
+            video_path, title, description, tags, token=token)
 
-            log("  Fetching trending titles...")
-            trending = fetch_trending_titles(niche, token)
-            topic    = generate_trend_informed_topic(niche, trending)
-            log(f"  Topic: {topic[:80]}")
-            log("  Sleeping 10s after trend intel before script generation...")
-            time.sleep(10)
-            # Research real documented cases for this topic
-            research_ctx = get_research_context(niche_name, topic)
-            if research_ctx:
-                log("  Real case research injected into script prompt")
+        if playlist_id:
+            add_to_playlist(token, playlist_id, vid_id)
 
-            best_content = None; best_score = 0.0
-            for attempt in range(1, 4):
-                log(f"  Attempt {attempt}/3...")
-                content = generate_script_content(
-                    niche, topic, episode, attempt, trending,
-                    research_context=research_ctx if 'research_ctx' in dir() else "")
-                sc, _   = score_result(content)
-                log(f"  Score: {sc}/10")
-                if sc > best_score: best_score = sc; best_content = content
-                if sc >= MIN_GATE: log("  OK gate passed"); break
-                elif attempt == 3 and sc >= FINAL_GATE: log(f"  OK final gate {sc}")
-                elif attempt < 3:
-                    log(f"  Score {sc} below 7.5 — researching viral content before retry...")
-                    viral_angle = _research_viral_content(niche, topic)
-                    if viral_angle: topic = viral_angle
-                    log("  Sleeping 45s before retry...")
-                    time.sleep(45)
-
-            if not best_content or best_score < FINAL_GATE:
-                raise RuntimeError(f"Script failed. Best: {best_score}/10")
-
-            script     = best_content["script"]
-            score      = best_score
-            title      = generate_titles(niche, topic, episode)
-            thumb_text = generate_dynamic_thumbnail_text(script)
-
-            ckpt_save("stage1", {"niche_name": niche_name, "topic": topic, "edge_voice": edge_voice,
-                                  "script": script, "score": score, "thumb_text": thumb_text, "title": title})
-
-        log(f"  Title:      {title}")
-        log(f"  Niche:      {niche_name}")
-        log(f"  Words:      {len(script.split())}")
-        log(f"  Score:      {score}/10")
-        log(f"  Thumb:      {thumb_text}")
-
-        # ── APPROVAL GATE — Telegram with inline buttons ──
-        deadline_str = (datetime.datetime.now() +
-                        datetime.timedelta(minutes=30)).strftime("%I:%M %p")
-        preview = script[:400].replace("<","").replace(">","")
-        approval_msg = (
-            f"🎬 <b>DARK HOURS — APPROVAL NEEDED</b>\n\n"
-            f"📌 <b>Title:</b> {title}\n\n"
-            f"🎯 <b>Niche:</b> {niche_name}\n"
-            f"📝 <b>Script:</b> {len(script.split())}w | {score}/10\n"
-            f"🖼️ <b>Thumbnail:</b> {thumb_text}\n\n"
-            f"⏰ Auto-uploads at {deadline_str}\n\n"
-            f"👇 <b>Press a button or reply APPROVE / REJECT</b>"
-        )
-        tg_buttons(approval_msg)
-        tg(f"📖 <b>Preview:</b>\n<code>{preview}...</code>")
-
-        # Poll for response — 30 minutes then auto-approve
-        offset    = None
-        deadline  = time.time() + 1800
-        decision  = "auto"
-        last_warn = 0.0
-        while time.time() < deadline:
-            remaining = deadline - time.time()
-            if remaining < 900 and time.time() - last_warn > 300:
-                tg_buttons(f"⏰ {int(remaining/60)} min left — APPROVE or REJECT\n{title}")
-                last_warn = time.time()
-            for upd in tg_get_updates(offset):
-                offset = upd["update_id"] + 1
-                # Button press
-                if "callback_query" in upd:
-                    cb   = upd["callback_query"]
-                    data = cb.get("data","")
-                    cbid = cb.get("id","")
-                    if data == "approved":
-                        tg_answer_callback(cbid, "Approved!")
-                        tg("✅ <b>APPROVED.</b> Producing video now...")
-                        decision = "approved"; break
-                    elif data == "rejected":
-                        tg_answer_callback(cbid, "Rejected")
-                        tg("❌ <b>REJECTED.</b> Stopping pipeline.")
-                        sys.exit(0)
-                    elif data == "change":
-                        tg_answer_callback(cbid, "Reply with new title")
-                        tg("✏️ Reply with your preferred title as text.")
-                    continue
-                # Text fallback
-                txt = (upd.get("message") or {}).get("text","").strip().upper()
-                if any(w in txt for w in ["APPROVE","YES","GO","OK"]):
-                    tg("✅ <b>APPROVED.</b> Producing video now...")
-                    decision = "approved"; break
-                if any(w in txt for w in ["REJECT","NO","SKIP"]):
-                    tg("❌ <b>REJECTED.</b> Stopping pipeline.")
-                    sys.exit(0)
-            if decision != "auto": break
-            time.sleep(10)
-        if decision == "auto":
-            tg("⏰ 30 min expired — <b>AUTO-APPROVED.</b> Producing now...")
-
-        # ── STAGE 2: Audio + Captions ──
-        log("\n" + "=" * 70)
-        log("STAGE 2: Audio + Captions")
-        log("=" * 70)
-        s2 = ckpt_load("stage2")
-        if s2 and Path(s2["audio_path"]).exists():
-            audio_path = s2["audio_path"]; audio_duration = s2["audio_duration"]
-            ass_path   = s2.get("ass_path") if s2.get("ass_path") and Path(s2.get("ass_path","x")).exists() else None
-        else:
-            audio_path, audio_duration, ass_path = run_stage_with_retry(
-            run_audio_stage, "Audio", script, niche_name, edge_voice)
-            ckpt_save("stage2", {"audio_path": audio_path, "audio_duration": audio_duration, "ass_path": ass_path})
-
-        chapters_text = generate_chapters(audio_duration)
-        description   = generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration)
-
-        # ── STAGE 3: Background Video ──
-        log("\n" + "=" * 70)
-        log("STAGE 3: Background Video")
-        log("=" * 70)
-        s3 = ckpt_load("stage3")
-        if s3 and Path(s3["bg_path"]).exists():
-            bg_path = s3["bg_path"]
-        else:
-            bg_path = run_stage_with_retry(
-                get_background_video, "BG-Video", niche, audio_duration, script=script)
-            ckpt_save("stage3", {"bg_path": bg_path})
-
-        # ── STAGE 4: Music ──
-        log("\n" + "=" * 70)
-        log("STAGE 4: Ambient Music")
-        log("=" * 70)
-        s4 = ckpt_load("stage4")
-        if s4 and Path(s4["music_path"]).exists():
-            music_path = s4["music_path"]
-        else:
-            music_path = generate_ambient_music(audio_duration)
-            ckpt_save("stage4", {"music_path": music_path})
-
-        # ── STAGE 5: Thumbnail ──
-        log("\n" + "=" * 70)
-        log("STAGE 5: Thumbnail")
-        log("=" * 70)
-        thumb_path = generate_thumbnail(thumb_text, niche_name, title, topic=topic, episode=episode)
-
-        # ── STAGE 6: Compose Main (with intro + outro + burned captions) ──
-        log("\n" + "=" * 70)
-        log("STAGE 6: Compose Main Video")
-        log("=" * 70)
-        s6 = ckpt_load("stage6")
-        if s6 and Path(s6["final_path"]).exists():
-            final_path = s6["final_path"]
-        else:
-            intro_path  = create_intro(niche["series"])
-            outro_path  = create_outro(series_name=niche['series'], episode_num=episode)
-            composed    = compose_video(audio_path, bg_path, music_path,
-                                        ass_path, audio_duration, label="core")
-            final_path  = str(WORK_DIR / "final.mp4")
-            concat_parts([intro_path, composed, outro_path], final_path)
-            ckpt_save("stage6", {"final_path": final_path})
-        log(f"  Final: {Path(final_path).stat().st_size//(1024*1024)}MB")
-
-        # ── STAGE 7: YouTube Shorts ──
-        log("\n" + "=" * 70)
-        log("STAGE 7: YouTube Shorts — MANDATORY (both must succeed)")
-        log("=" * 70)
-        # Competitive SEO tags — researched from top channels in each niche
-        NICHE_TAGS = {
-            "dark_horror": [
-                "dark horror documentary", "true horror narration", "real horror story",
-                "dark horror youtube", "horror investigation", "disturbing true story",
-                "dark documentary", "psychological horror", "faceless horror channel",
-                "scary documentary", "dark nonfiction", "horror facts channel",
-            ],
-            "seduction_dark": [
-                "dark psychology manipulation", "manipulation documentary", "narcissist exposed",
-                "dark seduction psychology", "manipulation tactics", "love bombing exposed",
-                "dark relationship psychology", "manipulation narration", "psychological manipulation",
-                "dark psychology youtube", "coercive control documentary",
-            ],
-            "psychological_trap": [
-                "psychological trap documentary", "gaslighting exposed", "coercive control",
-                "psychological abuse documentary", "dark psychology facts", "manipulation systems",
-                "psychological investigation", "mental trap documentary", "dark psychology narration",
-                "psychological horror real", "trapped psychology",
-            ],
-            "supernatural_real": [
-                "paranormal documentary evidence", "real supernatural evidence", "unexplained phenomena",
-                "paranormal investigation narration", "classified evidence documentary",
-                "supernatural real cases", "unexplained documentary", "paranormal narration",
-                "mysterious evidence documentary", "classified files documentary",
-            ],
-            "obsession_dark": [
-                "obsession documentary", "stalking documentary", "dark obsession true story",
-                "stalker investigation", "obsession psychology", "dark obsession narration",
-                "stalking evidence documentary", "true crime obsession", "dark psychology obsession",
-                "obsession investigation channel",
-            ],
-        }
-        niche_tags = NICHE_TAGS.get(niche_name, [])
-        tags = niche_tags + [niche["series"].lower().replace(" ",""),
-                             niche_name.replace("_",""), "investigation", "documentary",
-                             "narration", "true story"]
-
-        # Generate dedicated Short titles (v12 — not just main title + #Shorts)
-        short_title_1 = generate_dedicated_short_title(title, "teaser", niche_name)
-        short_title_2 = generate_dedicated_short_title(title, "recap", niche_name)
-        short_cross   = build_three_channel_cross_promo(niche_name, is_short=True)
-
-        # Short definitions — both are required, no exceptions
-        short_defs = [
-            {
-                "label":    "short1",
-                "start":    0,
-                "duration": min(55, max(audio_duration * 0.12, 30)),
-                "type":     "teaser",
-                "title":    short_title_1,
-                "desc":     (f"What really happened?\n\n{title}\n\n"
-                             f"Full investigation on this channel.\n"
-                             f"{short_cross}\n\n"
-                             f"#Shorts #{niche_name.replace('_','')} "
-                             f"#{niche['series'].replace(' ','')} #dark #documentary"),
-            },
-            {
-                "label":    "short2",
-                "start":    audio_duration * 0.67,
-                "duration": min(55, max(audio_duration * 0.20, 25)),
-                "type":     "recap",
-                "title":    short_title_2,
-                "desc":     (f"The reveal that changes everything.\n\n{title}\n\n"
-                             f"Full investigation on this channel.\n"
-                             f"{short_cross}\n\n"
-                             f"#Shorts #{niche_name.replace('_','')} "
-                             f"#{niche['series'].replace(' ','')} #reveal #dark"),
-            },
-        ]
-
-        shorts = []
-        for sd in short_defs:
-            label    = sd["label"]
-            success  = False
-            last_err = None
-
-            for attempt in range(1, 4):   # 3 attempts per Short — mandatory
-                try:
-                    log(f"  Creating {label} attempt {attempt}/3 "
-                        f"({sd['duration']:.0f}s @ {sd['start']:.0f}s)...")
-                    p = create_short(audio_path, bg_path, music_path, ass_path,
-                                     sd["start"], sd["duration"], f"{label}_a{attempt}")
-                    if not Path(p).exists() or Path(p).stat().st_size < 10000:
-                        raise RuntimeError(f"{label} output file missing or too small")
-                    sd["path"] = p
-                    shorts.append(sd)
-                    log(f"  OK {label} — {Path(p).stat().st_size // (1024*1024)}MB")
-                    success = True
-                    break
-                except Exception as e:
-                    last_err = e
-                    log(f"  {label} attempt {attempt} failed: {e}")
-                    if attempt < 3:
-                        time.sleep(5)
-
-            if not success:
-                # Short creation is mandatory — raise to fail the whole pipeline
-                raise RuntimeError(
-                    f"CRITICAL: {label} could not be created after 3 attempts. "
-                    f"Last error: {last_err}. "
-                    f"Both Shorts are required every run."
-                )
-
-        log(f"  Both Shorts created successfully ({len(shorts)}/2)")
-
-        # ── STAGE 8: Playlist ──
-        log("\n" + "=" * 70)
-        log("STAGE 8: Playlist")
-        log("=" * 70)
-        playlist_id = state.get("playlists", {}).get(niche_name)
-        if not playlist_id:
-            playlist_id = ensure_niche_playlist(token, niche_name, niche["series"])
-            if playlist_id:
-                pl = state.get("playlists", {})
-                pl[niche_name] = playlist_id
-                state["playlists"] = pl
-
-        # ── STAGE 9: Upload Main ──
-        log("\n" + "=" * 70)
-        log("STAGE 9: Upload Main Video")
-        log("=" * 70)
-        yt_url, video_id = run_stage_with_retry(
-            upload_yt, "Upload", final_path, title, description, tags, token=token)
-
-        # ── STAGE 10: Thumbnail + Playlist ──
-        log("\n" + "=" * 70)
-        log("STAGE 10: Thumbnail + Playlist")
-        log("=" * 70)
-        upload_thumbnail(video_id, thumb_path, token)
-        post_creator_comment(token, video_id, niche_name, title, episode)
-        add_to_playlist(token, playlist_id, video_id)
-
-        # ── STAGE 11: Upload Shorts — MANDATORY ──
-        log("\n" + "=" * 70)
-        log("STAGE 11: Upload Shorts — MANDATORY (both must upload)")
-        log("=" * 70)
-        short_urls = []
-        for sh in shorts:
-            label    = sh["label"]
-            success  = False
-            last_err = None
-
-            for attempt in range(1, 4):   # 3 upload attempts per Short
-                try:
-                    log(f"  Uploading {label} attempt {attempt}/3...")
-                    su, sid = upload_yt(
-                        sh["path"], sh["title"], sh["desc"],
-                        tags[:8], token=token)
-                    short_urls.append(su)
-                    add_to_playlist(token, playlist_id, sid)
-                    # v12: pinned creator comment on each Short
-                    post_short_creator_comment(token, sid, niche_name, title)
-                    log(f"  OK {label} uploaded: {su}")
-                    success = True
-                    break
-                except Exception as e:
-                    last_err = e
-                    log(f"  {label} upload attempt {attempt} failed: {e}")
-                    if attempt < 3:
-                        log("  Waiting 15s before retry...")
-                        time.sleep(15)
-
-            if not success:
-                raise RuntimeError(
-                    f"CRITICAL: {label} upload failed after 3 attempts. "
-                    f"Last error: {last_err}. "
-                    f"Both Shorts must upload every run."
-                )
-
-        log(f"  Both Shorts uploaded ({len(short_urls)}/2)")
-
-        # ── STAGE 12: Channel description update ──
-        update_channel_description(token, title, yt_url)
-
-        # ── STAGE 13: Standalone niche Shorts — v12 with cross-promo ──
-        log("\n" + "=" * 70)
-        log("STAGE 13: Standalone Niche Shorts — 2 original pieces")
-        log("=" * 70)
-        for sn in range(2):
+        # Thumbnail
+        if thumb_path and Path(thumb_path).exists():
             try:
-                ss = generate_ch1_short_script(niche_name, topic, sn)
-                if not ss:
-                    log(f"  Short {sn+1} script failed — skipping"); continue
-                sv = create_ch1_standalone_short(ss, niche_name, sn, edge_voice)
-                if not sv:
-                    log(f"  Short {sn+1} video failed — skipping"); continue
-                # v12: dedicated title instead of script truncation
-                stitle = generate_dedicated_short_title(title, f"standalone_{sn}", niche_name)
-                short_cross = build_three_channel_cross_promo(niche_name, is_short=True)
-                sdesc  = (f"{ss[:200]}\n\nWatch the full investigation above.\n"
-                          f"{short_cross}\n\n"
-                          f"#{niche_name.replace('_','')} #shorts #documentary #darkhorror")
-                su, suid = upload_yt(sv, stitle, sdesc, tags[:8], token=token)
-                post_short_creator_comment(token, suid, niche_name, title)
-                log(f"  Standalone Short {sn+1} uploaded: {su}")
+                with open(thumb_path,"rb") as tf:
+                    tr = requests.post(
+                        f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+                        f"?videoId={vid_id}&uploadType=media",
+                        headers={"Authorization":f"Bearer {token}","Content-Type":"image/jpeg"},
+                        data=tf.read(), timeout=60)
+                if tr.status_code in [200,201]: log("  Thumbnail uploaded")
+            except Exception as te: log(f"  Thumbnail (non-fatal): {te}")
+
+        post_creator_comment(token, vid_id, niche_name, title, episode)
+
+        # Upload Shorts
+        short_urls = []
+        for sd in shorts:
+            sp = sd.get("path","")
+            if not sp or not Path(sp).exists():
+                continue
+            try:
+                st = short_titles.get(sd.get("type","teaser"), title[:50] + " #Shorts")
+                sd_desc = (f"Full investigation above.\n\n{title}\n"
+                           f"{short_cross}\n\n#{niche_name.replace('_','')} #shorts")
+                su, sid = upload_yt(sp, st, sd_desc, tags[:8], token=token)
+                add_to_playlist(token, playlist_id, sid)
+                post_short_creator_comment(token, sid, niche_name, title)
+                short_urls.append(su)
+                log(f"  Short uploaded: {su}")
             except Exception as e:
-                log(f"  Standalone Short {sn+1} (non-fatal — won't stop pipeline): {e}")
+                log(f"  Short upload (non-fatal): {e}")
 
-        # ── Finalise ──
-        state = track_episode(state, niche_name, score, edge_voice, episode)
-        state = save_pattern_memory(state, episode, niche_name, topic, score,
-                                    hook_type="psychological_dread",
-                                    cold_open_style="mid-action specific date/number")
-        state["episode_count"]  = episode
-        state["last_upload"]    = datetime.datetime.now().isoformat()
-        state["last_title"]     = title
-        state["last_url"]       = yt_url
-        state["total_uploads"]  = state.get("total_uploads", 0) + 1
-        state["total_shorts"]   = state.get("total_shorts", 0) + len(short_urls)
+        # SRT captions
+        if script_clean and duration > 0:
+            try:
+                from growth_engine import upload_srt_captions
+                upload_srt_captions(token, vid_id, script_clean, duration, "betrayal_deepdive")
+            except Exception as e:
+                log(f"  SRT (non-fatal): {e}")
+
+        update_channel_description(token, title, yt_url)
+        clear_pending(SCRIPT_DIR)
+
+        # Save state
+        state["last_title"]    = title
+        state["last_url"]      = yt_url
+        state["last_voice"]    = edge_voice
+        state["total_uploads"] = state.get("total_uploads", 0) + 1
         save_state(state)
-        ckpt_clear()
-        cleanup()
 
-        perf     = state.get("performance", {}).get(niche_name, {})
-        avg_sc   = sum(perf.get("scores", [score])) / max(len(perf.get("scores", [score])), 1)
-        sh_lines = "\n".join(f"🩳 {u}" for u in short_urls) if short_urls else "none"
-
-        # v12: Trigger first-hour sprint — sets env vars for growth engine sprint mode
-        # Growth engine reads these via GitHub Actions env, or we call it directly here
+        # First-hour sprint
         try:
-            import subprocess
             env_ext = os.environ.copy()
             env_ext.update({
                 "GROWTH_ENGINE_MODE":  "sprint",
@@ -3670,54 +3361,134 @@ def main():
                 "SPRINT_NICHE":        niche_name,
                 "SPRINT_SHORTS_URLS":  ",".join(short_urls),
                 "SPRINT_SCORE":        str(score),
+                "SPRINT_DURATION_SECS":str(duration),
             })
-            # Non-blocking: background process — pipeline does not wait for it
             subprocess.Popen(
                 ["python3", str(Path(__file__).parent.parent /
                                "channels/growth_engine/growth_engine.py")],
                 env=env_ext)
-            log("  Growth engine sprint launched (background)")
         except Exception as ge:
-            log(f"  Growth engine (non-fatal): {ge}")
+            log(f"  Growth engine sprint (non-fatal): {ge}")
 
-        tg(f"✅ <b>BetrayalDeepDive v12.0 — Published!</b>\n\n"
-           f"📺 <b>{title}</b>\n🔗 {yt_url}\n\n"
-           f"🎯 Niche: {niche_name}\n🔊 Voice: {edge_voice}\n"
-           f"📝 Words: {len(script.split())}\n⏱ Duration: {audio_duration/60:.1f} min\n"
-           f"⭐ Score: {score}/10 (avg: {avg_sc:.1f})\n"
-           f"📊 Episode: {episode} | Total: {state['total_uploads']}\n"
-           f"📋 Playlist: {'added' if playlist_id else 'none'}\n\n"
-           f"<b>Shorts:</b>\n{sh_lines}\n\n"
-           f"🚀 First-hour sprint: watch + comment + Hype within 60 min")
+        tg(f"✅ <b>BetrayalDeepDive — LIVE</b>\n\n"
+           f"<b>{title}</b>\n🔗 {yt_url}\n\n"
+           f"Niche: {niche_name} | Score: {score}/10\n"
+           f"Ep{episode} | {len(short_urls)} Shorts uploaded\n"
+           f"🚀 First-hour sprint active — watch + Hype now")
+        log(f"\nUPLOAD COMPLETE: {yt_url}")
+        return
 
-        log("\n" + "=" * 70)
-        log(f"SUCCESS: {yt_url}")
-        for u in short_urls: log(f"SHORT:   {u}")
-        log("=" * 70)
+    # ══════════════════════════════════════════════════════════
+    # GENERATE PHASE (or legacy full mode)
+    # ══════════════════════════════════════════════════════════
+    episode = state.get("episode_count", 0) + 1
+    if not IS_MAKEUP:
+        ckpt_clear()
+
+    try:
+        token = get_yt_token()
+
+        log("\nSTAGE 1: Script")
+        niche_name, niche, topic, script_result, trending_titles = run_stage1(state)
+        script_clean = script_result["script"]
+        wc           = script_result["words"]
+        score_val    = score_result(script_result)[0]
+        edge_voice   = pick_voice(niche_name, state)
+
+        tg(f"Ch1 Script ready: {niche_name} | {wc}w | {score_val}/10\n{topic[:80]}")
+
+        # Approval gate
+        title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode)
+        title        = title_result[0] if title_result else f"{niche['series']} Ep{episode}"
+
+        decision = run_approval_gate(title, niche_name, script_clean, edge_voice, score_val)
+        if decision == "rejected":
+            log("Rejected by approval gate."); sys.exit(0)
+
+        log("\nSTAGE 3: Audio")
+        audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+            run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+        edge_voice = voice_used
+
+        log("\nSTAGE 4: Video")
+        video_path = run_stage_with_retry(
+            assemble_video, "Video", niche_name, audio_path, audio_duration, topic)
+
+        log("\nSTAGE 5: Thumbnail")
+        ab_style    = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+        thumb_text  = generate_thumbnail_text(niche, topic)
+        thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+
+        log("\nSTAGE 6: Shorts")
+        short_title_1 = generate_dedicated_short_title(title, "teaser", niche_name)
+        short_title_2 = generate_dedicated_short_title(title, "recap",  niche_name)
+        short_cross   = build_three_channel_cross_promo(niche_name, is_short=True)
+        shorts = make_both_shorts(video_path, script_clean, audio_duration)
+
+        # Build description
+        description = generate_seo_description(
+            niche, topic, title, episode,
+            generate_chapter_timestamps(script_clean, audio_duration, "betrayal_deepdive"),
+            audio_duration)
+
+        # Playlist
+        playlist_id = state.get("playlists", {}).get(niche_name)
+        if not playlist_id:
+            temp_token = get_yt_token()
+            playlist_id = ensure_playlist(temp_token, niche_name, niche["series"])
+            if playlist_id:
+                pl = state.get("playlists", {}); pl[niche_name] = playlist_id
+                state["playlists"] = pl
+
+        tags = build_niche_tags(niche_name)
+
+        # Save pending (generate phase ends here)
+        save_pending(SCRIPT_DIR, {
+            "title":         title,
+            "description":   description,
+            "tags":          tags,
+            "niche_name":    niche_name,
+            "video_path":    video_path,
+            "audio_path":    audio_path,
+            "thumbnail_path":thumb_path or "",
+            "script_clean":  script_clean,
+            "duration":      audio_duration,
+            "score":         score_val,
+            "voice_used":    voice_used,
+            "episode":       episode,
+            "playlist_id":   playlist_id or "",
+            "ab_style":      ab_style,
+            "shorts_clips":  shorts,
+            "short_titles":  {"teaser": short_title_1, "recap": short_title_2},
+            "short_cross":   short_cross,
+            "topic":         topic,
+        })
+
+        state["episode_count"] = episode
+        save_state(state)
+
+        if phase == "generate":
+            # Find upload time for this channel
+            upload_time_msg = "10:30 PM IST (5 PM UTC)"
+            tg(f"✅ <b>Ch1 Generated — queued for upload</b>\n\n"
+               f"<b>{title}</b>\n"
+               f"Niche: {niche_name} | {wc}w | {score_val}/10\n"
+               f"Voice: {voice_used} | {audio_duration/60:.1f}min\n"
+               f"Uploading at: {upload_time_msg}\n\n"
+               f"🎯 Reply CANCEL to abort upload before that time.")
+            log(f"\nGENERATE COMPLETE — video queued for upload at {upload_time_msg}")
+            return
+
+        # Legacy full mode: upload immediately
+        log("\nLEGACY FULL MODE: uploading now...")
+        os.environ["PIPELINE_PHASE"] = "upload"
+        main()  # re-enter in upload phase
 
     except Exception as e:
-        import traceback
         log(f"\nFAILED: {e}")
-        log(traceback.format_exc())
-        import traceback
-        tb = traceback.format_exc()
-        tg(f"❌ <b>Pipeline FAILED</b>\n\n{str(e)[:400]}\n\n"
-           f"Auto-retrying in 2 hours via is_makeup...")
-        # 3-attempt auto-retry system
-        for retry_num in range(1, 3):  # 2 more attempts = 3 total
-            log(f"Auto-retry {retry_num}/2 in 2 hours...")
-            time.sleep(7200)
-            log(f"Starting auto-retry {retry_num}...")
-            os.environ["IS_MAKEUP"] = "true"
-            try:
-                main()
-                return  # success
-            except Exception as retry_err:
-                if retry_num < 2:
-                    tg(f"⚠️ Retry {retry_num}/2 failed: {str(retry_err)[:200]}\nTrying again in 2h...")
-                else:
-                    tg(f"❌ All 3 attempts failed. Manual check needed.\nLast error: {str(retry_err)[:300]}")
-                    sys.exit(1)
+        tg(f"❌ <b>Ch1 Pipeline FAILED</b>\n\n{str(e)[:400]}")
+        raise
+
 
 if __name__ == "__main__":
     main()
