@@ -49,6 +49,7 @@ IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 GEMINI_MODELS  = ["gemini-2.0-flash"]  # only working model — 1.5-pro and 1.5-flash both 404
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
+SAMBANOVA_URL  = "https://api.sambanova.ai/v1/chat/completions"  # 1000 req/day free
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 YT_DATA_URL    = "https://www.googleapis.com/youtube/v3"
 YT_UPLOAD_URL  = "https://www.googleapis.com/upload/youtube/v3"
@@ -451,7 +452,7 @@ def call_gemini(prompt, tokens=8000):
                     headers={"Content-Type": "application/json"},
                     json={"contents": [{"parts": [{"text": prompt}]}],
                           "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
-                          "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}]},
+                          "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]},
                     timeout=90)
                 if r.status_code == 200:
                     c = r.json().get("candidates", [])
@@ -747,7 +748,45 @@ def score_result(r):
     if v == 0:   s += 2.2
     elif v <= 2: s += 0.8
     else:        s -= 1.5
+    # v12: retention hook validation
+    script = r.get("script", "")
+    if script:
+        penalty, hook_issues = _validate_retention_hooks_ch1(script)
+        s += penalty
     return min(round(s, 1), 10.0), []
+
+
+def _validate_retention_hooks_ch1(script_clean):
+    """
+    Validates retention hooks at 30/60/80% positions.
+    Returns (penalty, issues). Penalty deducted from script score.
+    Called inside score_result so weak scripts retry automatically.
+    """
+    words   = script_clean.split()
+    total   = len(words)
+    if total < 400:
+        return 0.0, []
+    penalty = 0.0; issues = []
+
+    def seg(p1, p2):
+        return " ".join(words[int(total*p1):int(total*p2)]).lower()
+
+    hook_signals = ["subscribe","coming up","next","what happens","the answer","revealed",
+                    "in a moment","stay","about to","this changes","not yet","what comes next"]
+
+    if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
+        penalty -= 0.4; issues.append("Missing 30% hook")
+    h60 = sum(1 for w in hook_signals if w in seg(0.55, 0.65))
+    if h60 < 2:
+        penalty -= 0.8; issues.append("Weak 60% hook — peak CTA missing")
+    elif h60 >= 3:
+        penalty += 0.3
+    if sum(1 for w in hook_signals if w in seg(0.75, 0.85)) < 1:
+        penalty -= 0.4; issues.append("Missing 80% hook")
+    if "subscribe" not in " ".join(words[-60:]).lower():
+        penalty -= 0.3; issues.append("Missing final subscribe CTA")
+    if issues: log(f"  Retention issues: {' | '.join(issues)}")
+    return round(penalty, 1), issues
 
 # ================================================================
 # PSYCHOLOGICAL 7-STAGE SCRIPT  [IMPROVED]
@@ -966,151 +1005,346 @@ def get_research_context(niche_name, topic):
 
 def build_script_prompt(niche, topic, episode, attempt,
                         trending_titles=None, research_context=""):
-    triggers = niche.get("dread_triggers", [])
-    t1 = triggers[0] if len(triggers) > 0 else "the first sign something was wrong"
-    t2 = triggers[1] if len(triggers) > 1 else "the moment everything became clear"
-    t3 = triggers[2] if len(triggers) > 2 else "the detail that changed everything"
-
-    intensities = ["dark and gripping",
-                   "extremely dark, psychologically disturbing",
-                   "at maximum psychological intensity — viscerally unsettling"]
+    """
+    v2 script prompt — 7-stage architecture with stage-specific
+    word targets, trigger placements, and forbidden phrases per stage.
+    """
+    intensities = [
+        "precisely observed, factual, and quietly disturbing",
+        "forensically detailed — each fact more specific than the last",
+        "at maximum specificity — every sentence contains one undeniable concrete detail",
+    ]
     intensity = intensities[min(attempt - 1, 2)]
 
-    trend_note = ""
+    trend_block = ""
     if trending_titles:
-        trend_note = "\nTREND CONTEXT — these hooks are performing right now:\n"
-        trend_note += "\n".join(f"  - {t}" for t in trending_titles[:4])
-        trend_note += "\nMatch their emotional intensity. Do not copy. Outdo them.\n"
+        trend_block = "\nWHAT IS WORKING IN THIS NICHE RIGHT NOW:\n"
+        trend_block += "\n".join(f"  '{t}'" for t in trending_titles[:4])
+        trend_block += "\nMatch their emotional register. Never copy. Outperform them.\n"
 
-    # Map dread triggers to this niche
-    triggers = niche.get("dread_triggers", [])
-    t1 = triggers[0] if len(triggers) > 0 else "the first sign something was wrong"
-    t2 = triggers[1] if len(triggers) > 1 else "the moment everything became clear"
-    t3 = triggers[2] if len(triggers) > 2 else "the detail that reframed everything"
-
-    # Load pattern memory — what scored highest in previous episodes
     pattern_ctx  = load_pattern_memory(load_state())
     strategy_ctx = load_weekly_strategy()
-    combined_ctx = "\n\n".join(filter(None, [pattern_ctx, strategy_ctx]))
-    pattern_section = f"\n{combined_ctx}\n" if combined_ctx else ""
+    combined     = "\n".join(filter(None, [pattern_ctx, strategy_ctx]))
+    pattern_block = f"\nPATTERN MEMORY (scored 8+/10 previously):\n{combined}\n" if combined else ""
 
-    research_section = f"\n\n{research_context}\n" if research_context else ""
+    research_block = f"\nRESEARCH CONTEXT:\n{research_context}\n" if research_context else ""
 
-    return f"""Write a {intensity} dark investigative documentary narration script.
+    stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
 
-Topic: {topic}
-Series: {niche["series"]} Episode {episode}
-{trend_note}{research_section}{pattern_section}
-CRITICAL: The script MUST be between {MIN_WORDS} and {MAX_WORDS} words. Count carefully. This is non-negotiable.
-If you finish early, expand each section with more specific details, witness accounts, and evidence.
+    return f"""Write a {intensity} dark investigative documentary narration.
 
-Structure (do NOT label sections — write continuously):
-1. COLD OPEN (100w): Start mid-action with the most disturbing fact. Never say "welcome back".
-2. THE BEFORE (200w): Who this person was. Make the listener care. Specific real-feeling details. End with one line signalling the break.
-3. FIRST SIGNALS (250w): Small explainable wrong things. {t1}. One observation per sentence. Build dread slowly.
-4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. What they found. What they tried. What happened. Be specific.
-5. FALSE RESOLUTION (200w): Brief relief. Normalcy returns. End with one quiet sentence that is subtly wrong.
-6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Let each land. Be thorough — this is the longest section.
-7. IMPLICATION + CTA (200w): Imply — do not state — that {niche["implication"]}. End: "Subscribe and hit the bell. You will not want to miss what we find next."
+TOPIC: {topic}
+SERIES: {niche["series"]} — Episode {episode}
+{trend_block}{pattern_block}{research_block}
 
-PSYCHOLOGICAL DREAD TRIGGERS — embed ALL 12 across the script naturally:
-1. PROXIMITY — this happened somewhere the listener has been or could easily go
-2. DURATION — it went on far longer than anyone realised before it was noticed
-3. SCALE — more people were involved or affected than the official count
-4. INSTITUTIONAL — the system that should have stopped it actively enabled it
-5. INVISIBILITY — it was completely invisible to everyone around it while it happened
-6. NORMALITY — the most disturbing detail is how ordinary everything appeared
-7. COMPLICITY — people who knew said nothing and continued as normal
-8. COMPETENCE — the people responsible for stopping it were aware and chose not to
-9. DETAIL — one hyper-specific detail that makes the whole thing undeniably real
-10. REVERSAL — the moment that reframes everything the listener thought they understood
-11. COST — what was permanently lost or destroyed that can never be recovered
-12. REPETITION — this has happened before, more than once, in the same pattern
+TOTAL WORD REQUIREMENT: {MIN_WORDS} to {MAX_WORDS} words.
+Each stage must hit its target. If any stage runs short, expand with more specific evidence.
 
-STAGE STRUCTURE — write continuously, do not label stages:
-1. COLD OPEN (100w): Most disturbing single fact. Specific date/time/location. Never say welcome back.
-2. THE BEFORE (200w): Who this person was. Make listener care. Ordinary life. Final line signals the break. [Triggers: NORMALITY, PROXIMITY]
-3. FIRST SIGNALS (250w): Small wrong things. Explainable. {t1}. One observation per sentence. [Triggers: INVISIBILITY, DURATION]
-4. ESCALATION (400w): Signs become undeniable. {t2}. Short sentences then one longer. Specific evidence. [Triggers: SCALE, INSTITUTIONAL, COMPETENCE]
-5. FALSE RESOLUTION (200w): Brief relief. Normalcy returns. End with one quietly wrong sentence. [Triggers: COMPLICITY, REPETITION]
-6. THE REAL REVEAL (650w): {t3}. Everything reframes. One idea per short paragraph. Layer by layer. Be thorough. [Triggers: REVERSAL, DETAIL, COST]
-7. IMPLICATION + CTA (200w): Imply {niche["implication"]}. Do not state it directly. End with: "If you want to understand how this keeps happening, subscribe and hit the bell — because what we are investigating next is worse."
+SEVEN-STAGE STRUCTURE — write continuously, no labels, no headers:
 
-CROSS-PROMOTION: In Stage 7, include one natural line referencing the channel series, e.g. "This is the {episode}th case in the {niche["series"]} files."
+STAGE 1 — COLD OPEN ({stage_targets[1]} words)
+Sentence 1 must contain an exact number, date, or duration.
+Sentence 2 places the listener somewhere recognisable.
+Sentence 3 opens a loop the script must close.
+Forbidden: "welcome back", "today we", "in this video", "join me"
+Trigger: DETAIL (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
 
-RULES — non-negotiable:
-- EXACTLY {MIN_WORDS} to {MAX_WORDS} words. Count. If short, expand Stage 4 and Stage 6 with more evidence.
-- Maximum 15 words per sentence. This is spoken narration.
-- ZERO markdown, headers, bullets, asterisks, or formatting of any kind.
-- Plain flowing narration text only. Start immediately with the cold open."""
+STAGE 2 — THE BEFORE ({stage_targets[2]} words)
+Establish the subject as completely ordinary. Specific routine, specific place.
+Final sentence: signal something is about to break — without stating it.
+Forbidden: "little did they know", "but little did", "unbeknownst to them"
+Trigger: NORMALITY (sentences 1-3), PROXIMITY (sentences 4-6)
+
+STAGE 3 — FIRST SIGNALS ({stage_targets[3]} words)
+Small wrong things. Individually explainable. One per sentence. Build accumulation.
+Start with the smallest possible wrong detail.
+Forbidden: "suddenly", "out of nowhere", "without warning"
+Trigger: INVISIBILITY (s1), DURATION (s3), SCALE (s5), INSTITUTIONAL (s7)
+
+STAGE 4 — ESCALATION ({stage_targets[4]} words)
+Open with one short sentence that reframes Stage 3 entirely.
+Signs become undeniable. Short sentences, then one longer one. Specific evidence.
+Forbidden: passive voice, vague quantities ("many", "several", "some")
+Trigger: SCALE (s1), COMPETENCE (s4), INSTITUTIONAL (s7), COMPLICITY (s10)
+
+STAGE 5 — FALSE RESOLUTION ({stage_targets[5]} words)
+Normalcy briefly returns. Specific timeframe. Listener exhales.
+Final sentence: subtly, quietly wrong — not dramatic, not announced.
+Forbidden: "but it wasn't over", "however", "little did they know", "or so they thought"
+Trigger: NORMALITY (s1-3), REPETITION (s4), quiet wrongness (final)
+
+STAGE 6 — THE REAL REVEAL ({stage_targets[6]} words)
+One short sentence destroys the false resolution. Then one idea per short paragraph.
+Most disturbing section. Be thorough. Let each paragraph land before moving on.
+Forbidden: "in conclusion", "to summarise", "as we can see"
+Trigger per paragraph: REVERSAL, DETAIL, COST, SCALE, DURATION, INSTITUTIONAL, REPETITION
+
+STAGE 7 — IMPLICATION AND CTA ({stage_targets[7]} words)
+Imply — never state — that this pattern extends beyond this case.
+Subscribe CTA at the emotional peak, not as afterthought.
+Forbidden: "subscribe and like", "hit the bell", "don't forget to"
+Trigger: REPETITION (s1), PROXIMITY (s3), subscribe CTA (final 2 sentences)
+
+ABSOLUTE RULES:
+1. Maximum 13 words per sentence. Count them.
+2. Zero markdown — no symbols, headers, bullets, asterisks.
+3. Zero AI filler — no "moreover", "furthermore", "interestingly", "it is worth noting".
+4. Every number must be specific: not "many" but "forty-seven".
+5. Every date must be specific: not "years ago" but "a Thursday in March 2019".
+6. Every location must be specific: not "a small town" but "a city of 340,000 people".
+7. Start immediately. No preamble. No introduction.
+8. Write one continuous narrative — do not number or label stages.
+
+Write the complete script now:"""
+
 
 def generate_script_content(niche, topic, episode, attempt,
-                            trending_titles=None, research_context=""):
+                             trending_titles=None, research_context=""):
+    """
+    v2 script generation:
+    1. Generate full script with stage-structured v2 prompt
+    2. Score each of 7 stages independently
+    3. Rewrite only the 2 worst-scoring stages with targeted instructions
+    4. Inject subscribe CTAs at 30/60/80% marks
+    """
+    # Step 1: Generate research anchors to prevent vague AI output
+    anchors = {}
+    try:
+        anchor_prompt = (
+            f"Generate specific realistic research anchors for a documentary about: {topic}\n"
+            f"Return ONLY valid JSON (no backticks):\n"
+            f'{{"duration":"how long before discovery e.g. 4380 days",'
+            f'"people_count":"number affected e.g. 847 confirmed cases",'
+            f'"first_signal_date":"e.g. a Tuesday in March 2011",'
+            f'"discovery_date":"e.g. October 14 2019",'
+            f'"location":"specific-feeling place e.g. a city of 340000 people",'
+            f'"key_number":"most disturbing specific number",'
+            f'"cost":"what was permanently lost e.g. $2.4 million over eleven years"}}'
+        )
+        anchor_raw = ai_generate(anchor_prompt, tokens=300)
+        if anchor_raw:
+            anchor_raw = re.sub(r"```json|```", "", anchor_raw).strip()
+            m = re.search(r"\{[\s\S]*?\}", anchor_raw)
+            if m:
+                anchors = json.loads(m.group())
+                log(f"  Research anchors loaded: {len(anchors)} fields")
+    except Exception as e:
+        log(f"  Anchors (non-fatal): {e}")
+
+    # Inject anchors into research_context
+    if anchors:
+        anchor_lines = "\n".join(f"  {k}: {v}" for k, v in anchors.items() if v)
+        research_context = f"USE THESE SPECIFIC DETAILS:\n{anchor_lines}\n{research_context}"
+
+    # Step 2: Generate script
     raw = ai_generate(build_script_prompt(
-        niche, topic, episode, attempt, trending_titles,
-        research_context=research_context), tokens=8000)
-    if not raw: return None
+        niche, topic, episode, attempt, trending_titles, research_context), tokens=8000)
+    if not raw:
+        return None
     script     = strip_md(strip_md(raw))
     wc         = len(script.split())
-    violations = len(re.findall(r'[#*_`\[\]{}<>\\]', script))
-    log(f"  Script: {wc}w, {violations} violations")
+    violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
+    log(f"  Script: {wc}w | {violations} violations")
+
+    # Step 3: Expand if short
     if wc < MIN_WORDS:
         deficit = MIN_WORDS - wc
-        log(f"  Short by {deficit}w — expanding...")
-        exp = f"""This narration script needs EXACTLY {deficit} more words added to reach {MIN_WORDS} words total.
-
-INSTRUCTIONS:
-- Expand Stage 4 (Escalation) with more specific details about what was discovered and what happened
-- Expand Stage 6 (The Real Reveal) with more evidence, reactions, and layer-by-layer revelations
-- Add specific witness reactions, timestamps, physical descriptions, and documentary-style details
-- Keep ALL existing text intact — only add, never remove
-- Return the COMPLETE expanded script from beginning to end
-- NO markdown, NO headers, NO labels — plain narration text only
-
-CURRENT SCRIPT ({len(script.split())} words — need {MIN_WORDS}):
-{script}
-
-Write the full expanded version now. Do not summarise. Do not explain. Just write the complete expanded script."""
+        log(f"  Short by {deficit}w — expanding stages 4 and 6...")
+        exp = (
+            f"This documentary script is {wc} words. It needs {MIN_WORDS} minimum. "
+            f"Expand the Escalation section and the Reveal section only. "
+            f"Add specific evidence, exact numbers, exact dates, witness reactions. "
+            f"Max 13 words per sentence. Zero markdown. "
+            f"Return the COMPLETE expanded script.\n\nSCRIPT:\n{script}"
+        )
         raw2 = ai_generate(exp, tokens=8000)
         if raw2:
             s2 = strip_md(strip_md(raw2))
             if len(s2.split()) > wc:
                 script     = s2
                 wc         = len(script.split())
-                violations = len(re.findall(r'[#*_`\[\]{}<>\\]', script))
+                violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
                 log(f"  Expanded: {wc}w")
 
-    # ── SECOND PASS: AI critic rewrites the 3 weakest moments ──
+    # Step 4: Stage-level scoring + targeted rewrite of 2 worst stages
     if wc >= MIN_WORDS:
-        log("  Running 2nd pass critique...")
-        critique_prompt = f"""You are a brutal script editor for dark documentary YouTube.
-Read this narration script and identify the 3 weakest moments — where a viewer would lose interest or skip.
-Then rewrite ONLY those 3 sections (keep everything else word-for-word).
-The rewrites must be: more specific, more visceral, shorter sentences, stronger hook.
+        try:
+            # Split script proportionally into 7 stages
+            words    = script.split()
+            total    = len(words)
+            targets  = [110, 210, 260, 420, 170, 680, 190]
+            total_t  = sum(targets)
+            stage_texts = []
+            pos = 0
+            for i, tgt in enumerate(targets):
+                share = tgt / total_t
+                end   = pos + int(total * share) if i < 6 else total
+                stage_texts.append(" ".join(words[pos:end]))
+                pos   = end
 
-Rules for rewrites:
-- Each rewritten section must be MORE disturbing than the original
-- Use concrete details: exact dates, exact amounts, exact durations
-- Max 12 words per sentence in rewrites
-- Zero markdown in rewrites
-- Return the COMPLETE script with your 3 rewrites integrated
+            # Score each stage
+            stage_names   = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
+                             "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
+            hook_signals  = ["subscribe","next","what happens","revealed","about to",
+                             "this changes","thirty seconds","coming up","stay"]
+            forbidden_per = [
+                ["welcome back","today we","in this video","join me"],
+                ["little did they know","unbeknownst"],
+                ["suddenly","out of nowhere","without warning"],
+                [],
+                ["but it wasn't over","however","or so they thought"],
+                ["in conclusion","to summarise","as we can see"],
+                ["subscribe and like","hit the bell","don't forget"],
+            ]
 
-SCRIPT:
-{script[:6000]}"""
-        raw3 = ai_generate(critique_prompt, tokens=9000)
-        if raw3:
-            s3 = strip_md(strip_md(raw3))
-            wc3 = len(s3.split())
-            v3  = len(re.findall(r'[#*_`\[\]{}<>\\]', s3))
-            if wc3 >= MIN_WORDS * 0.95 and v3 <= violations + 2:
-                script     = s3
-                wc         = wc3
-                violations = v3
-                log(f"  2nd pass: {wc}w — critic rewrote weakest sections")
-            else:
-                log(f"  2nd pass rejected (wc:{wc3} v:{v3}) — keeping original")
+            stage_scores = []
+            for i, (stext, sname, starget, sforbidden) in enumerate(
+                    zip(stage_texts, stage_names, targets, forbidden_per)):
+                sc    = 5.0
+                sw    = len(stext.split())
+                ratio = sw / max(starget, 1)
+                if 0.85 <= ratio <= 1.15:   sc += 2.0
+                elif 0.70 <= ratio <= 1.30: sc += 0.8
+                else:                       sc -= 1.5
+                found_forbidden = [f for f in sforbidden if f in stext.lower()]
+                sc -= len(found_forbidden) * 0.8
+                sents = [s for s in re.split(r"(?<=[.!?])\s+", stext) if s.strip()]
+                long  = [s for s in sents if len(s.split()) > 13]
+                if len(long) / max(len(sents), 1) > 0.2:
+                    sc -= 0.8
+                if i in [0, 6]:  # cold open and CTA — check for hooks
+                    if not any(h in stext.lower() for h in hook_signals[:3]):
+                        sc -= 0.5
+                ai_phrases = ["moreover","furthermore","it is worth noting","in conclusion"]
+                sc -= sum(0.4 for p in ai_phrases if p in stext.lower())
+                stage_scores.append(round(min(max(sc, 0), 10), 1))
+
+            score_str = " | ".join(f"{n[:8]}:{s}" for n,s in zip(stage_names, stage_scores))
+            log(f"  Stage scores: {score_str}")
+
+            # Rewrite the 2 worst stages
+            worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
+            for idx in worst_two:
+                if stage_scores[idx] >= 7.5:
+                    continue
+                sdef_name   = stage_names[idx]
+                sdef_target = targets[idx]
+                sdef_forb   = forbidden_per[idx]
+                forb_str    = ", ".join(f'"{f}"' for f in sdef_forb) if sdef_forb else "none"
+                rewrite_p   = (
+                    f"Rewrite ONLY this single script stage. Return ONLY the rewritten stage.\n\n"
+                    f"STAGE: {sdef_name} (target: {sdef_target} words)\n"
+                    f"TOPIC: {topic[:100]}\n"
+                    f"CURRENT SCORE: {stage_scores[idx]}/10\n"
+                    f"PROBLEMS: sentences over 13 words, vague quantities, forbidden phrases\n"
+                    f"FORBIDDEN: {forb_str}\n\n"
+                    f"RULES:\n"
+                    f"- Maximum 13 words per sentence. Every sentence.\n"
+                    f"- Every number must be specific (not 'many' but '47').\n"
+                    f"- Zero markdown. Zero AI filler phrases.\n"
+                    f"- More visceral and specific than the original.\n"
+                    f"- Target: {sdef_target} words (±15% acceptable).\n\n"
+                    f"ORIGINAL STAGE:\n{stage_texts[idx]}\n\n"
+                    f"Write the improved version now:"
+                )
+                new_stage = ai_generate(rewrite_p, tokens=2000)
+                if new_stage:
+                    new_stage = strip_md(new_stage)
+                    if len(new_stage.split()) > 30:
+                        script = script.replace(stage_texts[idx], new_stage, 1)
+                        log(f"  Stage {sdef_name} rewritten ({stage_scores[idx]}/10 → improved)")
+
+            wc         = len(script.split())
+            violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
+            log(f"  After targeted rewrite: {wc}w | {violations} violations")
+        except Exception as e:
+            log(f"  Stage rewrite (non-fatal): {e}")
+
+    # Step 5: CTA injection
+    if len(script.split()) >= 400:
+        script = _inject_ctas_ch1(script, niche["name"])
+        wc     = len(script.split())
+        log(f"  CTAs injected — final: {wc}w")
 
     return {"script": script, "words": wc, "violations": violations}
+
+
+def _inject_ctas_ch1(script_clean, niche_name):
+    """
+    Inject subscribe CTAs at 30%/60%/80% marks for Ch1 (BetrayalDeepDive).
+    Uses sentence boundary detection so CTAs never split mid-sentence.
+    """
+    words = script_clean.split()
+    total = len(words)
+    if total < 400:
+        return script_clean
+
+    cta_pool = {
+        "dark_horror": {
+            "30pct": ["Subscribe to BetrayalDeepDive. The worst part is thirty seconds away.",
+                      "If what you just heard disturbed you, subscribe. There is more."],
+            "60pct": ["Subscribe now. What comes next is why this channel exists.",
+                      "Subscribe to BetrayalDeepDive before the next revelation."],
+            "80pct": ["Subscribe. New investigation every weekday.",
+                      "Subscribe to BetrayalDeepDive if you want the rest of them."],
+        },
+        "seduction_dark": {
+            "30pct": ["Subscribe. The psychology behind this gets darker from here.",
+                      "Subscribe to BetrayalDeepDive. The pattern you are seeing repeats."],
+            "60pct": ["Subscribe before the mechanism is fully revealed.",
+                      "Subscribe to BetrayalDeepDive. The next section changes the whole story."],
+            "80pct": ["Subscribe. The final layer is thirty seconds away.",
+                      "Subscribe to BetrayalDeepDive — new case every weekday."],
+        },
+        "psychological_trap": {
+            "30pct": ["Subscribe. The trap is about to be fully visible.",
+                      "Subscribe to BetrayalDeepDive. Every step was deliberate."],
+            "60pct": ["Subscribe before the final mechanism is shown.",
+                      "Subscribe to BetrayalDeepDive. What is documented next changes everything."],
+            "80pct": ["Subscribe. Every weekday. A new case that redefines what you thought you knew.",
+                      "Subscribe to BetrayalDeepDive if you want the forty-seven other cases."],
+        },
+        "supernatural_real": {
+            "30pct": ["Subscribe. The documented evidence arrives in thirty seconds.",
+                      "Subscribe to BetrayalDeepDive. The explanation is not what you expect."],
+            "60pct": ["Subscribe before the final evidence is shown.",
+                      "Subscribe to BetrayalDeepDive. This is the part that has no rational explanation."],
+            "80pct": ["Subscribe. What was documented here has never been explained.",
+                      "Subscribe to BetrayalDeepDive — new investigation every weekday."],
+        },
+        "obsession_dark": {
+            "30pct": ["Subscribe. The escalation documented next is why this case is different.",
+                      "Subscribe to BetrayalDeepDive. Every detail here was deliberate."],
+            "60pct": ["Subscribe before the final revelation.",
+                      "Subscribe to BetrayalDeepDive. The next sixty seconds reframe everything."],
+            "80pct": ["Subscribe. New case every weekday. You will not regret it.",
+                      "Subscribe to BetrayalDeepDive if you want to understand what drove this."],
+        },
+    }
+    pool  = cta_pool.get(niche_name, cta_pool["dark_horror"])
+    seed  = abs(hash(script_clean[:80])) % 2
+    c30   = pool["30pct"][seed]
+    c60   = pool["60pct"][seed]
+    c80   = pool["80pct"][seed]
+
+    def nearest_boundary(words, target, window=25):
+        for delta in range(window):
+            for d in [1, -1]:
+                idx = target + delta * d
+                if 0 <= idx < len(words):
+                    if words[idx].rstrip().endswith((".", "?", "!")):
+                        return idx + 1
+        return target
+
+    b80 = nearest_boundary(words, int(total * 0.80))
+    b60 = nearest_boundary(words, int(total * 0.60))
+    b30 = nearest_boundary(words, int(total * 0.30))
+
+    w = words[:]
+    w.insert(b80, f"\n\n{c80}\n\n")
+    w.insert(b60, f"\n\n{c60}\n\n")
+    w.insert(b30, f"\n\n{c30}\n\n")
+    return re.sub(r'\n{3,}', '\n\n', " ".join(w)).strip()
 
 # ================================================================
 # TITLE + CHAPTERS  [NEW #2]
@@ -1242,10 +1476,11 @@ Total: 280-350 words. Plain text. No markdown."""
     seo_first_line = seo_hooks.get(niche["name"], f"INVESTIGATION: {topic[:55]}.")
 
     raw = ai_generate(prompt, tokens=1000)
+    # v12: three-channel cross-promo in every description
     cross_promo = (
-        "\n\n🔬 Also investigate with us on The Evidence Room — "
-        "forensic analysis, criminal investigations and corporate exposés: "
-        "youtube.com/@TheEvidenceRoom"
+        "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom"
+        "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
+        "\n\n📺 New investigation every weekday on all three channels."
     )
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
@@ -1768,38 +2003,34 @@ def get_background_video(niche, audio_duration, script=""):
     return path
 
 
-def apply_audio_post_processing(input_path, output_path):
+def apply_audio_post_processing(input_path, output_path, niche_name=None):
     """
-    Professional documentary-grade audio processing via FFmpeg.
-    Transforms edge-tts flat TTS into cinematic narrator quality.
-
-    Chain:
-    1. EQ: boost 80Hz (depth) + boost 2.5kHz (presence) + cut 8kHz (harshness)
-    2. Light reverb: subtle room tone, makes voice feel embedded in space
-    3. Compression: smooth out loud/quiet variations
-    4. Loudness norm: broadcast standard -16 LUFS
+    Niche-specific documentary-grade audio processing via FFmpeg.
+    Uses NICHE_AUDIO_PROFILES to select the right EQ chain per niche.
+    Falls back to default chain if niche not found.
     """
     try:
-        af = (
-            "equalizer=f=80:width_type=o:width=2:g=3,"      # low-end warmth/depth
-            "equalizer=f=2500:width_type=o:width=2:g=2,"    # presence/intelligibility
-            "equalizer=f=8000:width_type=o:width=2:g=-3,"   # remove harshness
-            "aecho=0.8:0.85:40:0.25,"                        # subtle room tone
+        af = NICHE_AUDIO_PROFILES.get(niche_name,
+            # Default: warm documentary — broad appeal
+            "equalizer=f=80:width_type=o:width=2:g=3,"
+            "equalizer=f=2500:width_type=o:width=2:g=2,"
+            "equalizer=f=8000:width_type=o:width=2:g=-3,"
+            "aecho=0.8:0.85:40:0.25,"
             "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
-            "loudnorm=I=-16:LRA=11:TP=-1.5"                 # broadcast loudness
+            "loudnorm=I=-16:LRA=11:TP=-1.5"
         )
         run_ffmpeg([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af,
             "-c:a", "mp3", "-q:a", "2", output_path
-        ], label="audio-processing", timeout=300)
+        ], label=f"audio-{niche_name or 'default'}", timeout=300)
 
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
-            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
         log(f"  Audio processing failed (non-fatal): {e}")
-    return input_path  # fall back to unprocessed audio
+    return input_path
 
 
 # ── Niche-specific audio profiles ────────────────────────────
@@ -2196,128 +2427,52 @@ def fetch_case_relevant_image(topic, niche_name, out_path):
 
 def composite_thumbnail(bg_path, bg_type, thumb_text, title, ab_style, niche_name):
     """
-    Composite case-relevant imagery with NUMBER+NOUN text overlay.
-    - Photo: real image darkened to 35%, text on dark left panel
-    - AI: AI image darkened to 25%, text centered with glow
-    Returns path to composited thumbnail.
+    v2 thumbnail: three-layer composition using thumbnail_engine_v2.
+    Layer 1: background (Pollinations.ai, niche-specific prompt)
+    Layer 2: silhouette figure (ab_style A only)
+    Layer 3: text with 5-layer shadow stack
     """
-    from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
-    thumb_path = str(WORK_DIR / "thumbnail.jpg")
-    W, H = 1280, 720
-
     try:
-        # Load and process background image
-        if bg_path and Path(bg_path).exists():
-            img = Image.open(bg_path).convert("RGB").resize((W, H))
-            brightness = 0.32 if bg_type == "photo" else 0.22
-            img = ImageEnhance.Brightness(img).enhance(brightness)
-            img = ImageEnhance.Contrast(img).enhance(1.4)
-        else:
-            img = Image.new("RGB", (W, H), (5, 5, 12))
-
-        draw = ImageDraw.Draw(img)
-
-        # If real photo: add dark panel on left for text legibility
-        if bg_type == "photo":
-            # Semi-transparent dark gradient on left 60% of image
-            for x in range(int(W * 0.65)):
-                alpha = max(0, 180 - int(x * 180 / (W * 0.65)))
-                for y in range(H):
-                    px = img.getpixel((x, y))
-                    blended = tuple(int(c * (1 - alpha/255)) for c in px)
-                    draw.point((x, y), fill=blended)
-
-        # Font setup
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
-        def get_font(sz):
-            for fp in font_paths:
-                if Path(fp).exists():
-                    try: return ImageFont.truetype(fp, sz)
-                    except: pass
-            return ImageFont.load_default()
-
-        # Niche badge
-        draw.text((24, 18), "● DARK DOCUMENTARY", font=get_font(22), fill=(180, 0, 0))
-
-        # NUMBER+NOUN main text
-        words = thumb_text.split()
-        lines = ([thumb_text] if len(words) <= 3
-                 else [" ".join(words[:len(words)//2]),
-                       " ".join(words[len(words)//2:])])
-
-        fm     = get_font(110)
-        th_tot = len(lines) * 120
-        sy     = (H - th_tot) // 2 - 25
-
-        text_col   = (220, 15, 15) if ab_style == "A" else (255, 255, 255)
-        shadow_col = (50, 0, 0)    if ab_style == "A" else (0, 0, 0)
-
-        for i, line in enumerate(lines):
-            y    = sy + i * 120
-            bbox = draw.textbbox((0, 0), line, font=fm)
-            x    = (W - (bbox[2] - bbox[0])) // 2
-            # Multi-layer shadow for depth
-            for dx, dy in [(-4,-4),(4,-4),(-4,4),(4,4),(0,-5),(0,5),(-5,0),(5,0)]:
-                draw.text((x+dx, y+dy), line, font=fm, fill=shadow_col)
-            draw.text((x, y), line, font=fm, fill=text_col)
-
-        # Sub-title
-        sub  = title[:65] + ("…" if len(title) > 65 else "")
-        fs   = get_font(30)
-        bb   = draw.textbbox((0, 0), sub, font=fs)
-        draw.text(((W-(bb[2]-bb[0]))//2 + 1, sy+th_tot+18), sub, font=fs, fill=(20, 20, 20))
-        draw.text(((W-(bb[2]-bb[0]))//2,     sy+th_tot+16), sub, font=fs, fill=(200, 200, 200))
-
-        # Evidence border
-        draw.rectangle([6, 6, W-6, H-6], outline=(120, 0, 0), width=2)
-
-        img.save(thumb_path, "JPEG", quality=96)
-        log(f"  Thumbnail ({bg_type} bg): {Path(thumb_path).stat().st_size//1024}KB")
-        return thumb_path
-
+        from thumbnail_engine_v2 import generate_thumbnail_v2
+        result = generate_thumbnail_v2(
+            title        = title,
+            thumb_text   = thumb_text,
+            niche_name   = niche_name,
+            topic        = title,
+            channel_name = "BetrayalDeepDive",
+            episode      = 1,
+            work_dir     = str(WORK_DIR),
+            ab_variant   = ab_style,
+        )
+        if result and Path(result).exists():
+            log(f"  Thumbnail v2: {Path(result).stat().st_size//1024}KB | {ab_style} variant")
+            return result
     except Exception as e:
-        log(f"  Composite thumbnail error: {e}")
-        return None
+        log(f"  Thumbnail v2 (non-fatal): {e}")
+    return None
+
+
+def fetch_case_relevant_image(topic, niche_name, out_path):
+    """Delegate to thumbnail_engine_v2 background fetcher."""
+    try:
+        from thumbnail_engine_v2 import fetch_background
+        import hashlib
+        seed = int(hashlib.md5(topic.encode()).hexdigest()[:8], 16) % 99999
+        result = fetch_background(topic, niche_name, seed, str(WORK_DIR))
+        if result and Path(result).exists():
+            import shutil
+            shutil.copy(result, out_path)
+            return True, "pollinations_v2"
+    except Exception as e:
+        log(f"  fetch_case_relevant_image (non-fatal): {e}")
+    return False, "none"
+
 
 def fetch_pollinations_image(topic, niche_name, thumb_path):
-    """
-    Pollinations.ai — completely free, no API key, no account, no credit card.
-    Generates a dark cinematic image from a text prompt.
-    Returns True if image saved successfully.
-    """
-    niche_visual = {
-        "dark_horror":        "dark abandoned hallway shadows horror atmosphere cinematic",
-        "seduction_dark":     "dark silhouette noir cinematic moody dramatic shadows",
-        "psychological_trap": "dark labyrinth corridor shadows prison psychological",
-        "supernatural_real":  "dark fog mysterious paranormal abandoned building night",
-        "obsession_dark":     "surveillance night vision dark shadow watching cinematic",
-    }
-    visual_style = niche_visual.get(niche_name, "dark cinematic shadows dramatic")
-    # Build prompt: topic keywords + visual style + quality modifiers
-    topic_words = " ".join(topic.split()[:6])
-    prompt = (f"{topic_words}, {visual_style}, "
-              f"ultra dark atmospheric, cinematic lighting, documentary style, "
-              f"8k quality, no text, no people faces, dramatic shadows")
-    # URL encode the prompt
-    import urllib.parse
-    encoded = urllib.parse.quote(prompt)
-    url = f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&nologo=true&seed={hash(topic)%9999}"
-    try:
-        log("  Fetching Pollinations.ai thumbnail image...")
-        r = requests.get(url, timeout=45, stream=True)
-        if r.status_code == 200 and len(r.content) > 50000:
-            with open(thumb_path, "wb") as f:
-                f.write(r.content)
-            log(f"  Pollinations image: {Path(thumb_path).stat().st_size//1024}KB")
-            return True
-        else:
-            log(f"  Pollinations {r.status_code} — falling back to Pillow")
-    except Exception as e:
-        log(f"  Pollinations error (non-fatal): {e}")
-    return False
+    """Legacy wrapper — delegates to thumbnail_engine_v2."""
+    got, _ = fetch_case_relevant_image(topic, niche_name, thumb_path)
+    return got
+
 
 def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
     """
@@ -2594,7 +2749,8 @@ def upload_yt(path, title, desc, tags, token=None, privacy="public"):
         json={"snippet": {"title": title[:100], "description": desc,
                           "tags": tags[:15], "categoryId": "22"},
               "status": {"privacyStatus": privacy,
-                         "selfDeclaredMadeForKids": False, "madeForKids": False}},
+                         "selfDeclaredMadeForKids": False, "madeForKids": False,
+                         "containsSyntheticMedia": True}},  # mandatory AI disclosure since Mar 2024
         timeout=30)
     url = init.headers.get("Location")
     if not url:
@@ -2731,6 +2887,181 @@ def post_creator_comment(token, video_id, niche_name, title, episode):
     except Exception as e:
         log(f"  Creator comment (non-fatal): {e}")
     return None
+
+# ================================================================
+# v12.0 NEW FUNCTIONS — TRAFFIC & REVENUE MAXIMISATION
+# ================================================================
+
+def generate_dedicated_short_title(main_title, short_type, niche_name):
+    """
+    Generate a dedicated Short title optimised for Shorts algorithm.
+    DIFFERENT from the main video title — Shorts have their own discovery.
+    Targets: curiosity gap, specific claim, under 60 chars.
+    """
+    prompts = {
+        "teaser": f"Write a YouTube Shorts title that creates maximum curiosity. Topic: {main_title[:80]}. "
+                  "Rules: under 55 chars, starts with a shocking fact or question, no 'watch' or 'click'. "
+                  "Return ONLY the title.",
+        "recap":  f"Write a YouTube Shorts title revealing the key finding. Topic: {main_title[:80]}. "
+                  "Rules: under 55 chars, implies the truth was found, feels conclusive. "
+                  "Return ONLY the title.",
+    }
+    type_key = "teaser" if "teaser" in short_type.lower() else "recap"
+    try:
+        result = ai_generate(prompts[type_key], tokens=80)
+        if result:
+            title = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
+            if 15 < len(title) < 65:
+                log(f"  Short title: {title}")
+                return title
+    except Exception as e:
+        log(f"  Short title (non-fatal): {e}")
+    # Fallback: use a hook from the main title
+    hooks = {"teaser": "This Is What Nobody Told You", "recap": "The Truth They Didn't Want Found"}
+    return hooks.get(type_key, main_title[:50])
+
+
+def post_short_creator_comment(token, video_id, niche_name, main_title):
+    """
+    Post a creator comment on each Short immediately after upload.
+    Shorts comments drive early engagement signals = algorithmic boost.
+    Different from main video comment — Shorts audience is colder.
+    """
+    short_hooks = {
+        "dark_horror":        "Does this happen more than we know?",
+        "seduction_dark":     "Have you ever seen these warning signs in real life?",
+        "psychological_trap": "Is this happening around you right now?",
+        "supernatural_real":  "What is the rational explanation for this?",
+        "obsession_dark":     "Do you know someone whose interest feels like this?",
+    }
+    hook = short_hooks.get(niche_name, "What do you think happened?")
+    comment = (
+        f"💬 {hook}\n\n"
+        f"Full investigation ↑ above.\n"
+        f"🔔 New case every weekday → subscribe\n"
+        f"🔬 Forensic crimes: youtube.com/@TheEvidenceRoom\n"
+        f"🧠 Mass manipulation: youtube.com/@TheControlFiles\n\n"
+        f"#{niche_name.replace('_','')} #shorts #documentary"
+    )
+    try:
+        r = requests.post(
+            "https://www.googleapis.com/youtube/v3/commentThreads",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"snippet": {"videoId": video_id,
+                              "topLevelComment": {"snippet": {"textOriginal": comment}}}},
+            timeout=30)
+        if r.status_code == 200:
+            log("  Short creator comment OK")
+        else:
+            log(f"  Short comment {r.status_code} (non-fatal)")
+    except Exception as e:
+        log(f"  Short comment (non-fatal): {e}")
+
+
+def build_three_channel_cross_promo(niche_name, is_short=False):
+    """
+    Build standardised three-channel cross-promotion block.
+    Injects in every description — main video AND Shorts.
+    Three-channel flywheel: each channel sends viewers to both others.
+    """
+    if is_short:
+        return (
+            "\n\n🔬 Full forensic investigations: youtube.com/@TheEvidenceRoom"
+            "\n🧠 Mass manipulation exposed: youtube.com/@TheControlFiles"
+        )
+    return (
+        "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom"
+        "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
+        "\n\n📺 New investigation every weekday on all three channels."
+    )
+
+
+def run_ch1_viral_intelligence(niche):
+    """
+    Viral intelligence engine for Ch1 (ported from Ch2).
+    Runs weekly — results cached in state.json under 'viral_intel'.
+    Finds what's working in the dark horror/psychological documentary niche.
+    """
+    state = load_state()
+    intel = state.get("viral_intel", {})
+    name  = niche["name"]
+    if name in intel:
+        try:
+            last = datetime.datetime.fromisoformat(intel[name].get("last_run", "2020-01-01"))
+            if (datetime.datetime.now() - last).days < 7:
+                log(f"  Ch1 viral intel cached ({name})")
+                return intel[name]
+        except: pass
+
+    log(f"  Running Ch1 viral intelligence: {name}...")
+    prompt = f"""Analyze the TOP 20 most viral dark documentary YouTube videos (2M+ views) in the
+"{niche['search_query']}" niche.
+Return ONLY valid JSON:
+{{"top_hook_formulas":["Hook 1","Hook 2","Hook 3"],
+"winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
+"thumbnail_text_examples":["3 WORD 1","3 WORD 2","3 WORD 3","3 WORD 4","3 WORD 5"],
+"retention_hooks":["30pct","60pct","80pct"],
+"niche_power_words":["word1","word2","word3","word4","word5","word6"],
+"fresh_topic_ideas":["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]}}"""
+    try:
+        text = ai_generate(prompt, tokens=400)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','', re.sub(r'```json|```','',text).strip())
+        m = re.search(r'\{[\s\S]*\}', text)
+        if m:
+            d = json.loads(m.group())
+            d["last_run"] = datetime.datetime.now().isoformat()
+            intel[name] = d
+            state["viral_intel"] = intel
+            save_state(state)
+            log("  Ch1 viral intel loaded")
+            return d
+    except Exception as e:
+        log(f"  Ch1 viral intel err: {e}")
+
+    fallback = {
+        "top_hook_formulas": niche.get("dread_triggers", [])[:3],
+        "winning_title_patterns": ["NUMBER + NOUN format", "The [THING] That Changed Everything"],
+        "thumbnail_text_examples": [t.upper() for t in niche.get("topics", [])[:3]],
+        "retention_hooks": ["The next detail is the one that changes everything",
+                            "What was found at this point made investigators stop",
+                            "The final revelation is the one nobody expected"],
+        "niche_power_words": ["documented","witnessed","concealed","discovered","classified","permanent"],
+        "fresh_topic_ideas": niche.get("topics", []),
+        "last_run": datetime.datetime.now().isoformat()
+    }
+    intel[name] = fallback
+    state["viral_intel"] = intel
+    save_state(state)
+    return fallback
+
+
+def get_ch1_archive_topic(niche, attempt, used_topics):
+    """
+    Archive fallback: when fresh topics are exhausted (attempt > 8),
+    dig into proven viral stories from 2022-2024.
+    """
+    prompt = f"""Find 6 documented real-world stories from 2022-2024 that fit
+the "{niche['name'].replace('_',' ')}" niche and went viral as documentary YouTube videos.
+Focus: {niche['search_query']}
+Not already used: {[t[:40] for t in used_topics[:4]]}
+Return ONLY a JSON array: ["Story 1","Story 2","Story 3","Story 4","Story 5","Story 6"]"""
+    try:
+        text = ai_generate(prompt, tokens=400)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','', re.sub(r'```json|```','',text).strip())
+        m = re.search(r'\[[\s\S]*?\]', text)
+        if m:
+            topics = json.loads(m.group())
+            unused = [t for t in topics if t not in used_topics]
+            if unused:
+                chosen = random.choice(unused)
+                log(f"  Archive topic: {chosen[:70]}")
+                return chosen
+    except Exception as e:
+        log(f"  Archive topic err: {e}")
+    unused_seeds = [t for t in niche["topics"] if t not in used_topics]
+    return random.choice(unused_seeds) if unused_seeds else niche["topics"][0]
+
 
 def update_channel_description(token, latest_title, latest_url):
     """[NEW #12] Update channel About with latest episode."""
@@ -3146,6 +3477,11 @@ def main():
                              niche_name.replace("_",""), "investigation", "documentary",
                              "narration", "true story"]
 
+        # Generate dedicated Short titles (v12 — not just main title + #Shorts)
+        short_title_1 = generate_dedicated_short_title(title, "teaser", niche_name)
+        short_title_2 = generate_dedicated_short_title(title, "recap", niche_name)
+        short_cross   = build_three_channel_cross_promo(niche_name, is_short=True)
+
         # Short definitions — both are required, no exceptions
         short_defs = [
             {
@@ -3153,9 +3489,10 @@ def main():
                 "start":    0,
                 "duration": min(55, max(audio_duration * 0.12, 30)),
                 "type":     "teaser",
-                "title":    f"{title[:60]} #Shorts",
+                "title":    short_title_1,
                 "desc":     (f"What really happened?\n\n{title}\n\n"
-                             f"Full investigation on the channel.\n\n"
+                             f"Full investigation on this channel.\n"
+                             f"{short_cross}\n\n"
                              f"#Shorts #{niche_name.replace('_','')} "
                              f"#{niche['series'].replace(' ','')} #dark #documentary"),
             },
@@ -3164,9 +3501,10 @@ def main():
                 "start":    audio_duration * 0.67,
                 "duration": min(55, max(audio_duration * 0.20, 25)),
                 "type":     "recap",
-                "title":    f"The Truth Revealed — {title[:40]} #Shorts",
+                "title":    short_title_2,
                 "desc":     (f"The reveal that changes everything.\n\n{title}\n\n"
-                             f"Full investigation on the channel.\n\n"
+                             f"Full investigation on this channel.\n"
+                             f"{short_cross}\n\n"
                              f"#Shorts #{niche_name.replace('_','')} "
                              f"#{niche['series'].replace(' ','')} #reveal #dark"),
             },
@@ -3252,6 +3590,8 @@ def main():
                         tags[:8], token=token)
                     short_urls.append(su)
                     add_to_playlist(token, playlist_id, sid)
+                    # v12: pinned creator comment on each Short
+                    post_short_creator_comment(token, sid, niche_name, title)
                     log(f"  OK {label} uploaded: {su}")
                     success = True
                     break
@@ -3274,7 +3614,7 @@ def main():
         # ── STAGE 12: Channel description update ──
         update_channel_description(token, title, yt_url)
 
-        # ── STAGE 13: Standalone niche Shorts (original content, not clips) ──
+        # ── STAGE 13: Standalone niche Shorts — v12 with cross-promo ──
         log("\n" + "=" * 70)
         log("STAGE 13: Standalone Niche Shorts — 2 original pieces")
         log("=" * 70)
@@ -3286,10 +3626,14 @@ def main():
                 sv = create_ch1_standalone_short(ss, niche_name, sn, edge_voice)
                 if not sv:
                     log(f"  Short {sn+1} video failed — skipping"); continue
-                stitle = f"{ss.split('.')[0][:50]} #Shorts"
+                # v12: dedicated title instead of script truncation
+                stitle = generate_dedicated_short_title(title, f"standalone_{sn}", niche_name)
+                short_cross = build_three_channel_cross_promo(niche_name, is_short=True)
                 sdesc  = (f"{ss[:200]}\n\nWatch the full investigation above.\n"
+                          f"{short_cross}\n\n"
                           f"#{niche_name.replace('_','')} #shorts #documentary #darkhorror")
-                su, _ = upload_yt(sv, stitle, sdesc, tags[:8], token=token)
+                su, suid = upload_yt(sv, stitle, sdesc, tags[:8], token=token)
+                post_short_creator_comment(token, suid, niche_name, title)
                 log(f"  Standalone Short {sn+1} uploaded: {su}")
             except Exception as e:
                 log(f"  Standalone Short {sn+1} (non-fatal — won't stop pipeline): {e}")
@@ -3313,15 +3657,38 @@ def main():
         avg_sc   = sum(perf.get("scores", [score])) / max(len(perf.get("scores", [score])), 1)
         sh_lines = "\n".join(f"🩳 {u}" for u in short_urls) if short_urls else "none"
 
-        tg(f"✅ <b>DeepDive Empire v11.0 — Published!</b>\n\n"
+        # v12: Trigger first-hour sprint — sets env vars for growth engine sprint mode
+        # Growth engine reads these via GitHub Actions env, or we call it directly here
+        try:
+            import subprocess
+            env_ext = os.environ.copy()
+            env_ext.update({
+                "GROWTH_ENGINE_MODE":  "sprint",
+                "SPRINT_VIDEO_URL":    yt_url,
+                "SPRINT_VIDEO_TITLE":  title,
+                "SPRINT_CHANNEL_ID":   "betrayal_deepdive",
+                "SPRINT_NICHE":        niche_name,
+                "SPRINT_SHORTS_URLS":  ",".join(short_urls),
+                "SPRINT_SCORE":        str(score),
+            })
+            # Non-blocking: background process — pipeline does not wait for it
+            subprocess.Popen(
+                ["python3", str(Path(__file__).parent.parent /
+                               "channels/growth_engine/growth_engine.py")],
+                env=env_ext)
+            log("  Growth engine sprint launched (background)")
+        except Exception as ge:
+            log(f"  Growth engine (non-fatal): {ge}")
+
+        tg(f"✅ <b>BetrayalDeepDive v12.0 — Published!</b>\n\n"
            f"📺 <b>{title}</b>\n🔗 {yt_url}\n\n"
            f"🎯 Niche: {niche_name}\n🔊 Voice: {edge_voice}\n"
            f"📝 Words: {len(script.split())}\n⏱ Duration: {audio_duration/60:.1f} min\n"
            f"⭐ Score: {score}/10 (avg: {avg_sc:.1f})\n"
            f"📊 Episode: {episode} | Total: {state['total_uploads']}\n"
-           f"📋 Playlist: {'added' if playlist_id else 'none'}\n"
-           f"📌 Captions: {'burned in' if ass_path else 'none'}\n\n"
-           f"<b>Shorts:</b>\n{sh_lines}")
+           f"📋 Playlist: {'added' if playlist_id else 'none'}\n\n"
+           f"<b>Shorts:</b>\n{sh_lines}\n\n"
+           f"🚀 First-hour sprint: watch + comment + Hype within 60 min")
 
         log("\n" + "=" * 70)
         log(f"SUCCESS: {yt_url}")
