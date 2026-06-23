@@ -1808,583 +1808,241 @@ def cleanup():
 # MAIN
 # ════════════════════════════════════════════════════════════
 def main():
-    # Stagger start to avoid API conflicts with Channel 1
-    delay = random.randint(90, 150)
-    log(f"  Starting in {delay}s to avoid API conflicts...")
-    time.sleep(delay)
+    """
+    Two-phase controller for Ch2 (The Evidence Room).
+    PIPELINE_PHASE=generate : generate + save pending_upload.json
+    PIPELINE_PHASE=upload   : read pending, upload to YouTube
+    PIPELINE_PHASE=full     : legacy single-run (backward compatible)
+    """
+    from phase_manager import (get_pipeline_phase, save_pending,
+                                load_pending, clear_pending, check_pending_age,
+                                is_already_uploaded)
 
-    log("\n"+"="*65)
-    log("  THE EVIDENCE ROOM v2.0 — ANIMATED FORENSIC PIPELINE")
-    log("  20 Human Voices | 13 Attempts | 7.3 Quality Floor")
-    log("  No subs on main | Subs on Shorts | Telegram + Gmail")
-    log("="*65)
+    phase      = get_pipeline_phase()
+    SCRIPT_DIR = Path(__file__).parent
+    state      = load_state()
 
-    state = load_state()
+    log(f"\nEVIDENCE ROOM v14.0 — Phase: {phase.upper()}")
+    log(f"Time: {datetime.datetime.now().strftime('%a %d %b %Y %I:%M %p IST')}")
 
-    # Pre-define cross-stage variables (prevents NameError if any stage errors)
-    used_topics    = []
-    topic_used     = ""
-    best_thumbnail = "EVIDENCE FOUND"
-    best_title_str = ""
-    ab_style       = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+    # ── UPLOAD PHASE ──────────────────────────────────────────
+    if phase == "upload":
+        pending = load_pending(SCRIPT_DIR)
+        if not pending or is_already_uploaded(pending):
+            tg("⚠️ Ch2 Upload: no pending video. Generation may have failed.")
+            sys.exit(0)
+        is_fresh, hours_old = check_pending_age(pending, max_hours=30)
+        if not is_fresh:
+            tg(f"⚠️ Ch2 Upload: pending is {hours_old}h old — uploading anyway.")
 
-    # Startup notification
-    tg(f"Evidence Room v2.0 Starting\n"
-       f"Time: {datetime.datetime.now().strftime('%I:%M %p')}\n"
-       f"Quality floor: {MIN_GATE} | 13-attempt engine\n"
-       f"Approval request in ~15 min.")
-    log("Startup notification sent")
+        title        = pending["title"]
+        description  = pending["description"]
+        tags         = pending["tags"]
+        niche_name   = pending["niche_name"]
+        video_path   = pending["video_path"]
+        thumb_path   = pending.get("thumbnail_path","")
+        shorts       = pending.get("shorts_clips", [])
+        script_clean = pending.get("script_clean","")
+        duration     = pending.get("duration", 0)
+        score        = pending.get("score", 0)
+        voice_used   = pending.get("voice_used","")
+        episode      = pending.get("episode", 1)
+        playlist_id  = pending.get("playlist_id","")
+        short_titles = pending.get("short_titles", {})
+        short_cross  = pending.get("short_cross","")
 
-    # Stage 1: Script
+        if not Path(video_path).exists():
+            tg(f"❌ Ch2 Upload FAILED: video missing at {video_path}"); sys.exit(1)
+
+        token_yt = get_yt_token()
+        yt_url, vid_id = run_stage_with_retry(
+            upload_yt, "Upload", video_path, title, description, tags,
+            is_short=False, token=token_yt)
+
+        if playlist_id: add_to_playlist(token_yt, playlist_id, vid_id)
+
+        if thumb_path and Path(thumb_path).exists():
+            try:
+                with open(thumb_path,"rb") as tf:
+                    tr = requests.post(
+                        f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+                        f"?videoId={vid_id}&uploadType=media",
+                        headers={"Authorization":f"Bearer {token_yt}",
+                                 "Content-Type":"image/jpeg"},
+                        data=tf.read(), timeout=60)
+                if tr.status_code in [200,201]: log("  Thumbnail uploaded")
+            except Exception as te: log(f"  Thumbnail (non-fatal): {te}")
+
+        post_creator_comment(token_yt, vid_id, niche_name, title, episode)
+
+        # Upload Shorts
+        short_urls = []
+        short_cross_b = build_ch2_cross_promo(is_short=True)
+        for sd in shorts:
+            sp = sd.get("path","")
+            if not sp or not Path(sp).exists(): continue
+            try:
+                st    = short_titles.get(sd.get("type","teaser"), title[:50])
+                sdesc = (f"Full forensic investigation above.\n\n{title}\n"
+                         f"{short_cross_b}\n\n#{niche_name.replace('_','')} #shorts #forensic")
+                su, sid = upload_yt(sp, st, sdesc, tags, is_short=True, token=token_yt)
+                add_to_playlist(token_yt, playlist_id, sid)
+                post_short_creator_comment_ch2(token_yt, sid, niche_name, title)
+                short_urls.append(su); log(f"  Short uploaded: {su}")
+            except Exception as e: log(f"  Short (non-fatal): {e}")
+
+        if script_clean and duration > 0:
+            try:
+                from growth_engine import upload_srt_captions
+                upload_srt_captions(token_yt, vid_id, script_clean, duration, "evidence_room")
+            except Exception as e: log(f"  SRT (non-fatal): {e}")
+
+        clear_pending(SCRIPT_DIR)
+        state["last_title"]    = title
+        state["last_url"]      = yt_url
+        state["last_voice"]    = voice_used
+        state["total_uploads"] = state.get("total_uploads",0)+1
+        save_state(state)
+
+        try:
+            env_ext = os.environ.copy()
+            env_ext.update({
+                "GROWTH_ENGINE_MODE": "sprint",
+                "SPRINT_VIDEO_URL":   yt_url,
+                "SPRINT_VIDEO_TITLE": title,
+                "SPRINT_CHANNEL_ID":  "evidence_room",
+                "SPRINT_NICHE":       niche_name,
+                "SPRINT_SHORTS_URLS": ",".join(short_urls),
+                "SPRINT_SCORE":       str(score),
+            })
+            subprocess.Popen(
+                ["python3", str(Path(__file__).parent.parent /
+                               "growth_engine/growth_engine.py")],
+                env=env_ext)
+        except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
+
+        tg(f"✅ <b>The Evidence Room — LIVE</b>\n\n"
+           f"<b>{title}</b>\n🔗 {yt_url}\n\n"
+           f"Niche: {niche_name} | Score: {score}/10 | Ep{episode}\n"
+           f"🚀 First-hour sprint active")
+        log(f"\nUPLOAD COMPLETE: {yt_url}")
+        return
+
+    # ── GENERATE PHASE ────────────────────────────────────────
+    episode = (datetime.datetime.now().timetuple().tm_yday//3)+1
+    ckpt_clear()
+
     (niche, topic, voice, style_name, episode,
      script_clean, scenes, title_str, thumbnail_text,
      title_scores, score, tags, intel) = run_stage1(state)
 
-    # v12: fix topic_used bug — assign from stage1 result
-    topic_used = topic
+    topic_used   = topic
+    ab_style     = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+    week_number  = datetime.datetime.now().isocalendar()[1]
+    cross_promo  = build_ch2_cross_promo(is_short=False)
+    seo_first    = f"DOCUMENTED: {topic[:60]}."
+    description  = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
+                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
+                    f"Subscribe to The Evidence Room.{cross_promo}\n\n"
+                    f"⚠️ AI-assisted narration and forensic analysis.")
 
-    # Enhance tags with competitive niche-specific SEO tags
-    CH2_NICHE_TAGS = {
-        "forensic_finance":       ["forensic finance documentary","financial fraud investigation",
-                                   "money laundering exposed","corporate fraud documentary",
-                                   "financial crime narration","forensic accounting youtube"],
-        "criminal_investigation": ["criminal investigation documentary","forensic investigation",
-                                   "true crime documentary narration","crime evidence documentary"],
-        "corporate_exposure":     ["corporate corruption exposed","corporate fraud documentary",
-                                   "whistleblower documentary","corporate crime investigation"],
-        "digital_forensics":      ["digital forensics documentary","cybercrime investigation",
-                                   "digital evidence exposed","cyber investigation narration"],
-    }
-    tags = list(set(tags + CH2_NICHE_TAGS.get(niche["name"], [])))[:15]
-
-    # Upgrade thumbnail to NUMBER+NOUN format for higher CTR
-    if thumbnail_text and not any(c.isdigit() for c in thumbnail_text):
-        try:
-            num_p = (f"Forensic topic: {topic[:60]}\n"
-                     "Generate 2-3 word thumbnail text in NUMBER+NOUN format.\n"
-                     "Examples: '$2.4M GONE' '14 ACCOUNTS' '7 WITNESSES' '4380 DAYS'\n"
-                     "Use a specific number from the case. Return ONLY the phrase.")
-            num_r = ai(num_p, tokens=40)
-            if num_r and any(c.isdigit() for c in num_r.strip()):
-                thumbnail_text = num_r.strip().upper()[:20]
-                log(f"  Thumbnail upgraded to NUMBER+NOUN: {thumbnail_text}")
-        except: pass
-
-    elapsed = time.time()
-    tg(f"Evidence Room Stage 1 Complete\n"
-       f"{niche['name']} | {len(script_clean.split())}w | {score}/10\n"
-       f"Title: {title_str[:60]}\nSending approval now...")
-
-    # Stage 2: Approval gate (30-min, before video)
-    decision = run_stage2_approval(
-        title_str, niche, voice, style_name, script_clean,
-        thumbnail_text, title_scores, score)
-    if decision == "rejected":
-        log("Rejected."); sys.exit(0)
-
-    tg("Evidence Room generating video now...")
-
-    # Stage 3: Human voice audio — with stage-level retry
-    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
-    tg(f"Stage 3: {voice_used} | {duration/60:.1f}min")
-
-    # Stage 4: Animation (NO subtitles on main)
-    log("\n"+"="*65)
-    log("  STAGE 4: Rendering Animation")
-    log("="*65)
-    video_path = run_stage_with_retry(
-        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
-    tg(f"Stage 4: 1080p animated | Style: {style_name}\nUploading...")
-
-    # Generate AI thumbnail with Pollinations background
-    # `topic` is already unpacked from run_stage1() result — use it directly
-    thumb_path = generate_thumbnail_with_ai_bg(
-        title_str, best_thumbnail or "EVIDENCE FOUND",
-        niche["name"], topic, ab_style=ab_style)
-    log(f"  Thumbnail: {'OK' if thumb_path else 'using default'}")
-
-    # Upload main video
-    # A/B thumbnail week tracking
-    week_number = datetime.datetime.now().isocalendar()[1]
-    ab_style    = "A" if week_number % 2 == 1 else "B"
-    state.setdefault("thumbnail_ab", {})["last_style"] = ab_style
-    log(f"  Thumbnail A/B style: {ab_style} (week {week_number})")
-
-    # v12: three-channel cross-promo + SEO-optimised first 100 chars
-    cross_promo = build_ch2_cross_promo(is_short=False)
-    seo_first = f"DOCUMENTED: {topic[:60]}."  # first 100 chars — shown in YouTube search
-    description = (f"{seo_first}\n\n"
-                   f"Episode {episode} of {niche['series']}.\n\n"
-                   f"Every case. Every document. Every piece of evidence — animated.\n\n"
-                   f"Subscribe to The Evidence Room."
-                   f"{cross_promo}\n\n"
-                   f"⚠️ AI-assisted narration and forensic analysis.")
-    token_yt = get_yt_token()
-    # Playlist for this niche
-    playlist_id = state.get("playlists", {}).get(niche["name"])
+    token_yt    = get_yt_token()
+    playlist_id = state.get("playlists",{}).get(niche["name"])
     if not playlist_id:
         playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
         if playlist_id:
-            pl = state.get("playlists", {})
-            pl[niche["name"]] = playlist_id
+            pl = state.get("playlists",{}); pl[niche["name"]] = playlist_id
             state["playlists"] = pl
 
-    try:
-        yt_url, vid_id = run_stage_with_retry(
-            upload_yt, "Upload", video_path, title_str, description, tags,
-            is_short=False, token=token_yt)
-        add_to_playlist(token_yt, playlist_id, vid_id)
-        # Upload AI-generated thumbnail
-        if thumb_path and Path(thumb_path).exists():
-            try:
-                with open(thumb_path, "rb") as tf:
-                    tr = requests.post(
-                        f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
-                        f"?videoId={vid_id}&uploadType=media",
-                        headers={"Authorization": f"Bearer {token_yt}",
-                                 "Content-Type": "image/jpeg"},
-                        data=tf.read(), timeout=60)
-                if tr.status_code in [200, 201]:
-                    log("  Thumbnail uploaded to YouTube OK")
-            except Exception as te:
-                log(f"  Thumbnail upload (non-fatal): {te}")
-        post_creator_comment(token_yt, vid_id, niche["name"],
-                             title_str, episode)
-        log(f"  Main: {yt_url}")
-    except Exception as e:
-        tg(f"Evidence Room Upload FAILED\n{str(e)[:200]}"); sys.exit(1)
+    tags_er = list(set(tags))[:15]
 
-    # 2 Shorts — MANDATORY, 3 attempts each, no silent failures
-    shorts = []; token_yt = get_yt_token()
-    # v12: generate dedicated Short titles before the loop
-    short_cross = build_ch2_cross_promo(is_short=True)
-    short_titles = {
+    # Audio
+    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+
+    # Video
+    video_path = run_stage_with_retry(
+        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
+
+    # Thumbnail
+    thumb_path = generate_thumbnail_with_ai_bg(
+        title_str, thumbnail_text, niche["name"], topic, ab_style,
+        episode=episode, channel_name="The Evidence Room")
+
+    # Shorts clips (generate only, don't upload)
+    short_clips = []
+    short_titles_d = {
         "teaser": generate_dedicated_short_title_ch2(title_str, "teaser", niche["name"]),
         "recap":  generate_dedicated_short_title_ch2(title_str, "recap",  niche["name"]),
     }
-    for stype in ["teaser", "recap"]:
-        success = False; last_err = None
-        for attempt in range(1, 4):
-            try:
-                log(f"  Creating Short ({stype}) attempt {attempt}/3...")
-                sp = make_short_with_subs(video_path, script_clean, stype, duration)
-                if not sp or not Path(sp).exists() or Path(sp).stat().st_size < 400000:
-                    raise RuntimeError(f"Short ({stype}) file too small or missing")
-                log(f"  Uploading Short ({stype}) attempt {attempt}/3...")
-                short_desc = (f"Full forensic investigation above.\n\n{title_str}\n"
-                              f"{short_cross}\n\n"
-                              f"#{niche['name'].replace('_','')} #shorts #forensic")
-                su, sid = upload_yt(
-                    sp, short_titles[stype],
-                    short_desc, tags, is_short=True, token=token_yt)
-                add_to_playlist(token_yt, playlist_id, sid)
-                # v12: pinned creator comment on Short
-                post_short_creator_comment_ch2(token_yt, sid, niche["name"], title_str)
-                shorts.append(f"Short {stype}: {su}")
-                log(f"  OK Short {stype}: {su}")
-                success = True; break
-            except Exception as e:
-                last_err = e
-                log(f"  Short {stype} attempt {attempt} failed: {e}")
-                if attempt < 3: time.sleep(10)
-        if not success:
-            raise RuntimeError(
-                f"CRITICAL: Short ({stype}) failed after 3 attempts. "
-                f"Last error: {last_err}. Both Shorts are required every run.")
-
-    # Generate 2 standalone niche Shorts (additional to teaser/recap)
-    log("\n  Creating standalone niche Shorts...")
-    standalone = create_and_upload_standalone_shorts(
-        token_yt, niche, topic_used or niche["seed_topics"][0],
-        voice_used, description, tags, playlist_id, title_str)
-    log(f"  Standalone Shorts uploaded: {len(standalone)}")
-
-    cleanup()
-    ckpt_clear()
-
-    # v12: performance tracker + save pattern memory
-    state = track_episode_ch2(state, niche["name"], score, voice_used,
-                               (datetime.datetime.now().timetuple().tm_yday//3)+1)
-    state = save_pattern_memory(state, (datetime.datetime.now().timetuple().tm_yday//3)+1,
-                                niche["name"], topic, score)
-    state["last_style"]    = style_name
-    state["last_niche"]    = niche["name"]
-    state["last_voice"]    = voice_used
-    state["last_title"]    = title_str
-    state["last_url"]      = yt_url
-    state["total_uploads"] = state.get("total_uploads", 0) + 1
-    state["total_shorts"]  = state.get("total_shorts", 0) + len(shorts)
-    save_state(state)
-
-    dec = "APPROVED" if decision=="approved" else "AUTO-APPROVED"
-    ev  = int(5000*0.9)
-    er  = round((ev/1000)*niche["rpm"],2)
-    log("Pipeline complete — clearing checkpoint")
-    ckpt_clear()
-
-    # v12: first-hour sprint — background growth engine call
-    try:
-        import subprocess
-        env_ext = os.environ.copy()
-        env_ext.update({
-            "GROWTH_ENGINE_MODE":  "sprint",
-            "SPRINT_VIDEO_URL":    yt_url,
-            "SPRINT_VIDEO_TITLE":  title_str,
-            "SPRINT_CHANNEL_ID":   "evidence_room",
-            "SPRINT_NICHE":        niche["name"],
-            "SPRINT_SHORTS_URLS":  ",".join(s.split(": ",1)[-1] for s in shorts),
-            "SPRINT_SCORE":        str(score),
-        })
-        subprocess.Popen(
-            ["python3", str(Path(__file__).parent.parent /
-                           "channels/growth_engine/growth_engine.py")],
-            env=env_ext)
-        log("  Growth engine sprint launched (background)")
-    except Exception as ge:
-        log(f"  Growth engine (non-fatal): {ge}")
-
-    tg(f"EVIDENCE ROOM PUBLISHED — {dec}\n\n"
-       f"{title_str}\n"
-       f"Style: {style_name} | Ep{episode}\n"
-       f"Niche: {niche['name']} | ${niche['rpm']} RPM\n"
-       f"Voice: {voice_used} | {duration/60:.1f}min\n"
-       f"Score: {score}/10 | Thumbnail: {thumbnail_text}\n"
-       f"No subs on main | Subs on Shorts\n\n"
-       f"Main: {yt_url}\n"
-       f"{chr(10).join(shorts)}\n\n"
-       f"Est 30-day: {ev:,} views | ${er} (Rs.{int(er*83):,})\n"
-       f"🚀 First-hour sprint: watch + Hype within 60 min\n"
-       f"Artifacts deleted.")
-    log(f"\nCOMPLETE: {yt_url}")
-
-
-# ════════════════════════════════════════════════════════════
-# STANDALONE NICHE SHORTS GENERATOR
-# Generates 2 additional Shorts BEYOND the teaser/recap clips.
-# These are ORIGINAL 30-45 second content — not clips from main video.
-# Each targets a different keyword, drives traffic independently.
-# Revenue driver: Shorts algorithm surfaces these to cold audiences.
-# ════════════════════════════════════════════════════════════
-
-SHORTS_TEMPLATES = {
-    "forensic_finance": [
-        "The one financial warning sign that nobody acted on",
-        "The document trail that exposed the entire fraud",
-        "The red flag in the accounts that changed everything",
-    ],
-    "criminal_investigation": [
-        "The single piece of evidence that broke the whole case",
-        "Why investigators almost missed the most important clue",
-        "The detail in the scene that proved it was not an accident",
-    ],
-    "corporate_exposure": [
-        "The internal memo that exposed the cover-up",
-        "How the whistleblower knew before anyone else did",
-        "The document they tried to destroy and failed",
-    ],
-    "digital_forensics": [
-        "The digital trace that was impossible to erase",
-        "How investigators recovered the deleted files",
-        "The metadata that revealed the entire timeline",
-    ],
-}
-
-def generate_standalone_short_script(niche_name, topic, short_num):
-    """
-    Generate a 45-second standalone Short script optimised for the Shorts algorithm.
-    Key: viewers decide in 3 seconds whether to keep watching or swipe.
-    Structure: Immediate hook → Fast context → Single devastating reveal → CTA
-    ~120-130 words = 45 seconds at natural TTS pace.
-    """
-    angles = {
-        0: "the single most shocking documented fact from this case",
-        1: "the warning sign that everyone missed before it was too late",
-    }
-    angle = angles.get(short_num, angles[0])
-
-    prompt = f"""Write a 45-second YouTube Shorts narration script.
-Topic: {topic}
-Focus angle: {angle}
-Niche feel: {niche_name.replace('_', ' ')} — dark, investigative, forensic
-
-CRITICAL STRUCTURE:
-Line 1 (HOOK — 3 seconds): Start with a specific number, date, or dollar amount.
-  Mid-action. No "today we", no "welcome", no "in this video".
-  Example style: "On March 4th, $4.2 million vanished."
-Lines 2-4 (CONTEXT — 15 seconds): Three short punchy sentences. Max 10 words each.
-Lines 5-6 (REVEAL — 20 seconds): The one fact that changes everything.
-  Must feel documented and real.
-Line 7 (CTA — 5 seconds): "Full investigation on our channel." or "Watch the full case above."
-
-RULES — non-negotiable:
-- Exactly 120-130 words total
-- Every sentence max 12 words
-- Include at least ONE specific number or date
-- No markdown, no headers, no asterisks
-- Plain narration text only
-
-Write the script:"""
-
-    result = ai(prompt, tokens=350)
-    if result:
-        # Strip any markdown artifacts
-        clean = result.strip().replace("**", "").replace("##", "").replace("*", "")
-        words = clean.split()
-        # Cap at 130 words
-        if len(words) > 132:
-            clean = " ".join(words[:130])
-        log(f"  Short {short_num+1} script: {len(clean.split())}w")
-        return clean
-    return None
-
-async def generate_short_audio(script, voice, out_path):
-    """Generate audio for standalone Short using edge-tts."""
-    import edge_tts
-    try:
-        comm = edge_tts.Communicate(text=script, voice=voice, rate="-5%")  # Shorts need faster pace
-        await comm.save(out_path)
-        if Path(out_path).exists() and Path(out_path).stat().st_size > 50000:
-            return True
-    except Exception as e:
-        log(f"  Short audio error: {e}")
-    return False
-
-def create_standalone_short_video(script, audio_path, niche_name, short_num):
-    """
-    Create animated Short video from script + audio.
-    Simple single-scene animation: dark background + animated text overlay.
-    """
-    from PIL import Image, ImageDraw, ImageFont
-    W, H = 1080, 1920  # Vertical for Shorts
-
-    # Get audio duration
-    dur_result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json",
-         "-show_streams", audio_path],
-        capture_output=True, text=True)
-    duration = 45.0
-    try:
-        import json as _json
-        streams = _json.loads(dur_result.stdout).get("streams", [])
-        for s in streams:
-            if s.get("codec_type") == "audio":
-                duration = float(s.get("duration", 45.0))
-                break
-    except: pass
-
-    # Animated Shorts video — Channel 2 brand is animation
-    # Generate multiple frames that pulse and reveal text progressively
-    from PIL import Image, ImageDraw, ImageFont
-    bg_colors = {
-        "forensic_finance":       (8, 12, 20),
-        "criminal_investigation": (12, 5, 5),
-        "corporate_exposure":     (5, 8, 12),
-        "digital_forensics":      (5, 15, 10),
-    }
-    bg = bg_colors.get(niche_name, (8, 8, 15))
-
-    font_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]
-    def gf(sz):
-        for fp in font_paths:
-            if Path(fp).exists():
-                try: return ImageFont.truetype(fp, sz)
-                except: pass
-        return ImageFont.load_default()
-
-    # Split script into 3 display sections
-    sents = [s.strip() for s in script.replace("\n", " ").split(".") if len(s.strip()) > 5]
-    sections = [
-        " ".join(sents[:2]),    # Hook
-        " ".join(sents[2:5]),   # Context
-        " ".join(sents[5:]),    # Reveal + CTA
-    ]
-
-    frames_dir = WORK_DIR / f"short_frames_{short_num}"
-    frames_dir.mkdir(exist_ok=True)
-
-    fps = 24
-    total_frames = int(duration * fps)
-    section_frames = total_frames // 3
-
-    frame_list = []
-    for section_idx, section_text in enumerate(sections):
-        words_s = section_text.split()
-        for fi in range(section_frames):
-            progress = fi / section_frames
-            img  = Image.new("RGB", (W, H), bg)
-            draw = ImageDraw.Draw(img)
-
-            # Animated red progress bar at top
-            bar_w = int(W * ((section_idx * section_frames + fi) / total_frames))
-            draw.rectangle([0, 0, bar_w, 10], fill=(200, 0, 0))
-            draw.rectangle([0, 0, W, 10], outline=(60, 0, 0), width=1)
-
-            # Channel badge
-            draw.text((40, 30), "● THE EVIDENCE ROOM", font=gf(26), fill=(160, 0, 0))
-
-            # Section counter dots
-            for dot_i in range(3):
-                color = (200, 0, 0) if dot_i <= section_idx else (40, 40, 40)
-                draw.ellipse([W//2 - 30 + dot_i*25, H - 80,
-                              W//2 - 14 + dot_i*25, H - 64], fill=color)
-
-            # Animated text reveal — words fade in progressively
-            visible_words = max(1, int(len(words_s) * min(progress * 1.8, 1.0)))
-            display_text = " ".join(words_s[:visible_words])
-
-            # Word wrap at 22 chars
-            wrapped = []
-            current = []
-            for word in display_text.split():
-                current.append(word)
-                if len(" ".join(current)) > 22:
-                    wrapped.append(" ".join(current[:-1]))
-                    current = [word]
-            if current:
-                wrapped.append(" ".join(current))
-
-            fm = gf(72)
-            total_h = len(wrapped) * 85
-            start_y = (H - total_h) // 2
-
-            for li, line in enumerate(wrapped[:6]):
-                y = start_y + li * 85
-                bbox = draw.textbbox((0, 0), line, font=fm)
-                x = (W - (bbox[2] - bbox[0])) // 2
-                # Shadow
-                for dx, dy in [(-2,-2),(2,-2),(-2,2),(2,2)]:
-                    draw.text((x+dx, y+dy), line, font=fm, fill=(30, 0, 0))
-                draw.text((x, y), line, font=fm,
-                          fill=(220, 15, 15) if section_idx == 0 else (230, 230, 230))
-
-            # Pulsing border on reveal section
-            if section_idx == 2:
-                pulse = int(abs(progress - 0.5) * 200)
-                draw.rectangle([4, 4, W-4, H-4],
-                                outline=(pulse, 0, 0), width=3)
-
-            fpath = str(frames_dir / f"f{section_idx:01d}_{fi:04d}.jpg")
-            img.save(fpath, "JPEG", quality=85)
-            frame_list.append(fpath)
-
-    # Write frames list for ffmpeg
-    list_file = str(WORK_DIR / f"short_list_{short_num}.txt")
-    with open(list_file, "w") as lf:
-        for fp in frame_list:
-            lf.write(f"file '{fp}'\nduration {1/fps}\n")
-
-    out_path = str(WORK_DIR / f"standalone_short_{short_num}.mp4")
-    # Combine animated frames + audio — NO subtitles
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-i", list_file,
-        "-i", audio_path,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-pix_fmt", "yuv420p", "-r", str(fps),
-        "-c:a", "aac", "-b:a", "128k",
-        "-t", str(duration + 0.3), "-shortest",
-        out_path
-    ], capture_output=True, timeout=300)
-
-    if Path(out_path).exists() and Path(out_path).stat().st_size > 200000:
-        log(f"  Standalone Short {short_num}: {Path(out_path).stat().st_size//(1024*1024)}MB")
-        return out_path
-    return None
-
-def create_and_upload_standalone_shorts(token, niche, topic, voice, description,
-                                        tags, playlist_id, title_str):
-    """
-    Generate 2 standalone niche Shorts and upload them.
-    These are ADDITIONAL to the teaser/recap clips.
-    Each targets different search keywords, driving independent traffic.
-    """
-    standalone_uploaded = []
-
-    for short_num in range(2):
+    for stype in ["teaser","recap"]:
         try:
-            log(f"\n  Standalone Short {short_num+1}/2...")
-
-            # Generate script
-            script = generate_standalone_short_script(niche["name"], topic, short_num)
-            if not script:
-                log(f"  Short {short_num+1} script failed — skipping")
-                continue
-
-            # Generate audio
-            audio_out = str(WORK_DIR / f"standalone_short_audio_{short_num}.mp3")
-            ok = asyncio.run(generate_short_audio(script, voice, audio_out))
-            if not ok:
-                log(f"  Short {short_num+1} audio failed — skipping")
-                continue
-
-            # Create video
-            video_out = create_standalone_short_video(script, audio_out,
-                                                      niche["name"], short_num)
-            if not video_out:
-                log(f"  Short {short_num+1} video failed — skipping")
-                continue
-
-            # Upload
-            short_title = (
-                f"{script.split('.')[0][:50]} #Shorts"
-                if short_num == 0
-                else f"THE EVIDENCE ROOM: {topic[:35]} #Shorts"
-            )
-            short_desc = (
-                f"{script[:200]}\n\n"
-                f"Watch the full investigation: {title_str}\n\n"
-                f"🔔 Subscribe: youtube.com/@TheEvidenceRoom\n"
-                f"#{niche['name'].replace('_','')} #shorts #forensic #investigation"
-            )
-
-            su, sid = upload_yt(video_out, short_title, short_desc,
-                                tags[:8], is_short=True, token=token)
-            if playlist_id:
-                add_to_playlist(token, playlist_id, sid)
-            standalone_uploaded.append(su)
-            log(f"  Standalone Short {short_num+1} uploaded: {su}")
-
+            sp = make_short_with_subs(video_path, script_clean, stype, duration)
+            if sp and Path(sp).exists():
+                short_clips.append({"type": stype, "path": sp})
         except Exception as e:
-            log(f"  Standalone Short {short_num+1} error (non-fatal): {e}")
+            log(f"  Short clip {stype} (non-fatal): {e}")
 
-    return standalone_uploaded
+    save_pending(SCRIPT_DIR, {
+        "title":          title_str,
+        "description":    description,
+        "tags":           tags_er,
+        "niche_name":     niche["name"],
+        "video_path":     video_path,
+        "audio_path":     audio_path,
+        "thumbnail_path": thumb_path or "",
+        "script_clean":   script_clean,
+        "duration":       duration,
+        "score":          score,
+        "voice_used":     voice_used,
+        "episode":        episode,
+        "playlist_id":    playlist_id or "",
+        "style_name":     style_name,
+        "ab_style":       ab_style,
+        "shorts_clips":   short_clips,
+        "short_titles":   short_titles_d,
+        "short_cross":    build_ch2_cross_promo(is_short=True),
+        "topic":          topic,
+    })
+
+    state["last_niche"] = niche["name"]
+    save_state(state)
+    ckpt_clear()
+
+    if phase == "generate":
+        tg(f"✅ <b>Ch2 Generated — queued for upload</b>\n\n"
+           f"<b>{title_str}</b>\n"
+           f"Niche: {niche['name']} | Score: {score}/10\n"
+           f"Style: {style_name} | {duration/60:.1f}min\n"
+           f"Uploading at: 11:30 PM IST (6 PM UTC)")
+        log("\nGENERATE COMPLETE — queued for upload")
+        return
+
+    os.environ["PIPELINE_PHASE"] = "upload"
+    main()
 
 
 def main_with_retry():
-    """Run main() with up to 3 auto-retries on failure (2 hour gap between each)."""
     max_retries = 3
-    for attempt in range(1, max_retries + 1):
+    for attempt in range(1, max_retries+1):
         try:
-            main()
-            return  # success
+            main(); return
         except SystemExit as e:
-            if e.code == 0:
-                return  # clean exit (rejected/skipped)
+            if e.code == 0: return
             if attempt < max_retries:
-                wait_hours = 2
-                tg(f"⚠️ Evidence Room attempt {attempt}/{max_retries} failed.\n"
-                   f"Auto-retrying in {wait_hours}h...")
-                log(f"Auto-retry {attempt}/{max_retries} in {wait_hours}h...")
-                time.sleep(wait_hours * 3600)
-                log(f"Starting retry attempt {attempt + 1}/{max_retries}...")
-            else:
-                tg(f"❌ Evidence Room FAILED after {max_retries} attempts. Manual check needed.")
-                sys.exit(1)
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            if attempt < max_retries:
-                tg(f"⚠️ Evidence Room attempt {attempt}/{max_retries} crashed: {str(e)[:200]}\n"
-                   f"Auto-retrying in 2h...")
-                log(f"Crash: {e}\nRetrying in 2h...")
+                tg(f"⚠️ Ch2 attempt {attempt}/{max_retries} failed.\nRetrying in 2h...")
                 time.sleep(7200)
             else:
-                tg(f"❌ Evidence Room FAILED {max_retries}x: {str(e)[:300]}")
+                tg(f"❌ Ch2 FAILED after {max_retries} attempts.")
                 sys.exit(1)
+        except Exception as e:
+            if attempt < max_retries:
+                tg(f"⚠️ Ch2 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 2h...")
+                time.sleep(7200)
+            else:
+                tg(f"❌ Ch2 FAILED {max_retries}x: {str(e)[:300]}")
+                sys.exit(1)
+
 
 if __name__ == "__main__":
     main_with_retry()
