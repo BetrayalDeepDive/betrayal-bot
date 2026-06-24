@@ -22,6 +22,18 @@ import subprocess
 from pathlib import Path
 import requests
 
+# Revenue engine — shared traffic/revenue module
+import sys as _sys
+for _p in [str(__file__).rsplit('/', 2)[0], str(__file__).rsplit('/', 1)[0]]:
+    if _p not in _sys.path: _sys.path.insert(0, _p)
+from revenue_engine import (
+    enforce_number_noun, score_title_v2, run_title_ctr_gate,
+    build_affiliate_block, generate_chapter_timestamps as _gen_chapters,
+    get_cross_promo, send_hype_push, validate_retention_hooks,
+    get_cross_niche_topics,
+)
+
+
 # ================================================================
 # CREDENTIALS
 # ================================================================
@@ -1477,18 +1489,16 @@ Total: 280-350 words. Plain text. No markdown."""
 
     raw = ai_generate(prompt, tokens=1000)
     # v12: three-channel cross-promo in every description
-    cross_promo = (
-        "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom"
-        "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
-        "\n\n📺 New investigation every weekday on all three channels."
-    )
+    cross_promo = get_cross_promo("betrayal_deepdive", is_short=False)
+    affiliate_block = build_affiliate_block("betrayal_deepdive", niche_name)
+    chapters_block  = _gen_chapters(script_clean, audio_duration, "betrayal_deepdive")
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
         return desc
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"{chapters_text}\n\n"
+            f"{chapters_block}\n\n"
             f"Subscribe for new investigations every week.\n\n"
             f"#{niche['name'].replace('_', '')} #documentary #investigation"
             f"{cross_promo}\n\n"
@@ -3314,23 +3324,25 @@ def main():
 
         post_creator_comment(token, vid_id, niche_name, title, episode)
 
-        # Upload Shorts
-        short_urls = []
-        for sd in shorts:
-            sp = sd.get("path","")
-            if not sp or not Path(sp).exists():
-                continue
-            try:
-                st = short_titles.get(sd.get("type","teaser"), title[:50] + " #Shorts")
-                sd_desc = (f"Full investigation above.\n\n{title}\n"
-                           f"{short_cross}\n\n#{niche_name.replace('_','')} #shorts")
-                su, sid = upload_yt(sp, st, sd_desc, tags[:8], token=token)
-                add_to_playlist(token, playlist_id, sid)
-                post_short_creator_comment(token, sid, niche_name, title)
-                short_urls.append(su)
-                log(f"  Short uploaded: {su}")
-            except Exception as e:
-                log(f"  Short upload (non-fatal): {e}")
+        # Upload all 6 Shorts with staggered 5-minute gaps between groups
+        # Group A: Shorts 1+2 (clip-based teaser/recap)
+        # Group B: Shorts 3+4 (standalone originals) — 5 min after Group A
+        # Group C: Shorts 5+6 (cross-niche) — 5 min after Group B
+        try:
+            from shorts_engine import upload_all_six_shorts
+            short_urls = upload_all_six_shorts(
+                shorts          = shorts,
+                upload_fn       = upload_yt,
+                token           = token,
+                playlist_id     = playlist_id,
+                post_comment_fn = lambda tok, vid, ch, ttl: post_short_creator_comment(
+                                      tok, vid, niche_name, ttl),
+                channel_id      = "betrayal_deepdive",
+            )
+            log(f"  Shorts uploaded: {len(short_urls)}/6")
+        except Exception as e:
+            log(f"  Shorts upload (non-fatal): {e}")
+            short_urls = []
 
         # SRT captions
         if script_clean and duration > 0:
@@ -3369,6 +3381,9 @@ def main():
                 env=env_ext)
         except Exception as ge:
             log(f"  Growth engine sprint (non-fatal): {ge}")
+
+                # v15: Hype notification — free Explore leaderboard push
+        send_hype_push(yt_url, title_str if 'title_str' in dir() else title, "BetrayalDeepDive", day=0)
 
         tg(f"✅ <b>BetrayalDeepDive — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
@@ -3419,11 +3434,40 @@ def main():
         thumb_text  = generate_thumbnail_text(niche, topic)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
 
-        log("\nSTAGE 6: Shorts")
-        short_title_1 = generate_dedicated_short_title(title, "teaser", niche_name)
-        short_title_2 = generate_dedicated_short_title(title, "recap",  niche_name)
-        short_cross   = build_three_channel_cross_promo(niche_name, is_short=True)
-        shorts = make_both_shorts(video_path, script_clean, audio_duration)
+        log("\nSTAGE 6: All 6 Shorts")
+        log("  Short 1: Teaser clip (10% mark)")
+        log("  Short 2: Recap clip (67% mark)")
+        log("  Short 3: Standalone — hook angle")
+        log("  Short 4: Standalone — reveal angle")
+        log("  Short 5: Cross-niche A")
+        log("  Short 6: Cross-niche B")
+        try:
+            from shorts_engine import generate_all_six_shorts
+            def _tts_fn(text, out_path):
+                import asyncio, edge_tts
+                async def _run():
+                    c = edge_tts.Communicate(text, edge_voice, rate="-8%")
+                    await c.save(out_path)
+                asyncio.run(_run())
+            shorts = generate_all_six_shorts(
+                video_path      = video_path,
+                script_clean    = script_clean,
+                audio_duration  = audio_duration,
+                main_title      = title,
+                niche_name      = niche_name,
+                topic           = topic,
+                channel_id      = "betrayal_deepdive",
+                work_dir        = str(WORK_DIR),
+                ai_fn           = lambda p, tokens=200: ai_generate(p, tokens=tokens),
+                tts_fn          = _tts_fn,
+                main_video_url  = "",  # filled at upload time
+            )
+            ok_count = sum(1 for s in shorts if s.get("ok"))
+            log(f"  Shorts: {ok_count}/6 generated")
+            tg(f"  6 Shorts: {ok_count}/6 generated")
+        except Exception as e:
+            log(f"  Shorts engine (non-fatal): {e}")
+            shorts = []
 
         # Build description
         description = generate_seo_description(
@@ -3458,9 +3502,7 @@ def main():
             "episode":       episode,
             "playlist_id":   playlist_id or "",
             "ab_style":      ab_style,
-            "shorts_clips":  shorts,
-            "short_titles":  {"teaser": short_title_1, "recap": short_title_2},
-            "short_cross":   short_cross,
+            "shorts_clips":  shorts,   # full 6-Short list from shorts_engine
             "topic":         topic,
         })
 
