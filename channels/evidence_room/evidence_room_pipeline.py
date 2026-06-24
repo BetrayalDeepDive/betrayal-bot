@@ -1132,7 +1132,8 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
                 sc   -= sum(0.4 for p in ai_ph if p in stext.lower())
                 stage_scores.append(round(min(max(sc, 0), 10), 1))
 
-            log(f"  Stage scores: {" | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))}")
+            stage_scores_str = " | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))
+            log(f"  Stage scores: {stage_scores_str}")
             worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
 
             for idx in worst_two:
@@ -2353,6 +2354,90 @@ def cleanup():
 # ════════════════════════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════════════════════════
+
+def run_stage1(state):
+    """
+    13-attempt script engine for Ch2 The Evidence Room.
+    Returns all script data needed by generate phase.
+    """
+    log("\n"+"="*65)
+    log("  STAGE 1: Evidence Room 13-Attempt Script Engine")
+    log(f"  Quality floor: {MIN_GATE} | Final floor: {FINAL_GATE}")
+    log("="*65)
+
+    niche, voice, style_name = get_niche_voice_style(state)
+    episode    = (datetime.datetime.now().timetuple().tm_yday//3)+1
+    prev_title = state.get("last_title","")
+    intel      = run_viral_intelligence(niche)
+    used_topics = []
+    gate       = MIN_GATE
+    best_score = 0.0
+    best_script = best_scenes = best_title_str = best_thumbnail = best_tags = best_title_scores = None
+
+    log(f"\nNiche: {niche['name']} | ${niche['rpm']} RPM | Ep{episode}")
+    log(f"Style: {style_name} | Voice: {voice}")
+
+    for attempt in range(1, 9):
+        if attempt == 8:      gate = FINAL_GATE
+        elif attempt >= 6:    gate = 7.0
+        elif attempt >= 4:    gate = 7.2
+
+        topic = get_fresh_topic(niche, attempt, intel, used_topics)
+        used_topics.append(topic)
+
+        if attempt in [1,5,9]:
+            thumbnail_text     = generate_thumbnail_text(niche, topic, intel)
+            title_str, tscores = generate_and_score_titles(niche, topic, intel, episode)
+            # v15: title CTR gate
+            title_str, tscores = run_title_ctr_gate(
+                title_str, tscores, topic, niche["name"], niche["series"],
+                episode, lambda p, tokens=300: ai(p, tokens=tokens, prefer="groq"))
+            best_thumbnail     = thumbnail_text
+            best_title_str     = title_str
+            best_title_scores  = tscores
+            log(f"Thumbnail: {thumbnail_text}")
+
+        log(f"\nAttempt {attempt}/8 (gate:{gate})...")
+        log(f"Topic: {topic[:80]}")
+
+        try:
+            script_clean, scenes, title, thumb, tags, violations = generate_script_and_scenes(
+                niche, topic, style_name, episode, attempt, intel, prev_title)
+            wc = len(script_clean.split())
+            score, issues = score_script_er(script_clean, wc, violations)
+            log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
+            if issues:
+                iss_str = " | ".join(issues[:3])
+                log(f"  {iss_str}")
+
+            if score > best_score:
+                best_score  = score
+                best_script = script_clean
+                best_scenes = scenes
+                if thumb and thumb != "EVIDENCE FOUND": best_thumbnail = thumb
+                best_tags   = tags
+            if score >= gate:
+                log(f"\nSCRIPT APPROVED: {score}/10 | Attempt {attempt}\n")
+                return (niche, topic, voice, style_name, episode,
+                        best_script, best_scenes, best_title_str,
+                        best_thumbnail, best_title_scores, score, best_tags, intel)
+            time.sleep(3)
+        except Exception as e:
+            log(f"  Error: {str(e)[:80]}")
+            time.sleep(15)
+
+    if best_script and best_score >= FINAL_GATE:
+        log(f"\nUsing best: {best_score}/10 after 13 attempts")
+        tg(f"Note: Publishing {best_score}/10 after 13 attempts.")
+        return (niche, used_topics[-1], voice, style_name, episode,
+                best_script, best_scenes, best_title_str,
+                best_thumbnail, best_title_scores, best_score, best_tags or [], intel)
+
+    state["last_niche"] = niche["name"]; save_state(state)
+    tg(f"Evidence Room Day Skipped\nBest: {best_score}/10 after 13 attempts")
+    sys.exit(0)
+
+
 def main():
     """
     Two-phase controller for Ch2 (The Evidence Room).
@@ -2468,8 +2553,8 @@ def main():
                 env=env_ext)
         except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
 
-                # v15: Hype notification — free Explore leaderboard push
-        send_hype_push(yt_url, title_str if 'title_str' in dir() else title, "The Evidence Room", day=0)
+        # v15: Hype notification — free Explore leaderboard push
+        send_hype_push(yt_url, title, "The Evidence Room", day=0)
 
         tg(f"✅ <b>The Evidence Room — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
