@@ -797,7 +797,9 @@ def _validate_retention_hooks_ch1(script_clean):
         penalty -= 0.4; issues.append("Missing 80% hook")
     if "subscribe" not in " ".join(words[-60:]).lower():
         penalty -= 0.3; issues.append("Missing final subscribe CTA")
-    if issues: log(f"  Retention issues: {' | '.join(issues)}")
+    if issues:
+        issues_str = " | ".join(issues)
+        log(f"  Retention issues: {issues_str}")
     return round(penalty, 1), issues
 
 # ================================================================
@@ -1489,19 +1491,16 @@ Total: 280-350 words. Plain text. No markdown."""
 
     raw = ai_generate(prompt, tokens=1000)
     # v12: three-channel cross-promo in every description
-    cross_promo = get_cross_promo("betrayal_deepdive", is_short=False)
-    affiliate_block = build_affiliate_block("betrayal_deepdive", niche_name)
-    chapters_block  = _gen_chapters(script_clean, audio_duration, "betrayal_deepdive")
+    cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
-        desc += cross_promo
+        desc += cross_promo_txt
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
         return desc
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"{chapters_block}\n\n"
             f"Subscribe for new investigations every week.\n\n"
             f"#{niche['name'].replace('_', '')} #documentary #investigation"
-            f"{cross_promo}\n\n"
+            f"{cross_promo_txt}\n\n"
             f"⚠️ This video features AI-assisted narration and editing.")
 
 # ================================================================
@@ -3244,6 +3243,207 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
     return None
 
 
+
+# ================================================================
+# WRAPPER FUNCTIONS — bridge between main() calls and implementations
+# ================================================================
+
+def run_stage1(state):
+    """
+    13-attempt script engine for Ch1 BetrayalDeepDive.
+    Returns (niche_name, niche, topic, script_result, trending_titles).
+    """
+    log("\n"+"="*65)
+    log("  STAGE 1: BetrayalDeepDive 13-Attempt Script Engine")
+    log(f"  Quality floor: {MIN_GATE} | Final floor: {FINAL_GATE}")
+    log("="*65)
+
+    day        = datetime.datetime.now().weekday()
+    niche_name = pick_best_niche(state, DAY_NICHE.get(day, "dark_horror"))
+    niche      = next(n for n in NICHES if n["name"] == niche_name)
+    episode    = state.get("episode_count", 0) + 1
+    prev_title = state.get("last_title", "")
+
+    intel          = run_ch1_viral_intelligence(niche)
+    trending       = []
+    used_topics    = []
+    gate           = MIN_GATE
+    best_score     = 0.0
+    best_result    = None
+    best_topic     = niche["topics"][0]
+    best_trending  = []
+
+    log(f"\nNiche: {niche_name} | ${niche['rpm']} RPM | Ep{episode}")
+
+    for attempt in range(1, 14):
+        if attempt == 13:     gate = FINAL_GATE
+        elif attempt >= 9:    gate = 7.0
+        elif attempt >= 5:    gate = 7.2
+
+        # Get fresh topic each attempt
+        if attempt <= 8:
+            fresh = intel.get("fresh_topic_ideas", niche["topics"])
+            unused = [t for t in fresh if t not in used_topics]
+            topic = unused[0] if unused else random.choice(niche["topics"])
+        else:
+            topic = get_ch1_archive_topic(niche, attempt, used_topics)
+        used_topics.append(topic)
+
+        # Research real cases for this topic
+        research_ctx = get_research_context(niche_name, topic)
+
+        log(f"\nAttempt {attempt}/13 (gate:{gate})...")
+        log(f"Topic: {topic[:80]}")
+
+        try:
+            result = generate_script_content(
+                niche, topic, episode, attempt,
+                trending_titles=trending,
+                research_context=research_ctx)
+
+            if not result:
+                time.sleep(5); continue
+
+            score, _ = score_result(result)
+            wc       = result.get("words", 0)
+            log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
+
+            if score > best_score:
+                best_score   = score
+                best_result  = result
+                best_topic   = topic
+                best_trending= trending
+
+            if score >= gate:
+                log(f"\nSCRIPT APPROVED: {score}/10 | Attempt {attempt}\n")
+                return niche_name, niche, topic, result, trending
+
+            time.sleep(3)
+        except Exception as e:
+            log(f"  Error: {str(e)[:80]}")
+            time.sleep(15)
+
+    if best_result and best_score >= FINAL_GATE:
+        log(f"\nUsing best: {best_score}/10 after 13 attempts")
+        tg(f"Note: Publishing {best_score}/10 after 13 attempts.")
+        return niche_name, niche, best_topic, best_result, best_trending
+
+    tg(f"Ch1 Day Skipped\nBest: {best_score}/10 after 13 attempts")
+    sys.exit(0)
+
+
+def pick_voice(niche_name, state):
+    """Select best voice for this niche based on performance history."""
+    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+    return select_best_voice(state, niche_name, available)
+
+
+def run_approval_gate(title, niche_name, script_clean, edge_voice, score):
+    """30-minute Telegram approval gate before video generation."""
+    niche = next(n for n in NICHES if n["name"] == niche_name)
+    deadline     = datetime.datetime.now() + datetime.timedelta(minutes=30)
+    deadline_str = deadline.strftime("%I:%M %p")
+    preview      = script_clean[:400].replace("<","").replace(">","")
+
+    approval_text = (
+        f"🌑 <b>BETRAYAL DEEPDIVE — APPROVAL NEEDED</b>\n\n"
+        f"📌 <b>Title:</b> {title}\n\n"
+        f"🎯 <b>Niche:</b> {niche_name} | ${niche['rpm']} RPM\n"
+        f"🎙️ <b>Voice:</b> {edge_voice}\n"
+        f"📝 <b>Script:</b> {len(script_clean.split())}w | {score}/10\n\n"
+        f"⏰ Auto-uploads at {deadline_str}\n\n"
+        f"👇 <b>APPROVE / REJECT / CHANGE TITLE</b>"
+    )
+    tg_buttons(approval_text)
+    time.sleep(1)
+    tg(f"📖 <b>Script Preview:</b>\n<code>{preview}...</code>")
+
+    updates = tg_get_updates()
+    offset  = (max(u["update_id"] for u in updates)+1) if updates else 0
+    reminded = set()
+
+    while datetime.datetime.now() < deadline:
+        time.sleep(30)
+        for u in tg_get_updates(offset):
+            offset = u["update_id"] + 1
+            if "callback_query" in u:
+                cb   = u["callback_query"]
+                data = cb.get("data", "")
+                cbid = cb.get("id", "")
+                if data == "approved":
+                    tg_answer_callback(cbid, "Approved!")
+                    tg("APPROVED. Generating video now...")
+                    return "approved"
+                elif data == "rejected":
+                    tg_answer_callback(cbid, "Rejected")
+                    tg("REJECTED. Stopping pipeline.")
+                    return "rejected"
+                continue
+            txt = u.get("message",{}).get("text","").upper().strip()
+            cid = str(u.get("message",{}).get("chat",{}).get("id",""))
+            if cid == str(TG_CHAT):
+                if any(w in txt for w in ["APPROVE","YES","GO","OK","UPLOAD"]):
+                    tg("APPROVED."); return "approved"
+                if any(w in txt for w in ["REJECT","NO","SKIP","CANCEL"]):
+                    tg("REJECTED."); return "rejected"
+        mins = int((deadline - datetime.datetime.now()).total_seconds()/60)
+        if 13<=mins<=17 and "15" not in reminded:
+            reminded.add("15")
+            tg_buttons(f"⏰ 15 min until auto-upload\n<b>{title}</b>")
+        elif 3<=mins<=6 and "5" not in reminded:
+            reminded.add("5")
+            tg_buttons("🚨 5 MIN — AUTO-UPLOADING SOON")
+
+    tg("30 min expired — AUTO-APPROVED.")
+    return "auto_approved"
+
+
+def assemble_video(niche_name, audio_path, audio_duration, topic):
+    """Assemble final video: background footage + narration + ambient music."""
+    niche    = next(n for n in NICHES if n["name"] == niche_name)
+    script   = ""  # background video doesn't need script for single-keyword search
+    bg_path  = get_background_video(niche, audio_duration, script)
+    mus_path = generate_ambient_music(audio_duration)
+    composed = compose_video(audio_path, bg_path, mus_path, None,
+                              audio_duration, label="main")
+    intro    = create_intro(niche["series"])
+    outro    = create_outro(niche["series"])
+    final    = str(WORK_DIR / "final.mp4")
+    concat_parts([intro, composed, outro], final)
+    sz = Path(final).stat().st_size
+    log(f"  Final video: {sz//(1024*1024)}MB")
+    return final
+
+
+def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
+    """Generate thumbnail with NUMBER+NOUN enforcement."""
+    # Enforce NUMBER+NOUN format
+    from revenue_engine import enforce_number_noun
+    thumb_text = enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
+    return generate_thumbnail(thumb_text, niche_name, title, topic, episode)
+
+
+def build_niche_tags(niche_name):
+    """Build SEO-optimised tag list for this niche."""
+    base_tags = [niche_name.replace("_"," "), "documentary", "investigation",
+                 "dark documentary", "true story", "psychological", "evidence",
+                 "classified", "deepdive", "betrayal", "horror documentary",
+                 "dark psychology", "real story", "mystery", "disturbing"]
+    niche_specific = {
+        "dark_horror":        ["dark horror","horror documentary","true horror"],
+        "seduction_dark":     ["dark seduction","manipulation","psychology"],
+        "psychological_trap": ["psychological","gaslighting","manipulation trap"],
+        "supernatural_real":  ["supernatural","paranormal","unexplained"],
+        "obsession_dark":     ["obsession","stalking","dark true story"],
+    }
+    return list(set(base_tags + niche_specific.get(niche_name, [])))[:15]
+
+
+def ensure_playlist(token, niche_name, series_name):
+    """Alias for ensure_niche_playlist."""
+    return ensure_niche_playlist(token, niche_name, series_name)
+
+
 def main():
     """
     Two-phase pipeline controller.
@@ -3382,8 +3582,8 @@ def main():
         except Exception as ge:
             log(f"  Growth engine sprint (non-fatal): {ge}")
 
-                # v15: Hype notification — free Explore leaderboard push
-        send_hype_push(yt_url, title_str if 'title_str' in dir() else title, "BetrayalDeepDive", day=0)
+        # v15: Hype notification — free Explore leaderboard push
+        send_hype_push(yt_url, title, "BetrayalDeepDive", day=0)
 
         tg(f"✅ <b>BetrayalDeepDive — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
@@ -3479,7 +3679,7 @@ def main():
         playlist_id = state.get("playlists", {}).get(niche_name)
         if not playlist_id:
             temp_token = get_yt_token()
-            playlist_id = ensure_playlist(temp_token, niche_name, niche["series"])
+            playlist_id = ensure_niche_playlist(temp_token, niche_name, niche["series"])
             if playlist_id:
                 pl = state.get("playlists", {}); pl[niche_name] = playlist_id
                 state["playlists"] = pl
