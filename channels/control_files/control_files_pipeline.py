@@ -41,6 +41,18 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from PIL import Image, ImageDraw, ImageFont
 
+# Revenue engine — shared traffic/revenue module
+import sys as _sys
+for _p in [str(__file__).rsplit('/', 2)[0], str(__file__).rsplit('/', 1)[0]]:
+    if _p not in _sys.path: _sys.path.insert(0, _p)
+from revenue_engine import (
+    enforce_number_noun, score_title_v2, run_title_ctr_gate,
+    build_affiliate_block, generate_chapter_timestamps as _gen_chapters,
+    get_cross_promo, send_hype_push, validate_retention_hooks,
+    get_cross_niche_topics,
+)
+
+
 # ── CREDENTIALS ────────────────────────────────────────────
 GROQ_KEY        = os.environ.get("GROQ_API_KEY", "")
 GEMINI_KEY      = os.environ.get("GEMINI_API_KEY", "")
@@ -718,7 +730,10 @@ Return ONLY 3 words. Example: MIND CONTROLLED YOU"""
 # ════════════════════════════════════════════════════════════
 # 5-TITLE CTR SCORING
 # ════════════════════════════════════════════════════════════
-def score_title_ctr(title):
+def score_title_ctr(title):  # v15: delegates to 5-axis scorer
+    return score_title_v2(title)[0]
+
+def _score_title_ctr_legacy(title):
     s = 5.0; tl = title.lower(); n = len(title)
     if 50<=n<=65: s+=1.5
     elif 45<=n<=70: s+=0.8
@@ -747,7 +762,7 @@ Return ONLY JSON array: ["title 1","title 2","title 3","title 4","title 5"]"""
         if m:
             titles = json.loads(m.group())
             if len(titles) >= 3:
-                scored = sorted([(t,score_title_ctr(t)) for t in titles],key=lambda x:x[1],reverse=True)
+                scored = sorted([(t,score_title_v2(t)[0]) for t in titles],key=lambda x:x[1],reverse=True)
                 log(f"  Title: {scored[0][1]}/10 — {scored[0][0][:55]}")
                 return scored[0][0], scored
     except Exception as e: log(f"  Title err: {e}")
@@ -2272,20 +2287,22 @@ def main():
 
         post_creator_comment(token_yt, vid_id, niche_name, title, episode)
 
-        short_urls = []
-        short_cross_b = build_ch3_cross_promo(is_short=True)
-        for sd in shorts:
-            sp = sd.get("path","")
-            if not sp or not Path(sp).exists(): continue
-            try:
-                st    = short_titles.get(sd.get("type","teaser"), title[:50])
-                sdesc = (f"Full investigation above.\n\n{title}\n"
-                         f"{short_cross_b}\n\n#{niche_name.replace('_','')} #shorts #psychology")
-                su, sid = upload_yt(sp, st, sdesc, tags, is_short=True, token=token_yt)
-                add_to_playlist(token_yt, playlist_id, sid)
-                post_short_creator_comment_ch3(token_yt, sid, niche_name, title)
-                short_urls.append(su); log(f"  Short uploaded: {su}")
-            except Exception as e: log(f"  Short (non-fatal): {e}")
+        # Upload all 6 Shorts — staggered 5-minute gaps between groups
+        try:
+            from shorts_engine import upload_all_six_shorts
+            short_urls = upload_all_six_shorts(
+                shorts          = shorts,
+                upload_fn       = upload_yt,
+                token           = token_yt,
+                playlist_id     = playlist_id,
+                post_comment_fn = lambda tok, vid, ch, ttl:
+                                    post_short_creator_comment_ch3(tok, vid, niche_name, ttl),
+                channel_id      = "control_files",
+            )
+            log(f"  Shorts uploaded: {len(short_urls)}/6")
+        except Exception as e:
+            log(f"  Shorts upload (non-fatal): {e}")
+            short_urls = []
 
         if script_clean and duration > 0:
             try:
@@ -2319,6 +2336,9 @@ def main():
                 env=env_ext)
         except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
 
+                # v15: Hype notification — free Explore leaderboard push
+        send_hype_push(yt_url, title_str if 'title_str' in dir() else title, "The Control Files", day=0)
+
         tg(f"✅ <b>The Control Files — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
            f"Niche: {niche_name} | Score: {score}/10 | Ep{episode}\n"
@@ -2332,11 +2352,16 @@ def main():
      title_scores, score, tags, intel) = run_stage1(state)
 
     ab_style    = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
-    cross_promo = build_ch3_cross_promo(is_short=False)
+    cross_promo     = get_cross_promo("control_files", is_short=False)
+    affiliate_block = build_affiliate_block("control_files", niche["name"])
+    chapters_block  = _gen_chapters(script_clean, duration, "control_files")
     seo_first   = f"EXPOSED: {topic[:60]}."
     description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
                    f"Investigative documentary — every case documented.\n\n"
-                   f"Subscribe to The Control Files.{cross_promo}\n\n"
+                   f"{chapters_block}\n\n"
+                   f"Subscribe to The Control Files."
+                   f"{cross_promo}"
+                   f"{affiliate_block}\n\n"
                    f"⚠️ AI-assisted narration and investigation.")
 
     token_yt    = get_yt_token()
@@ -2360,18 +2385,34 @@ def main():
         title_str, thumbnail_text, niche["name"], topic, ab_style,
         episode=episode, channel_name="The Control Files")
 
-    # Shorts clips (generate only)
-    short_clips = []
-    short_titles_d = {
-        "teaser": generate_dedicated_short_title_ch3(title_str, "teaser", niche["name"]),
-        "recap":  generate_dedicated_short_title_ch3(title_str, "recap",  niche["name"]),
-    }
-    for stype in ["teaser","recap"]:
-        try:
-            sp = make_short_with_subs(video_path, script_clean, stype, duration)
-            if sp and Path(sp).exists():
-                short_clips.append({"type": stype, "path": sp})
-        except Exception as e: log(f"  Short clip {stype} (non-fatal): {e}")
+    # All 6 Shorts — generate only, upload happens next day
+    log("\n  Generating all 6 Shorts...")
+    try:
+        from shorts_engine import generate_all_six_shorts
+        import asyncio, edge_tts as _edge_tts_module
+        def _tts_fn_ch3(text, out_path):
+            async def _run():
+                c = _edge_tts_module.Communicate(text, voice_used, rate="-8%")
+                await c.save(out_path)
+            asyncio.run(_run())
+        short_clips = generate_all_six_shorts(
+            video_path     = video_path,
+            script_clean   = script_clean,
+            audio_duration = duration,
+            main_title     = title_str,
+            niche_name     = niche["name"],
+            topic          = topic,
+            channel_id     = "control_files",
+            work_dir       = str(WORK_DIR),
+            ai_fn          = lambda p, tokens=200: ai(p, tokens=tokens, prefer="groq"),
+            tts_fn         = _tts_fn_ch3,
+            main_video_url = "",
+        )
+        ok_count = sum(1 for s in short_clips if s.get("ok"))
+        log(f"  Shorts: {ok_count}/6 generated")
+    except Exception as e:
+        log(f"  Shorts engine (non-fatal): {e}")
+        short_clips = []
 
     save_pending(SCRIPT_DIR, {
         "title":          title_str,
@@ -2390,8 +2431,6 @@ def main():
         "style_name":     style_name,
         "ab_style":       ab_style,
         "shorts_clips":   short_clips,
-        "short_titles":   short_titles_d,
-        "short_cross":    build_ch3_cross_promo(is_short=True),
         "topic":          topic,
     })
 
