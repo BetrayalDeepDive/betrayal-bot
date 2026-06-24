@@ -972,7 +972,8 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
                 sc   -= sum(0.4 for p in ai_ph if p in stext.lower())
                 stage_scores.append(round(min(max(sc, 0), 10), 1))
 
-            log(f"  Stage scores: {" | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))}")
+            stage_scores_str = " | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))
+            log(f"  Stage scores: {stage_scores_str}")
             worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
 
             for idx in worst_two:
@@ -1172,7 +1173,9 @@ def run_stage1(state):
             wc = len(script_clean.split())
             score, issues = score_script(script_clean, wc, violations)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
-            if issues: log(f"  {' | '.join(issues[:3])}")
+            if issues:
+                iss_str = " | ".join(issues[:3])
+                log(f"  {iss_str}")
 
             if score > best_score:
                 best_score  = score
@@ -2336,8 +2339,8 @@ def main():
                 env=env_ext)
         except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
 
-                # v15: Hype notification — free Explore leaderboard push
-        send_hype_push(yt_url, title_str if 'title_str' in dir() else title, "The Control Files", day=0)
+        # v15: Hype notification — free Explore leaderboard push
+        send_hype_push(yt_url, title, "The Control Files", day=0)
 
         tg(f"✅ <b>The Control Files — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
