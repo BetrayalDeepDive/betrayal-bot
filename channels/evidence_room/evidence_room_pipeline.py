@@ -2486,6 +2486,14 @@ def main():
             tg(f"❌ Ch2 Upload FAILED: video missing at {video_path}"); sys.exit(1)
 
         token_yt = get_yt_token()
+        # Create playlist now if generate phase skipped it
+        if not playlist_id:
+            niche_obj = next((n for n in NICHES if n["name"] == niche_name), None)
+            if niche_obj:
+                playlist_id = ensure_playlist(token_yt, niche_name, niche_obj["series"])
+                if playlist_id:
+                    pl = state.get("playlists",{}); pl[niche_name] = playlist_id
+                    state["playlists"] = pl; save_state(state)
         yt_url, vid_id = run_stage_with_retry(
             upload_yt, "Upload", video_path, title, description, tags,
             is_short=False, token=token_yt)
@@ -2576,29 +2584,27 @@ def main():
     week_number  = datetime.datetime.now().isocalendar()[1]
     cross_promo     = get_cross_promo("evidence_room", is_short=False)
     affiliate_block = build_affiliate_block("evidence_room", niche["name"])
-    chapters_block  = _gen_chapters(script_clean, duration, "evidence_room")
+    # chapters_block built AFTER audio so duration is available
     seo_first    = f"DOCUMENTED: {topic[:60]}."
-    description  = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
-                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
-                    f"{chapters_block}\n\n"
-                    f"Subscribe to The Evidence Room."
-                    f"{cross_promo}"
-                    f"{affiliate_block}\n\n"
-                    f"⚠️ AI-assisted narration and forensic analysis.")
 
-    token_yt    = get_yt_token()
-    playlist_id = state.get("playlists",{}).get(niche["name"])
-    if not playlist_id:
-        playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
-        if playlist_id:
-            pl = state.get("playlists",{}); pl[niche["name"]] = playlist_id
-            state["playlists"] = pl
+    # Playlist created at upload time (YouTube creds not available in generate phase)
+    playlist_id = state.get("playlists",{}).get(niche["name"], "")
 
     tags_er = list(set(tags))[:15]
 
     # Audio
     audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
         run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+
+    # Build description now that duration is known
+    chapters_block = _gen_chapters(script_clean, duration, "evidence_room")
+    description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
+                   f"Every case. Every document. Every piece of evidence — animated.\n\n"
+                   f"{chapters_block}\n\n"
+                   f"Subscribe to The Evidence Room."
+                   f"{cross_promo}"
+                   f"{affiliate_block}\n\n"
+                   f"\u26a0\ufe0f AI-assisted narration and forensic analysis.")
 
     # Video
     video_path = run_stage_with_retry(
