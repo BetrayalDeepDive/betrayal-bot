@@ -2740,7 +2740,12 @@ def get_yt_token():
               "refresh_token": YT_REFRESH, "grant_type": "refresh_token"}, timeout=30)
     d = r.json()
     if "access_token" not in d:
-        raise Exception(f"YouTube token failed: {d.get('error')} — {d.get('error_description')}")
+        err = d.get("error", "unknown")
+        desc = d.get("error_description", "")
+        if not globals().get("YOUTUBE_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN","")):
+            raise Exception(f"YouTube token failed: refresh_token secret not set. "
+                            f"Add YOUTUBE_REFRESH_TOKEN to GitHub Secrets.")
+        raise Exception(f"YouTube token failed: {err} — {desc}")
     _tok_cache["token"]      = d["access_token"]
     _tok_cache["expires_at"] = now + d.get("expires_in", 3600)
     log("OK YouTube token")
@@ -3601,7 +3606,7 @@ def main():
         ckpt_clear()
 
     try:
-        token = get_yt_token()
+        # token obtained at upload time — not needed for script generation
 
         log("\nSTAGE 1: Script")
         niche_name, niche, topic, script_result, trending_titles = run_stage1(state)
@@ -3676,13 +3681,8 @@ def main():
             audio_duration)
 
         # Playlist
-        playlist_id = state.get("playlists", {}).get(niche_name)
-        if not playlist_id:
-            temp_token = get_yt_token()
-            playlist_id = ensure_niche_playlist(temp_token, niche_name, niche["series"])
-            if playlist_id:
-                pl = state.get("playlists", {}); pl[niche_name] = playlist_id
-                state["playlists"] = pl
+        # Playlist created at upload time (YouTube creds not in generate phase)
+        playlist_id = state.get("playlists", {}).get(niche_name, "")
 
         tags = build_niche_tags(niche_name)
 
