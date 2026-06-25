@@ -2270,6 +2270,14 @@ def main():
             tg(f"❌ Ch3 Upload FAILED: video missing at {video_path}"); sys.exit(1)
 
         token_yt = get_yt_token()
+        # Create playlist now if generate phase skipped it
+        if not playlist_id:
+            niche_obj = next((n for n in NICHES if n["name"] == niche_name), None)
+            if niche_obj:
+                playlist_id = ensure_playlist(token_yt, niche_name, niche_obj["series"])
+                if playlist_id:
+                    pl = state.get("playlists",{}); pl[niche_name] = playlist_id
+                    state["playlists"] = pl; save_state(state)
         yt_url, vid_id = run_stage_with_retry(
             upload_yt, "Upload", video_path, title, description, tags,
             is_short=False, token=token_yt)
@@ -2357,27 +2365,25 @@ def main():
     ab_style    = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
     cross_promo     = get_cross_promo("control_files", is_short=False)
     affiliate_block = build_affiliate_block("control_files", niche["name"])
-    chapters_block  = _gen_chapters(script_clean, duration, "control_files")
+    # chapters_block built AFTER audio so duration is available
     seo_first   = f"EXPOSED: {topic[:60]}."
+
+    # Playlist created at upload time (YouTube creds not available in generate phase)
+    playlist_id = state.get("playlists",{}).get(niche["name"], "")
+
+    # Audio
+    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+
+    # Build description now that duration is known
+    chapters_block = _gen_chapters(script_clean, duration, "control_files")
     description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
                    f"Investigative documentary — every case documented.\n\n"
                    f"{chapters_block}\n\n"
                    f"Subscribe to The Control Files."
                    f"{cross_promo}"
                    f"{affiliate_block}\n\n"
-                   f"⚠️ AI-assisted narration and investigation.")
-
-    token_yt    = get_yt_token()
-    playlist_id = state.get("playlists",{}).get(niche["name"])
-    if not playlist_id:
-        playlist_id = ensure_playlist(token_yt, niche["name"], niche["series"])
-        if playlist_id:
-            pl = state.get("playlists",{}); pl[niche["name"]] = playlist_id
-            state["playlists"] = pl
-
-    # Audio
-    audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-        run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+                   f"\u26a0\ufe0f AI-assisted narration and investigation.")
 
     # Video
     video_path = run_stage_with_retry(
