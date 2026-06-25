@@ -34,16 +34,298 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from PIL import Image, ImageDraw, ImageFont
 
-# Revenue engine — shared traffic/revenue module
-import sys as _sys
-for _p in [str(__file__).rsplit('/', 2)[0], str(__file__).rsplit('/', 1)[0]]:
-    if _p not in _sys.path: _sys.path.insert(0, _p)
-from revenue_engine import (
-    enforce_number_noun, score_title_v2, run_title_ctr_gate,
-    build_affiliate_block, generate_chapter_timestamps as _gen_chapters,
-    get_cross_promo, send_hype_push, validate_retention_hooks,
-    get_cross_niche_topics,
-)
+# ── SHARED UTILS (inlined — no external file dependency) ──
+"""
+DEEPDIVE EMPIRE — Shared Utilities v1.0
+Inlined into each pipeline at import time.
+No external file dependencies — everything self-contained.
+
+Import at top of each pipeline:
+    from shared_utils import *
+"""
+
+import os, re, json, sys, time, datetime, random, subprocess, requests
+from pathlib import Path
+
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE MANAGER (inlined — no external file dependency)
+# ══════════════════════════════════════════════════════════════════
+
+def get_pipeline_phase():
+    return os.environ.get("PIPELINE_PHASE", "full").lower()
+
+def _pending_path(channel_dir):
+    return Path(channel_dir) / "pending_upload.json"
+
+def save_pending(channel_dir, data: dict):
+    pf = _pending_path(channel_dir)
+    data["generated_at"] = datetime.datetime.now().isoformat()
+    pf.write_text(json.dumps(data, indent=2))
+    return str(pf)
+
+def load_pending(channel_dir):
+    pf = _pending_path(channel_dir)
+    if not pf.exists():
+        return None
+    try:
+        d = json.loads(pf.read_text())
+        if d.get("status") == "uploaded":
+            return None   # already uploaded
+        return d
+    except:
+        return None
+
+def clear_pending(channel_dir):
+    pf = _pending_path(channel_dir)
+    pf.write_text(json.dumps({
+        "status": "uploaded",
+        "cleared_at": datetime.datetime.now().isoformat()
+    }, indent=2))
+
+def check_pending_age(pending, max_hours=28):
+    try:
+        gen = datetime.datetime.fromisoformat(pending.get("generated_at",""))
+        hours = (datetime.datetime.now() - gen).total_seconds() / 3600
+        return hours <= max_hours, round(hours, 1)
+    except:
+        return False, 999
+
+
+# ══════════════════════════════════════════════════════════════════
+# REVENUE ENGINE (inlined — no external file dependency)
+# ══════════════════════════════════════════════════════════════════
+
+NUMBER_NOUN_BANKS = {
+    "dark_horror":        ["4,380 DAYS","12 YEARS","3 AM","14 VICTIMS","ONE NIGHT"],
+    "seduction_dark":     ["7 SIGNS","28 DAYS","3 PEOPLE","6 WARNINGS","ONE TRAP"],
+    "psychological_trap": ["6 STAGES","23 STEPS","100 DAYS","1 EXIT","5 TRIGGERS"],
+    "supernatural_real":  ["3 NIGHTS","72 HOURS","9 WITNESSES","14 YEARS","1 PLACE"],
+    "obsession_dark":     ["847 MESSAGES","4 YEARS","23 CALLS","1,460 DAYS","1 PERSON"],
+    "forensic_finance":   ["$2.4M GONE","4,380 DAYS","47 REPORTS","$14M FRAUD","12 YEARS"],
+    "criminal_investigation": ["14 VICTIMS","23 YEARS","1 FILE","47 CLUES","3 SUSPECTS"],
+    "corporate_exposure": ["$840M HIDDEN","14 YEARS","23 EMAILS","$2.4B FRAUD","1 MEMO"],
+    "digital_forensics":  ["2.7M FILES","847 ACCOUNTS","1 IP ADDRESS","23 SERVERS","14TB DATA"],
+    "cult_psychology":    ["847 MEMBERS","14 YEARS","7 STAGES","23 RULES","1 LEADER"],
+    "propaganda_systems": ["40M PEOPLE","7 TECHNIQUES","14 YEARS","3 AGENCIES","1 NARRATIVE"],
+    "social_engineering": ["6 PRINCIPLES","847 TARGETS","23 HOURS","7 TRIGGERS","1 CALL"],
+    "mass_deception":     ["1B PEOPLE","14 MONTHS","3 NETWORKS","23 COUNTRIES","1 LIE"],
+}
+
+def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
+    if re.search(r'\b\d[\d,\.]*\b|\$', thumb_text):
+        return re.sub(r'[^A-Z0-9$.,% ]','', thumb_text.upper()).strip()[:22]
+    m = re.search(r'\b(\d[\d,\.]*)\s*(\w+)', topic)
+    if m:
+        return f"{m.group(1)} {m.group(2).upper()[:8]}"[:22]
+    if ai_fn:
+        try:
+            r = ai_fn(
+                f"Topic: {topic[:80]}\n"
+                f"Generate 2-3 word thumbnail in NUMBER+NOUN format.\n"
+                f"Examples: '$2.4M GONE', '47 REPORTS', '14 VICTIMS', '4380 DAYS'\n"
+                f"Return ONLY the phrase in ALL CAPS.", tokens=20)
+            if r and re.search(r'\d', r):
+                return re.sub(r'[^A-Z0-9$.,% ]','', r.upper()).strip()[:22]
+        except:
+            pass
+    return random.choice(NUMBER_NOUN_BANKS.get(niche_name, ["14 YEARS","47 CASES","1 TRUTH"]))
+
+
+def score_title_v2(title):
+    t  = title.lower()
+    sc = 3.0
+    bd = {}
+    # Curiosity gap
+    cg = ["nobody knew","never told","what was hidden","the real reason",
+          "kept secret","concealed","covered up","went unnoticed","was ignored"]
+    cg_hits = sum(1 for s in cg if s in t)
+    if cg_hits >= 2:   sc += 2.5; bd["curiosity_gap"] = "STRONG"
+    elif cg_hits == 1: sc += 1.5; bd["curiosity_gap"] = "OK"
+    else:              bd["curiosity_gap"] = "WEAK"
+    # Specificity
+    has_num    = bool(re.search(r'\b\d[\d,\.]*\b', title))
+    has_dollar = bool(re.search(r'\$[\d,\.]+', title))
+    has_name   = bool(re.search(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b', title))
+    if (has_num or has_dollar) and has_name: sc += 2.0; bd["specificity"] = "STRONG"
+    elif has_num or has_dollar or has_name:  sc += 1.2; bd["specificity"] = "OK"
+    else:                                    bd["specificity"] = "WEAK"
+    # Revelation
+    rev = ["exposed","revealed","documented","proved","evidence","classified","traced"]
+    if any(s in t for s in rev): sc += 1.5; bd["revelation"] = "PRESENT"
+    else:                        bd["revelation"] = "ABSENT"
+    # Pattern interrupt
+    pi = ["they knew","it was allowed","it was ignored","still happening","went unpunished"]
+    if any(s in t for s in pi): sc += 1.5; bd["pattern_interrupt"] = "PRESENT"
+    else:                       bd["pattern_interrupt"] = "ABSENT"
+    # Length
+    n = len(title)
+    if 50 <= n <= 65:    sc += 1.0
+    elif 45 <= n <= 70:  sc += 0.5
+    elif n < 40 or n > 80: sc -= 0.5
+    # Generic penalty
+    generic = ["incredible","unbelievable","shocking","amazing","you won't believe"]
+    sc -= sum(0.8 for g in generic if g in t)
+    return round(min(max(sc, 0), 10), 1), bd
+
+
+def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
+                        series_name, episode, ai_fn, min_ctr=6.5):
+    if not title_scores:
+        return title_str, [(title_str, 5.0)]
+    v2_scored = sorted([(t, score_title_v2(t)[0]) for t, _ in title_scores],
+                        key=lambda x: x[1], reverse=True)
+    best_title, best_score = v2_scored[0]
+    if best_score >= min_ctr:
+        return best_title, v2_scored
+    # Regenerate with targeted fix
+    _, bd = score_title_v2(best_title)
+    weak  = [k for k,v in bd.items() if "WEAK" in str(v) or "ABSENT" in str(v)]
+    fixes = {
+        "curiosity_gap":    "Start with 'Nobody knew' or 'What the records show'",
+        "specificity":      "Include a specific number",
+        "revelation":       "Include 'documented', 'exposed', or 'revealed'",
+        "pattern_interrupt":"Add 'They Knew' or 'Still Happening'",
+    }
+    fix_instructions = "\n".join(f"- {fixes[w]}" for w in weak[:2] if w in fixes)
+    if not fix_instructions:
+        fix_instructions = "- Add a specific number AND a curiosity gap phrase"
+    try:
+        result = ai_fn(
+            f"Generate 5 stronger YouTube titles for: {topic[:120]}\n"
+            f"Series: {series_name} Ep{episode}\n"
+            f"Current best score: {best_score}/10 — too low.\n"
+            f"Required fixes:\n{fix_instructions}\n"
+            f"Rules: 50-65 chars. Dark documentary tone.\n"
+            f'Return ONLY: ["Title 1","Title 2","Title 3","Title 4","Title 5"]',
+            tokens=300)
+        if result:
+            result = re.sub(r'```json|```','', result).strip()
+            m = re.search(r'\[[\s\S]*?\]', result)
+            if m:
+                titles  = [t for t in json.loads(m.group()) if t]
+                new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
+                                     key=lambda x: x[1], reverse=True)
+                if new_scored and new_scored[0][1] > best_score:
+                    return new_scored[0][0], new_scored
+    except:
+        pass
+    return best_title, v2_scored
+
+
+AFFILIATE_REGISTRY = {
+    "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
+    "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["evidence_room","control_files"]},
+    "curiosity":    {"url": "https://curiositystream.com/deepdive",  "label": "CuriosityStream docs",     "channels": ["all"]},
+    "audible":      {"url": "https://amzn.to/deepdive-audible",      "label": "Audible audiobooks",       "channels": ["all"]},
+}
+
+def build_affiliate_block(channel_id, niche_name=""):
+    ch = channel_id.replace("betrayal_deepdive","betrayal_deepdive")
+    lines = ["\n\n— LINKS —"]
+    for key, link in AFFILIATE_REGISTRY.items():
+        if "all" in link["channels"] or ch in link["channels"]:
+            lines.append(f"▸ {link['label']}: {link['url']}")
+    if len(lines) < 2:
+        return ""
+    lines.append("\n*Affiliate links — support the channel at no cost to you.")
+    return "\n".join(lines)
+
+
+CHAPTER_STRUCTURES = {
+    "betrayal_deepdive": [
+        (0.00,"The Case Begins"),(0.10,"Before It Happened"),(0.28,"First Warning Signs"),
+        (0.45,"Escalation"),(0.60,"The Revelation"),(0.78,"The Aftermath"),(0.90,"What This Means"),
+    ],
+    "evidence_room": [
+        (0.00,"Case File Opened"),(0.10,"The Subject"),(0.28,"First Anomalies"),
+        (0.45,"The Evidence Builds"),(0.60,"Key Document Revealed"),(0.78,"The Full Record"),(0.90,"Verdict"),
+    ],
+    "control_files": [
+        (0.00,"The System"),(0.10,"How It Was Built"),(0.28,"Documented Cases"),
+        (0.45,"The Evidence"),(0.60,"The Scale"),(0.78,"Those Who Resisted"),(0.90,"Implications"),
+    ],
+}
+
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+    if total_duration_secs < 120:
+        return ""
+    structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["betrayal_deepdive"])
+    lines = []
+    for pct, label in structure:
+        secs = int(total_duration_secs * pct)
+        lines.append(f"{secs//60}:{secs%60:02d} {label}")
+    return "\n".join(lines)
+
+
+CROSS_PROMO = {
+    "betrayal_deepdive": {
+        "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n🧠 Psychology documentaries: youtube.com/@TheControlFiles\n\n📺 New investigation every weekday.",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
+    },
+    "evidence_room": {
+        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology documentaries: youtube.com/@TheControlFiles\n\n📺 New investigation every weekday.",
+        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
+    },
+    "control_files": {
+        "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n\n📺 New investigation every weekday.",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
+    },
+}
+
+def get_cross_promo(channel_id, is_short=False):
+    p = CROSS_PROMO.get(channel_id, CROSS_PROMO["betrayal_deepdive"])
+    return p["short"] if is_short else p["main"]
+
+TG_TOKEN = os.environ.get("TELEGRAM_TOKEN","")
+TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID","")
+
+def send_hype_push(video_url, video_title, channel_name, day=0):
+    if not TG_TOKEN or not TG_CHAT:
+        return
+    urgency = {0:"⚡ First hour — maximum impact", 3:"🔥 4 days left", 6:"⏰ LAST DAY"}.get(day,"")
+    msg = (
+        f"🚀 <b>HYPE THIS VIDEO — {urgency}</b>\n\n"
+        f"<b>{channel_name}</b>: {video_title}\n\n"
+        f"▶️ {video_url}\n\n"
+        f"<b>How to Hype (10 seconds):</b>\n"
+        f"1. Open the link on YouTube\n"
+        f"2. Tap the 🔥 Hype button under the video\n"
+        f"3. Done — YouTube pushes this to the Explore leaderboard\n\n"
+        f"⏳ 7-day window only. Every Hype = free algorithmic reach."
+    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "HTML"},
+            timeout=25)
+    except:
+        pass
+
+def validate_retention_hooks(script_clean, channel_id="betrayal_deepdive"):
+    words   = script_clean.split()
+    total   = len(words)
+    if total < 400:
+        return 0.0, []
+    penalty = 0.0
+    issues  = []
+    hooks   = ["subscribe","coming up","next","what happens","revealed","in a moment",
+               "stay","about to","what we found next","the next document"]
+    def seg(p1, p2):
+        return " ".join(words[int(total*p1):int(total*p2)]).lower()
+    if sum(1 for h in hooks if h in seg(0.25,0.35)) < 1:
+        penalty -= 0.4; issues.append("Missing 30% retention hook")
+    if sum(1 for h in hooks if h in seg(0.55,0.65)) < 1:
+        penalty -= 0.8; issues.append("Weak 60% peak hook")
+    if sum(1 for h in hooks if h in seg(0.75,0.85)) < 1:
+        penalty -= 0.4; issues.append("Missing 80% retention hook")
+    if "subscribe" not in " ".join(words[-60:]).lower():
+        penalty -= 0.3; issues.append("Missing subscribe CTA in final 60 words")
+    return round(penalty, 1), issues
+
+
+
+_gen_chapters = generate_chapter_timestamps
 
 
 # ── CREDENTIALS ─────────────────────────────────────────────
@@ -77,7 +359,8 @@ YT_TOKEN_URL    = "https://oauth2.googleapis.com/token"
 
 # ── Paths — state in REPO (persists between runs) ─────────
 SCRIPT_DIR    = Path(__file__).parent
-WORK_DIR      = Path("/tmp/evidence_room")
+WORK_DIR      = Path("/home/runner/work/evidence_room")
+if not WORK_DIR.exists(): WORK_DIR = Path("/tmp/evidence_room")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE    = SCRIPT_DIR / "state.json"   # persists in repo
 INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
@@ -264,7 +547,7 @@ def tg(msg):
         try:
             r = requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
                              json={"chat_id":TG_CHAT,"text":chunk,"parse_mode":"HTML"},
-                             timeout=15)
+                             timeout=25)
             if r.status_code != 200: log(f"  TG {r.status_code}")
             time.sleep(0.5)
         except Exception as e: log(f"  TG err: {str(e)[:50]}")
@@ -290,7 +573,7 @@ def tg_buttons(text, chat_id=None):
             f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
             json={"chat_id": chat_id or TG_CHAT,
                   "text": text, "parse_mode": "HTML",
-                  "reply_markup": keyboard}, timeout=15)
+                  "reply_markup": keyboard}, timeout=25)
         return r.json().get("result", {}).get("message_id")
     except Exception as e:
         log(f"  tg_buttons error: {e}")
@@ -300,7 +583,7 @@ def tg_answer_callback(callback_id, answer_text="Got it"):
     """Dismiss the spinning loader on the button after it's pressed."""
     try:
         requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/answerCallbackQuery",
-            json={"callback_query_id": callback_id, "text": answer_text}, timeout=10)
+            json={"callback_query_id": callback_id, "text": answer_text}, timeout=20)
     except: pass
 
 def send_gmail(subject, html_body):
@@ -1011,17 +1294,20 @@ Sentence 1: exact case reference — number, date, or document ID.
 Sentence 2: specific location of the discovery.
 Sentence 3: the question this investigation will answer.
 Forbidden: "welcome back", "today we investigate", "in this video"
+TRIGGER PLACEMENT: DETAIL (s1) → PROXIMITY (s2) → open unresolved loop (s3)
 
 STAGE 2 — THE SUBJECT ({stage_targets[2]} words)
 Establish the entity — person, company, or system — as completely ordinary.
 Specific details. Specific routine. Make the viewer care about what is about to be lost.
 Final sentence signals something is about to break — without stating it.
 Forbidden: "little did they know", "unbeknownst to", "but fate had other plans"
+TRIGGER PLACEMENT: NORMALITY (s1-s3) → PROXIMITY (s4-s6) → quiet wrongness (final)
 
 STAGE 3 — FIRST ANOMALIES ({stage_targets[3]} words)
 Small discrepancies. Each individually explainable. One per sentence.
 Start with the smallest. Build accumulation. Each one specific and documented.
 Forbidden: "suddenly", "out of nowhere", "shockingly", "without warning"
+TRIGGER PLACEMENT: INVISIBILITY (s1) → DURATION (s3) → SCALE (s5) → INSTITUTIONAL (s7)
 
 STAGE 4 — THE EVIDENCE BUILDS ({stage_targets[4]} words)
 One short sentence reframes Stage 3 entirely.
@@ -1204,6 +1490,24 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
         clean = _inject_ctas_er(clean, niche.get("name","forensic_finance"))
         wc    = len(clean.split())
 
+    # Force expansion if under minimum word count
+    for _exp in range(3):
+        if wc >= MIN_WORDS: break
+        deficit = MIN_WORDS - wc
+        log(f"  {wc}w — expanding (need {deficit} more)...")
+        try:
+            ep = (f"This script is {wc} words. Needs {MIN_WORDS} minimum.\n"
+                  f"Add {deficit} words. Expand evidence and human cost sections.\n"
+                  f"Zero markdown. Max 13 words per sentence. Return COMPLETE script:\n\n"
+                  + clean[:3000])
+            raw2 = ai(ep, tokens=7000)
+            if raw2:
+                c2 = strip_md(raw2)
+                if len(c2.split()) > wc:
+                    clean = c2; wc = len(clean.split())
+                    log(f"  Expanded to {wc}w")
+        except Exception as _e:
+            log(f"  Expansion (non-fatal): {_e}"); break
     log(f"  Script: {wc}w | {violations} MD | {len(scenes)} scenes")
     return clean, scenes, title, thumbnail_text, tags, violations
 
@@ -1528,6 +1832,9 @@ def generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic,
                                    ab_style="A", episode=1, channel_name="The Evidence Room"):
     """v2 thumbnail: three-layer composition via thumbnail_engine_v2."""
     try:
+        import importlib.util
+        if importlib.util.find_spec("thumbnail_engine_v2") is None:
+            raise ImportError("thumbnail_engine_v2 not found")
         from thumbnail_engine_v2 import generate_thumbnail_v2
         result = generate_thumbnail_v2(
             title        = title,
@@ -1575,6 +1882,28 @@ def render_and_encode(style_name, scenes, audio_path, duration):
                     "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
                     "-r",str(FPS),raw], capture_output=True, timeout=600)
     final = str(WORK_DIR/"final.mp4")
+    # Add subtle ambient atmosphere (4% volume brown noise)
+    ambient_path = str(WORK_DIR/"ambient_ch2.mp3")
+    try:
+        subprocess.run([
+            "ffmpeg","-y","-f","lavfi",
+            "-i",f"anoisesrc=color=brown:r=44100:d={int(duration)+5}",
+            "-af","volume=0.03,highpass=f=300,lowpass=f=700",
+            "-c:a","mp3","-q:a","9", ambient_path],
+            capture_output=True, timeout=60)
+        if Path(ambient_path).exists():
+            mixed = str(WORK_DIR/"mixed_ch2.mp3")
+            subprocess.run([
+                "ffmpeg","-y","-i",audio_path,"-i",ambient_path,
+                "-filter_complex","[0:a][1:a]amix=inputs=2:weights=1 0.03",
+                "-c:a","mp3","-q:a","2", mixed],
+                capture_output=True, timeout=120)
+            if Path(mixed).exists() and Path(mixed).stat().st_size > 100000:
+                audio_path = mixed
+                log("  Ambient atmosphere mixed in")
+    except Exception as _ae:
+        log(f"  Ambient (non-fatal): {_ae}")
+
     subprocess.run(["ffmpeg","-y","-i",raw,"-i",audio_path,
                     "-c:v","libx264","-preset","medium","-crf","19",
                     "-c:a","aac","-b:a","192k","-t",str(duration),
@@ -1658,7 +1987,7 @@ async def _tts_ch2(text, voice_id, path):
 
     if len(chunks) <= 1:
         c = edge_tts.Communicate(text, voice_id, rate="-8%", pitch="+0Hz", volume="+8%")
-        await c.save(path); return
+        await asyncio.wait_for(c.save(path), timeout=120); return
 
     log(f"    Chunked TTS: {len(chunks)} segments")
     parts = []
@@ -1777,7 +2106,7 @@ def fetch_case_relevant_image_ch2(topic, niche_name, out_path):
         try:
             r = requests.get("https://pixabay.com/api/",
                 params={"key": PIXABAY_KEY, "q": full_query, "image_type": "photo",
-                        "orientation": "horizontal", "per_page": 3}, timeout=15)
+                        "orientation": "horizontal", "per_page": 3}, timeout=25)
             if r.status_code == 200 and r.json().get("hits"):
                 url = r.json()["hits"][0].get("webformatURL")
                 if url:
@@ -1793,7 +2122,7 @@ def fetch_case_relevant_image_ch2(topic, niche_name, out_path):
             r = requests.get("https://api.pexels.com/v1/search",
                 headers={"Authorization": PEXELS_KEY},
                 params={"query": full_query, "per_page": 3,
-                        "orientation": "landscape"}, timeout=15)
+                        "orientation": "landscape"}, timeout=25)
             if r.status_code == 200:
                 photos = r.json().get("photos", [])
                 if photos:
@@ -1807,32 +2136,25 @@ def fetch_case_relevant_image_ch2(topic, niche_name, out_path):
     return False
 
 
-def generate_short_srt(script_clean, start, short_dur):
-    """Generate SRT subtitle file for a Short clip."""
-    words     = script_clean.split()
-    total_wc  = len(words)
-    total_dur = (total_wc / 125.0) * 60.0
-    wps       = total_wc / total_dur if total_dur > 0 else 3.0
-    sw        = int(start * wps)
-    ew        = min(int((start + short_dur) * wps) + 5, total_wc)
-    clip_wds  = words[sw:ew]
-    if not clip_wds: return None
-
-    def fmt(t):
-        h, r = divmod(int(t), 3600); m, s = divmod(r, 60)
-        return f"{h:02d}:{m:02d}:{s:02d},{int((t % 1) * 1000):03d}"
-
-    entries = []; idx = 1; t = 0.0
-    cwps = len(clip_wds) / short_dur if short_dur > 0 else 3.0
-    for i in range(0, len(clip_wds), 4):
-        g = clip_wds[i:i+4]
-        if not g: continue
-        d = len(g) / cwps
-        entries.append(f"{idx}\n{fmt(t)} --> {fmt(t+d)}\n{' '.join(g)}\n")
-        idx += 1; t += d
-    srt = WORK_DIR / f"short_{idx}.srt"
-    srt.write_text("\n".join(entries), encoding="utf-8")
-    return str(srt)
+def generate_thumbnail(title, thumb_text, niche_name, topic, ab_style="A",
+                        episode=1, channel_name="The Evidence Room"):
+    """Three-layer thumbnail via thumbnail_engine_v2. Fallback to Pollinations+Pillow."""
+    try:
+        import importlib.util
+        if importlib.util.find_spec("thumbnail_engine_v2") is None:
+            raise ImportError("thumbnail_engine_v2 not found")
+        from thumbnail_engine_v2 import generate_thumbnail_v2
+        result = generate_thumbnail_v2(
+            title=title, thumb_text=thumb_text, niche_name=niche_name,
+            topic=topic, channel_name=channel_name, episode=episode,
+            work_dir=str(WORK_DIR), ab_variant=ab_style)
+        if result and Path(result).exists():
+            log(f"  Thumbnail v2: {Path(result).stat().st_size//1024}KB")
+            return result
+    except Exception as e:
+        log(f"  Thumbnail v2 (non-fatal): {e}")
+    # Fallback: Pollinations + Pillow
+    return generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic, ab_style)
 
 
 def make_short_with_subs(video_path, script_clean, stype, total_dur):
@@ -2438,6 +2760,74 @@ def run_stage1(state):
     sys.exit(0)
 
 
+
+def run_stage2_approval_ch2(title_str, niche, score, script_clean):
+    """30-minute approval gate for Ch2 Evidence Room."""
+    deadline     = datetime.datetime.now() + datetime.timedelta(minutes=30)
+    deadline_str = deadline.strftime("%I:%M %p")
+    preview      = script_clean[:400].replace("<","").replace(">","")
+    msg = (
+        f"<b>EVIDENCE ROOM APPROVAL NEEDED</b>\n\n"
+        f"Title: {title_str}\n"
+        f"Niche: {niche['name']} | Score: {score}/10\n"
+        f"Auto-uploads at {deadline_str}\n\n"
+        f"Reply APPROVE or REJECT"
+    )
+    keyboard = {"inline_keyboard": [
+        [{"text": "APPROVE", "callback_data": "approved"},
+         {"text": "REJECT",  "callback_data": "rejected"}]
+    ]}
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": TG_CHAT, "text": msg,
+                  "parse_mode": "HTML", "reply_markup": keyboard},
+            timeout=25)
+        tg(f"Preview: {preview}...")
+    except Exception as e:
+        log(f"  Approval notification (non-fatal): {e}")
+    # Poll for response
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+            params={"timeout": 25}, timeout=30)
+        updates = r.json().get("result", [])
+        offset  = (max(u["update_id"] for u in updates) + 1) if updates else 0
+    except:
+        offset = 0
+    decision = "auto_approved"
+    while datetime.datetime.now() < deadline:
+        time.sleep(30)
+        try:
+            r2 = requests.get(
+                f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                params={"timeout": 25, "offset": offset,
+                        "allowed_updates": ["callback_query", "message"]},
+                timeout=30)
+            for u in r2.json().get("result", []):
+                offset = u["update_id"] + 1
+                if "callback_query" in u:
+                    cb   = u["callback_query"]
+                    data = cb.get("data", "")
+                    try:
+                        requests.post(
+                            f"https://api.telegram.org/bot{TG_TOKEN}/answerCallbackQuery",
+                            json={"callback_query_id": cb.get("id",""),
+                                  "text": "Got it!"}, timeout=20)
+                    except:
+                        pass
+                    if data == "approved":
+                        tg("APPROVED. Generating video...")
+                        return "approved"
+                    elif data == "rejected":
+                        tg("REJECTED. Stopping.")
+                        return "rejected"
+        except:
+            pass
+    tg("30 min expired — auto-approved.")
+    return "auto_approved"
+
+
 def main():
     """
     Two-phase controller for Ch2 (The Evidence Room).
@@ -2592,6 +2982,11 @@ def main():
 
     tags_er = list(set(tags))[:15]
 
+    # APPROVAL GATE
+    decision = run_stage2_approval_ch2(title_str, niche, score, script_clean)
+    if decision == "rejected":
+        log("Rejected."); sys.exit(0)
+
     # Audio
     audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
         run_stage3_audio, "Audio", script_clean, voice, niche["name"])
@@ -2615,9 +3010,22 @@ def main():
         title_str, thumbnail_text, niche["name"], topic, ab_style,
         episode=episode, channel_name="The Evidence Room")
 
+    # Validate video file before saving to pending
+    if not Path(video_path).exists():
+        tg(f"❌ Ch2 Generate FAILED: video file not created")
+        sys.exit(1)
+    video_size = Path(video_path).stat().st_size
+    if video_size < 5_000_000:  # must be at least 5MB
+        tg(f"❌ Generate FAILED: video too small ({video_size//1024}KB) — likely encoding error")
+        sys.exit(1)
+    log(f"  Video validated: {video_size//(1024*1024)}MB")
+
     # All 6 Shorts — generate only, upload happens next day
     log("\n  Generating all 6 Shorts...")
     try:
+        import importlib.util
+        if importlib.util.find_spec("shorts_engine") is None:
+            raise ImportError("shorts_engine not in PYTHONPATH")
         from shorts_engine import generate_all_six_shorts
         import asyncio, edge_tts as _edge_tts_module
         def _tts_fn_ch2(text, out_path):
