@@ -369,7 +369,7 @@ CKPT_FILE     = WORK_DIR / "checkpoint.json"
 # Cerebras model names to try in order
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
 
-W, H, FPS   = 1920, 1080, 30
+W, H, FPS   = 1920, 1080, 24
 MIN_WORDS   = 1800
 MAX_WORDS   = 2200
 MIN_GATE    = 7.3
@@ -1188,10 +1188,11 @@ def _score_title_ctr_legacy(title):
 def generate_and_score_titles(niche, topic, intel, episode):
     patterns = intel.get("winning_title_patterns",[])
     power    = intel.get("niche_specific_power_words",["documented","evidence","records"])
+    viral_patterns_str = "\n".join(patterns[:3])
     prompt = f"""Generate exactly 5 YouTube title variants for this forensic investigation video.
 NICHE: {niche['name']} | SERIES: {niche['series']} Ep{episode}
 TOPIC: {topic[:150]}
-VIRAL PATTERNS: {chr(10).join(patterns[:3])}
+VIRAL PATTERNS: {viral_patterns_str}
 POWER WORDS: {', '.join(power)}
 Rules: 50-65 chars. Curiosity gap. Documentary tone. Specific detail.
 Return ONLY JSON array: ["title 1","title 2","title 3","title 4","title 5"]"""
@@ -1276,12 +1277,13 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
 
     stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
 
+    viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
     prompt = f"""Write a forensic investigative documentary narration script.
 Style: precisely documented, evidence-driven, animated forensic format.
 
 CASE: {topic}
 SERIES: {niche['series']} — Episode {episode}
-VIRAL HOOKS: {chr(10).join(f"  \'{h}\'" for h in hooks[:3])}
+VIRAL HOOKS: {viral_hooks_str}
 POWER WORDS: {", ".join(power[:6])}
 {anchor_block}{cross}
 
@@ -1866,10 +1868,29 @@ def render_and_encode(style_name, scenes, audio_path, duration):
             img = render_frame_pil(style_name, scene, fi, total_f, si, len(scenes))
             img.save(str(fd/f"frame_{fi:05d}.png"))
         sm4 = str(fd)+"_s.mp4"
-        subprocess.run(["ffmpeg","-y","-framerate",str(FPS),"-i",f"{fd}/frame_%05d.png",
-                        "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
-                        "-r",str(FPS),sm4], capture_output=True, timeout=300)
-        concat_parts.append(f"file '{sm4}'")
+        _enc_result = subprocess.run(
+            ["ffmpeg","-y","-framerate",str(FPS),"-i",f"{fd}/frame_%05d.png",
+             "-c:v","libx264","-preset","ultrafast","-crf","26",
+             "-pix_fmt","yuv420p","-r",str(FPS),sm4],
+            capture_output=True, timeout=600)
+        # Verify scene mp4 was created before adding to concat
+        if _enc_result.returncode == 0 and Path(sm4).exists() and \
+           Path(sm4).stat().st_size > 50000:
+            concat_parts.append(f"file '{sm4}'")
+            log(f"    Scene {si+1} encoded: {Path(sm4).stat().st_size//1024}KB")
+        else:
+            # Fallback: create a solid-colour scene as replacement
+            log(f"    Scene {si+1} encode failed — using fallback")
+            _fb = str(fd)+"_fallback.mp4"
+            subprocess.run([
+                "ffmpeg","-y","-f","lavfi",
+                "-i",f"color=c=black:s=1920x1080:d={dur_s}",
+                "-c:v","libx264","-preset","ultrafast","-crf","26",
+                "-pix_fmt","yuv420p","-r",str(FPS), _fb],
+                capture_output=True, timeout=60)
+            if Path(_fb).exists():
+                concat_parts.append(f"file '{_fb}'")
+                log(f"    Scene {si+1} fallback created")
 
     concat_file = str(WORK_DIR/"concat.txt")
     total_scene_dur = sum(s.get("duration",8) for s in scenes)
@@ -1878,9 +1899,17 @@ def render_and_encode(style_name, scenes, audio_path, duration):
         for _ in range(repeats): f.write("\n".join(concat_parts)+"\n")
 
     raw = str(WORK_DIR/"raw.mp4")
-    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",concat_file,
-                    "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
-                    "-r",str(FPS),raw], capture_output=True, timeout=600)
+    if not concat_parts:
+        raise RuntimeError("All scene encodings failed — no parts for concat")
+    log(f"  Concatenating {len(concat_parts)} scene parts...")
+    _concat_result = subprocess.run(
+        ["ffmpeg","-y","-f","concat","-safe","0","-i",concat_file,
+         "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
+         "-r",str(FPS),raw],
+        capture_output=True, timeout=900)
+    if _concat_result.returncode != 0:
+        err = _concat_result.stderr.decode("utf-8","ignore")[-300:]
+        raise RuntimeError(f"FFmpeg concat failed: {err}")
     final = str(WORK_DIR/"final.mp4")
     # Add subtle ambient atmosphere (4% volume brown noise)
     ambient_path = str(WORK_DIR/"ambient_ch2.mp3")
@@ -1943,12 +1972,16 @@ def generate_short_srt(script_clean, start, short_dur):
     srt.write_text("\n".join(entries),encoding="utf-8")
     return str(srt)
 
-def apply_audio_post_processing(input_path, output_path, niche_name=None):
+def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     """
     Transform edge-tts flat TTS into cinematic investigative narrator quality.
     EQ boosts presence, reverb adds room depth, compression smooths dynamics.
     """
     try:
+        if output_path is None:
+            output_path = input_path.replace(".mp3", "_eq.mp3").replace(".wav", "_eq.wav")
+        if output_path == input_path:
+            output_path = input_path + ".eq.mp3"
         af = (
             "equalizer=f=80:width_type=o:width=2:g=3,"
             "equalizer=f=2500:width_type=o:width=2:g=2,"
@@ -2060,7 +2093,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         log(f"  Trying: {v}")
         mp3 = str(WORK_DIR / "audio.mp3")
         try:
-            asyncio.run(_tts_ch2(script_clean, v, mp3))
+            asyncio.run(asyncio.wait_for(_tts_ch2(script_clean, v, mp3), timeout=120))
             if not Path(mp3).exists(): continue
             if not check_audio_quality(mp3, dur_expected):
                 log(f"  {v} failed quality — trying next"); continue
@@ -2069,7 +2102,10 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
             log(f"  ACCEPTED: {v} | {sz/1024/1024:.1f}MB | ~{dur/60:.1f}min")
             # Apply cinematic EQ processing
             processed = str(WORK_DIR / "audio_processed.mp3")
-            mp3 = apply_audio_post_processing(mp3, processed, niche_name)
+            _proc_path = str(WORK_DIR / "audio_eq_processed.mp3")
+            if _proc_path == mp3:  # same file guard
+                _proc_path = str(WORK_DIR / "audio_eq_out.mp3")
+            mp3 = apply_audio_post_processing(mp3, _proc_path, niche_name)
             wav = str(WORK_DIR / "audio.wav")
             try:
                 subprocess.run(["ffmpeg", "-y", "-i", mp3, "-acodec", "pcm_s16le",
@@ -2468,7 +2504,7 @@ async def generate_short_audio_async(script, voice, out_path):
     import edge_tts
     try:
         comm = edge_tts.Communicate(text=script, voice=voice, rate="-5%")
-        await comm.save(out_path)
+        await asyncio.wait_for(comm.save(out_path), timeout=120)
         if Path(out_path).exists() and Path(out_path).stat().st_size > 50000:
             return True
     except Exception as e:
@@ -2489,7 +2525,7 @@ def create_standalone_short_video(script, audio_path, niche_name, short_num):
     dur_result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json",
          "-show_streams", audio_path],
-        capture_output=True, text=True)
+        capture_output=True, text=True, timeout=30)
     duration = 45.0
     try:
         import json as _json
@@ -2872,8 +2908,9 @@ def main():
         short_titles = pending.get("short_titles", {})
         short_cross  = pending.get("short_cross","")
 
-        if not Path(video_path).exists():
-            tg(f"❌ Ch2 Upload FAILED: video missing at {video_path}"); sys.exit(1)
+        if not video_path or not Path(video_path).exists():
+            tg(f"❌ Ch2 Upload: video file missing. Run Generate first.")
+            sys.exit(1)
 
         token_yt = get_yt_token()
         # Create playlist now if generate phase skipped it
@@ -3031,7 +3068,7 @@ def main():
         def _tts_fn_ch2(text, out_path):
             async def _run():
                 c = _edge_tts_module.Communicate(text, voice_used, rate="-8%")
-                await c.save(out_path)
+                await asyncio.wait_for(c.save(out_path), timeout=120)
             asyncio.run(_run())
         short_clips = generate_all_six_shorts(
             video_path     = video_path,
