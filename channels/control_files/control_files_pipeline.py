@@ -375,7 +375,7 @@ CKPT_FILE     = WORK_DIR / "checkpoint.json"
 # Cerebras model names to try in order
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
 
-W, H, FPS   = 1920, 1080, 30
+W, H, FPS   = 1920, 1080, 24
 MIN_WORDS   = 1800
 MAX_WORDS   = 2200
 MIN_GATE    = 7.3
@@ -1030,10 +1030,11 @@ def _score_title_ctr_legacy(title):
 def generate_and_score_titles(niche, topic, intel, episode):
     patterns = intel.get("winning_title_patterns",[])
     power    = intel.get("niche_specific_power_words",["controlled","manipulated","programmed"])
+    viral_patterns_str = "\n".join(patterns[:3])
     prompt = f"""Generate exactly 5 YouTube title variants for this mass manipulation documentary video.
 NICHE: {niche['name']} | SERIES: {niche['series']} Ep{episode}
 TOPIC: {topic[:150]}
-VIRAL PATTERNS: {chr(10).join(patterns[:3])}
+VIRAL PATTERNS: {viral_patterns_str}
 POWER WORDS: {', '.join(power)}
 Rules: 50-65 chars. Personal recognition trigger. Documentary tone. Specific research detail.
 Return ONLY JSON array: ["title 1","title 2","title 3","title 4","title 5"]"""
@@ -1535,6 +1536,7 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
     time.sleep(1)
     tg(f"TITLE CTR SCORES:\n{top_titles}\n\nSCRIPT PREVIEW:\n{preview}...")
 
+    preview_html = preview.replace('\n', '<br>')
     html = f"""<!DOCTYPE html><html><body style="background:#08040f;color:#e0e0e0;font-family:Arial,sans-serif;padding:20px;">
 <div style="max-width:660px;margin:0 auto;background:#10081a;border:1px solid #2a1a3a;border-radius:8px;overflow:hidden;">
 <div style="background:#0a0416;border-bottom:3px solid #8800aa;padding:20px 26px;">
@@ -1557,7 +1559,7 @@ def run_stage2_approval(title_str, niche, voice, style_name, script_clean, thumb
 </div>
 <div style="padding:18px 26px;">
   <div style="font-size:10px;color:#666;letter-spacing:2px;margin-bottom:8px">SCRIPT PREVIEW</div>
-  <div style="background:#0a0414;border:1px solid #1a0a2a;border-radius:4px;padding:14px;font-size:12px;line-height:1.7;color:#ccc;font-style:italic">{preview.replace(chr(10),'<br>')}...</div>
+  <div style="background:#0a0414;border:1px solid #1a0a2a;border-radius:4px;padding:14px;font-size:12px;line-height:1.7;color:#ccc;font-style:italic">{preview_html}...</div>
 </div>
 </div></body></html>"""
     send_gmail(f"[Control Files] Approve: {title_str[:50]} — auto at {deadline_str}", html)
@@ -1654,6 +1656,11 @@ def apply_audio_post_processing(input_path, output_path):
     Subtle reverb (smaller room than Evidence Room), strong compression,
     slight high-mid presence boost for authoritative clarity.
     """
+    if output_path is None:
+        output_path = input_path.replace(".mp3","_eq.mp3")
+    if output_path == input_path:
+        output_path = input_path + "_eq.mp3"
+
     try:
         af = (
             "equalizer=f=80:width_type=o:width=2:g=2,"
@@ -1690,7 +1697,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         log(f"  Trying: {v}")
         mp3 = str(WORK_DIR/"audio.mp3")
         try:
-            asyncio.run(_tts(script_clean, v, mp3))
+            asyncio.run(asyncio.wait_for(_tts(script_clean, v, mp3), timeout=120))
             if not Path(mp3).exists(): continue
             if not check_audio_quality(mp3, dur_expected):
                 log(f"  {v} failed quality — trying next"); continue
@@ -2091,10 +2098,29 @@ def render_and_encode(style_name, scenes, audio_path, duration):
             img = render_frame_pil(style_name, scene, fi, total_f, si, len(scenes))
             img.save(str(fd/f"frame_{fi:05d}.png"))
         sm4 = str(fd)+"_s.mp4"
-        subprocess.run(["ffmpeg","-y","-framerate",str(FPS),"-i",f"{fd}/frame_%05d.png",
-                        "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
-                        "-r",str(FPS),sm4], capture_output=True, timeout=300)
-        concat_parts.append(f"file '{sm4}'")
+        _enc_result = subprocess.run(
+            ["ffmpeg","-y","-framerate",str(FPS),"-i",f"{fd}/frame_%05d.png",
+             "-c:v","libx264","-preset","ultrafast","-crf","26",
+             "-pix_fmt","yuv420p","-r",str(FPS),sm4],
+            capture_output=True, timeout=600)
+        # Verify scene mp4 was created before adding to concat
+        if _enc_result.returncode == 0 and Path(sm4).exists() and \
+           Path(sm4).stat().st_size > 50000:
+            concat_parts.append(f"file '{sm4}'")
+            log(f"    Scene {si+1} encoded: {Path(sm4).stat().st_size//1024}KB")
+        else:
+            # Fallback: create a solid-colour scene as replacement
+            log(f"    Scene {si+1} encode failed — using fallback")
+            _fb = str(fd)+"_fallback.mp4"
+            subprocess.run([
+                "ffmpeg","-y","-f","lavfi",
+                "-i",f"color=c=black:s=1920x1080:d={dur_s}",
+                "-c:v","libx264","-preset","ultrafast","-crf","26",
+                "-pix_fmt","yuv420p","-r",str(FPS), _fb],
+                capture_output=True, timeout=60)
+            if Path(_fb).exists():
+                concat_parts.append(f"file '{_fb}'")
+                log(f"    Scene {si+1} fallback created")
 
     concat_file = str(WORK_DIR/"concat.txt")
     total_scene_dur = sum(s.get("duration",8) for s in scenes)
@@ -2103,10 +2129,22 @@ def render_and_encode(style_name, scenes, audio_path, duration):
         for _ in range(repeats): f.write("\n".join(concat_parts)+"\n")
 
     raw = str(WORK_DIR/"raw.mp4")
-    subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",concat_file,
-                    "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
-                    "-r",str(FPS),raw], capture_output=True, timeout=600)
+    if not concat_parts:
+        raise RuntimeError("All scene encodings failed — no parts for concat")
+    log(f"  Concatenating {len(concat_parts)} scene parts...")
+    _concat_result = subprocess.run(
+        ["ffmpeg","-y","-f","concat","-safe","0","-i",concat_file,
+         "-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p",
+         "-r",str(FPS),raw],
+        capture_output=True, timeout=900)
+    if _concat_result.returncode != 0:
+        err = _concat_result.stderr.decode("utf-8","ignore")[-300:]
+        raise RuntimeError(f"FFmpeg concat failed: {err}")
     final = str(WORK_DIR/"final.mp4")
+    # Verify raw.mp4 was created
+    if not Path(raw).exists() or Path(raw).stat().st_size < 1_000_000:
+        raise RuntimeError(f"Raw video invalid: {Path(raw).stat().st_size if Path(raw).exists() else 0} bytes")
+    log(f"  Raw video: {Path(raw).stat().st_size//(1024*1024)}MB")
     # Generate subtle ambient tone for atmosphere
     ambient_path = str(WORK_DIR/"ambient.mp3")
     try:
@@ -2668,8 +2706,14 @@ def main():
         short_titles = pending.get("short_titles", {})
         short_cross  = pending.get("short_cross","")
 
-        if not Path(video_path).exists():
-            tg(f"❌ Ch3 Upload FAILED: video missing at {video_path}"); sys.exit(1)
+        if not video_path or not Path(video_path).exists():
+            tg(
+                f"❌ Ch3 Upload FAILED: video file not found.\n"
+                f"Path: {video_path}\n"
+                f"This usually means the generate run failed before "
+                f"completing the video. Run Generate again first."
+            )
+            sys.exit(1)
 
         token_yt = get_yt_token()
         # Create playlist now if generate phase skipped it
@@ -2817,7 +2861,7 @@ def main():
         def _tts_fn_ch3(text, out_path):
             async def _run():
                 c = _edge_tts_module.Communicate(text, voice_used, rate="-8%")
-                await c.save(out_path)
+                await asyncio.wait_for(c.save(out_path), timeout=120)
             asyncio.run(_run())
         short_clips = generate_all_six_shorts(
             video_path     = video_path,
