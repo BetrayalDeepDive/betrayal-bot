@@ -2013,7 +2013,7 @@ async def _edge_tts_segment(text, voice, rate, path):
     """Generate audio for one segment with a specific rate."""
     import edge_tts
     comm = edge_tts.Communicate(text=text, voice=voice, rate=rate)
-    await comm.save(path)
+    await asyncio.wait_for(comm.save(path), timeout=90)
 
 def run_audio_with_ssml(script, niche_name, edge_voice):
     """
@@ -2030,7 +2030,7 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
         voices_to_try = [edge_voice, "en-GB-RyanNeural", "en-US-BrianNeural"]
         for v in voices_to_try:
             try:
-                asyncio.run(_edge_tts_segment(text, v, rate, part_path))
+                asyncio.run(asyncio.wait_for(_edge_tts_segment(text, v, rate, part_path), timeout=90))
                 if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
                     part_paths.append(part_path)
                     break
@@ -2044,7 +2044,7 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
 
     if len(part_paths) == 1:
         import shutil
-        out = str(WORK_DIR / "narration.mp3")
+        out = str(WORK_DIR / "ssml_narration.mp3")
         shutil.copy(part_paths[0], out)
         return out, get_media_duration(out)
 
@@ -2053,7 +2053,7 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
     with open(list_file, "w") as f:
         for p in part_paths:
             f.write(f"file '{p}'\n")
-    out = str(WORK_DIR / "narration.mp3")
+    out = str(WORK_DIR / "ssml_narration.mp3")
     run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                 "-i", list_file, "-c", "copy", out], label="ssml-concat")
     duration = get_media_duration(out)
@@ -2101,7 +2101,10 @@ def run_audio_stage(script, niche_name, edge_voice):
         ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
         if ssml_path and ssml_dur > 60:
             import shutil
-            shutil.copy(ssml_path, audio_path)
+            if str(ssml_path) != str(audio_path):
+                shutil.copy(ssml_path, audio_path)
+            else:
+                log("  SSML: skipping self-copy")
             duration = ssml_dur
             log(f"  SSML audio OK: {duration:.1f}s")
             return audio_path, duration, None
@@ -2112,7 +2115,7 @@ def run_audio_stage(script, niche_name, edge_voice):
         for v in voices_to_try:
             try:
                 log(f"  edge-tts: {v}")
-                got_subs = asyncio.run(_edge_tts_stream(script, v, audio_path, vtt_path))
+                asyncio.run(asyncio.wait_for(_edge_tts_stream(script, v, audio_path, vtt_path), timeout=120))
                 if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
                     if got_subs and Path(vtt_path).exists():
                         has_ass = vtt_to_ass(vtt_path, ass_path)
@@ -2333,7 +2336,7 @@ def get_background_video(niche, audio_duration, script=""):
     return path
 
 
-def apply_audio_post_processing(input_path, output_path, niche_name=None):
+def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     """
     Niche-specific documentary-grade audio processing via FFmpeg.
     Uses NICHE_AUDIO_PROFILES to select the right EQ chain per niche.
@@ -3496,7 +3499,7 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
         import edge_tts as _edge
         async def _gen():
             comm = _edge.Communicate(text=script, voice=edge_voice, rate="-5%")
-            await comm.save(audio_out)
+            await asyncio.wait_for(comm.save(audio_out), timeout=120)
         asyncio.run(_gen())
     except Exception as e:
         log(f"  Short {short_num+1} audio: {e}"); return None
@@ -3507,7 +3510,7 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
     try:
         import json as _j
         dp = subprocess.run(["ffprobe","-v","quiet","-print_format","json",
-                             "-show_streams",audio_out], capture_output=True, text=True)
+                             "-show_streams",audio_out], capture_output=True, text=True, timeout=30)
         dur = 45.0
         for s in _j.loads(dp.stdout).get("streams",[]):
             if s.get("codec_type") == "audio":
