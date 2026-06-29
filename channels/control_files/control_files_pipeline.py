@@ -373,7 +373,7 @@ INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
 CKPT_FILE     = WORK_DIR / "checkpoint.json"
 
 # Cerebras model names to try in order
-CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
 
 W, H, FPS   = 1920, 1080, 24
 MIN_WORDS   = 1800
@@ -634,7 +634,7 @@ def _call_cerebras(prompt, tokens=9000):
         log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
         return None
     _url = "https://api.cerebras.ai/v1/chat/completions"  # hardcoded inside function
-    _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+    _models = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
             r = requests.post(_url,
@@ -697,9 +697,13 @@ def _call_groq(prompt, tokens=4800, temp=0.88):
 
 def _call_openrouter(prompt, tokens=4000, temp=0.88):
     if not OPENROUTER_KEY: return None
-    models = ["meta-llama/llama-3.3-70b:free",
-              "meta-llama/llama-3.1-70b-instruct:free",
-              "qwen/qwen-2.5-72b-instruct:free"]
+    models = [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+        "huggingfaceh4/zephyr-7b-beta:free",
+    ]
     for model in models:
         try:
             r = requests.post(OPENROUTER_URL,
@@ -724,7 +728,7 @@ def _call_cohere(prompt, tokens=4000, temp=0.88):
     try:
         r = requests.post(COHERE_URL,
             headers={"Authorization":f"Bearer {COHERE_KEY}","Content-Type":"application/json"},
-            json={"model":"command-r-plus",
+            json={"model":"command-r-08-2024",
                   "messages":[{"role":"user","content":prompt}],
                   "max_tokens":min(tokens,4000),"temperature":temp}, timeout=90)
         if r.status_code == 200:
@@ -759,7 +763,7 @@ def _call_mistral(prompt, tokens=4000, temp=0.88):
 def _call_sambanova(prompt, tokens=9000, temp=0.88):
     """SambaNova — free 1000 req/day. cloud.sambanova.ai"""
     if not SAMBANOVA_KEY: return None
-    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
         try:
             r = requests.post(SAMBANOVA_URL,
                 headers={"Authorization":f"Bearer {SAMBANOVA_KEY}",
@@ -1697,7 +1701,15 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         log(f"  Trying: {v}")
         mp3 = str(WORK_DIR/"audio.mp3")
         try:
-            asyncio.run(asyncio.wait_for(_tts(script_clean, v, mp3), timeout=120))
+            # Try simple direct TTS first (faster, fewer timeouts)
+            try:
+                import edge_tts as _et3
+                async def _simple_tts():
+                    c = _et3.Communicate(script_clean[:8000], v, rate="-8%")
+                    await asyncio.wait_for(c.save(mp3), timeout=180)
+                asyncio.run(_simple_tts())
+            except Exception:
+                asyncio.run(asyncio.wait_for(_tts(script_clean, v, mp3), timeout=180))
             if not Path(mp3).exists(): continue
             if not check_audio_quality(mp3, dur_expected):
                 log(f"  {v} failed quality — trying next"); continue
