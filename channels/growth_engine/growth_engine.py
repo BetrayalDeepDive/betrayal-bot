@@ -828,6 +828,9 @@ def run_series_architecture(channel_id, token, growth_state):
     ch_items = ch_data.get("items", [])
     if not ch_items:
         return
+    if not ch_items:
+        log("  Growth Engine: no channel items returned")
+        return
     uploads_pl = (ch_items[0].get("contentDetails", {})
                   .get("relatedPlaylists", {}).get("uploads", ""))
     channel_age_videos = int(ch_items[0].get("statistics", {}).get("videoCount", 0))
