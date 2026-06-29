@@ -367,7 +367,7 @@ INTEL_FILE    = SCRIPT_DIR / "intel.json"   # persists in repo
 CKPT_FILE     = WORK_DIR / "checkpoint.json"
 
 # Cerebras model names to try in order
-CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
 
 W, H, FPS   = 1920, 1080, 24
 MIN_WORDS   = 1800
@@ -629,7 +629,7 @@ def _call_cerebras(prompt, tokens=9000):
         log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
         return None
     _url = "https://api.cerebras.ai/v1/chat/completions"
-    _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+    _models = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
             r = requests.post(_url,
@@ -716,10 +716,14 @@ def _call_openrouter(prompt, tokens=9000):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY secret not set — skipping")
         return None
-    for model in ["meta-llama/llama-3.3-70b-instruct:free",
-                  "meta-llama/llama-3.1-70b-instruct:free",
-                  "qwen/qwen-2.5-72b-instruct:free",
-                  "meta-llama/llama-3.2-3b-instruct:free"]:
+    for model in [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+        "huggingfaceh4/zephyr-7b-beta:free",
+        "openchat/openchat-3.5-0106:free",
+    ]:
         try:
             r = requests.post(OPENROUTER_URL,
                 headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -745,7 +749,7 @@ def _call_cohere(prompt, tokens=9000):
         r = requests.post(COHERE_URL,
             headers={"Authorization": f"Bearer {COHERE_KEY}",
                      "Content-Type": "application/json"},
-            json={"model": "command-r-plus",
+            json={"model": "command-r-08-2024",
                   "messages": [{"role": "user", "content": prompt}],
                   "max_tokens": min(tokens, 4000), "temperature": 0.88},
             timeout=120)
@@ -791,7 +795,7 @@ def _call_sambanova(prompt, tokens=9000):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
-    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
         try:
             r = requests.post(SAMBANOVA_URL,
                 headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
@@ -1277,6 +1281,7 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
 
     stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
 
+    power_str = ", ".join(power[:6])
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
     prompt = f"""Write a forensic investigative documentary narration script.
 Style: precisely documented, evidence-driven, animated forensic format.
@@ -1284,7 +1289,7 @@ Style: precisely documented, evidence-driven, animated forensic format.
 CASE: {topic}
 SERIES: {niche['series']} — Episode {episode}
 VIRAL HOOKS: {viral_hooks_str}
-POWER WORDS: {", ".join(power[:6])}
+POWER WORDS: {power_str}
 {anchor_block}{cross}
 
 TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
