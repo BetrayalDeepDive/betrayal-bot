@@ -677,7 +677,7 @@ def call_cerebras(prompt, tokens=8000):
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
         return None
     _url    = "https://api.cerebras.ai/v1/chat/completions"
-    _models = ["llama-3.3-70b", "llama3.3-70b", "llama3.1-70b", "llama3.1-8b"]
+    _models = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
             r = requests.post(_url,
@@ -775,9 +775,10 @@ def call_gemini(prompt, tokens=8000):
 # Free models on OpenRouter — try in order until one responds
 OR_FREE_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",    # best quality
-    "meta-llama/llama-3.1-70b-instruct:free",    # solid fallback
-    "qwen/qwen-2.5-72b-instruct:free",           # strong alternative
-    "meta-llama/llama-3.2-3b-instruct:free",     # last resort
+    "mistralai/mistral-7b-instruct:free",         # reliable fallback
+    "google/gemma-2-9b-it:free",                  # Google fallback
+    "microsoft/phi-3-mini-128k-instruct:free",    # Microsoft fallback
+    "huggingfaceh4/zephyr-7b-beta:free",          # last resort
 ]
 
 def call_openrouter(prompt, tokens=8000):
@@ -820,7 +821,7 @@ def call_cohere(prompt, tokens=8000):
         r = requests.post(COHERE_URL,
             headers={"Authorization": f"Bearer {COHERE_KEY}",
                      "Content-Type": "application/json"},
-            json={"model": "command-r-plus",
+            json={"model": "command-r-08-2024",
                   "messages": [{"role": "user", "content": prompt}],
                   "max_tokens": min(tokens, 4000),
                   "temperature": 0.88},
@@ -854,7 +855,7 @@ def call_sambanova(prompt, tokens=8000):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
-    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.1-70B-Instruct"]:
+    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
         try:
             r = requests.post(SAMBANOVA_URL,
                 headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
@@ -2107,7 +2108,7 @@ def run_audio_stage(script, niche_name, edge_voice):
                 log("  SSML: skipping self-copy")
             duration = ssml_dur
             log(f"  SSML audio OK: {duration:.1f}s")
-            return audio_path, duration, None
+            return audio_path, duration, None, edge_voice
 
     if not el_ok:
         voices_to_try = [edge_voice] + [v for v in
@@ -2138,7 +2139,7 @@ def run_audio_stage(script, niche_name, edge_voice):
         generate_fallback_ass(script, duration, ass_path)
         has_ass = True
 
-    return audio_path, duration, ass_path if has_ass else None
+    return audio_path, duration, ass_path if has_ass else None, edge_voice
 
 # ================================================================
 # VIDEO DOWNLOAD
