@@ -2175,7 +2175,7 @@ def run_audio_stage(script, niche_name, edge_voice):
         # Try SSML multi-rate audio (7 delivery speeds across 7 stages)
         log("  Trying SSML dynamic-rate audio...")
         ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
-        if ssml_path and ssml_dur > 60:
+        if ssml_path and ssml_dur > 60 and ssml_dur < 1800:  # 30-min max sanity cap
             import shutil
             if str(ssml_path) != str(audio_path):
                 shutil.copy(ssml_path, audio_path)
