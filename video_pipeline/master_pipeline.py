@@ -361,8 +361,8 @@ CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner resta
 # ================================================================
 # CONFIG
 # ================================================================
-MIN_WORDS  = 2000
-MAX_WORDS  = 2600
+MIN_WORDS   = 1900
+MAX_WORDS   = 2100
 MIN_GATE   = 7.5
 FINAL_GATE = 6.9
 
@@ -1326,7 +1326,15 @@ def build_script_prompt(niche, topic, episode, attempt,
 
     research_block = f"\nRESEARCH CONTEXT:\n{research_context}\n" if research_context else ""
 
-    stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
+    stage_targets = {
+        1: 120,   # Cold open — short and brutal
+        2: 200,   # The before
+        3: 280,   # First signals
+        4: 480,   # Escalation — most evidence
+        5: 150,   # False resolution
+        6: 520,   # Real reveal — climax
+        7: 150,   # Implication + CTA
+    }
 
     return f"""Write a {intensity} dark investigative documentary narration.
 
@@ -1382,7 +1390,52 @@ Subscribe CTA at the emotional peak, not as afterthought.
 Forbidden: "subscribe and like", "hit the bell", "don't forget to"
 Trigger: REPETITION (s1), PROXIMITY (s3), subscribe CTA (final 2 sentences)
 
-ABSOLUTE RULES:
+ABSOLUTE 
+TONE AND STYLE (NON-NEGOTIABLE):
+- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
+- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
+  laugh uncomfortably, then feel disturbed they laughed.
+- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
+- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
+- Each stage should feel darker than the last. Build psychological dread deliberately.
+- Real documentary references make it feel researched. Fake-sounding claims get skipped.
+- Pacing: short sentences hit harder. Use them at revelation moments.
+- The viewer should feel like they discovered something others don't know.
+
+WHAT MAKES VIEWERS CRAVE THIS CONTENT:
+- The sense that something was hidden — and you're the one showing it.
+- The feeling that the world is slightly more dangerous/dark than they thought.
+- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
+- The satisfaction of understanding a dark system fully, from start to end.
+- Dark humor that signals: we both know this is messed up, and we're in it together.
+
+CRAVEABILITY TRIGGERS — use at least 3 per script:
+1. The statistic that sounds impossible but is real.
+2. The name everyone knows, connected to something they didn't know.
+3. The system that's still running right now — not historical.
+4. The thing institutions tried to suppress or deny.
+5. The detail so specific it has to be true.
+6. The uncomfortable implication in the final 30 seconds.
+7. The question the script raises but deliberately doesn't fully answer.
+
+TONE AND STYLE — NON-NEGOTIABLE:
+- DARK DOCUMENTARY. Every sentence = psychological weight pressing down.
+- Dark humor that makes viewers laugh then feel disturbed they laughed.
+- Every paragraph: viewers CRAVE the next one. Not curious — addicted.
+- Each stage darker than the last. Build dread deliberately.
+- Viewer should feel they discovered something others do not know.
+- Pacing: short sentences at revelation moments. Hits harder.
+
+CRAVEABILITY TRIGGERS — use minimum 3 per script:
+1. The statistic that sounds impossible but is verifiably real.
+2. The name everyone knows connected to something they never knew.
+3. The system still running right now — not historical, not past tense.
+4. The evidence institutions tried to suppress or deny.
+5. The detail so specific it absolutely has to be true.
+6. The uncomfortable implication in the final 30 seconds.
+7. The question raised but deliberately left open.
+
+RULES:
 1. Maximum 13 words per sentence. Count them.
 2. Zero markdown — no symbols, headers, bullets, asterisks.
 3. Zero AI filler — no "moreover", "furthermore", "interestingly", "it is worth noting".
@@ -1666,7 +1719,29 @@ def _inject_ctas_ch1(script_clean, niche_name):
 def generate_titles(niche, topic, episode):
     hook_words = ["never", "nobody", "secret", "revealed", "truth", "years", "days",
                   "finally", "hidden", "classified", "documented", "knew", "told", "found"]
-    prompt = f"""Generate 5 YouTube titles for a dark investigative documentary.
+    prompt = f"""
+TITLE REQUIREMENTS — NON-NEGOTIABLE:
+- Do NOT write normal YouTube titles. Normal = ignored.
+- The title should feel like something a person would screenshot and send to a friend.
+- Use specific numbers, real-feeling names, or uncomfortable specificity.
+- The best titles create DREAD before the video starts.
+- Dark humor in titles outperforms pure shock — it signals intelligence.
+- The title should make someone feel like: "I shouldn't watch this... but I have to."
+
+TITLE FORMULAS THAT WORK:
+- "[Number] [People/Days/Years] [Disturbing Specific Thing] — Nobody Talked About This"
+- "The [Institution] Knew. They Did It Anyway. Here's The File."
+- "How [Completely Normal Thing] Was Used To [Dark Outcome]"
+- "[Name or System] Ran [Disturbing Operation] For [Specific Duration]. Here's The Evidence."
+- "They Thought It Was [Normal Thing]. It Was [Dark Reality]."
+- "The [Number]-Day [Dark Event] Everyone Pretended Didn't Happen"
+- "[Specific Crime/System]: [Number] Victims. [Number] Years. [Number] Investigations. Zero Arrests."
+
+FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable", 
+"You Won't Believe", "Mind-Blowing", "Epic", "Ultimate", "Best"
+These signal low-quality content. Avoid them completely.
+
+Generate 5 YouTube titles for a dark investigative documentary.
 Series: {niche["series"]}, Episode {episode}. Topic: {topic}
 Rules: 55-70 chars each. Opens a psychological loop. Specific numbers where natural.
 Dark investigative tone. No colons unless essential. No quotes.
@@ -2346,11 +2421,12 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     try:
         af = NICHE_AUDIO_PROFILES.get(niche_name,
             # Default: warm documentary — broad appeal
-            "equalizer=f=80:width_type=o:width=2:g=3,"
-            "equalizer=f=2500:width_type=o:width=2:g=2,"
-            "equalizer=f=8000:width_type=o:width=2:g=-3,"
-            "aecho=0.8:0.85:40:0.25,"
-            "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
+            "equalizer=f=60:width_type=o:width=2:g=4,"
+            "equalizer=f=250:width_type=o:width=2:g=2,"
+            "equalizer=f=3000:width_type=o:width=2:g=-1,"
+            "equalizer=f=8000:width_type=o:width=2:g=-2,"
+            "aecho=0.85:0.88:60:0.3,"
+            "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
             "loudnorm=I=-16:LRA=11:TP=-1.5"
         )
         run_ffmpeg([
@@ -2869,8 +2945,8 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
             x    = (W - (bbox[2] - bbox[0])) // 2
             # A/B style colours
             if ab_style == "A":
-                shadow_col = (80, 0, 0)
-                text_col   = (220, 15, 15)
+                shadow_col = (0, 0, 0)
+                text_col   = (200, 0, 0)  # blood red
             else:
                 shadow_col = (0, 0, 0)
                 text_col   = (255, 255, 255)
@@ -3730,6 +3806,41 @@ def assemble_video(niche_name, audio_path, audio_duration, topic):
     sz = Path(final).stat().st_size
     log(f"  Final video: {sz//(1024*1024)}MB")
     return final
+
+
+
+def generate_thumbnail_text(niche, topic):
+    """Generate 3-word NUMBER+NOUN style thumbnail text for dark horror content."""
+    fallback_bank = {
+        "dark_horror":        ["FOUND INSIDE WALLS", "THREE YEARS HIDDEN", "NOBODY SURVIVED THIS"],
+        "seduction_dark":     ["SEVEN WARNING SIGNS", "ONE TRAP CLOSED", "TWENTY EIGHT DAYS"],
+        "psychological_trap": ["SIX STAGES FOUND", "NO EXIT EXISTS", "DOCUMENTED MIND CONTROL"],
+        "supernatural_real":  ["WITNESSES CONFIRMED THIS", "NINE NIGHTS RECORDED", "STILL UNEXPLAINED TODAY"],
+        "obsession_dark":     ["FOUR YEARS TRACKED", "EIGHT HUNDRED MESSAGES", "ONE PERSON KNEW"],
+    }
+    prompt = (
+        f"Generate the most psychologically compelling 3-word thumbnail text "
+        f"for a dark horror documentary video.\n"
+        f"NICHE: {niche['name']} | TOPIC: {topic[:100]}\n\n"
+        f"USE THESE TRIGGERS:\n"
+        f"1. CURIOSITY GAP: creates an unanswerable question\n"
+        f"2. DREAD: implies something disturbing was confirmed\n"
+        f"3. SPECIFICITY: a number or concrete detail, not vague\n"
+        f"4. PATTERN INTERRUPT: unexpected — makes viewer stop scrolling\n\n"
+        f"Rules: EXACTLY 3 words. ALL CAPS. Dark and specific. Never generic.\n"
+        f"Return ONLY 3 words. Example: FOUND INSIDE WALLS"
+    )
+    try:
+        result = ai_generate(prompt, tokens=15)
+        if result:
+            result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+            words  = result.split()[:3]
+            if len(words) == 3:
+                log(f"  Thumbnail: {' '.join(words)}")
+                return ' '.join(words)
+    except Exception as e:
+        log(f"  Thumbnail text (non-fatal): {e}")
+    return random.choice(fallback_bank.get(niche.get("name", "dark_horror"), fallback_bank["dark_horror"]))
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
