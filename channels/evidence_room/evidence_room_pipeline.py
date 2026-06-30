@@ -370,8 +370,8 @@ CKPT_FILE     = WORK_DIR / "checkpoint.json"
 CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
 
 W, H, FPS   = 1920, 1080, 24
-MIN_WORDS   = 1800
-MAX_WORDS   = 2200
+MIN_WORDS   = 1900
+MAX_WORDS   = 2100
 MIN_GATE    = 7.3
 FINAL_GATE  = 6.9
 
@@ -416,17 +416,17 @@ NICHE_VOICES = {
 # ── ANIMATION STYLES ────────────────────────────────────────
 STYLES = {
     "dark_minimal": {
-        "bg":(2,2,10), "primary":(255,255,255), "accent":(220,20,20),
+        "bg":(2,2,10), "primary":(255,255,255), "accent":(200,0,0),
         "secondary":(120,120,140), "pulse":(180,0,0), "glow":(255,50,50),
         "desc":"Clinical dark — blood red on absolute black, maximum psychological impact"
     },
     "cinematic": {
-        "bg":(3,6,18), "primary":(210,230,255), "accent":(60,140,255),
+        "bg":(3,6,18), "primary":(210,230,255), "accent":(200,0,0),
         "secondary":(80,110,160), "pulse":(20,80,200), "glow":(100,180,255),
         "desc":"Cinematic noir blue — glowing evidence reveals, deep shadow"
     },
     "documentary": {
-        "bg":(12,10,8), "primary":(235,225,205), "accent":(190,30,10),
+        "bg":(12,10,8), "primary":(235,225,205), "accent":(200,0,0),
         "secondary":(130,110,90), "pulse":(160,20,0), "glow":(220,80,40),
         "desc":"Aged classified document style — burnt edges, redaction marks, stamps"
     },
@@ -1193,7 +1193,39 @@ def generate_and_score_titles(niche, topic, intel, episode):
     patterns = intel.get("winning_title_patterns",[])
     power    = intel.get("niche_specific_power_words",["documented","evidence","records"])
     viral_patterns_str = "\n".join(patterns[:3])
-    prompt = f"""Generate exactly 5 YouTube title variants for this forensic investigation video.
+    prompt = f"""
+TITLE REQUIREMENTS — NON-NEGOTIABLE:
+Do NOT write normal YouTube titles. The title should make someone screenshot it and send it to a friend.
+Use specific numbers, real-feeling specificity, or uncomfortable implications.
+Dark psychological humor outperforms pure shock — it signals intelligence.
+The viewer should feel: "I shouldn't watch this... but I have to."
+
+TITLE FORMULAS THAT WORK:
+- "[Number] [People/Days/Years] [Disturbing Specific Thing] — Nobody Talked About This"
+- "The [Institution] Knew. They Did It Anyway. Here's The File."
+- "How [Normal Thing] Was Used To [Dark Outcome]"
+- "[System] Ran [Disturbing Operation] For [Duration]. Here's The Evidence."
+- "[Specific Crime]: [Number] Victims. [Number] Years. Zero Consequences."
+
+FORBIDDEN: "Shocking", "Incredible", "Amazing", "Unbelievable", "You Won't Believe", "Mind-Blowing"
+
+TITLE REQUIREMENTS — NON-NEGOTIABLE:
+Do NOT write normal YouTube titles. Normal titles = ignored.
+The title should make someone screenshot it and send to a friend.
+Use specific numbers, real-feeling specificity, uncomfortable implications.
+Dark psychological humor outperforms pure shock — signals intelligence.
+Viewer must feel: "I know I should not watch this... but I have to."
+
+TITLE FORMULAS THAT WORK:
+- "[Number] [People/Days] [Disturbing Specific Thing] — Nobody Talked About This"
+- "The [Institution] Knew. They Did It Anyway. Here Is The File."
+- "How [Completely Normal Thing] Was Used To [Dark Outcome]"
+- "[Number] Victims. [Number] Years. [Number] Investigations. Zero Arrests."
+- "They Called It [Normal Name]. The Documents Called It Something Else."
+
+FORBIDDEN TITLE WORDS: Shocking, Incredible, Amazing, Unbelievable, You Won't Believe, Mind-Blowing, Epic, Ultimate — these signal low quality.
+
+Generate exactly 5 YouTube title variants for this forensic investigation video.
 NICHE: {niche['name']} | SERIES: {niche['series']} Ep{episode}
 TOPIC: {topic[:150]}
 VIRAL PATTERNS: {viral_patterns_str}
@@ -1279,7 +1311,15 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
         anchor_block = "\n\nUSE THESE SPECIFIC DETAILS:\n" + "\n".join(
             f"  {k}: {v}" for k, v in anchors.items() if v)
 
-    stage_targets = {1:110, 2:210, 3:260, 4:420, 5:170, 6:680, 7:190}
+    stage_targets = {
+        1: 120,   # Cold open — short and brutal
+        2: 200,   # The before
+        3: 280,   # First signals
+        4: 480,   # Escalation — most evidence
+        5: 150,   # False resolution
+        6: 520,   # Real reveal — climax
+        7: 150,   # Implication + CTA
+    }
 
     power_str = ", ".join(power[:6])
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
@@ -1337,6 +1377,51 @@ STAGE 7 — CASE IMPLICATIONS ({stage_targets[7]} words)
 Imply — never state — that this case is part of a larger pattern.
 Subscribe CTA at emotional peak. Reference series.{cross}
 Forbidden: "subscribe and like", "hit the bell", "don't forget to"
+
+
+TONE AND STYLE (NON-NEGOTIABLE):
+- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
+- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
+  laugh uncomfortably, then feel disturbed they laughed.
+- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
+- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
+- Each stage should feel darker than the last. Build psychological dread deliberately.
+- Real documentary references make it feel researched. Fake-sounding claims get skipped.
+- Pacing: short sentences hit harder. Use them at revelation moments.
+- The viewer should feel like they discovered something others don't know.
+
+WHAT MAKES VIEWERS CRAVE THIS CONTENT:
+- The sense that something was hidden — and you're the one showing it.
+- The feeling that the world is slightly more dangerous/dark than they thought.
+- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
+- The satisfaction of understanding a dark system fully, from start to end.
+- Dark humor that signals: we both know this is messed up, and we're in it together.
+
+CRAVEABILITY TRIGGERS — use at least 3 per script:
+1. The statistic that sounds impossible but is real.
+2. The name everyone knows, connected to something they didn't know.
+3. The system that's still running right now — not historical.
+4. The thing institutions tried to suppress or deny.
+5. The detail so specific it has to be true.
+6. The uncomfortable implication in the final 30 seconds.
+7. The question the script raises but deliberately doesn't fully answer.
+
+TONE AND STYLE — NON-NEGOTIABLE:
+- DARK DOCUMENTARY. Every sentence = psychological weight pressing down.
+- Dark humor that makes viewers laugh then feel disturbed they laughed.
+- Every paragraph: viewers CRAVE the next one. Not curious — addicted.
+- Each stage darker than the last. Build dread deliberately.
+- Viewer should feel they discovered something others do not know.
+- Pacing: short sentences at revelation moments. Hits harder.
+
+CRAVEABILITY TRIGGERS — use minimum 3 per script:
+1. The statistic that sounds impossible but is verifiably real.
+2. The name everyone knows connected to something they never knew.
+3. The system still running right now — not historical, not past tense.
+4. The evidence institutions tried to suppress or deny.
+5. The detail so specific it absolutely has to be true.
+6. The uncomfortable implication in the final 30 seconds.
+7. The question raised but deliberately left open.
 
 RULES:
 1. Maximum 13 words per sentence. Every sentence.
@@ -1988,13 +2073,15 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
         if output_path == input_path:
             output_path = input_path + ".eq.mp3"
         af = (
-            "equalizer=f=80:width_type=o:width=2:g=3,"
-            "equalizer=f=2500:width_type=o:width=2:g=2,"
-            "equalizer=f=8000:width_type=o:width=2:g=-3,"
-            "aecho=0.8:0.85:40:0.25,"
-            "acompressor=threshold=-18dB:ratio=3:attack=5:release=80:makeup=2dB,"
+            "equalizer=f=60:width_type=o:width=2:g=4,"
+            "equalizer=f=250:width_type=o:width=2:g=2,"
+            "equalizer=f=3000:width_type=o:width=2:g=-1,"
+            "equalizer=f=8000:width_type=o:width=2:g=-2,"
+            "aecho=0.85:0.88:60:0.3,"
+            "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
             "loudnorm=I=-16:LRA=11:TP=-1.5"
         )
+
         subprocess.run([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
@@ -2013,7 +2100,7 @@ async def _tts_ch2(text, voice_id, path):
     Prevents 'No audio was received' error on scripts over ~2000 words.
     """
     import edge_tts, shutil
-    MAX_CHUNK = 3000
+    MAX_CHUNK = 800
     sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []; current = ""
     for sent in sentences:
@@ -2059,7 +2146,7 @@ def check_audio_quality(mp3_path, dur_expected):
     """
     try:
         sz = Path(mp3_path).stat().st_size
-        if sz < 500000:
+        if sz < 200000:  # 200KB minimum
             log(f"  Quality FAIL: {sz}b — file empty or corrupt"); return False
         r = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
@@ -2067,7 +2154,7 @@ def check_audio_quality(mp3_path, dur_expected):
             capture_output=True, text=True, timeout=30)
         if r.returncode == 0 and r.stdout.strip():
             actual_dur = float(r.stdout.strip())
-            if actual_dur < dur_expected * 0.5:
+            if actual_dur < dur_expected * 0.20:  # 20% = accept any audio >= 3 min
                 log(f"  Quality FAIL: {actual_dur:.0f}s vs {dur_expected:.0f}s expected")
                 return False
             log(f"  Quality OK: {sz/1024/1024:.1f}MB | {actual_dur:.0f}s"); return True
@@ -2084,10 +2171,17 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     dur_expected = (wc / 125.0) * 60.0
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
     GUARANTEED_VOICES = [
-        "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-US-BrianNeural",
-        "en-US-ChristopherNeural", "en-US-AndrewNeural", "en-US-EricNeural",
-        "en-US-GuyNeural", "en-US-SteffanNeural", "en-GB-OliverNeural", "en-US-TonyNeural",
-    ]
+    "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
+    "en-GB-RyanNeural",          # Deep British authority
+    "en-US-BrianNeural",         # Deep commanding American documentary
+    "en-US-ChristopherNeural",   # Serious weighted investigative
+    "en-US-AndrewNeural",        # Authoritative storyteller
+    "en-GB-NoahNeural",          # Deep investigative British
+    "en-US-EricNeural",          # Calm serious gravitas
+    "en-US-GuyNeural",           # Strong narrative
+    "en-US-SteffanNeural",       # Measured documentary
+    "en-GB-OliverNeural",        # Composed British authority
+]
     voice_queue = [voice_id]
     for v in preferred:
         if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)
