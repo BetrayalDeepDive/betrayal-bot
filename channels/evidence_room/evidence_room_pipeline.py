@@ -1584,7 +1584,7 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
 
     # Force expansion if under minimum word count
     for _exp in range(3):
-        if wc >= MIN_WORDS: break
+        if wc >= MIN_WORDS or wc > MAX_WORDS: break
         deficit = MIN_WORDS - wc
         log(f"  {wc}w — expanding (need {deficit} more)...")
         try:
@@ -1597,6 +1597,11 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
                 c2 = strip_md(raw2)
                 if len(c2.split()) > wc:
                     clean = c2; wc = len(clean.split())
+                    # Hard truncate to MAX_WORDS after expansion
+                    if wc > MAX_WORDS:
+                        words_list = clean.split()
+                        clean = " ".join(words_list[:MAX_WORDS])
+                        wc    = len(clean.split())
                     log(f"  Expanded to {wc}w")
         except Exception as _e:
             log(f"  Expansion (non-fatal): {_e}"); break
@@ -2100,7 +2105,7 @@ async def _tts_ch2(text, voice_id, path):
     Prevents 'No audio was received' error on scripts over ~2000 words.
     """
     import edge_tts, shutil
-    MAX_CHUNK = 800
+    MAX_CHUNK = 500
     sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []; current = ""
     for sent in sentences:
@@ -2167,6 +2172,11 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     log("\n"+"="*65)
     log(f"  STAGE 3: Human Voice Audio — {voice_id}")
     log("="*65)
+    # Hard truncate to MAX_WORDS before TTS — prevents 40-chunk failures
+    _words = script_clean.split()
+    if len(_words) > MAX_WORDS:
+        script_clean = " ".join(_words[:MAX_WORDS])
+        log(f"  Script truncated to MAX_WORDS ({MAX_WORDS}w) for TTS reliability")
     wc           = len(script_clean.split())
     dur_expected = min((wc / 125.0) * 60.0, 900.0)  # cap at 15 min
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
@@ -2188,7 +2198,8 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     for v in GUARANTEED_VOICES:
         if v not in voice_queue: voice_queue.append(v)
 
-    for v in voice_queue[:12]:
+    for _vi, v in enumerate(voice_queue[:12]):
+        if _vi > 0: time.sleep(3)  # avoid edge-tts rate limit
         log(f"  Trying: {v}")
         mp3 = str(WORK_DIR / "audio.mp3")
         try:
@@ -3015,6 +3026,9 @@ def _inject_ctas_er(script_clean, niche_name):
         result = result[:insert_at] + cta + " " + result[insert_at:]
         inserted += len(cta.split()) + 1
 
+    # Ensure subscribe CTA exists in final 60 words
+    if "subscribe" not in " ".join(result.split()[-60:]).lower():
+        result = result.rstrip() + " Subscribe to this channel for more documented investigations."
     return result
 
 
