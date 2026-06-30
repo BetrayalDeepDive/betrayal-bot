@@ -2168,7 +2168,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     log(f"  STAGE 3: Human Voice Audio — {voice_id}")
     log("="*65)
     wc           = len(script_clean.split())
-    dur_expected = (wc / 125.0) * 60.0
+    dur_expected = min((wc / 125.0) * 60.0, 900.0)  # cap at 15 min
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
@@ -2961,6 +2961,131 @@ def run_stage2_approval_ch2(title_str, niche, score, script_clean):
             pass
     tg("30 min expired — auto-approved.")
     return "auto_approved"
+
+
+def _inject_ctas_er(script_clean, niche_name):
+    """
+    Inject subscribe CTAs at 30/60/80% word marks for retention + conversion.
+    Channel-specific, niche-specific phrasing — never identical wording.
+    """
+    cta_bank = {
+        "forensic_finance": [
+            "If documented cases like this concern you, subscribe — new files every week.",
+            "This channel investigates documented financial fraud. Subscribe to follow the evidence.",
+            "More documented cases like this are coming. Subscribe to The Evidence Room.",
+        ],
+        "criminal_investigation": [
+            "If this case concerns you, subscribe — documented investigations every week.",
+            "This channel documents criminal investigations. Subscribe to follow the evidence.",
+            "More documented cases like this are coming. Subscribe to The Evidence Room.",
+        ],
+        "corporate_exposure": [
+            "If this pattern concerns you, subscribe — documented exposures every week.",
+            "This channel investigates documented corporate misconduct. Subscribe to follow the record.",
+            "More documented findings like this are coming. Subscribe to The Evidence Room.",
+        ],
+        "digital_forensics": [
+            "If this trail concerns you, subscribe — documented digital cases every week.",
+            "This channel documents digital forensic investigations. Subscribe to follow the evidence.",
+            "More documented cases like this are coming. Subscribe to The Evidence Room.",
+        ],
+    }
+    ctas = cta_bank.get(niche_name, cta_bank["forensic_finance"])
+
+    words = script_clean.split()
+    total = len(words)
+    if total < 400:
+        return script_clean
+
+    marks = [int(total * 0.30), int(total * 0.60), int(total * 0.80)]
+    inserted = 0
+    result = script_clean
+
+    for i, mark_pct in enumerate(marks):
+        cta = ctas[i % len(ctas)]
+        target_word_idx = mark_pct + inserted
+        all_words = result.split()
+        if target_word_idx >= len(all_words):
+            continue
+        char_pos = len(" ".join(all_words[:target_word_idx]))
+        next_period = result.find(". ", char_pos)
+        if next_period == -1:
+            continue
+        insert_at = next_period + 2
+        result = result[:insert_at] + cta + " " + result[insert_at:]
+        inserted += len(cta.split()) + 1
+
+    return result
+
+
+
+def run_ffmpeg(cmd, label="ffmpeg", timeout=300):
+    """Run an ffmpeg subprocess with consistent logging and timeout handling."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", "ignore")[-200:]
+            log(f"  {label}: ffmpeg exit {result.returncode} — {err}")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        log(f"  {label}: ffmpeg timed out after {timeout}s")
+        return False
+    except Exception as e:
+        log(f"  {label}: ffmpeg error — {e}")
+        return False
+
+
+def score_script_er(script_clean, wc, violations):
+    """
+    Score a generated script 0-10. Used as the quality gate before approval.
+    Checks: word count, markdown violations, retention hooks at 30/60/80%.
+    """
+    if not script_clean:
+        return 0.0, ["Empty script"]
+
+    score  = 5.0
+    issues = []
+
+    if wc >= MIN_WORDS:
+        score += 2.8
+    elif wc >= int(MIN_WORDS * 0.8):
+        score += 0.8
+    else:
+        score -= 2.0
+        issues.append(f"Under word target: {wc}w")
+
+    if violations == 0:
+        score += 2.2
+    elif violations <= 2:
+        score += 0.8
+    else:
+        score -= 1.5
+        issues.append(f"{violations} markdown violations")
+
+    words = script_clean.split()
+    total = len(words)
+    if total >= 400:
+        def seg(p1, p2):
+            return " ".join(words[int(total*p1):int(total*p2)]).lower()
+        hook_signals = ["subscribe", "coming up", "next", "what happens", "the answer",
+                        "revealed", "in a moment", "stay", "about to", "this changes",
+                        "documented", "the evidence", "what comes next"]
+        if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
+            score -= 0.4
+            issues.append("Missing 30% retention hook")
+        h60 = sum(1 for w in hook_signals if w in seg(0.55, 0.65))
+        if h60 < 2:
+            score -= 0.8
+            issues.append("Weak 60% peak hook")
+        elif h60 >= 3:
+            score += 0.3
+        if "subscribe" not in " ".join(words[-60:]).lower():
+            score -= 0.3
+            issues.append("Missing subscribe CTA in final 60 words")
+
+    return min(round(score, 1), 10.0), issues
+
 
 
 def main():
