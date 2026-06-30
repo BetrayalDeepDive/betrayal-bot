@@ -1492,7 +1492,7 @@ def generate_script_content(niche, topic, episode, attempt,
     if raw:
         for _exp in range(2):
             raw_wc = len(raw.split())
-            if raw_wc >= MIN_WORDS: break
+            if raw_wc >= MIN_WORDS or raw_wc > MAX_WORDS: break
             log(f"  Script {raw_wc}w short — expanding...")
             try:
                 ep = (f"Script is {raw_wc}w, needs {MIN_WORDS}."
@@ -1503,6 +1503,9 @@ def generate_script_content(niche, topic, episode, attempt,
                 raw2 = ai_generate(ep, tokens=8000)
                 if raw2 and len(raw2.split()) > raw_wc:
                     raw = raw2
+                    # Hard truncate raw to MAX_WORDS after expansion
+                    if len(raw.split()) > MAX_WORDS:
+                        raw = " ".join(raw.split()[:MAX_WORDS])
                     log(f"  Expanded to {len(raw.split())}w")
             except Exception as _e:
                 log(f"  Expansion (non-fatal): {_e}"); break
@@ -1531,6 +1534,10 @@ def generate_script_content(niche, topic, episode, attempt,
                 script     = s2
                 wc         = len(script.split())
                 violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
+                # Hard truncate to MAX_WORDS
+                if wc > MAX_WORDS:
+                    script = " ".join(script.split()[:MAX_WORDS])
+                    wc = len(script.split())
                 log(f"  Expanded: {wc}w")
 
     # Step 4: Stage-level scoring + targeted rewrite of 2 worst stages
@@ -1630,6 +1637,10 @@ def generate_script_content(niche, topic, episode, attempt,
     # Step 5: CTA injection
     if len(script.split()) >= 400:
         script = _inject_ctas_ch1(script, niche["name"])
+        # Subscribe CTA guard
+        if "subscribe" not in " ".join(script.split()[-60:]).lower():
+            script += " Subscribe to this channel for more documented cases."
+        script_clean = script
         wc     = len(script.split())
         log(f"  CTAs injected — final: {wc}w")
 
@@ -2174,6 +2185,12 @@ def run_audio_stage(script, niche_name, edge_voice):
     else:
         # Try SSML multi-rate audio (7 delivery speeds across 7 stages)
         log("  Trying SSML dynamic-rate audio...")
+        # Truncate script to MAX_WORDS before SSML to prevent long audio failures
+        _ssml_words = script.split()
+        if len(_ssml_words) > MAX_WORDS:
+            script = " ".join(_ssml_words[:MAX_WORDS])
+            script_clean = script
+            log(f"  Script truncated to {MAX_WORDS}w before SSML")
         ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
         if ssml_path and ssml_dur > 60 and ssml_dur < 1800:  # 30-min max sanity cap
             import shutil
