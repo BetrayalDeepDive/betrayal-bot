@@ -84,5 +84,48 @@
       "The Boeing 737 Max Disaster"
     ],
     "last_run": "2026-06-30T23:43:59.038429"
+  },
+  "criminal_investigation": {
+    "top_hook_formulas": [
+      "New Evidence Revealed",
+      "Case Reopened: Shocking Twist",
+      "The Investigation Continues..."
+    ],
+    "winning_title_patterns": [
+      "The [Case Name] Murder: A [Number]-Year Mystery",
+      "Uncovering the Truth Behind [Case Name]",
+      "Solving [Case Name]: The [Number] Clue That Cracked the Case"
+    ],
+    "thumbnail_text_examples": [
+      "Cold Case Solved",
+      "DNA Evidence Found",
+      "Killer Caught On Tape",
+      "New Witness Comes Forward",
+      "Justice After [Number] Years"
+    ],
+    "emotional_arc": "The videos typically follow an emotional arc of shock, intrigue, and ultimately, justice being served, keeping viewers engaged and invested in the case.",
+    "retention_hooks": [
+      "30%: Introduction to the case and its shocking details",
+      "60%: Revealing new evidence or a surprising twist",
+      "80%: The final revelation and conclusion of the case"
+    ],
+    "niche_specific_power_words": [
+      "Forensic",
+      "Investigation",
+      "Cold Case",
+      "Murder",
+      "Mystery",
+      "Justice"
+    ],
+    "what_makes_videos_viral": "Videos in this niche become viral due to the combination of intriguing true crime stories, shocking twists, and the satisfaction of justice being served, which resonates with a wide audience and encourages sharing.",
+    "fresh_topic_ideas": [
+      "The Use of AI in Cold Case Investigations",
+      "The Psychology of Serial Killers",
+      "Famous Cold Cases That Were Solved Years Later",
+      "The Impact of Social Media on Crime Investigations",
+      "Cold Cases Involving Missing Persons",
+      "Historical Cold Cases and Their Modern Implications"
+    ],
+    "last_run": "2026-07-01T22:58:04.950022"
   }
 }
