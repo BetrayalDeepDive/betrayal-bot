@@ -41,5 +41,48 @@
       "Exposing Money Laundering in the Art World"
     ],
     "last_run": "2026-06-21T11:21:44.057002"
+  },
+  "corporate_exposure": {
+    "top_hook_formulas": [
+      "Exposing the Dark Secret",
+      "The Hidden Truth Revealed",
+      "Uncovering the Shocking Scandal"
+    ],
+    "winning_title_patterns": [
+      "The [Company/Individual] Scandal: A [Number]-Year Cover-Up",
+      "Uncovering the [Crime/Fraud] Behind [Company/Industry]",
+      "The [Company/Individual] Investigation: What Really Happened"
+    ],
+    "thumbnail_text_examples": [
+      "BIGGEST FRAUD",
+      "CORRUPT CEO",
+      "BILLION DOLLAR SCAM",
+      "WORLDWIDE COVER UP",
+      "TRUTH FINALLY REVEALED"
+    ],
+    "emotional_arc": "The videos typically start with an introduction to the scandal, build up to a shocking revelation, and conclude with a call to action or a reflection on the impact of the fraud.",
+    "retention_hooks": [
+      "Introduction to the whistleblower at 30%",
+      "Revelation of incriminating evidence at 60%",
+      "Consequences for those responsible at 80%"
+    ],
+    "niche_specific_power_words": [
+      "Embezzlement",
+      "Money Laundering",
+      "Whistleblower",
+      "Enron",
+      "Bernie Madoff",
+      "Ponzi Scheme"
+    ],
+    "what_makes_videos_viral": "Videos in this niche become viral when they expose a large-scale corporate fraud or cover-up, revealing shocking details and sparking widespread outrage and discussion.",
+    "fresh_topic_ideas": [
+      "The Rise of Crypto Fraud",
+      "The Dark Side of Big Pharma",
+      "The Volkswagen Emissions Scandal",
+      "The Panama Papers Exposed",
+      "The Wells Fargo Fake Accounts Scandal",
+      "The Boeing 737 Max Disaster"
+    ],
+    "last_run": "2026-06-30T23:43:59.038429"
   }
 }
