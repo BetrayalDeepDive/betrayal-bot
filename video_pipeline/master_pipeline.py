@@ -2115,7 +2115,8 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
     for i, (text, rate) in enumerate(segments):
         part_path = str(WORK_DIR / f"audio_seg_{i}.mp3")
         voices_to_try = [edge_voice, "en-GB-RyanNeural", "en-US-BrianNeural"]
-        for v in voices_to_try:
+        for _vsi, v in enumerate(voices_to_try):
+            if _vsi > 0: time.sleep(2)  # avoid edge-tts rate limit
             try:
                 asyncio.run(asyncio.wait_for(_edge_tts_segment(text, v, rate, part_path), timeout=90))
                 if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
@@ -2205,7 +2206,8 @@ def run_audio_stage(script, niche_name, edge_voice):
     if not el_ok:
         voices_to_try = [edge_voice] + [v for v in
             ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-DavisNeural"] if v != edge_voice]
-        for v in voices_to_try:
+        for _vfi, v in enumerate(voices_to_try):
+            if _vfi > 0: time.sleep(3)  # avoid edge-tts rate limit
             try:
                 log(f"  edge-tts: {v}")
                 asyncio.run(asyncio.wait_for(_edge_tts_stream(script, v, audio_path, vtt_path), timeout=120))
