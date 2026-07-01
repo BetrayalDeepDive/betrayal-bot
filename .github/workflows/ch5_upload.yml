@@ -1,0 +1,63 @@
+name: Ch5 The Collapse Index — Upload
+
+on:
+  schedule:
+    # Runs at 11:00 PM IST (5:30 PM UTC)
+    - cron: '30 17 * * *'
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests google-auth-oauthlib \
+                      google-auth-httplib2 google-api-python-client 2>/dev/null || true
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull origin main --rebase || true
+
+      - name: Upload pre-generated video
+        env:
+          PIPELINE_PHASE: upload
+          WORK_DIR: /tmp/collapse_index
+          COLLAPSE_YT_CLIENT_ID: ${{ secrets.COLLAPSE_YT_CLIENT_ID }}
+          COLLAPSE_YT_CLIENT_SECRET: ${{ secrets.COLLAPSE_YT_CLIENT_SECRET }}
+          COLLAPSE_YT_REFRESH_TOKEN: ${{ secrets.COLLAPSE_YT_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          mkdir -p /tmp/collapse_index
+          cp channels/collapse_index/pending_upload.json /tmp/collapse_index/ 2>/dev/null || true
+          cp channels/collapse_index/collapse_state.json /tmp/collapse_index/ 2>/dev/null || true
+          python channels/collapse_index/collapse_index_pipeline.py
+
+      - name: Commit state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          cp /tmp/collapse_index/collapse_state.json channels/collapse_index/collapse_state.json 2>/dev/null || true
+          git add -A
+          git diff --staged --quiet || git commit -m "Ch5 Collapse: uploaded $(date '+%Y-%m-%d')"
+          git push origin main || true
+
+      - name: Post Run
+        uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: '3.11'
