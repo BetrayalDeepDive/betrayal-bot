@@ -44,46 +44,46 @@
   },
   "mass_deception": {
     "top_hook_formulas": [
-      "You won't believe the truth about...",
-      "The shocking reality of...",
-      "What they don't want you to know..."
+      "Exposing the Truth",
+      "Uncovering the Lies",
+      "The Shocking Reality"
     ],
     "winning_title_patterns": [
-      "The Hidden Truth About Mass Deception",
-      "Exposing the Largest Psychological Manipulation in History",
-      "The Dark Side of..."
+      "The [Adjective] Story of [Topic]",
+      "[Topic]: The [Adjective] Truth",
+      "Uncovering the [Topic] Conspiracy"
     ],
     "thumbnail_text_examples": [
-      "WAKE UP SHEEPLE",
+      "YOU WON'T BELIEVE",
+      "THE TRUTH IS OUT",
       "EXPOSED AT LAST",
-      "THE TRUTH REVEALED",
-      "YOU'VE BEEN LIED TO",
-      "THE SECRET'S OUT"
+      "THE SHOCKING TRUTH",
+      "WHAT THEY DON'T WANT"
     ],
-    "emotional_arc": "The videos take the viewer on a journey from ignorance to awareness, leaving them feeling shocked, outraged, and motivated to take action",
+    "emotional_arc": "The videos typically start with a provocative statement, build up to a shocking revelation, and conclude with a call to action or a thought-provoking question.",
     "retention_hooks": [
-      "A startling statistic or fact at 30%",
-      "A personal story or anecdote at 60%",
-      "A call to action or next steps at 80%"
+      "Introduction to a lesser-known theory or perspective at 30%",
+      "Revelation of a surprising fact or evidence at 60%",
+      "Expert opinion or insider testimony at 80%"
     ],
     "niche_specific_power_words": [
-      "deception",
-      "manipulation",
-      "control",
-      "exposed",
-      "truth",
-      "awakening"
+      "Deception",
+      "Manipulation",
+      "Control",
+      "Exposure",
+      "Truth",
+      "Conspiracy"
     ],
-    "what_makes_videos_viral": "The combination of a provocative title, a shocking or intriguing thumbnail, and a well-structured narrative that reveals a hidden truth or exposes a large-scale deception",
+    "what_makes_videos_viral": "The combination of provocative titles, shocking revelations, and expert opinions, along with the use of power words and emotional storytelling, contributes to the virality of these documentary investigation videos.",
     "fresh_topic_ideas": [
-      "The Psychology of Mass Deception",
-      "The Role of Social Media in Shaping Public Opinion",
-      "The History of Mind Control Techniques",
-      "The Connection Between Propaganda and War",
-      "The Impact of Deception on Mental Health",
-      "The Future of Truth and Transparency in the Digital Age"
+      "The Dark Side of Social Media Manipulation",
+      "Uncovering the Truth Behind the Pandemic",
+      "The Secret History of Mind Control Experiments",
+      "Exposing the Agenda Behind Climate Change",
+      "The Hidden Dangers of 5G Technology",
+      "Unraveling the Mystery of the Illuminati"
     ],
-    "last_run": "2026-06-25T07:53:14.751152"
+    "last_run": "2026-07-02T19:19:19.165619"
   },
   "cult_psychology": {
     "top_hook_formulas": [
