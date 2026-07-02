@@ -476,7 +476,7 @@ def ai(prompt, tokens=2000, temp=0.85, prefer=None):
     return None
 
 # ── NICHE ROTATION ────────────────────────────────────────────
-STATE_FILE = WORK_DIR / "archive_state.json"
+STATE_FILE = SCRIPT_DIR / "archive_state.json"  # saved to repo, not /tmp/
 
 def load_state():
     try:
@@ -807,13 +807,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
             log(f"  ACCEPTED: {v}")
             # Apply dark cinematic EQ
             eq_path = str(WORK_DIR / "audio_eq.mp3")
-            af = ('"equalizer=f=60:width_type=o:width=2:g=4,"'
-                  '"equalizer=f=250:width_type=o:width=2:g=2,"'
-                  '"equalizer=f=3000:width_type=o:width=2:g=-1,"'
-                  '"equalizer=f=8000:width_type=o:width=2:g=-2,"'
-                  '"aecho=0.85:0.88:60:0.3,"'
-                  '"acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"'
-                  '"loudnorm=I=-16:LRA=11:TP=-1.5"')
+            af = ("equalizer=f=60:width_type=o:width=2:g=4,equalizer=f=250:width_type=o:width=2:g=2,equalizer=f=3000:width_type=o:width=2:g=-1,equalizer=f=8000:width_type=o:width=2:g=-2,aecho=0.85:0.88:60:0.3,acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,loudnorm=I=-16:LRA=11:TP=-1.5")
             if run_ffmpeg(["ffmpeg","-y","-i",audio_path,"-af",af,"-c:a","libmp3lame","-q:a","2",eq_path],"audio-eq",180):
                 shutil.copy(eq_path, audio_path)
             return audio_path, get_media_duration(audio_path), None, v
@@ -993,7 +987,7 @@ def upload_yt(video_path, title, description, tags, thumb_path=None):
         return vid_id
 
 # ── PENDING STATE ─────────────────────────────────────────────
-PENDING_FILE = WORK_DIR / "pending_upload.json"
+PENDING_FILE = SCRIPT_DIR / "pending_upload.json"  # saved to repo, not /tmp/
 
 def save_pending(data):
     PENDING_FILE.write_text(json.dumps(data, indent=2))
@@ -1101,6 +1095,17 @@ def main():
 
     # Score gate
     FINAL_GATE = 6.9
+    if score < 4.0 and wc < 500:
+        log("  Partial AI response — retrying with different provider...")
+        raw_r = generate_script(niche, topic, episode)
+        if raw_r:
+            sc2,ti2,th2,ta2 = parse_script_output(raw_r, niche)
+            if sc2 and len(sc2.split()) > wc:
+                script,title,thumb_text,tags = sc2,ti2,th2,ta2
+                wc = len(script.split())
+                violations = len(re.findall(r"[#*_`\[\]{}|<>\\]", script))
+                score,issues = score_script(script, wc, violations)
+                log(f"  Retry score: {score}/10 | {wc}w")
     if score < FINAL_GATE:
         tg(f"⚠️ Archive: Script score {score}/10 below gate {FINAL_GATE} — skipping")
         sys.exit(0)
