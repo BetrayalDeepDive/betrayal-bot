@@ -1,63 +1,62 @@
+# ============================================================
+# THE ARCHIVE — Ch4 Upload Workflow
+# Phase 2: UPLOAD only (reads from pending_upload.json in repo)
+# Runs: Tue-Sat 9:00 PM IST = 15:30 UTC
+# 1h before Ch1 upload — stagger uploads across the evening
+# US: 11:30 AM ET | UK: 4:30 PM BST — US afternoon indexing
+# ============================================================
 name: Ch4 The Archive — Upload
 
 on:
   schedule:
-    # Runs at 10:00 PM IST (4:30 PM UTC)
-    - cron: '30 16 * * *'
+    - cron: '30 15 * * 2-6'   # 9:00 PM IST | Tue-Sat
   workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "upload"
 
 jobs:
   upload:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install requests google-auth-oauthlib \
-                      google-auth-httplib2 google-api-python-client 2>/dev/null || true
+        run: pip install requests pillow -q
 
       - name: Pull latest state
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull origin main --rebase || true
+          git pull --rebase origin main || true
 
       - name: Upload pre-generated video
         env:
-          PIPELINE_PHASE: upload
-          WORK_DIR: /tmp/archive
-          ARCHIVE_YT_CLIENT_ID: ${{ secrets.ARCHIVE_YT_CLIENT_ID }}
-          ARCHIVE_YT_CLIENT_SECRET: ${{ secrets.ARCHIVE_YT_CLIENT_SECRET }}
-          ARCHIVE_YT_REFRESH_TOKEN: ${{ secrets.ARCHIVE_YT_REFRESH_TOKEN }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ARCHIVE_YT_CLIENT_ID:      ${{ secrets.ARCHIVE_YT_CLIENT_ID }}
+          ARCHIVE_YT_CLIENT_SECRET:  ${{ secrets.ARCHIVE_YT_CLIENT_SECRET }}
+          ARCHIVE_YT_REFRESH_TOKEN:  ${{ secrets.ARCHIVE_YT_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
+          PIPELINE_PHASE:            "upload"
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
-          mkdir -p /tmp/archive
-          cp channels/archive/pending_upload.json /tmp/archive/ 2>/dev/null || true
-          cp channels/archive/archive_state.json  /tmp/archive/ 2>/dev/null || true
-          python channels/archive/archive_pipeline.py
+          python -u channels/archive/archive_pipeline.py
 
-      - name: Commit state
+      - name: Commit upload state
+        if: always()
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          cp /tmp/archive/archive_state.json channels/archive/archive_state.json 2>/dev/null || true
-          git add -A
-          git diff --staged --quiet || git commit -m "Ch4 Archive: uploaded $(date '+%Y-%m-%d')"
+          git add channels/archive/archive_state.json \
+                  channels/archive/pending_upload.json || true
+          git diff --staged --quiet || git commit -m "chore: ch4 uploaded [skip ci]"
           git push origin main || true
-
-      - name: Post Run
-        uses: actions/setup-python@v5
-        if: always()
-        with:
-          python-version: '3.11'
