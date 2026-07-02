@@ -1473,10 +1473,9 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
     clean = strip_md(strip_md(parts[0].strip()))
     wc    = len(clean.split())
 
-    # Expansion rounds
+    # Expansion rounds — hard ceiling at MAX_WORDS to prevent 40-chunk TTS failures
     for exp_round in range(2):
-        if wc >= MIN_WORDS:
-            break
+        if wc >= MIN_WORDS or wc > MAX_WORDS: break
         deficit = MIN_WORDS - wc
         log(f"  {wc}w short — expanding round {exp_round+1}...")
         exp = (
@@ -1492,6 +1491,10 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
             if len(c2.split()) > wc:
                 clean = c2
                 wc    = len(clean.split())
+                # Hard truncate after expansion — prevents 5030w scripts
+                if wc > MAX_WORDS:
+                    clean = " ".join(clean.split()[:MAX_WORDS])
+                    wc    = len(clean.split())
                 log(f"  Expanded to {wc}w")
 
     # Stage-level scoring + targeted rewrite of 2 worst stages
