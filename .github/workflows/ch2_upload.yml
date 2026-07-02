@@ -1,6 +1,6 @@
 # ============================================================
-# EVIDENCE ROOM — Ch2 Upload Workflow
-# Phase 2: UPLOAD only
+# THE EVIDENCE ROOM — Ch2 Upload Workflow
+# Phase 2: UPLOAD only (reads pending_upload.json from repo)
 # Runs: Tue-Sat 11:30 PM IST = 18:00 UTC (1h after Ch1 upload)
 # US: 2 PM ET | UK: 7 PM BST — indexed by 8-9 PM ET peak
 # ============================================================
@@ -30,7 +30,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests pillow -q
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg -qq
+          pip install requests pillow -q
 
       - name: Pull latest state
         run: |
@@ -43,8 +46,16 @@ jobs:
           EVIDENCE_YT_CLIENT_ID:     ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
           EVIDENCE_YT_CLIENT_SECRET: ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
           EVIDENCE_YT_REFRESH_TOKEN: ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          YOUTUBE_CLIENT_ID:         ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET:     ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN:     ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
+          CEREBRAS_API_KEY:          ${{ secrets.CEREBRAS_API_KEY }}
+          SAMBANOVA_API_KEY:         ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY:            ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY:        ${{ secrets.OPENROUTER_API_KEY }}
+          PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
           PIPELINE_PHASE:            "upload"
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
@@ -56,6 +67,7 @@ jobs:
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
           git add channels/evidence_room/state.json \
+                  channels/evidence_room/intel.json \
                   channels/evidence_room/pending_upload.json || true
           git diff --staged --quiet || git commit -m "chore: ch2 uploaded [skip ci]"
           git push origin main || true
