@@ -1,70 +1,85 @@
+# ============================================================
+# THE COLLAPSE INDEX — Ch5 Generation Workflow
+# Phase 1: GENERATE only (no upload)
+# Runs: Mon-Fri 8:30 AM IST = 03:00 UTC
+# 2.5h after Ch4 generate — full token quota recovery
+# Niches: AI Failures, Surveillance Capitalism, Tech Displacement,
+#         Algorithmic Society, Collapse Scenarios, Cybersecurity
+# ============================================================
 name: Ch5 The Collapse Index — Generate
 
 on:
   schedule:
-    # Runs at 3:30 AM IST (10:00 PM UTC previous day)
-    - cron: '0 22 * * *'
+    - cron: '0 3 * * 1-5'   # 8:30 AM IST | Mon-Fri
   workflow_dispatch:
+    inputs:
+      is_makeup:
+        description: 'Resume from checkpoint'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "generate"
 
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install requests edge-tts pillow google-auth-oauthlib \
-                      google-auth-httplib2 google-api-python-client 2>/dev/null || true
-          sudo apt-get install -y ffmpeg 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation -qq
+          pip install requests pillow edge-tts -q
 
       - name: Pull latest state
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull origin main --rebase || true
+          git pull --rebase origin main || true
 
       - name: Generate video (no upload)
         env:
-          PIPELINE_PHASE: generate
-          WORK_DIR: /tmp/collapse_index
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          COLLAPSE_YT_CLIENT_ID: ${{ secrets.COLLAPSE_YT_CLIENT_ID }}
-          COLLAPSE_YT_CLIENT_SECRET: ${{ secrets.COLLAPSE_YT_CLIENT_SECRET }}
-          COLLAPSE_YT_REFRESH_TOKEN: ${{ secrets.COLLAPSE_YT_REFRESH_TOKEN }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CEREBRAS_API_KEY:           ${{ secrets.CEREBRAS_API_KEY }}
+          SAMBANOVA_API_KEY:          ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY:             ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:           ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY:               ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY:         ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY:             ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:            ${{ secrets.MISTRAL_API_KEY }}
+          PIXABAY_KEY:                ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:             ${{ secrets.PEXELS_API_KEY }}
+          TELEGRAM_TOKEN:             ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:           ${{ secrets.TELEGRAM_CHAT_ID }}
+          PIPELINE_PHASE:             "generate"
+          COLLAPSE_YT_CLIENT_ID:      ${{ secrets.COLLAPSE_YT_CLIENT_ID }}
+          COLLAPSE_YT_CLIENT_SECRET:  ${{ secrets.COLLAPSE_YT_CLIENT_SECRET }}
+          COLLAPSE_YT_REFRESH_TOKEN:  ${{ secrets.COLLAPSE_YT_REFRESH_TOKEN }}
+          IS_MAKEUP:                  ${{ github.event.inputs.is_makeup || 'false' }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
-          python channels/collapse_index/collapse_index_pipeline.py
+          python -u channels/collapse_index/collapse_index_pipeline.py
 
       - name: Commit generated artifacts + state
+        if: always()
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          cp /tmp/collapse_index/pending_upload.json channels/collapse_index/pending_upload.json 2>/dev/null || true
-          cp /tmp/collapse_index/collapse_state.json channels/collapse_index/collapse_state.json 2>/dev/null || true
-          git add -A
-          git diff --staged --quiet || git commit -m "Ch5 Collapse: generated $(date '+%Y-%m-%d')"
+          git add channels/collapse_index/collapse_state.json \
+                  channels/collapse_index/collapse_intel.json \
+                  channels/collapse_index/pending_upload.json || true
+          git diff --staged --quiet || git commit -m "chore: ch5 generated [skip ci]"
           git push origin main || true
-
-      - name: Post Run
-        uses: actions/setup-python@v5
-        if: always()
-        with:
-          python-version: '3.11'
