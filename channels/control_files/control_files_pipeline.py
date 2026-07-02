@@ -3134,6 +3134,788 @@ def score_script_er(script_clean, wc, violations):
 
 
 
+
+# ═══════════════════════════════════════════════════════════
+# PORTED FROM Ch1 — Advanced features for Ch3
+# ═══════════════════════════════════════════════════════════
+
+def run_provider_health_check():
+    """
+    Tests all AI providers at pipeline startup.
+    Fires BEFORE script generation so you see exactly what works.
+    Results sent to Telegram so you can see them in the approval gate.
+    """
+    log("\n" + "="*65)
+    log("  AI PROVIDER HEALTH CHECK")
+    log("="*65)
+    test = "Reply with exactly: OK"
+    results = {}
+
+    checks = [
+        ("Cerebras",    _call_cerebras),
+        ("SambaNova",   _call_sambanova),
+        ("Gemini",      _call_gemini_with_fallback),
+        ("Groq",        call_groq),
+        ("OpenRouter",  _call_openrouter),
+        ("Cohere",      _call_cohere),
+        ("Mistral",     _call_mistral),
+    ]
+    working = []
+    for name, fn in checks:
+        try:
+            r = fn(test, tokens=50)
+            status = "✅ WORKING" if r else "❌ NO RESPONSE"
+            if r: working.append(name)
+        except Exception as e:
+            status = f"❌ ERROR: {str(e)[:60]}"
+        results[name] = status
+        log(f"  {name:12s}: {status}")
+
+    log("="*65)
+
+    # Alert to Telegram so Mohammed can see it without checking logs
+    status_lines = "\n".join(f"  {n}: {s}" for n, s in results.items())
+    if len(working) == 0:
+        tg(f"🚨 CRITICAL: ALL AI PROVIDERS FAILED\n{status_lines}\n\nPipeline cannot continue.")
+        raise RuntimeError("All AI providers failed health check")
+    elif len(working) < 3:
+        tg(f"⚠️ Only {len(working)} AI provider(s) working:\n{status_lines}")
+    else:
+        log(f"  {len(working)}/7 providers working — OK to proceed")
+
+    return working
+
+
+
+def generate_best_cold_open(niche, topic, trending_titles=None):
+    """
+    Generate 3 cold open variants, score each on hook strength, return the best.
+    The cold open is the most important 30 seconds — it determines whether
+    YouTube promotes the video or buries it.
+    """
+    trend_hint = ""
+    if trending_titles:
+        trend_hint = f"These hooks are working in this niche right now:\n"
+        trend_hint += "\n".join(f"  - {t}" for t in trending_titles[:3])
+
+    prompt = f"""Generate exactly 3 different cold open variants for a dark documentary narration.
+Topic: {topic}
+Niche style: {niche["dread_style"]}
+{trend_hint}
+
+Each cold open must:
+- Be 80-120 words
+- Start with the single most disturbing fact — mid-action, no preamble
+- Never say "welcome back", "today", "in this video"
+- Use a specific date, time, or number in the first sentence
+- Create a question the listener cannot stop thinking about
+
+Format your response EXACTLY as:
+VARIANT_1:
+[cold open text here]
+VARIANT_2:
+[cold open text here]
+VARIANT_3:
+[cold open text here]
+
+Write all 3 now. Zero markdown."""
+
+    raw = ai_generate(prompt, tokens=1200)
+    if not raw:
+        return None
+
+    # Parse variants
+    variants = []
+    for i in range(1, 4):
+        pattern = f"VARIANT_{i}:"
+        next_p  = f"VARIANT_{i+1}:" if i < 3 else None
+        start = raw.find(pattern)
+        if start == -1: continue
+        start += len(pattern)
+        end   = raw.find(next_p, start) if next_p else len(raw)
+        text  = strip_md(raw[start:end].strip())
+        if len(text.split()) >= 60:
+            variants.append(text)
+
+    if not variants:
+        return None
+
+    # Score each variant on hook strength
+    def score_cold_open(text):
+        s = 0.0
+        words = text.lower()
+        # Specific numbers/dates signal
+        if re.search(r'\d', text): s += 2.0
+        # Short punchy sentences
+        sentences = [x.strip() for x in re.split(r'(?<=[.!?])\s+', text) if x.strip()]
+        if sentences:
+            avg_len = sum(len(x.split()) for x in sentences) / len(sentences)
+            if avg_len <= 10: s += 2.0
+            elif avg_len <= 13: s += 1.0
+        # Dread keywords
+        dread = ["discovered","found","nobody","never","years","days","inside","unknown","hidden","only"]
+        s += sum(0.4 for w in dread if w in words)
+        # Opens mid-action (no weak openers)
+        weak = ["in this", "today we", "welcome", "hello", "this is the story", "have you ever"]
+        if not any(w in words[:50] for w in weak): s += 1.5
+        return round(min(s, 10.0), 1)
+
+    scored = [(v, score_cold_open(v)) for v in variants]
+    scored.sort(key=lambda x: x[1], reverse=True)
+    best_text, best_score = scored[0]
+    log(f"  Cold opens scored: {[s for _,s in scored]} — picked {best_score}/10")
+    return best_text
+
+
+# ================================================================
+# REAL CASE RESEARCH
+# Pulls real documented cases from free sources before script generation.
+# AI narrates real facts instead of inventing plausible-sounding ones.
+# Sources: Google News RSS (free) + Reddit r/TrueCrime (free read-only)
+# ================================================================
+
+
+def _validate_retention_hooks(script_clean):
+    """
+    Validates retention hooks at 30/60/80% positions.
+    Returns (penalty, issues). Penalty deducted from script score.
+    Called inside score_result so weak scripts retry automatically.
+    """
+    words   = script_clean.split()
+    total   = len(words)
+    if total < 400:
+        return 0.0, []
+    penalty = 0.0; issues = []
+
+    def seg(p1, p2):
+        return " ".join(words[int(total*p1):int(total*p2)]).lower()
+
+    hook_signals = ["subscribe","coming up","next","what happens","the answer","revealed",
+                    "in a moment","stay","about to","this changes","not yet","what comes next"]
+
+    if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
+        penalty -= 0.4; issues.append("Missing 30% hook")
+    h60 = sum(1 for w in hook_signals if w in seg(0.55, 0.65))
+    if h60 < 2:
+        penalty -= 0.8; issues.append("Weak 60% hook — peak CTA missing")
+    elif h60 >= 3:
+        penalty += 0.3
+    if sum(1 for w in hook_signals if w in seg(0.75, 0.85)) < 1:
+        penalty -= 0.4; issues.append("Missing 80% hook")
+    if "subscribe" not in " ".join(words[-60:]).lower():
+        penalty -= 0.3; issues.append("Missing final subscribe CTA")
+    if issues:
+        issues_str = " | ".join(issues)
+        log(f"  Retention issues: {issues_str}")
+    return round(penalty, 1), issues
+
+# ================================================================
+# PSYCHOLOGICAL 7-STAGE SCRIPT  [IMPROVED]
+# ================================================================
+
+def get_stage_matched_video(niche, script, audio_duration):
+    """
+    Stage-matched footage: extract keywords from each script stage,
+    search Pixabay for matching dark footage, concatenate 7 clips.
+    Falls back to single looped video if this fails.
+    """
+    words     = script.split()
+    total     = len(words)
+    # Stage boundaries (proportional)
+    stage_defs = [
+        (100,  "dark discovery opening"),
+        (200,  "ordinary life before dark"),
+        (250,  "warning signs shadows"),
+        (400,  "dark escalation danger"),
+        (200,  "calm relief break"),
+        (650,  "dark revelation truth exposed"),
+        (200,  "dark aftermath consequences"),
+    ]
+    stage_clips = []
+    idx = 0
+    stage_dur   = audio_duration / len(stage_defs)
+
+    for i, (word_count, base_kw) in enumerate(stage_defs):
+        end        = min(idx + word_count, total)
+        stage_text = " ".join(words[idx:end]).lower()
+        idx        = end
+
+        # Extract 2 most relevant nouns from stage text
+        # Simple approach: most common non-stopwords
+        stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
+                      "of","with","by","from","this","that","was","were","had","have",
+                      "it","its","he","she","they","their","his","her","be","been",
+                      "not","no","so","as","if","then","than","when","what","who"}
+        stage_words= [w.strip(".,!?;:") for w in stage_text.split()
+                      if len(w) > 4 and w not in stopwords]
+        from collections import Counter
+        top_nouns  = [w for w,_ in Counter(stage_words).most_common(2)]
+        kw         = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
+
+        clip_path  = str(WORK_DIR / f"stage_{i}.mp4")
+        log(f"  Stage {i+1} footage: '{kw[:40]}'")
+
+        # Try Pixabay then Pexels
+        downloaded = False
+        for search_kw in [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]:
+            try:
+                if not PIXABAY_KEY: break
+                r = requests.get("https://pixabay.com/api/videos/",
+                    params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
+                            "video_type": "film", "orientation": "horizontal"}, timeout=25)
+                if r.status_code == 200 and r.json().get("hits"):
+                    hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                    url = hit["videos"]["medium"]["url"]
+                    with requests.get(url, timeout=45, stream=True) as dl:
+                        dl.raise_for_status()
+                        with open(clip_path, "wb") as f:
+                            for chunk in dl.iter_content(32768): f.write(chunk)
+                    if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                        downloaded = True; break
+            except Exception as e:
+                log(f"    Stage {i+1} Pixabay: {e}")
+
+        if not downloaded:
+            # Generate black clip as fallback
+            dur = max(int(stage_dur), 8)
+            run_ffmpeg(["ffmpeg","-y","-f","lavfi",
+                f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
+                "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
+                label=f"stage-{i}-fallback")
+
+        if Path(clip_path).exists():
+            stage_clips.append((clip_path, stage_dur))
+
+    if len(stage_clips) < 3:
+        log("  Stage footage insufficient — falling back to single looped video")
+        return None
+
+    # Concatenate all stage clips scaled/padded to 1280x720
+    parts = []
+    for i, (clip, dur) in enumerate(stage_clips):
+        scaled = str(WORK_DIR / f"stage_{i}_scaled.mp4")
+        run_ffmpeg(["ffmpeg","-y","-i",clip,
+            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
+                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+            "-t",str(dur),"-c:v","libx264","-preset","ultrafast",
+            "-pix_fmt","yuv420p","-an", scaled], label=f"scale-{i}")
+        if Path(scaled).exists():
+            parts.append(scaled)
+
+    if not parts:
+        return None
+
+    list_file = str(WORK_DIR / "stage_list.txt")
+    combined  = str(WORK_DIR / "background_staged.mp4")
+    with open(list_file, "w") as f:
+        # Repeat to cover full duration
+        loops = max(1, int(audio_duration / (len(parts) * 8)) + 2)
+        for _ in range(loops):
+            for p in parts: f.write(f"file '{p}'\n")
+
+    run_ffmpeg(["ffmpeg","-y","-f","concat","-safe","0","-i",list_file,
+                "-c","copy","-t",str(audio_duration+5),combined], label="stage-concat")
+    if Path(combined).exists() and Path(combined).stat().st_size > 50000:
+        log(f"  Stage-matched video: {Path(combined).stat().st_size//(1024*1024)}MB")
+        return combined
+    return None
+
+
+def fetch_trending_titles(niche, token):
+    try:
+        published_after = (datetime.datetime.utcnow() -
+                           datetime.timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        r = requests.get(f"{YT_DATA_URL}/search",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "q": niche["search_query"], "type": "video",
+                    "order": "viewCount", "publishedAfter": published_after,
+                    "videoDuration": "long", "maxResults": 8,
+                    "relevanceLanguage": "en"}, timeout=20)
+        if r.status_code == 200:
+            items  = r.json().get("items", [])
+            titles = [i["snippet"]["title"] for i in items if i.get("snippet", {}).get("title")]
+            log(f"  Trend intel: {len(titles)} titles")
+            return titles
+        else: log(f"  Trend intel: {r.status_code}")
+    except Exception as e: log(f"  Trend intel (non-fatal): {e}")
+    return []
+
+
+def _research_viral_content(niche, original_topic):
+    """
+    When script quality falls below gate, research the last 2 years of
+    viral mega-videos (2M+ views) in this niche and generate a stronger
+    topic angle before the next attempt. Gives the AI better direction.
+    """
+    prompt = f"""You are a YouTube viral content strategist for dark investigative documentaries.
+
+Niche: {niche["name"].replace("_", " ")}
+Underperforming topic: {original_topic}
+
+Study what makes 2M+ view mega-videos in this niche over the last 2 years:
+- They open with a specific date, location, or number — never vague
+- They follow ONE person's story, not a general theme
+- They contain a twist that reframes everything the viewer thought they knew
+- The reveal feels impossible until the evidence is laid out
+
+Generate ONE stronger replacement topic sentence that:
+1. Is far more specific — real-feeling names, exact durations, precise counts
+2. Contains a built-in impossible detail that demands explanation
+3. Creates immediate psychological tension from the very first word
+4. Fits the {niche["series"]} series tone exactly
+
+Return ONLY the topic sentence. Nothing else."""
+
+    result = ai_generate(prompt, tokens=300)
+    if result:
+        t = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
+        if len(t) > 40:
+            log(f"  Viral angle: {t[:90]}")
+            return t
+    return None
+
+
+
+def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0):
+    dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
+    prompt = f"""Write a YouTube video description for a dark investigative documentary.
+Title: {title} | Series: {niche["series"]}, Episode {episode}
+Topic: {topic} | Duration: ~{dur_min} minutes
+
+Structure:
+1. Two hook sentences on the core disturbing fact. Creates urgency to watch.
+2. Three sentences on what the investigation reveals. No spoilers.
+3. One line: Watch until the end — the final revelation changes everything.
+4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
+5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
+   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
+6. One line: New investigations every week — subscribe so you never miss one.
+7. Ten relevant hashtags
+
+Total: 280-350 words. Plain text. No markdown."""
+    # Build SEO hook for first 100 chars (shown in YouTube search results)
+    # Format: [SPECIFIC CLAIM]. [EMOTIONAL HOOK]. Full investigation below.
+    seo_hooks = {
+        "dark_horror":        f"DOCUMENTED: {topic[:45]}.",
+        "seduction_dark":     f"EXPOSED: {topic[:45]}.",
+        "psychological_trap": f"CLASSIFIED: {topic[:45]}.",
+        "supernatural_real":  f"EVIDENCE: {topic[:45]}.",
+        "obsession_dark":     f"DOCUMENTED: {topic[:45]}.",
+    }
+    seo_first_line = seo_hooks.get(niche["name"], f"INVESTIGATION: {topic[:55]}.")
+
+    raw = ai_generate(prompt, tokens=1000)
+    # v12: three-channel cross-promo in every description
+    cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
+    if raw:
+        desc  = seo_first_line + "\n\n" + strip_md(raw)
+        desc += cross_promo_txt
+        desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        return desc
+    return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
+            f"Subscribe for new investigations every week.\n\n"
+            f"#{niche['name'].replace('_', '')} #documentary #investigation"
+            f"{cross_promo_txt}\n\n"
+            f"⚠️ This video features AI-assisted narration and editing.")
+
+# ================================================================
+# ELEVENLABS TTS  [NEW #5]
+# ================================================================
+
+def update_channel_description(token, latest_title, latest_url):
+    """[NEW #12] Update channel About with latest episode."""
+    try:
+        r = requests.get(f"{YT_DATA_URL}/channels",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"part": "snippet", "mine": "true"}, timeout=20)
+        if r.status_code != 200: return
+        ch_id = r.json()["items"][0]["id"]
+        desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
+                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
+                 "New episodes every weekday. Subscribe for weekly investigations.")
+        r2 = requests.put(f"{YT_DATA_URL}/channels",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            params={"part": "snippet"},
+            json={"id": ch_id, "snippet": {"description": desc[:1000]}}, timeout=20)
+        if r2.status_code in [200, 201]: log("OK Channel description updated")
+        else: log(f"  Channel update {r2.status_code}")
+    except Exception as e: log(f"  Channel update (non-fatal): {e}")
+
+# ================================================================
+# CLEANUP
+# ================================================================
+
+def extract_real_case_facts(cases, niche_name):
+    """
+    Use AI to extract the most compelling documented facts from
+    the real cases found. Returns a brief that gets injected
+    into the script prompt — AI narrates real facts, doesn't invent.
+    """
+    if not cases:
+        return ""
+
+    cases_text = "\n".join(
+        f"- [{c['source'].upper()}] {c['title']} | {c['summary'][:100]}"
+        for c in cases[:5]
+    )
+
+    prompt = f"""From these REAL documented cases in the {niche_name.replace('_', ' ')} niche:
+
+{cases_text}
+
+Extract the single most compelling REAL case with:
+1. ONE specific verifiable fact (exact number, date, duration, or amount)
+2. ONE detail that makes it feel completely real and documented
+3. The core disturbing element that would make someone watch a full documentary
+
+Return as: REAL CASE BRIEF (3 sentences max, plain text, use the actual facts):
+[fact 1]. [fact 2]. [core disturbing element]."""
+
+    result = ai_generate(prompt, tokens=300)
+    if result:
+        brief = result.strip()[:400]
+        if len(brief) > 50:
+            log(f"  Real case brief: {brief[:80]}...")
+            return brief
+    return ""
+
+
+
+def get_research_context(niche_name, topic):
+    """
+    Main research entry point. Returns a research context string
+    to inject into the script prompt before generation.
+    """
+    log("  Researching real documented cases...")
+    cases = search_real_cases(niche_name, topic)
+    if not cases:
+        log("  No real cases found — proceeding with AI-generated topic")
+        return ""
+    brief = extract_real_case_facts(cases, niche_name)
+    if not brief:
+        return ""
+    return (
+        f"REAL DOCUMENTED CASE RESEARCH (use these real facts in your script):\n"
+        f"{brief}\n"
+        f"IMPORTANT: Use these real facts as the foundation. Do not invent details. "
+        f"Build the narrative around documented reality."
+    )
+
+
+def search_real_cases(niche_name, topic_hint):
+    """
+    Search Google News RSS and Reddit for real documented cases
+    matching this niche. Returns list of real case summaries.
+    No API key required for either source.
+    """
+    import xml.etree.ElementTree as ET
+    import urllib.parse
+
+    # Build niche-specific search queries
+    niche_queries = {
+        "dark_horror":        f"{topic_hint.split()[0]} horror true story documented",
+        "seduction_dark":     f"manipulation relationship psychology documented case",
+        "psychological_trap": f"gaslighting psychological abuse documented case",
+        "supernatural_real":  f"unexplained phenomenon documented evidence case",
+        "obsession_dark":     f"stalking obsession documented court case",
+    }
+    query = niche_queries.get(niche_name, topic_hint.split()[0] + " documented case")
+    cases = []
+
+    # Source 1: Google News RSS — completely free, no key
+    try:
+        gn_url = ("https://news.google.com/rss/search"
+                  f"?q={urllib.parse.quote(query)}&hl=en-US&gl=US&ceid=US:en")
+        r = requests.get(gn_url, timeout=15,
+                        headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            root = ET.fromstring(r.content)
+            items = root.findall(".//item")[:5]
+            for item in items:
+                title = item.find("title")
+                desc  = item.find("description")
+                pub   = item.find("pubDate")
+                if title is not None and title.text:
+                    cases.append({
+                        "source":  "news",
+                        "title":   title.text[:120],
+                        "summary": desc.text[:200] if desc is not None and desc.text else "",
+                        "date":    pub.text[:20] if pub is not None and pub.text else "",
+                    })
+            log(f"  Real cases from news: {len(cases)}")
+    except Exception as e:
+        log(f"  News RSS (non-fatal): {e}")
+
+    # Source 2: Reddit r/TrueCrime — free read-only JSON API
+    try:
+        reddit_url = (f"https://www.reddit.com/r/TrueCrime/search.json"
+                      f"?q={urllib.parse.quote(query)}&sort=top&t=year&limit=5")
+        r2 = requests.get(reddit_url, timeout=15,
+                         headers={"User-Agent": "DeepDiveResearch/1.0"})
+        if r2.status_code == 200:
+            posts = r2.json().get("data", {}).get("children", [])
+            for post in posts[:3]:
+                d = post.get("data", {})
+                title = d.get("title", "")
+                if title and len(title) > 20:
+                    cases.append({
+                        "source":  "reddit",
+                        "title":   title[:120],
+                        "summary": d.get("selftext", "")[:200],
+                        "date":    "",
+                        "score":   d.get("score", 0),
+                    })
+            log(f"  Real cases from Reddit: {len([c for c in cases if c['source']=='reddit'])}")
+    except Exception as e:
+        log(f"  Reddit (non-fatal): {e}")
+
+    return cases[:6]  # top 6 real cases
+
+
+
+def generate_trend_informed_topic(niche, trending_titles):
+    """
+    Pick a topic informed by trends WITHOUT spending an AI token call.
+    If trending titles exist, we use a curated topic from the niche list
+    (they are already psychologically optimised) and note the trend angle.
+    The trend titles are instead passed to the script prompt to influence
+    tone and hook — not wasted on a separate AI summary call.
+    """
+    if not trending_titles:
+        return random.choice(niche["topics"])
+    # Use a niche topic but log the trend context for the script prompt
+    topic = random.choice(niche["topics"])
+    log(f"  Trend-informed topic selected (no AI call): {topic[:80]}")
+    return topic
+
+# ================================================================
+# PERFORMANCE TRACKER  [NEW #8, #10]
+# ================================================================
+
+
+# ═══════════════════════════════════════════════════════════
+# SSML MULTI-RATE AUDIO — Ported from Ch1 for human-sounding TTS
+# Generates audio at 7 different rates per stage for natural pacing
+# ═══════════════════════════════════════════════════════════
+
+def inject_ssml_rate(script):
+    """
+    Split script into 7 stages by word proportion and inject
+    SSML prosody rate markers. Edge-tts supports rate parameter
+    but not inline SSML. Instead we split the audio into segments
+    with different rates and concatenate.
+    Returns list of (text_segment, rate_string) tuples.
+    """
+    words = script.split()
+    total = len(words)
+    # Stage word boundaries (proportional to STAGE_WORDS)
+    stage_rates = [
+        (100,  "-5%"),   # Cold open: urgent, attention-grabbing
+        (200,  "-8%"),   # The Before: normal documentary pace
+        (250,  "-8%"),   # First Signals: measured, building
+        (400,  "-5%"),   # Escalation: faster, momentum
+        (200,  "-12%"),  # False Resolution: slow, relief
+        (650,  "-18%"),  # Real Reveal: devastatingly slow
+        (200,  "-10%"),  # Implication + CTA: deliberate
+    ]
+    segments = []
+    idx = 0
+    for word_count, rate in stage_rates:
+        end = min(idx + word_count, total)
+        segment = " ".join(words[idx:end])
+        if segment.strip():
+            segments.append((segment, rate))
+        idx = end
+        if idx >= total:
+            break
+    # Any remaining words go to last rate
+    if idx < total:
+        remaining = " ".join(words[idx:])
+        if remaining.strip():
+            segments.append((remaining, "-10%"))
+    return segments
+
+
+def run_audio_with_ssml(script, niche_name, edge_voice):
+    """
+    Multi-rate audio: split script into 7 stage segments,
+    generate each with its own delivery rate, concatenate via FFmpeg.
+    Produces audio that sounds like a real documentary narrator.
+    """
+    segments = inject_ssml_rate(script)
+    log(f"  SSML segments: {len(segments)} at rates {[r for _,r in segments]}")
+
+    part_paths = []
+    for i, (text, rate) in enumerate(segments):
+        part_path = str(WORK_DIR / f"audio_seg_{i}.mp3")
+        voices_to_try = [edge_voice, "en-GB-RyanNeural", "en-US-BrianNeural"]
+        for _vsi, v in enumerate(voices_to_try):
+            if _vsi > 0: time.sleep(2)  # avoid edge-tts rate limit
+            try:
+                asyncio.run(asyncio.wait_for(_edge_tts_segment(text, v, rate, part_path), timeout=90))
+                if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
+                    part_paths.append(part_path)
+                    break
+            except Exception as e:
+                log(f"    Segment {i} {v}: {e}")
+        else:
+            log(f"  Segment {i} failed all voices — skipping")
+
+    if not part_paths:
+        return None, 0.0
+
+    if len(part_paths) == 1:
+        import shutil
+        out = str(WORK_DIR / "ssml_narration.mp3")
+        shutil.copy(part_paths[0], out)
+        return out, get_media_duration(out)
+
+    # Concatenate all segments
+    list_file = str(WORK_DIR / "seg_list.txt")
+    with open(list_file, "w") as f:
+        for p in part_paths:
+            f.write(f"file '{p}'\n")
+    out = str(WORK_DIR / "ssml_narration.mp3")
+    run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                "-i", list_file, "-c", "copy", out], label="ssml-concat")
+    duration = get_media_duration(out)
+    log(f"  SSML audio: {duration:.1f}s ({duration/60:.1f} min)")
+    return out, duration
+
+
+
+async def _edge_tts_segment(text, voice, rate, path):
+    """Generate audio for one segment with a specific rate."""
+    import edge_tts
+    comm = edge_tts.Communicate(text=text, voice=voice, rate=rate)
+    await asyncio.wait_for(comm.save(path), timeout=90)
+
+
+async def _edge_tts_stream(text, voice, audio_path, vtt_path):
+    """
+    Generate audio + word-level subtitles via edge-tts stream API.
+    IMPORTANT: communicate.stream() can only be called ONCE per object.
+    The fallback uses a completely fresh Communicate instance.
+    """
+    import edge_tts
+    try:
+        communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+        sub = edge_tts.SubMaker()
+        with open(audio_path, "wb") as af:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    af.write(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    sub.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
+        with open(vtt_path, "w", encoding="utf-8") as sf:
+            # edge-tts SubMaker API varies by version
+            try:
+                subs_text = sub.generate_subs()
+            except TypeError:
+                subs_text = getattr(sub, 'generate_subs', None)
+                if callable(subs_text):
+                    subs_text = subs_text()
+            sf.write(subs_text if isinstance(subs_text, str) else "WEBVTT\n")
+        return True
+    except Exception as sub_err:
+        log(f"    SubMaker path failed: {sub_err} — falling back to save()")
+        # MUST create a brand-new Communicate object here.
+        # The original one's stream() is already consumed and cannot be reused.
+        try:
+            communicate_fresh = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+            await communicate_fresh.save(audio_path)
+            return False   # audio saved, no subtitle timing
+        except Exception as save_err:
+            raise RuntimeError(f"edge-tts save() also failed: {save_err}")
+
+
+def vtt_to_ass(vtt_path, ass_path):
+    """Convert .vtt to styled .ass for FFmpeg subtitle burning."""
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    def to_ass_time(t):
+        t = t.strip()
+        if t.count(":") == 1: t = "00:" + t
+        p = t.split(":")
+        h, m = int(p[0]), int(p[1])
+        s_ms = p[2].replace(",", ".")
+        s, ms = s_ms.split(".")
+        cs = int(ms[:2]) if len(ms) >= 2 else int(ms) * 10
+        return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
+    try:
+        lines  = Path(vtt_path).read_text(encoding="utf-8").splitlines()
+        events = []
+        i = 0
+        while i < len(lines):
+            if " --> " in lines[i]:
+                times = lines[i].split(" --> ")
+                start = to_ass_time(times[0])
+                end   = to_ass_time(times[1].split()[0])
+                i += 1
+                txt_parts = []
+                while i < len(lines) and lines[i].strip():
+                    txt_parts.append(lines[i].strip())
+                    i += 1
+                text  = re.sub(r'<[^>]+>', '', " ".join(txt_parts))
+                words = text.split()
+                chunks = [" ".join(words[j:j+6]) for j in range(0, len(words), 6)]
+                text  = "\\N".join(chunks)
+                events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
+            i += 1
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(header + "\n".join(events))
+        return True
+    except Exception as e:
+        log(f"  vtt->ass error: {e}")
+        return False
+
+
+def generate_fallback_ass(script, audio_duration, ass_path):
+    """Approximate timing subtitles when edge-tts SubMaker unavailable."""
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    def s2t(s):
+        h = int(s) // 3600; m = (int(s) % 3600) // 60
+        sc = int(s) % 60;   cs = int((s - int(s)) * 100)
+        return f"{h}:{m:02d}:{sc:02d}.{cs:02d}"
+    words   = script.split()
+    spw     = audio_duration / max(len(words), 1)   # seconds per word
+    chunks  = [words[i:i+6] for i in range(0, len(words), 6)]
+    events  = []
+    t       = 0.0
+    for chunk in chunks:
+        if t >= audio_duration: break
+        end  = min(t + spw * len(chunk), audio_duration)
+        text = " ".join(chunk)
+        events.append(f"Dialogue: 0,{s2t(t)},{s2t(end)},Default,,0,0,0,,{text}")
+        t = end
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(events))
+
+# ================================================================
+# AUDIO STAGE
+# ================================================================
+
 def main():
     """
     Two-phase controller for Ch3 (The Control Files).
