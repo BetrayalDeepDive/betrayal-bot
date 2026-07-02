@@ -316,7 +316,7 @@ def ai(prompt, tokens=2000, temp=0.85, prefer=None):
         log(f"  Waiting 10s before next provider..."); time.sleep(10)
     return None
 
-STATE_FILE = WORK_DIR / "collapse_state.json"
+STATE_FILE = SCRIPT_DIR / "collapse_state.json"  # saved to repo not /tmp/
 def load_state():
     try:
         if STATE_FILE.exists(): return json.loads(STATE_FILE.read_text())
@@ -361,7 +361,19 @@ CRAVEABILITY TRIGGERS (3+ minimum):
 6. The uncomfortable question left open.
 7. The gap between what was announced and what the documents show.
 
-TITLE: No generic titles. "[Documented Number] [System/Event] [Dark Implication]"
+TITLE REQUIREMENTS — NON-NEGOTIABLE:
+No generic YouTube titles. The title should make someone screenshot it and send to a friend.
+Use specific numbers, documented evidence references, uncomfortable implications.
+
+TITLE FORMULAS THAT WORK:
+- "[Number] [People/Systems] [Documented Dark Thing] — Nobody Talked About This"
+- "The [Platform/Company] Knew. They Did It Anyway. Here Is The Internal Document."
+- "[System] Has Been Running [Dark Operation] For [Duration]. Here Is The Evidence."
+- "[Number] [Victims/Accounts/Records]. [Number] Years. Zero Accountability."
+
+FORBIDDEN: Shocking, Incredible, Amazing, Unbelievable, Mind-Blowing
+
+TITLE: Best dark title using the formulas above
 FORBIDDEN WORDS: Shocking, Incredible, Amazing, Unbelievable, Mind-Blowing
 
 SEVEN STAGES (write continuously, no labels):
@@ -493,13 +505,7 @@ def run_stage3_audio(script_clean,voice_id,niche_name):
             if not check_audio_quality(audio,dur_expected): continue
             log(f"  ACCEPTED: {v}")
             eq=str(WORK_DIR/"audio_eq.mp3")
-            af=('"equalizer=f=60:width_type=o:width=2:g=4,"'
-                '"equalizer=f=250:width_type=o:width=2:g=2,"'
-                '"equalizer=f=3000:width_type=o:width=2:g=-1,"'
-                '"equalizer=f=8000:width_type=o:width=2:g=-2,"'
-                '"aecho=0.85:0.88:60:0.3,"'
-                '"acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"'
-                '"loudnorm=I=-16:LRA=11:TP=-1.5"')
+            af=("equalizer=f=60:width_type=o:width=2:g=4,equalizer=f=250:width_type=o:width=2:g=2,equalizer=f=3000:width_type=o:width=2:g=-1,equalizer=f=8000:width_type=o:width=2:g=-2,aecho=0.85:0.88:60:0.3,acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,loudnorm=I=-16:LRA=11:TP=-1.5")
             if run_ffmpeg(["ffmpeg","-y","-i",audio,"-af",af,"-c:a","libmp3lame","-q:a","2",eq],"eq",180):
                 shutil.copy(eq,audio)
             return audio,get_media_duration(audio),None,v
@@ -586,13 +592,27 @@ def upload_yt(video_path,title,description,tags,thumb_path=None):
             except Exception as e: log(f"  Thumb: {e}")
         return vid_id
 
-PENDING_FILE=WORK_DIR/"pending_upload.json"
+PENDING_FILE=SCRIPT_DIR/"pending_upload.json"  # saved to repo not /tmp/
 def save_pending(d): PENDING_FILE.write_text(json.dumps(d,indent=2))
 def load_pending():
     if PENDING_FILE.exists(): return json.loads(PENDING_FILE.read_text())
     return None
 def clear_pending():
     if PENDING_FILE.exists(): PENDING_FILE.unlink()
+
+def score_title(title):
+    """Score title CTR potential 0-10."""
+    score = 5.0
+    bad = ["shocking","incredible","amazing","unbelievable","mind-blowing","you won't believe"]
+    for b in bad:
+        if b in title.lower(): score -= 1.0
+    if any(c.isdigit() for c in title): score += 1.5  # specific number
+    if len(title) < 60: score += 0.5
+    if ":" in title or "—" in title: score += 0.5
+    if any(w in title.lower() for w in ["documented","internal","classified","evidence","breach"]): score += 1.0
+    return min(round(score,1), 10.0)
+
+
 
 def main():
     log("="*65)
@@ -645,6 +665,18 @@ def main():
     violations=len(re.findall(r"[#*_`\[\]{}|<>\\]",script))
     score,issues=score_script(script,wc,violations)
     log(f"  Score: {score}/10 | {wc}w | {violations} MD")
+    # If AI returned partial response (< 500w), retry with different provider
+    if score < 4.0 and wc < 500:
+        log("  Score too low + script too short — retrying with SambaNova...")
+        raw2 = generate_script(niche, topic, episode)
+        if raw2:
+            script2,title2,thumb_text2,tags2 = parse_script(raw2,niche)
+            if script2 and len(script2.split()) > wc:
+                script,title,thumb_text,tags = script2,title2,thumb_text2,tags2
+                wc = len(script.split())
+                violations = len(re.findall(r"[#*_`\[\]{}|<>\\]",script))
+                score,issues = score_script(script,wc,violations)
+                log(f"  Retry score: {score}/10 | {wc}w")
     if score<6.9: tg(f"⚠️ Collapse Index: Score {score}/10 below gate — skipping"); sys.exit(0)
 
     script=inject_ctas(script,niche["name"])
