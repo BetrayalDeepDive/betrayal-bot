@@ -1,1 +1,34 @@
-{}
+{
+  "video_path": "/tmp/collapse_index/final.mp4",
+  "audio_path": "/tmp/collapse_index/audio.mp3",
+  "thumb_path": "/tmp/collapse_index/thumbnail.jpg",
+  "title": "53000 Resumes Rejected Systemically",
+  "description": "53000 Resumes Rejected Systemically\n\nThe Collapse Index documents the systems, decisions, and failures that are shaping collapse scenarios in real time.\n\nEpisode: The Collapse Index: AI Failures | Phosphor Green Mode\n\n#CollapseIndex #AI #Technology #Cybersecurity #Documentary",
+  "tags": [
+    "AI bias",
+    "hiring tool",
+    "Amazon",
+    "workplace diversity",
+    "technical debt",
+    "systemic issue",
+    "automated hiring",
+    "female applicants",
+    "historical bias",
+    "diversity metrics",
+    "algorithmic bias",
+    "AI failures",
+    "recruitment processes",
+    "AI regulation",
+    "tech industry",
+    "diversity and inclusion",
+    "collapse",
+    "technology",
+    "AI",
+    "cybersecurity",
+    "documentary"
+  ],
+  "niche": "ai_failures",
+  "score": 8.9,
+  "wc": 2100,
+  "episode": 1
+}
