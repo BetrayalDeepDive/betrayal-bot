@@ -1,8 +1,12 @@
 # ============================================================
-# CONTROL FILES — Ch3 Generation Workflow
-# Phase 1: GENERATE only
+# THE CONTROL FILES — Ch3 Generation Workflow
+# Phase 1: GENERATE only (no upload)
 # Runs: Mon-Fri 3:30 AM IST = 22:00 UTC (3h after Ch2 generate)
 # Full token quota recovery — all providers reset between runs
+# Niches: Cult Psychology, Propaganda Systems, Social Engineering,
+#         Mass Deception, Dark Business Docs, Scams & Fraud Exposed
+# Features: 13-attempt engine, SSML audio, stage-matched video,
+#           3-variant cold open, pattern memory, 6 Shorts per video
 # ============================================================
 name: Ch3 Control Files — Generate
 
@@ -62,10 +66,13 @@ jobs:
           PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
           TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
-          PIPELINE_PHASE:            "generate"
           CHANNEL3_YT_CLIENT_ID:     ${{ secrets.CHANNEL3_YT_CLIENT_ID }}
           CHANNEL3_YT_CLIENT_SECRET: ${{ secrets.CHANNEL3_YT_CLIENT_SECRET }}
           CHANNEL3_YT_REFRESH_TOKEN: ${{ secrets.CHANNEL3_YT_REFRESH_TOKEN }}
+          YOUTUBE_CLIENT_ID:         ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET:     ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN:     ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          PIPELINE_PHASE:            "generate"
           IS_MAKEUP:                 ${{ github.event.inputs.is_makeup || 'false' }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
