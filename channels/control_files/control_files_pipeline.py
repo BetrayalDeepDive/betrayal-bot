@@ -345,8 +345,8 @@ TG_TOKEN        = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── API endpoints ──────────────────────────────────────────
-GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_LITE_URL = ""  # no working fallback — gemini-2.0-flash only
+GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_LITE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent"  # gemini-2.0-flash retired by Google June 1 2026
 CEREBRAS_URL    = "https://api.cerebras.ai/v1/chat/completions"
 SAMBANOVA_URL   = "https://api.sambanova.ai/v1/chat/completions"   # v12: added
 OPENROUTER_URL  = "https://openrouter.ai/api/v1/chat/completions"
@@ -671,7 +671,7 @@ def _call_cerebras(prompt, tokens=9000):
         log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
         return None
     _url = "https://api.cerebras.ai/v1/chat/completions"
-    _models = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
+    _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]  # Cerebras free-tier catalog narrowed to gpt-oss-120b/zai-glm-4.7 as of June 2026 — old llama names kept as fallback in case they return
     for model in _models:
         try:
             r = requests.post(_url,
@@ -734,24 +734,31 @@ def _call_gemini(prompt, tokens=9000):
 
 def _call_groq(prompt, tokens=9000):
     if not GROQ_KEY: return None
-    try:
-        r = requests.post(GROQ_URL,
-            headers={"Authorization": f"Bearer {GROQ_KEY}",
-                     "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile",
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.88,
-                  "max_tokens": min(tokens, 4800)},  # TPM limit is 6000
-            timeout=90)
-        if r.status_code == 200:
-            t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-            if t and len(t.strip()) > 100:
-                log("  OK Groq")
-                return t
-        else:
-            log(f"  Groq {r.status_code}: {r.text[:150]}")
-    except Exception as e:
-        log(f"  Groq: {e}")
+    # Groq announced deprecation of llama-3.3-70b-versatile on June 17 2026.
+    # Try the recommended replacements first, keep the old name as last-resort
+    # in case the grace period is still active.
+    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]:
+        try:
+            r = requests.post(GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.88,
+                      "max_tokens": min(tokens, 4800)},  # TPM limit is 6000
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
+                if t and len(t.strip()) > 100:
+                    log(f"  OK Groq ({model})")
+                    return t
+            elif r.status_code in (400, 404):
+                log(f"  Groq {model}: {r.status_code} (model gone) — trying next")
+                continue
+            else:
+                log(f"  Groq {model}: {r.status_code}: {r.text[:150]}")
+        except Exception as e:
+            log(f"  Groq {model}: {e}")
     return None
 
 def _call_openrouter(prompt, tokens=9000):
@@ -863,42 +870,45 @@ def _call_sambanova(prompt, tokens=9000):
 
 # v12: GEMINI_KEY_2 dual-key for Ch3 (doubles Gemini quota)
 def _call_gemini_with_fallback(prompt, tokens=9000):
-    """Try primary Gemini key, then backup key if 429 quota hit."""
+    """Try primary Gemini key then backup key, each across GEMINI_URL (2.5-flash) then GEMINI_LITE_URL (2.5-flash-lite)."""
     keys = [k for k in [GEMINI_KEY, GEMINI_KEY_2] if k]
     if not keys:
         log("  Gemini: GEMINI_API_KEY not set")
         return None
     for key_idx, active_key in enumerate(keys):
         key_label = "primary" if key_idx == 0 else "backup"
-        try:
-            r = requests.post(f"{GEMINI_URL}?key={active_key}",
-                headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": {"temperature": 0.88,
-                                           "maxOutputTokens": min(tokens, 12000)},
-                      "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
-                                         for c in ["HARM_CATEGORY_HARASSMENT",
-                                                   "HARM_CATEGORY_HATE_SPEECH",
-                                                   "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                                   "HARM_CATEGORY_DANGEROUS_CONTENT"]]},
-                timeout=90)
-            if r.status_code == 200:
-                c = r.json().get("candidates", [])
-                if c:
-                    t = c[0]["content"]["parts"][0]["text"]
-                    if t and len(t.strip()) > 100:
-                        log(f"  OK Gemini ({key_label})")
-                        return t
-            elif r.status_code == 429:
-                log(f"  Gemini ({key_label}) 429 quota — {'trying backup key' if key_idx == 0 and GEMINI_KEY_2 else 'exhausted'}")
-                if key_idx == 0 and GEMINI_KEY_2:
-                    continue  # try backup key
-                return None
-            else:
-                log(f"  Gemini ({key_label}): {r.status_code}")
-        except Exception as e:
-            log(f"  Gemini: {e}")
-        break
+        for url_label, url in [("2.5-flash", GEMINI_URL), ("2.5-flash-lite", GEMINI_LITE_URL)]:
+            if not url:
+                continue
+            try:
+                r = requests.post(f"{url}?key={active_key}",
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt}]}],
+                          "generationConfig": {"temperature": 0.88,
+                                               "maxOutputTokens": min(tokens, 12000)},
+                          "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
+                                             for c in ["HARM_CATEGORY_HARASSMENT",
+                                                       "HARM_CATEGORY_HATE_SPEECH",
+                                                       "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                                       "HARM_CATEGORY_DANGEROUS_CONTENT"]]},
+                    timeout=90)
+                if r.status_code == 200:
+                    c = r.json().get("candidates", [])
+                    if c:
+                        t = c[0]["content"]["parts"][0]["text"]
+                        if t and len(t.strip()) > 100:
+                            log(f"  OK Gemini ({key_label}, {url_label})")
+                            return t
+                elif r.status_code == 429:
+                    log(f"  Gemini ({key_label}, {url_label}) 429 quota — trying next")
+                    continue
+                elif r.status_code == 404:
+                    log(f"  Gemini ({key_label}, {url_label}) 404 — model retired, trying next")
+                    continue
+                else:
+                    log(f"  Gemini ({key_label}, {url_label}): {r.status_code}")
+            except Exception as e:
+                log(f"  Gemini ({key_label}, {url_label}): {e}")
     return None
 
 
@@ -3333,6 +3343,7 @@ def get_stage_matched_video(niche, script, audio_duration):
     ]
     stage_clips = []
     idx = 0
+    black_fallback_count = 0
     stage_dur   = audio_duration / len(stage_defs)
 
     for i, (word_count, base_kw) in enumerate(stage_defs):
@@ -3355,36 +3366,73 @@ def get_stage_matched_video(niche, script, audio_duration):
         clip_path  = str(WORK_DIR / f"stage_{i}.mp4")
         log(f"  Stage {i+1} footage: '{kw[:40]}'")
 
-        # Try Pixabay then Pexels
+        # Try Pixabay, then Pexels (real fallback — was documented but never called), then a generic broad term
         downloaded = False
-        for search_kw in [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]:
+        search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
+                         "cinematic dark atmosphere"]
+        for search_kw in search_terms:
+            if downloaded: break
             try:
-                if not PIXABAY_KEY: break
-                r = requests.get("https://pixabay.com/api/videos/",
-                    params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
-                            "video_type": "film", "orientation": "horizontal"}, timeout=25)
-                if r.status_code == 200 and r.json().get("hits"):
-                    hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
-                    url = hit["videos"]["medium"]["url"]
-                    with requests.get(url, timeout=45, stream=True) as dl:
-                        dl.raise_for_status()
-                        with open(clip_path, "wb") as f:
-                            for chunk in dl.iter_content(32768): f.write(chunk)
-                    if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                        downloaded = True; break
+                if PIXABAY_KEY:
+                    r = requests.get("https://pixabay.com/api/videos/",
+                        params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
+                                "video_type": "film", "orientation": "horizontal"}, timeout=25)
+                    if r.status_code == 200 and r.json().get("hits"):
+                        hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                        url = hit["videos"]["medium"]["url"]
+                        with requests.get(url, timeout=45, stream=True) as dl:
+                            dl.raise_for_status()
+                            with open(clip_path, "wb") as f:
+                                for chunk in dl.iter_content(32768): f.write(chunk)
+                        if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                            downloaded = True; continue
+                    elif r.status_code == 429:
+                        log(f"    Stage {i+1} Pixabay: 429 rate limited")
             except Exception as e:
                 log(f"    Stage {i+1} Pixabay: {e}")
 
+            if not downloaded:
+                try:
+                    if PEXELS_KEY:
+                        r = requests.get("https://api.pexels.com/videos/search",
+                            headers={"Authorization": PEXELS_KEY},
+                            params={"query": search_kw, "per_page": 5, "orientation": "landscape"},
+                            timeout=25)
+                        if r.status_code == 200 and r.json().get("videos"):
+                            vids  = r.json()["videos"]
+                            best  = max(vids, key=lambda v: v.get("duration", 0))
+                            files_ = sorted(best.get("video_files", []),
+                                            key=lambda vf: vf.get("width", 0), reverse=True)
+                            url = next((vf["link"] for vf in files_ if vf.get("width", 0) <= 1920), None) \
+                                  or (files_[0]["link"] if files_ else None)
+                            if url:
+                                with requests.get(url, timeout=45, stream=True) as dl:
+                                    dl.raise_for_status()
+                                    with open(clip_path, "wb") as f:
+                                        for chunk in dl.iter_content(32768): f.write(chunk)
+                                if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                                    downloaded = True
+                        elif r.status_code == 429:
+                            log(f"    Stage {i+1} Pexels: 429 rate limited")
+                except Exception as e:
+                    log(f"    Stage {i+1} Pexels: {e}")
+
         if not downloaded:
-            # Generate black clip as fallback
+            black_fallback_count += 1
+            # Last resort only — real footage exhausted on both providers
             dur = max(int(stage_dur), 8)
             run_ffmpeg(["ffmpeg","-y","-f","lavfi",
                 f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
                 "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
                 label=f"stage-{i}-fallback")
+            log(f"  Stage {i+1}: NO footage found on Pixabay or Pexels — using black clip")
 
         if Path(clip_path).exists():
             stage_clips.append((clip_path, stage_dur))
+
+    if black_fallback_count > 0:
+        tg(f"⚠️ {black_fallback_count}/{len(stage_defs)} background clips had NO real footage "
+           f"(Pixabay+Pexels both empty/exhausted) — used black clip instead. Check PIXABAY_KEY / PEXELS_API_KEY.")
 
     if len(stage_clips) < 3:
         log("  Stage footage insufficient — falling back to single looped video")
