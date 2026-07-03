@@ -45,7 +45,7 @@ jobs:
         with:
           workflow: ch4_generate.yml
           name: ch4-pending-video
-          path: /home/runner/work/archive
+          path: /tmp/archive
           workflow_conclusion: success
           if_no_artifact_found: fail
 
