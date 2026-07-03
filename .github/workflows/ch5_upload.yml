@@ -45,7 +45,7 @@ jobs:
         with:
           workflow: ch5_generate.yml
           name: ch5-pending-video
-          path: /home/runner/work/collapse_index
+          path: /tmp/collapse_index
           workflow_conclusion: success
           if_no_artifact_found: fail
 
