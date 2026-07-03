@@ -84,7 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ch3-pending-video
-          path: /home/runner/work/control_files/*
+          path: /tmp/control_files/*
           retention-days: 2
           if-no-files-found: warn
 
