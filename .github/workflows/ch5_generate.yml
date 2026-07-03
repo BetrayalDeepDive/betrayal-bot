@@ -88,8 +88,28 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git add channels/collapse_index/collapse_state.json \
-                  channels/collapse_index/collapse_intel.json \
-                  channels/collapse_index/pending_upload.json || true
+          # FIX: one git add per file. Previously all paths were in a single
+          # git add command — if ANY one file didn't exist (e.g. next_week_strategy.json
+          # only gets created on certain episodes), git aborted the WHOLE add as fatal,
+          # silently swallowed by the old "|| true", and NOTHING got staged — not even
+          # files that did exist. This is why pushes looked successful but saved nothing.
+          git add channels/collapse_index/collapse_state.json || true
+          git add channels/collapse_index/collapse_intel.json || true
+          git add channels/collapse_index/pending_upload.json || true
           git diff --staged --quiet || git commit -m "chore: ch5 generated [skip ci]"
-          git push origin main || true
+          # FIX: retry push instead of silently dropping it on conflict.
+          # "|| true" alone meant a failed push (e.g. two workflows landing
+          # near the same time) was swallowed with zero indication — the
+          # commit would exist locally on that dead runner and nowhere else.
+          for i in 1 2 3 4 5; do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+            echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
+            sleep $((i*5))
+            git pull --rebase origin main || true
+            if [ "$i" = "5" ]; then
+              echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+            fi
+          done
