@@ -39,6 +39,16 @@ jobs:
           git config user.name "GitHub Actions"
           git pull --rebase origin main || true
 
+      # ── FIX: pull back actual video/audio/thumbnail files from Generate ──
+      - name: Download video artifact from latest Generate run
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ch5_generate.yml
+          name: ch5-pending-video
+          path: /home/runner/work/collapse_index
+          workflow_conclusion: success
+          if_no_artifact_found: fail
+
       - name: Upload pre-generated video
         env:
           COLLAPSE_YT_CLIENT_ID:      ${{ secrets.COLLAPSE_YT_CLIENT_ID }}
