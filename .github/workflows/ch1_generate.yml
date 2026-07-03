@@ -75,6 +75,19 @@ jobs:
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
           python -u video_pipeline/master_pipeline.py
 
+      # ── FIX: persist the rendered video/audio/thumbnail across runners ──
+      # GitHub Actions machines are destroyed after each job. /tmp never
+      # survives to the Upload workflow. This step ships the actual files
+      # out as a build artifact so Upload can pull them back down later.
+      - name: Upload video artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch1-pending-video
+          path: /tmp/deepdive/*
+          retention-days: 2
+          if-no-files-found: warn
+
       - name: Commit generated artifacts + state
         if: always()
         run: |
