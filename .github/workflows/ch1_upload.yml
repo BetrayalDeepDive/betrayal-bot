@@ -42,6 +42,18 @@ jobs:
           git config user.name "GitHub Actions"
           git pull --rebase origin main || true
 
+      # ── FIX: pull back the actual video/audio/thumbnail files that ──
+      # Generate rendered. Without this, pending_upload.json points to
+      # /tmp/deepdive/final.mp4 which does not exist on this fresh runner.
+      - name: Download video artifact from latest Generate run
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ch1_generate.yml
+          name: ch1-pending-video
+          path: /tmp/deepdive
+          workflow_conclusion: success
+          if_no_artifact_found: fail
+
       - name: Upload pre-generated video
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
