@@ -340,7 +340,7 @@ IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 # ================================================================
 # ENDPOINTS
 # ================================================================
-GEMINI_MODELS  = ["gemini-2.0-flash"]  # only working model — 1.5-pro and 1.5-flash both 404
+GEMINI_MODELS  = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]  # 2.0-flash retired by Google June 1 2026
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
 SAMBANOVA_URL  = "https://api.sambanova.ai/v1/chat/completions"  # 1000 req/day free
@@ -661,11 +661,14 @@ def ckpt_clear():
 # ================================================================
 # Known Cerebras model names (they change naming without notice)
 CEREBRAS_MODELS = [
-    "llama-3.3-70b",      # newest, highest quality
-    "llama3.3-70b",       # alternate naming format
-    "llama3.1-70b",       # stable 70b
-    "llama3.1-8b",        # fallback 8b
-]
+    "gpt-oss-120b",        # current Cerebras free-tier default (June 2026)
+    "zai-glm-4.7",         # current Cerebras free-tier default (June 2026)
+    "llama-3.3-70b",       # kept as fallback — catalog is volatile, may return
+    "llama3.3-70b",
+    "llama3.1-70b",
+    "llama3.1-8b",
+]  # NOTE: this constant isn't actually read by call_cerebras() below (it has its own
+   # inline _models list, now fixed to match). Kept in sync here for anyone reading top-down.
 
 def call_cerebras(prompt, tokens=8000):
     """
@@ -677,7 +680,7 @@ def call_cerebras(prompt, tokens=8000):
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
         return None
     _url    = "https://api.cerebras.ai/v1/chat/completions"
-    _models = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
+    _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]  # Cerebras free-tier catalog narrowed to gpt-oss-120b/zai-glm-4.7 as of June 2026 — old llama names kept as fallback in case they return
     for model in _models:
         try:
             r = requests.post(_url,
@@ -711,18 +714,24 @@ def call_cerebras(prompt, tokens=8000):
 
 def call_groq(prompt, tokens=8000):
     if not GROQ_KEY: return None
-    try:
-        # 8b-instant: 131k TPD. Cap at 3000 tokens to avoid 413 on large prompts.
-        r = requests.post(GROQ_URL,
-            headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-            json={"model": "llama-3.3-70b-versatile",  # higher quality; 14.4k TPD fine when Gemini is primary
-                  "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
-        if r.status_code == 200:
-            t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            if t and len(t.strip()) > 100: log("OK Groq"); return t
-        else: log(f"Groq {r.status_code}: {r.text[:200]}")
-    except Exception as e: log(f"Groq: {e}")
+    # Groq announced deprecation of llama-3.3-70b-versatile on June 17 2026.
+    # Try the recommended replacements first, keep the old name as last-resort.
+    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]:
+        try:
+            r = requests.post(GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
+            if r.status_code == 200:
+                t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if t and len(t.strip()) > 100: log(f"OK Groq ({model})"); return t
+            elif r.status_code in (400, 404):
+                log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
+            else:
+                log(f"Groq {model}: {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            log(f"Groq {model}: {e}")
     return None
 
 def call_gemini(prompt, tokens=8000):
@@ -762,8 +771,8 @@ def call_gemini(prompt, tokens=8000):
                     quota_hit = True
                     break  # break model loop, try next key
                 elif r.status_code in [400, 404]:
-                    log(f"  Gemini {model}: {r.status_code} — skipping model")
-                    break
+                    log(f"  Gemini {model}: {r.status_code} — trying next model")
+                    continue
                 else:
                     log(f"  Gemini {model}: {r.status_code} | {r.text[:200]}")
             except Exception as e:
@@ -2324,6 +2333,7 @@ def get_stage_matched_video(niche, script, audio_duration):
     ]
     stage_clips = []
     idx = 0
+    black_fallback_count = 0
     stage_dur   = audio_duration / len(stage_defs)
 
     for i, (word_count, base_kw) in enumerate(stage_defs):
@@ -2346,36 +2356,73 @@ def get_stage_matched_video(niche, script, audio_duration):
         clip_path  = str(WORK_DIR / f"stage_{i}.mp4")
         log(f"  Stage {i+1} footage: '{kw[:40]}'")
 
-        # Try Pixabay then Pexels
+        # Try Pixabay, then Pexels (real fallback — was documented but never called), then a generic broad term
         downloaded = False
-        for search_kw in [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]:
+        search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
+                         "cinematic dark atmosphere"]
+        for search_kw in search_terms:
+            if downloaded: break
             try:
-                if not PIXABAY_KEY: break
-                r = requests.get("https://pixabay.com/api/videos/",
-                    params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
-                            "video_type": "film", "orientation": "horizontal"}, timeout=25)
-                if r.status_code == 200 and r.json().get("hits"):
-                    hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
-                    url = hit["videos"]["medium"]["url"]
-                    with requests.get(url, timeout=45, stream=True) as dl:
-                        dl.raise_for_status()
-                        with open(clip_path, "wb") as f:
-                            for chunk in dl.iter_content(32768): f.write(chunk)
-                    if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                        downloaded = True; break
+                if PIXABAY_KEY:
+                    r = requests.get("https://pixabay.com/api/videos/",
+                        params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
+                                "video_type": "film", "orientation": "horizontal"}, timeout=25)
+                    if r.status_code == 200 and r.json().get("hits"):
+                        hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                        url = hit["videos"]["medium"]["url"]
+                        with requests.get(url, timeout=45, stream=True) as dl:
+                            dl.raise_for_status()
+                            with open(clip_path, "wb") as f:
+                                for chunk in dl.iter_content(32768): f.write(chunk)
+                        if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                            downloaded = True; continue
+                    elif r.status_code == 429:
+                        log(f"    Stage {i+1} Pixabay: 429 rate limited")
             except Exception as e:
                 log(f"    Stage {i+1} Pixabay: {e}")
 
+            if not downloaded:
+                try:
+                    if PEXELS_KEY:
+                        r = requests.get("https://api.pexels.com/videos/search",
+                            headers={"Authorization": PEXELS_KEY},
+                            params={"query": search_kw, "per_page": 5, "orientation": "landscape"},
+                            timeout=25)
+                        if r.status_code == 200 and r.json().get("videos"):
+                            vids  = r.json()["videos"]
+                            best  = max(vids, key=lambda v: v.get("duration", 0))
+                            files_ = sorted(best.get("video_files", []),
+                                            key=lambda vf: vf.get("width", 0), reverse=True)
+                            url = next((vf["link"] for vf in files_ if vf.get("width", 0) <= 1920), None) \
+                                  or (files_[0]["link"] if files_ else None)
+                            if url:
+                                with requests.get(url, timeout=45, stream=True) as dl:
+                                    dl.raise_for_status()
+                                    with open(clip_path, "wb") as f:
+                                        for chunk in dl.iter_content(32768): f.write(chunk)
+                                if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
+                                    downloaded = True
+                        elif r.status_code == 429:
+                            log(f"    Stage {i+1} Pexels: 429 rate limited")
+                except Exception as e:
+                    log(f"    Stage {i+1} Pexels: {e}")
+
         if not downloaded:
-            # Generate black clip as fallback
+            black_fallback_count += 1
+            # Last resort only — real footage exhausted on both providers
             dur = max(int(stage_dur), 8)
             run_ffmpeg(["ffmpeg","-y","-f","lavfi",
                 f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
                 "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
                 label=f"stage-{i}-fallback")
+            log(f"  Stage {i+1}: NO footage found on Pixabay or Pexels — using black clip")
 
         if Path(clip_path).exists():
             stage_clips.append((clip_path, stage_dur))
+
+    if black_fallback_count > 0:
+        tg(f"⚠️ {black_fallback_count}/{len(stage_defs)} background clips had NO real footage "
+           f"(Pixabay+Pexels both empty/exhausted) — used black clip instead. Check PIXABAY_KEY / PEXELS_API_KEY.")
 
     if len(stage_clips) < 3:
         log("  Stage footage insufficient — falling back to single looped video")
@@ -3864,9 +3911,19 @@ def generate_thumbnail_text(niche, topic):
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
     """Generate thumbnail with NUMBER+NOUN enforcement."""
-    # Enforce NUMBER+NOUN format
-    from revenue_engine import enforce_number_noun
-    thumb_text = enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
+    # Enforce NUMBER+NOUN format.
+    # FIX: this used to be a bare `from revenue_engine import enforce_number_noun`
+    # with no error handling — if revenue_engine.py isn't in the repo (it wasn't
+    # among the files ever shared with me, and doesn't appear in the repo folder
+    # listing), that import throws and takes down the ENTIRE generate run at
+    # Stage 5, every single time. A local enforce_number_noun() already exists
+    # in this same file (top of file) — fall back to it instead of crashing.
+    try:
+        from revenue_engine import enforce_number_noun as _enforce_number_noun
+        thumb_text = _enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
+    except Exception as e:
+        log(f"  revenue_engine unavailable, using built-in enforce_number_noun ({e})")
+        thumb_text = enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
     return generate_thumbnail(thumb_text, niche_name, title, topic, episode)
 
 
