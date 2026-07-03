@@ -78,24 +78,13 @@ jobs:
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
           python -u channels/evidence_room/evidence_room_pipeline.py
 
-      # ── DEBUG: show exactly what's in WORK_DIR at this moment. Temporary —
-      # remove once we've confirmed why the artifact step finds 0 files.
-      - name: Debug - list WORK_DIR contents
-        if: always()
-        run: |
-          echo "Checking /home/runner/work/evidence_room ..."
-          ls -la /home/runner/work/evidence_room/ 2>&1 || echo "DIRECTORY DOES NOT EXIST"
-          echo "---"
-          echo "Full disk search for final.mp4 anywhere on this runner:"
-          find / -name "final.mp4" 2>/dev/null || echo "NOT FOUND ANYWHERE"
-
       # ── FIX: persist rendered video/audio/thumbnail across runners ──
       - name: Upload video artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ch2-pending-video
-          path: /home/runner/work/evidence_room/*
+          path: /tmp/evidence_room/*
           retention-days: 2
           if-no-files-found: warn
 
