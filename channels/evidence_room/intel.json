@@ -1,46 +1,44 @@
 {
   "forensic_finance": {
     "top_hook_formulas": [
-      "The Shocking Truth About",
-      "Uncovering the Dark Secrets of",
-      "The Untold Story of"
+      "The evidence was there the entire time. Nobody looked at it correctly.",
+      "This document changed everything. It had been sitting in a drawer for 11 years.",
+      "The number on page 3 did not match the number on page 3 of a different filing. That was the beginning."
     ],
     "winning_title_patterns": [
-      "The [Adjective] Case of [Name/Thing]",
-      "How [Person/Thing] [Verb] [Consequence]",
-      "The [Adjective] Investigation into [Topic]"
+      "The [DOCUMENT/DATA] That Proved [CRIME] Had Been [DURATION]",
+      "[NUMBER] [DOCUMENTS/ACCOUNTS] \u2014 The Investigation That Changed Everything"
     ],
     "thumbnail_text_examples": [
-      "Billion Dollar Scam",
-      "Wall Street Exposed",
-      "Financial Crime Uncovered",
-      "Investment Fraud Alert",
-      "Corporate Embezzlement Revealed"
+      "FUNDS TRACED",
+      "PAPER TRAIL",
+      "MONEY FOUND",
+      "ALL DOCUMENTED"
     ],
-    "emotional_arc": "The videos typically start with an intriguing mystery, build up to a shocking revelation, and conclude with a sense of justice being served.",
+    "emotional_arc": "Methodical discovery then growing horror then full documented exposure",
     "retention_hooks": [
-      "Introduction to the main suspect at 30%",
-      "Revelation of a surprising twist at 60%",
-      "The final verdict and its consequences at 80%"
+      "What the next document revealed changed the entire investigation",
+      "The pattern only became visible when all 847 records were laid side by side",
+      "The final piece of evidence was the most ordinary thing imaginable"
     ],
     "niche_specific_power_words": [
-      "Forensic",
-      "Fraud",
-      "Investigation",
-      "Embezzlement",
-      "Money Laundering",
-      "Whistleblower"
+      "documented",
+      "evidence",
+      "pattern",
+      "records",
+      "exposed",
+      "concealed",
+      "verified"
     ],
-    "what_makes_videos_viral": "The combination of a captivating narrative, unexpected twists, and the exposure of shocking truths about financial crimes and investigations makes these videos viral.",
+    "what_makes_videos_viral": "Methodical evidence revelation that builds to an undeniable conclusion",
     "fresh_topic_ideas": [
-      "The Rise of CryptoCurrency Scams",
-      "Uncovering Ponzi Schemes in the 21st Century",
-      "The Dark Side of Crowdfunding",
-      "Investigating Insider Trading in Hollywood",
-      "The Global Impact of Tax Havens",
-      "Exposing Money Laundering in the Art World"
+      "The offshore account trail that exposed a 12-year bank fraud hidden across 40 shell companies",
+      "How auditors missed 3.2 billion in concealed losses because they trusted the software the fraudster built",
+      "The wire transfer pattern a junior analyst flagged in 2019 that nobody acted on for 3 years",
+      "A hedge fund reporting 18 percent annual returns for 9 years \u2014 the investigation that proved it was fabricated",
+      "One accountant who embezzled from 60 client accounts simultaneously using a single spreadsheet formula"
     ],
-    "last_run": "2026-06-21T11:21:44.057002"
+    "last_run": "2026-07-03T15:54:04.192073"
   },
   "corporate_exposure": {
     "top_hook_formulas": [
