@@ -47,7 +47,7 @@ jobs:
         with:
           workflow: ch3_generate.yml
           name: ch3-pending-video
-          path: /home/runner/work/control_files
+          path: /tmp/control_files
           workflow_conclusion: success
           if_no_artifact_found: fail
 
