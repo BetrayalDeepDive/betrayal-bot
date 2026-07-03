@@ -73,6 +73,16 @@ jobs:
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
           python -u channels/archive/archive_pipeline.py
 
+      # ── FIX: persist rendered video/audio/thumbnail across runners ──
+      - name: Upload video artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch4-pending-video
+          path: /home/runner/work/archive/*
+          retention-days: 2
+          if-no-files-found: warn
+
       - name: Commit generated artifacts + state
         if: always()
         run: |
