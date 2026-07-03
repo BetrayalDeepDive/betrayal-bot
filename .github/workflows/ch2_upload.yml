@@ -47,7 +47,7 @@ jobs:
         with:
           workflow: ch2_generate.yml
           name: ch2-pending-video
-          path: /home/runner/work/evidence_room
+          path: /tmp/evidence_room
           workflow_conclusion: success
           if_no_artifact_found: fail
 
