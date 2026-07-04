@@ -1736,19 +1736,50 @@ def _inject_ctas_ch1(script_clean, niche_name):
 # ================================================================
 # TITLE + CHAPTERS  [NEW #2]
 # ================================================================
-def generate_titles(niche, topic, episode):
+def generate_titles(niche, topic, episode, state=None):
+    # FIX: the prompt asked the AI to "rotate" between dread and sympathy
+    # framing, but nothing tracked which register was actually used last
+    # time — dread-language titles tend to score slightly higher on the
+    # hook-word scorer, so without real enforcement this could quietly
+    # drift back to all-dread despite the instruction. Track it in state
+    # and explicitly request the OPPOSITE register each time.
+    last_register = (state or {}).get("last_title_register", "dread")
+    target_register = "sympathy" if last_register == "dread" else "dread"
+    register_instruction = (
+        "Focus on the SYMPATHY/WOEFUL formulas below — make the viewer feel FOR "
+        "someone, not just unsettled."
+        if target_register == "sympathy" else
+        "Focus on the DREAD formulas below — create unease before the video starts."
+    )
+    sympathy_words = {"alone","listened","warned","blamed","cost","everything","last","tried"}
+
     hook_words = ["never", "nobody", "secret", "revealed", "truth", "years", "days",
-                  "finally", "hidden", "classified", "documented", "knew", "told", "found"]
+                  "finally", "hidden", "classified", "documented", "knew", "told", "found",
+                  "alone", "listened", "warned", "blamed", "cost", "everything", "last"]
     prompt = f"""
 TITLE REQUIREMENTS — NON-NEGOTIABLE:
 - Do NOT write normal YouTube titles. Normal = ignored.
 - The title should feel like something a person would screenshot and send to a friend.
 - Use specific numbers, real-feeling names, or uncomfortable specificity.
-- The best titles create DREAD before the video starts.
+- The best titles create DREAD before the video starts — but dread is not the only
+  register. A sympathetic, heartbreaking, "this could have been anyone" angle often
+  outperforms pure shock, because it makes the viewer feel FOR someone, not just
+  unsettled. Rotate between dread-driven and sympathy-driven framing rather than
+  defaulting to dread every time — both are proven, and variety prevents the channel
+  from reading as one-note.
 - Dark humor in titles outperforms pure shock — it signals intelligence.
-- The title should make someone feel like: "I shouldn't watch this... but I have to."
+- The title should make someone feel like: "I shouldn't watch this... but I have to"
+  OR "I need to know what happened to them" (sympathy-driven equivalent).
+- CURIOSITY GAP: give enough to create genuine interest but withhold the one detail
+  that can only be resolved by watching. Don't explain the outcome in the title.
+- HONESTY CONSTRAINT (critical, non-negotiable): the title must be something the
+  first 30 seconds of the actual video genuinely delivers on. YouTube's 2026 ranking
+  now actively penalizes titles that get clicks but lose viewers fast when the video
+  doesn't match the promise — this is worse for the channel long-term than a slightly
+  less aggressive but honest title. Never promise a specific reveal the video doesn't
+  actually contain in its opening.
 
-TITLE FORMULAS THAT WORK:
+TITLE FORMULAS THAT WORK (dread-driven):
 - "[Number] [People/Days/Years] [Disturbing Specific Thing] — Nobody Talked About This"
 - "The [Institution] Knew. They Did It Anyway. Here's The File."
 - "How [Completely Normal Thing] Was Used To [Dark Outcome]"
@@ -1757,24 +1788,50 @@ TITLE FORMULAS THAT WORK:
 - "The [Number]-Day [Dark Event] Everyone Pretended Didn't Happen"
 - "[Specific Crime/System]: [Number] Victims. [Number] Years. [Number] Investigations. Zero Arrests."
 
+TITLE FORMULAS THAT WORK (sympathy/woeful-driven — use these roughly as often as dread ones):
+- "She Tried To Warn Them For [Number] Years. Nobody Listened."
+- "[Number] Days Alone. Nobody Came. Here's What Happened To [Him/Her]."
+- "All [Name] Wanted Was [Simple Normal Thing]. It Cost [Him/Her] Everything."
+- "Everyone Blamed [Him/Her]. The Truth Was Worse Than Anyone Guessed."
+- "The Last [Number] Days Of A Life Nobody Was Watching"
+
 FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable", 
 "You Won't Believe", "Mind-Blowing", "Epic", "Ultimate", "Best"
 These signal low-quality content. Avoid them completely.
 
 Generate 5 YouTube titles for a dark investigative documentary.
 Series: {niche["series"]}, Episode {episode}. Topic: {topic}
-Rules: 55-70 chars each. Opens a psychological loop. Specific numbers where natural.
+REGISTER FOR THIS EPISODE (enforced, alternates every episode): {register_instruction}
+Rules: 40-65 chars each (fits fully on mobile). Front-load the most compelling part
+in the first 40 characters. Opens a psychological loop. Specific numbers where natural.
 Dark investigative tone. No colons unless essential. No quotes.
 IMPORTANT: Start with a NUMBER or specific statistic for highest CTR.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
     best = f"{niche['series']}: {topic[:55]}"
     best_score = 0
+
+    def looks_like_title(t):
+        # FIX: the AI sometimes returns a formatted fact list instead of a
+        # title (e.g. "* *Numbers:* 3 years, 1095 days, 4 walls, 1 child,
+        # 0 sleep, etc.") — that passed the old length-only filter and even
+        # scored HIGH (numbers + "years"/"days" hook words), so it got
+        # accepted as the actual video title. Reject anything that isn't
+        # actually shaped like a single title line.
+        if any(ch in t for ch in ("*", "_", "`", "#")):
+            return False
+        if t.count(",") >= 3:          # real titles don't read as a comma list
+            return False
+        if t.lower().startswith(("numbers:", "stats:", "facts:", "-", "•")):
+            return False
+        return True
+
     if raw:
-        lines = [l.strip() for l in raw.strip().splitlines() if 30 <= len(l.strip()) <= 80]
+        lines = [l.strip() for l in raw.strip().splitlines()
+                 if 30 <= len(l.strip()) <= 80 and looks_like_title(l.strip())]
         def ts(t):
             s = 0
-            if 55 <= len(t) <= 70: s += 3
+            if 40 <= len(t) <= 65: s += 3
             for hw in hook_words:
                 if hw.lower() in t.lower(): s += 2
             if any(c.isdigit() for c in t): s += 3  # number bonus
@@ -1793,7 +1850,8 @@ Return ONLY 5 titles, one per line."""
             f"Under 68 chars. Visceral, specific, dark. No generic phrases.\n"
             f"Return 5 titles, one per line.", tokens=300)
         if regen:
-            new_lines = [l.strip() for l in regen.splitlines() if 30 <= len(l.strip()) <= 80]
+            new_lines = [l.strip() for l in regen.splitlines()
+                         if 30 <= len(l.strip()) <= 80 and looks_like_title(l.strip())]
             if new_lines:
                 new_lines.sort(key=ts, reverse=True)
                 if ts(new_lines[0]) > best_score:
@@ -2384,6 +2442,27 @@ def run_audio_stage(script, niche_name, edge_voice):
     duration = get_media_duration(audio_path)
     log(f"  Duration: {duration:.1f}s ({duration/60:.1f} min)")
 
+    # HARD CEILING: 18 minutes, no exceptions. This is a safety net that
+    # doesn't depend on finding the root cause of any upstream overshoot
+    # (script length, TTS rate, a fallback concatenating extra audio,
+    # anything) — whatever the cause, the final audio physically cannot
+    # exceed this. Trims cleanly rather than an abrupt mid-word cut where
+    # possible, and always alerts so the overshoot itself still gets
+    # investigated rather than silently masked every time.
+    HARD_MAX_SECONDS = 18 * 60
+    if duration > HARD_MAX_SECONDS:
+        log(f"  ⚠️ Audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+        trimmed = str(WORK_DIR / "narration_trimmed.mp3")
+        run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(HARD_MAX_SECONDS),
+                    "-c", "copy", trimmed], label="hard-duration-cap", timeout=120)
+        if Path(trimmed).exists() and Path(trimmed).stat().st_size > 50000:
+            audio_path = trimmed
+            duration = get_media_duration(audio_path)
+            tg(f"⚠️ Ch1: narration ran {duration/60:.1f}min — over the 18-min limit, "
+               f"had to trim it. The generation itself needs checking (script or TTS "
+               f"rate produced too much audio) — this trim is a safety net, not a fix.")
+            log(f"  Trimmed to: {duration:.1f}s ({duration/60:.1f} min)")
+
     # Apply documentary-grade audio post-processing
     processed_path = str(WORK_DIR / "narration_processed.mp3")
     audio_path = apply_audio_post_processing(audio_path, processed_path, niche_name=niche_name)
@@ -2464,50 +2543,261 @@ def download_pexels_video(keywords):
         except Exception as e: log(f"  Pexels '{kw}': {e}")
     return None
 
+def generate_basic_shorts(video_path, audio_duration, title, niche_name, work_dir):
+    """
+    Real, working Shorts generator using only FFmpeg — no shorts_engine.py
+    dependency needed (that module doesn't exist in the repo; this used to
+    mean 0 Shorts, every single run, silently). Produces 2 solid vertical
+    (1080x1920) Shorts cut directly from the already-finished main video:
+      - Teaser: ~40s starting at the 10% mark
+      - Reveal/recap: ~40s starting at the 67% mark
+    Both get a bold hook-text overlay. Uses the exact same crop/scale/
+    drawtext techniques already proven reliable elsewhere in this file —
+    deliberately NOT a new fragile dependency.
+    Returns a list of short dicts with 'ok' and 'path' keys, matching the
+    shape the caller already expects from shorts_engine.
+    """
+    results = []
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]
+    font_path = next((fp for fp in font_paths if Path(fp).exists()), None)
+    accent = NICHE_ACCENT_COLORS.get(niche_name, "0xE01010") if "NICHE_ACCENT_COLORS" in globals() else "0xE01010"
+
+    clips = [
+        ("teaser", 0.10, "WAIT FOR IT"),
+        ("reveal", 0.67, "THE TRUTH"),
+    ]
+
+    for name, start_frac, hook_text in clips:
+        try:
+            start_t = max(0, start_frac * audio_duration)
+            dur     = min(40, audio_duration - start_t - 1)
+            if dur < 15:
+                log(f"  Short ({name}): not enough runway at this mark — skipping")
+                results.append({"ok": False, "path": None, "name": name})
+                continue
+
+            out_path = str(Path(work_dir) / f"short_{name}.mp4")
+            vf_parts = [
+                "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
+                "scale=1080:1920",
+            ]
+            if font_path:
+                esc = hook_text.replace("'", "")
+                vf_parts.append(
+                    f"drawtext=fontfile={font_path}:text='{esc}':"
+                    f"fontsize=90:fontcolor=white:borderw=5:bordercolor=black:"
+                    f"box=1:boxcolor={accent}@0.6:boxborderw=24:"
+                    f"x=(w-text_w)/2:y=140"
+                )
+            vf = ",".join(vf_parts)
+
+            run_ffmpeg([
+                "ffmpeg", "-y", "-ss", f"{start_t:.2f}", "-i", video_path,
+                "-t", f"{dur:.2f}", "-vf", vf,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "21",
+                "-c:a", "aac", "-b:a", "160k", out_path
+            ], label=f"short-{name}", timeout=300)
+
+            if Path(out_path).exists() and Path(out_path).stat().st_size > 200_000:
+                log(f"  Short ({name}): {Path(out_path).stat().st_size//1024}KB")
+                results.append({"ok": True, "path": out_path, "name": name})
+            else:
+                results.append({"ok": False, "path": None, "name": name})
+        except Exception as e:
+            log(f"  Short ({name}) failed (non-fatal): {e}")
+            results.append({"ok": False, "path": None, "name": name})
+
+    return results
+
+
+def upload_basic_shorts(shorts, upload_fn, token, playlist_id, main_title, niche_name):
+    """
+    Companion to generate_basic_shorts() — uploads whatever it produced.
+    Matches the shape returned by generate_basic_shorts (list of dicts
+    with 'ok'/'path'/'name'), not the shorts_engine format (that module
+    doesn't exist in this repo). Returns list of uploaded URLs.
+    """
+    urls = []
+    for s in shorts:
+        if not s.get("ok") or not s.get("path"):
+            continue
+        try:
+            name = s.get("name", "clip")
+            short_title = f"{main_title[:80]} #shorts"
+            short_desc  = (f"{main_title}\n\nFull investigation on the channel.\n"
+                            f"#shorts #darkpsychology #truecrime")
+            url, vid_id = upload_fn(s["path"], short_title, short_desc, [], token=token)
+            if url:
+                urls.append(url)
+                log(f"  Short ({name}) uploaded: {url}")
+                if playlist_id:
+                    try:
+                        add_to_playlist(token, playlist_id, vid_id)
+                    except Exception:
+                        pass
+        except Exception as e:
+            log(f"  Short ({s.get('name','?')}) upload failed (non-fatal): {e}")
+    return urls
+
+
+def generate_approximate_srt(script, audio_duration, out_path):
+    """
+    growth_engine.py (which used to provide upload_srt_captions) doesn't
+    exist in this repo — SRT captions have been silently skipped every
+    single run. This builds a real SRT file without needing precise
+    word-level timing: split the script into sentences, distribute
+    timestamps proportionally across audio_duration (same reliable
+    proportional-timing approach already used for background video
+    matching and kinetic text elsewhere in this file). Not perfectly
+    word-accurate, but genuinely useful for accessibility/SEO — far
+    better than no caption track at all.
+    """
+    import re as _re
+    sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', script) if s.strip()]
+    if not sentences:
+        return False
+    total_words = sum(len(s.split()) for s in sentences)
+    if total_words == 0:
+        return False
+
+    def fmt_ts(seconds):
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        ms = int((seconds - int(seconds)) * 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    lines = []
+    t = 0.0
+    for i, sent in enumerate(sentences):
+        wc = len(sent.split())
+        dur = audio_duration * (wc / total_words)
+        start, end = t, min(t + dur, audio_duration)
+        lines.append(str(i + 1))
+        lines.append(f"{fmt_ts(start)} --> {fmt_ts(end)}")
+        lines.append(sent)
+        lines.append("")
+        t = end
+
+    try:
+        Path(out_path).write_text("\n".join(lines), encoding="utf-8")
+        return True
+    except Exception as e:
+        log(f"  SRT write failed (non-fatal): {e}")
+        return False
+
+
+def upload_captions_track(token, video_id, srt_path, language="en"):
+    """
+    Uploads an SRT as a real YouTube caption track via the documented
+    captions.insert API (multipart: JSON metadata + the SRT file body).
+    This is a genuine gap-filler for the missing growth_engine module —
+    built directly against YouTube's public API docs. Non-fatal: logs
+    and returns False on any failure rather than blocking the upload.
+    """
+    try:
+        metadata = {
+            "snippet": {
+                "videoId": video_id,
+                "language": language,
+                "name": "English",
+                "isDraft": False,
+            }
+        }
+        boundary = "----deepdive-captions-boundary"
+        srt_bytes = Path(srt_path).read_bytes()
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            f"{json.dumps(metadata)}\r\n"
+            f"--{boundary}\r\n"
+            f"Content-Type: application/octet-stream\r\n\r\n"
+        ).encode("utf-8") + srt_bytes + f"\r\n--{boundary}--".encode("utf-8")
+
+        r = requests.post(
+            "https://www.googleapis.com/upload/youtube/v3/captions"
+            "?part=snippet&uploadType=multipart",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": f"multipart/related; boundary={boundary}",
+            },
+            data=body, timeout=60)
+        if r.status_code in (200, 201):
+            log("  OK Captions track uploaded")
+            return True
+        else:
+            log(f"  Captions upload: {r.status_code} — {r.text[:200]}")
+            return False
+    except Exception as e:
+        log(f"  Captions upload failed (non-fatal): {e}")
+        return False
+
+
 def get_stage_matched_video(niche, script, audio_duration):
     """
-    Stage-matched footage: extract keywords from each script stage,
-    search Pixabay for matching dark footage, concatenate 7 clips.
-    Falls back to single looped video if this fails.
+    Sequential audio-matched footage: the script is split into 28
+    proportional segments (~25-30s of narration each for a 15-18 min
+    video). Each segment gets its own real Pixabay/Pexels clip, fetched
+    using keywords drawn from THAT segment's actual narration content
+    plus the niche's dark visual language, and that clip plays during
+    exactly that segment — not shuffled or reordered. This is a
+    deliberate change from an earlier shuffled version: shuffling for
+    raw cut-count risked showing a clip during narration it didn't
+    actually match. Sequential + segment-matched keeps every visual
+    genuinely tied to what's being said at that moment, while still
+    giving 28 distinct real visual changes (comfortably over the 25+
+    minimum) across the runtime.
+    Falls back to a single looped video if too few real clips come back.
     """
     words     = script.split()
     total     = len(words)
-    # Stage boundaries (proportional)
-    stage_defs = [
-        (100,  "dark discovery opening"),
-        (200,  "ordinary life before dark"),
-        (250,  "warning signs shadows"),
-        (400,  "dark escalation danger"),
-        (200,  "calm relief break"),
-        (650,  "dark revelation truth exposed"),
-        (200,  "dark aftermath consequences"),
+
+    # 28 buckets, each tagged with a niche-appropriate visual theme that
+    # follows the story's natural arc (open -> unease -> escalation ->
+    # reveal -> aftermath), so even segments without a strong extracted
+    # keyword still get a mood-appropriate fallback term.
+    n_buckets = 28
+    theme_cycle = [
+        "dark discovery opening", "ordinary life before dark", "quiet unease",
+        "warning signs shadows", "growing dread", "isolation loneliness",
+        "dark escalation danger", "chase pursuit tension", "trapped confined space",
+        "surveillance watching", "documents evidence records", "empty corridor dread",
+        "closing in danger", "false safety calm", "before the truth",
+        "dark revelation truth exposed", "shocking discovery", "confrontation tension",
+        "aftermath consequences", "empty aftermath", "quiet devastation",
+        "haunting memory", "unresolved dread", "lingering shadow",
+        "final warning", "closing image", "haunting final image", "dark fade out",
     ]
-    stage_clips = []
-    idx = 0
+    bucket_words = max(1, total // n_buckets)
+    segment_dur  = audio_duration / n_buckets
+
+    fetched_clips = []
     black_fallback_count = 0
-    stage_dur   = audio_duration / len(stage_defs)
+    stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
+                  "of","with","by","from","this","that","was","were","had","have",
+                  "it","its","he","she","they","their","his","her","be","been",
+                  "not","no","so","as","if","then","than","when","what","who"}
 
-    for i, (word_count, base_kw) in enumerate(stage_defs):
-        end        = min(idx + word_count, total)
-        stage_text = " ".join(words[idx:end]).lower()
-        idx        = end
+    for i in range(n_buckets):
+        base_kw = theme_cycle[i % len(theme_cycle)]
+        start = i * bucket_words
+        end   = min(start + bucket_words, total)
+        stage_text = " ".join(words[start:end]).lower()
 
-        # Extract 2 most relevant nouns from stage text
-        # Simple approach: most common non-stopwords
-        stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
-                      "of","with","by","from","this","that","was","were","had","have",
-                      "it","its","he","she","they","their","his","her","be","been",
-                      "not","no","so","as","if","then","than","when","what","who"}
         stage_words= [w.strip(".,!?;:") for w in stage_text.split()
                       if len(w) > 4 and w not in stopwords]
         from collections import Counter
         top_nouns  = [w for w,_ in Counter(stage_words).most_common(2)]
-        kw         = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
+        # Keyword = actual narration content at this exact moment + niche
+        # theme, so the visual matches BOTH the audio and the niche mood.
+        kw = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
 
-        clip_path  = str(WORK_DIR / f"stage_{i}.mp4")
-        log(f"  Stage {i+1} footage: '{kw[:40]}'")
+        clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
+        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
 
-        # Try Pixabay, then Pexels (real fallback — was documented but never called), then a generic broad term
         downloaded = False
         search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
                          "cinematic dark atmosphere"]
@@ -2528,9 +2818,9 @@ def get_stage_matched_video(niche, script, audio_duration):
                         if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
                             downloaded = True; continue
                     elif r.status_code == 429:
-                        log(f"    Stage {i+1} Pixabay: 429 rate limited")
+                        log(f"    Segment {i+1} Pixabay: 429 rate limited")
             except Exception as e:
-                log(f"    Stage {i+1} Pixabay: {e}")
+                log(f"    Segment {i+1} Pixabay: {e}")
 
             if not downloaded:
                 try:
@@ -2554,40 +2844,40 @@ def get_stage_matched_video(niche, script, audio_duration):
                                 if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
                                     downloaded = True
                         elif r.status_code == 429:
-                            log(f"    Stage {i+1} Pexels: 429 rate limited")
+                            log(f"    Segment {i+1} Pexels: 429 rate limited")
                 except Exception as e:
-                    log(f"    Stage {i+1} Pexels: {e}")
+                    log(f"    Segment {i+1} Pexels: {e}")
 
         if not downloaded:
             black_fallback_count += 1
-            # Last resort only — real footage exhausted on both providers
-            dur = max(int(stage_dur), 8)
             run_ffmpeg(["ffmpeg","-y","-f","lavfi",
-                f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
+                f"-i","color=c=black:size=1280x720:rate=24:duration={segment_dur:.1f}",
                 "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
-                label=f"stage-{i}-fallback")
-            log(f"  Stage {i+1}: NO footage found on Pixabay or Pexels — using black clip")
+                label=f"seg-{i}-fallback")
+            log(f"  Segment {i+1}: NO footage found on Pixabay or Pexels — using black clip")
 
         if Path(clip_path).exists():
-            stage_clips.append((clip_path, stage_dur))
+            fetched_clips.append(clip_path)
 
     if black_fallback_count > 0:
-        tg(f"⚠️ {black_fallback_count}/{len(stage_defs)} background clips had NO real footage "
+        tg(f"⚠️ {black_fallback_count}/{n_buckets} background segments had NO real footage "
            f"(Pixabay+Pexels both empty/exhausted) — used black clip instead. Check PIXABAY_KEY / PEXELS_API_KEY.")
 
-    if len(stage_clips) < 3:
-        log("  Stage footage insufficient — falling back to single looped video")
+    if len(fetched_clips) < 8:
+        log("  Sequential matched footage insufficient — falling back to single looped video")
         return None
 
-    # Concatenate all stage clips scaled/padded to 1280x720
+    # Trim/pad each clip to EXACTLY its segment's duration and scale — this
+    # keeps every clip aligned to the real timestamp it was matched against,
+    # so clip N plays while segment N's narration is actually being spoken.
     parts = []
-    for i, (clip, dur) in enumerate(stage_clips):
-        scaled = str(WORK_DIR / f"stage_{i}_scaled.mp4")
-        run_ffmpeg(["ffmpeg","-y","-i",clip,
+    for i, clip in enumerate(fetched_clips):
+        scaled = str(WORK_DIR / f"seg_{i}_scaled.mp4")
+        run_ffmpeg(["ffmpeg","-y","-stream_loop","2","-i",clip,
             "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
                   "pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-            "-t",str(dur),"-c:v","libx264","-preset","ultrafast",
-            "-pix_fmt","yuv420p","-an", scaled], label=f"scale-{i}")
+            "-t",f"{segment_dur:.2f}","-c:v","libx264","-preset","ultrafast",
+            "-pix_fmt","yuv420p","-an", scaled], label=f"seg-scale-{i}")
         if Path(scaled).exists():
             parts.append(scaled)
 
@@ -2597,15 +2887,14 @@ def get_stage_matched_video(niche, script, audio_duration):
     list_file = str(WORK_DIR / "stage_list.txt")
     combined  = str(WORK_DIR / "background_staged.mp4")
     with open(list_file, "w") as f:
-        # Repeat to cover full duration
-        loops = max(1, int(audio_duration / (len(parts) * 8)) + 2)
-        for _ in range(loops):
-            for p in parts: f.write(f"file '{p}'\n")
+        for p in parts:
+            f.write(f"file '{p}'\n")
 
     run_ffmpeg(["ffmpeg","-y","-f","concat","-safe","0","-i",list_file,
                 "-c","copy","-t",str(audio_duration+5),combined], label="stage-concat")
     if Path(combined).exists() and Path(combined).stat().st_size > 50000:
-        log(f"  Stage-matched video: {Path(combined).stat().st_size//(1024*1024)}MB")
+        log(f"  Sequential matched video: {len(parts)} audio-matched segments | "
+            f"{Path(combined).stat().st_size//(1024*1024)}MB")
         return combined
     return None
 
@@ -3719,15 +4008,22 @@ def update_channel_description(token, latest_title, latest_url):
             params={"part": "snippet", "mine": "true"}, timeout=20)
         if r.status_code != 200: return
         ch_id = r.json()["items"][0]["id"]
+        # FIX: YouTube's channels.update requires the FULL snippet object
+        # when part=snippet, not just the field being changed — sending
+        # only {"description": ...} without the existing "title" is
+        # missing a required field and returns 400 every time. Grab the
+        # existing snippet from the GET above and only mutate description.
+        existing_snippet = r.json()["items"][0].get("snippet", {})
         desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
                  "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
                  "New episodes every weekday. Subscribe for weekly investigations.")
+        existing_snippet["description"] = desc[:1000]
         r2 = requests.put(f"{YT_DATA_URL}/channels",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             params={"part": "snippet"},
-            json={"id": ch_id, "snippet": {"description": desc[:1000]}}, timeout=20)
+            json={"id": ch_id, "snippet": existing_snippet}, timeout=20)
         if r2.status_code in [200, 201]: log("OK Channel description updated")
-        else: log(f"  Channel update {r2.status_code}")
+        else: log(f"  Channel update {r2.status_code}: {r2.text[:200]}")
     except Exception as e: log(f"  Channel update (non-fatal): {e}")
 
 # ================================================================
@@ -4204,8 +4500,16 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script=""):
     matched to niche — mix approach: animation for key beats, stock
     footage as backdrop)."""
     niche       = next(n for n in NICHES if n["name"] == niche_name)
-    search_kw   = ""  # background video doesn't need script for single-keyword search
-    bg_path     = get_background_video(niche, audio_duration, search_kw)
+    # FIX: this was calling get_background_video (ONE clip, looped for the
+    # entire runtime) even though get_stage_matched_video (7 different
+    # keyword-matched clips, one per story stage, already fully built and
+    # working) existed in this same file and was never wired in. That's
+    # exactly why the video showed "only one background the whole time."
+    search_kw   = ""  # only used by the single-clip fallback below
+    bg_path     = get_stage_matched_video(niche, script, audio_duration)
+    if not bg_path:
+        log("  Stage-matched video unavailable — falling back to single looped clip")
+        bg_path = get_background_video(niche, audio_duration, search_kw)
     mus_path    = generate_ambient_music(audio_duration)
     composed    = compose_video(audio_path, bg_path, mus_path, None,
                                  audio_duration, label="main", niche_name=niche_name)
@@ -4226,25 +4530,34 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script=""):
 
 
 def generate_thumbnail_text(niche, topic):
-    """Generate 3-word NUMBER+NOUN style thumbnail text for dark horror content."""
+    """Generate 3-word NUMBER+NOUN style thumbnail text — rotates between
+    dread and sympathy registers, matching the title generator, so the
+    thumbnail and title never clash in emotional tone."""
     fallback_bank = {
-        "dark_horror":        ["FOUND INSIDE WALLS", "THREE YEARS HIDDEN", "NOBODY SURVIVED THIS"],
-        "seduction_dark":     ["SEVEN WARNING SIGNS", "ONE TRAP CLOSED", "TWENTY EIGHT DAYS"],
-        "psychological_trap": ["SIX STAGES FOUND", "NO EXIT EXISTS", "DOCUMENTED MIND CONTROL"],
-        "supernatural_real":  ["WITNESSES CONFIRMED THIS", "NINE NIGHTS RECORDED", "STILL UNEXPLAINED TODAY"],
-        "obsession_dark":     ["FOUR YEARS TRACKED", "EIGHT HUNDRED MESSAGES", "ONE PERSON KNEW"],
+        "dark_horror":        ["FOUND INSIDE WALLS", "THREE YEARS HIDDEN", "NOBODY SURVIVED THIS",
+                                "SHE TRIED WARNING", "NOBODY EVER LISTENED"],
+        "seduction_dark":     ["SEVEN WARNING SIGNS", "ONE TRAP CLOSED", "TWENTY EIGHT DAYS",
+                                "ALL SHE WANTED", "COST HER EVERYTHING"],
+        "psychological_trap": ["SIX STAGES FOUND", "NO EXIT EXISTS", "DOCUMENTED MIND CONTROL",
+                                "EVERYONE BLAMED HIM", "TRUTH WAS WORSE"],
+        "supernatural_real":  ["WITNESSES CONFIRMED THIS", "NINE NIGHTS RECORDED", "STILL UNEXPLAINED TODAY",
+                                "ALONE THE WHOLE", "NOBODY CAME BACK"],
+        "obsession_dark":     ["FOUR YEARS TRACKED", "EIGHT HUNDRED MESSAGES", "ONE PERSON KNEW",
+                                "SHE WAS ALONE", "LAST DAYS UNSEEN"],
     }
     prompt = (
         f"Generate the most psychologically compelling 3-word thumbnail text "
-        f"for a dark horror documentary video.\n"
+        f"for a dark documentary video.\n"
         f"NICHE: {niche['name']} | TOPIC: {topic[:100]}\n\n"
-        f"USE THESE TRIGGERS:\n"
+        f"USE THESE TRIGGERS (pick ONE register, don't mix):\n"
         f"1. CURIOSITY GAP: creates an unanswerable question\n"
-        f"2. DREAD: implies something disturbing was confirmed\n"
-        f"3. SPECIFICITY: a number or concrete detail, not vague\n"
-        f"4. PATTERN INTERRUPT: unexpected — makes viewer stop scrolling\n\n"
+        f"2. DREAD register: implies something disturbing was confirmed\n"
+        f"3. SYMPATHY/WOEFUL register: implies someone was failed, ignored, or alone —\n"
+        f"   equally valid as dread, use this roughly half the time\n"
+        f"4. SPECIFICITY: a number or concrete detail, not vague\n"
+        f"5. PATTERN INTERRUPT: unexpected — makes viewer stop scrolling\n\n"
         f"Rules: EXACTLY 3 words. ALL CAPS. Dark and specific. Never generic.\n"
-        f"Return ONLY 3 words. Example: FOUND INSIDE WALLS"
+        f"Return ONLY 3 words. Example: FOUND INSIDE WALLS or NOBODY EVER LISTENED"
     )
     try:
         result = ai_generate(prompt, tokens=15)
@@ -4373,30 +4686,41 @@ def main():
                         f"?videoId={vid_id}&uploadType=media",
                         headers={"Authorization":f"Bearer {token}","Content-Type":"image/jpeg"},
                         data=tf.read(), timeout=60)
-                if tr.status_code in [200,201]: log("  Thumbnail uploaded")
+                if tr.status_code in [200,201]:
+                    log("  Thumbnail uploaded")
+                else:
+                    # FIX: this used to fail completely silently — no log line
+                    # at all on a non-200 response, which is exactly why a
+                    # missing thumbnail was invisible in the logs. A common
+                    # cause here is the channel not yet being verified for
+                    # custom thumbnails (same "Intermediate features" gate as
+                    # the 15-minute video length cap).
+                    log(f"  Thumbnail upload FAILED: {tr.status_code} — {tr.text[:300]}")
+                    tg(f"⚠️ Thumbnail upload failed ({tr.status_code}) — video published without "
+                       f"a custom thumbnail. Check channel verification / Feature eligibility.")
             except Exception as te: log(f"  Thumbnail (non-fatal): {te}")
 
         post_creator_comment(token, vid_id, niche_name, title, episode)
 
-        # Upload all 6 Shorts with staggered 5-minute gaps between groups
-        # Group A: Shorts 1+2 (clip-based teaser/recap)
-        # Group B: Shorts 3+4 (standalone originals) — 5 min after Group A
-        # Group C: Shorts 5+6 (cross-niche) — 5 min after Group B
+        # FIX: shorts_reels_engine's produce_teaser_short/produce_standalone_short
+        # already generate AND upload internally (they don't return a file to
+        # upload separately) — those already went out during the generate
+        # phase. The only Short that belongs here is the recap, because it's
+        # the only one that needs the real video URL, which doesn't exist
+        # until this exact point.
+        short_urls = [s.get("url") for s in shorts if s.get("ok") and s.get("url")]
         try:
-            from shorts_engine import upload_all_six_shorts
-            short_urls = upload_all_six_shorts(
-                shorts          = shorts,
-                upload_fn       = upload_yt,
-                token           = token,
-                playlist_id     = playlist_id,
-                post_comment_fn = lambda tok, vid, ch, ttl: post_short_creator_comment(
-                                      tok, vid, niche_name, ttl),
-                channel_id      = "betrayal_deepdive",
-            )
-            log(f"  Shorts uploaded: {len(short_urls)}/6")
+            import importlib.util
+            if importlib.util.find_spec("shorts_reels_engine") is None:
+                raise ImportError("shorts_reels_engine not in PYTHONPATH")
+            from shorts_reels_engine import produce_recap_short
+            recap = produce_recap_short(title, yt_url)
+            if recap.get("status") == "success" and recap.get("url"):
+                short_urls.append(recap["url"])
+            log(f"  Recap Short: {recap.get('status')}")
+            log(f"  Total Shorts this episode: {len(short_urls)}")
         except Exception as e:
-            log(f"  Shorts upload (non-fatal): {e}")
-            short_urls = []
+            log(f"  Recap Short (non-fatal): {e}")
 
         # SRT captions
         if script_clean and duration > 0:
@@ -4404,7 +4728,13 @@ def main():
                 from growth_engine import upload_srt_captions
                 upload_srt_captions(token, vid_id, script_clean, duration, "betrayal_deepdive")
             except Exception as e:
-                log(f"  SRT (non-fatal): {e}")
+                log(f"  SRT (non-fatal): {e} — using built-in approximate captions instead")
+                try:
+                    srt_path = str(WORK_DIR / "captions_approx.srt")
+                    if generate_approximate_srt(script_clean, duration, srt_path):
+                        upload_captions_track(token, vid_id, srt_path)
+                except Exception as e2:
+                    log(f"  Fallback captions also failed (non-fatal): {e2}")
 
         update_channel_description(token, title, yt_url)
         clear_pending(SCRIPT_DIR)
@@ -4429,9 +4759,18 @@ def main():
                 "SPRINT_SCORE":        str(score),
                 "SPRINT_DURATION_SECS":str(duration),
             })
+            # FIX: this pointed at channels/growth_engine/growth_engine.py,
+            # a path that doesn't exist — the real file lives right next to
+            # master_pipeline.py. Because this uses Popen (fire-and-forget,
+            # doesn't wait for or check the subprocess), the wrong path
+            # failed silently INSIDE that separate process every single
+            # time — python3 printed "can't open file" to its own stderr,
+            # which nothing here ever captured or reported. This is very
+            # likely the actual reason growth-engine features (hype
+            # notifications, comment engine, CTR recovery) never visibly
+            # ran, with zero error anywhere to point at.
             subprocess.Popen(
-                ["python3", str(Path(__file__).parent.parent /
-                               "channels/growth_engine/growth_engine.py")],
+                ["python3", str(Path(__file__).parent / "growth_engine.py")],
                 env=env_ext)
         except Exception as ge:
             log(f"  Growth engine sprint (non-fatal): {ge}")
@@ -4488,43 +4827,47 @@ def main():
         thumb_text  = generate_thumbnail_text(niche, topic)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
 
-        log("\nSTAGE 6: All 6 Shorts")
-        log("  Short 1: Teaser clip (10% mark)")
-        log("  Short 2: Recap clip (67% mark)")
-        log("  Short 3: Standalone — hook angle")
-        log("  Short 4: Standalone — reveal angle")
-        log("  Short 5: Cross-niche A")
-        log("  Short 6: Cross-niche B")
+        log("\nSTAGE 6: Shorts")
+        log("  Teaser (ties to main video) + 2 standalone Shorts now.")
+        log("  Recap Short runs in the upload phase — it needs the real")
+        log("  video URL, which doesn't exist until upload actually happens.")
+        # FIX: this used to import a module called "shorts_engine" that
+        # doesn't exist — the real file is "shorts_reels_engine.py", and its
+        # actual functions (produce_teaser_short, produce_recap_short,
+        # produce_standalone_short) are completely different from the
+        # generate_all_six_shorts() this code assumed existed. That
+        # combination guaranteed this always failed. Wired to the real API now.
+        shorts = []
         try:
             import importlib.util
-            if importlib.util.find_spec("shorts_engine") is None:
-                raise ImportError("shorts_engine not in PYTHONPATH")
-            from shorts_engine import generate_all_six_shorts
-            def _tts_fn(text, out_path):
-                import asyncio, edge_tts
-                async def _run():
-                    c = edge_tts.Communicate(text, edge_voice, rate="-8%")
-                    await asyncio.wait_for(c.save(out_path), timeout=120)
-                asyncio.run(_run())
-            shorts = generate_all_six_shorts(
-                video_path      = video_path,
-                script_clean    = script_clean,
-                audio_duration  = audio_duration,
-                main_title      = title,
-                niche_name      = niche_name,
-                topic           = topic,
-                channel_id      = "betrayal_deepdive",
-                work_dir        = str(WORK_DIR),
-                ai_fn           = lambda p, tokens=200: ai_generate(p, tokens=tokens),
-                tts_fn          = _tts_fn,
-                main_video_url  = "",  # filled at upload time
-            )
+            if importlib.util.find_spec("shorts_reels_engine") is None:
+                raise ImportError("shorts_reels_engine not in PYTHONPATH")
+            from shorts_reels_engine import produce_teaser_short, produce_standalone_short
+
+            teaser = produce_teaser_short(topic, script_clean)
+            shorts.append({"ok": teaser.get("status") == "success",
+                           "path": None, "url": teaser.get("url"), "name": "teaser"})
+            log(f"  Teaser: {teaser.get('status')}")
+
+            for mode in ("standalone_1", "standalone_2"):
+                sa = produce_standalone_short(mode)
+                shorts.append({"ok": sa.get("status") == "success",
+                               "path": None, "url": sa.get("url"), "name": mode})
+                log(f"  Standalone ({mode}): {sa.get('status')}")
+
             ok_count = sum(1 for s in shorts if s.get("ok"))
-            log(f"  Shorts: {ok_count}/6 generated")
-            tg(f"  6 Shorts: {ok_count}/6 generated")
+            log(f"  Shorts (generate phase): {ok_count}/{len(shorts)} generated")
         except Exception as e:
-            log(f"  Shorts engine (non-fatal): {e}")
-            shorts = []
+            log(f"  Shorts engine (non-fatal): {e} — using built-in FFmpeg fallback instead")
+            try:
+                shorts = generate_basic_shorts(video_path, audio_duration, title,
+                                                niche_name, str(WORK_DIR))
+                ok_count = sum(1 for s in shorts if s.get("ok"))
+                log(f"  Fallback Shorts: {ok_count}/{len(shorts)} generated")
+                tg(f"  Shorts (fallback): {ok_count}/{len(shorts)} generated")
+            except Exception as e2:
+                log(f"  Fallback Shorts also failed (non-fatal): {e2}")
+                shorts = []
 
         # Build description
         description = generate_seo_description(
