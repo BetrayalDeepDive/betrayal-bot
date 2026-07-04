@@ -1963,13 +1963,13 @@ async def _edge_tts_stream(text, voice, audio_path, vtt_path):
                 elif chunk["type"] == "WordBoundary":
                     sub.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
         with open(vtt_path, "w", encoding="utf-8") as sf:
-            # edge-tts SubMaker API varies by version
+            # edge-tts SubMaker API varies by version — some versions don't have
+            # generate_subs() at all (AttributeError), others have it but with a
+            # different signature (TypeError). Catch both instead of just TypeError.
             try:
                 subs_text = sub.generate_subs()
-            except TypeError:
-                subs_text = getattr(sub, 'generate_subs', None)
-                if callable(subs_text):
-                    subs_text = subs_text()
+            except (TypeError, AttributeError):
+                subs_text = None
             sf.write(subs_text if isinstance(subs_text, str) else "WEBVTT\n")
         return True
     except Exception as sub_err:
@@ -2290,7 +2290,7 @@ def run_audio_stage(script, niche_name, edge_voice):
             if _vfi > 0: time.sleep(3)  # avoid edge-tts rate limit
             try:
                 log(f"  edge-tts: {v}")
-                asyncio.run(asyncio.wait_for(_edge_tts_stream(script, v, audio_path, vtt_path), timeout=120))
+                got_subs = asyncio.run(asyncio.wait_for(_edge_tts_stream(script, v, audio_path, vtt_path), timeout=120))
                 if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
                     if got_subs and Path(vtt_path).exists():
                         has_ass = vtt_to_ass(vtt_path, ass_path)
