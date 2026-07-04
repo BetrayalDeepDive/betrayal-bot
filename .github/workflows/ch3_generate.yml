@@ -43,8 +43,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation -qq
-          pip install requests pillow edge-tts -q
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
+          pip install requests pillow edge-tts gTTS -q
 
       - name: Pull latest state
         run: |
@@ -65,6 +65,7 @@ jobs:
           PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
           PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
           TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
+          FISH_AUDIO_API_KEY:    ${{ secrets.FISH_AUDIO_API_KEY }}  # optional TTS backup — leave secret empty/unset if not using it
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
           CHANNEL3_YT_CLIENT_ID:     ${{ secrets.CHANNEL3_YT_CLIENT_ID }}
           CHANNEL3_YT_CLIENT_SECRET: ${{ secrets.CHANNEL3_YT_CLIENT_SECRET }}
