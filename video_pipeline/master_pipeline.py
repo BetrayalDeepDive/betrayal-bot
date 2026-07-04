@@ -2642,8 +2642,7 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
             "equalizer=f=250:width_type=o:width=2:g=2,"
             "equalizer=f=3000:width_type=o:width=2:g=-1,"
             "equalizer=f=8000:width_type=o:width=2:g=-2,"
-            "aecho=0.85:0.88:60:0.3,"
-            "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
+                        "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
             "loudnorm=I=-16:LRA=11:TP=-1.5"
         )
         run_ffmpeg([
@@ -2668,7 +2667,6 @@ NICHE_AUDIO_PROFILES = {
         "equalizer=f=60:width_type=o:width=2:g=5,"
         "equalizer=f=2500:width_type=o:width=2:g=2,"
         "equalizer=f=10000:width_type=o:width=2:g=-4,"
-        "aecho=0.85:0.88:80:0.55,"              # long cavernous reverb
         "acompressor=threshold=-18dB:ratio=4:attack=3:release=100:makeup=3dB,"
         "loudnorm=I=-16:LRA=11:TP=-1.5"
     ),
@@ -2677,7 +2675,6 @@ NICHE_AUDIO_PROFILES = {
         "equalizer=f=100:width_type=o:width=2:g=4,"
         "equalizer=f=200:width_type=o:width=2:g=3,"
         "equalizer=f=8000:width_type=o:width=2:g=-4,"
-        "aecho=0.7:0.75:25:0.15,"               # barely noticeable warmth
         "acompressor=threshold=-15dB:ratio=2.5:attack=8:release=60:makeup=2dB,"
         "loudnorm=I=-16:LRA=11:TP=-1.5"
     ),
@@ -2695,7 +2692,6 @@ NICHE_AUDIO_PROFILES = {
         "equalizer=f=80:width_type=o:width=2:g=4,"
         "equalizer=f=2000:width_type=o:width=2:g=2,"
         "equalizer=f=12000:width_type=o:width=2:g=-3,"
-        "aecho=0.8:0.88:100:0.5,"               # wide supernatural space
         "acompressor=threshold=-20dB:ratio=3:attack=5:release=120:makeup=2dB,"
         "loudnorm=I=-16:LRA=13:TP=-1.5"         # wider dynamics = more uncanny
     ),
@@ -3202,8 +3198,39 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
 # ================================================================
 # VIDEO COMPOSITION  (video + narration + music + burned captions)
 # ================================================================
+
+# ── Niche-specific atmospheric grading — makes stock footage feel like it
+# belongs to a distinct dark brand instead of generic unedited clips.
+# Free: pure FFmpeg eq/curves/vignette, no external LUT or paid tool.
+NICHE_VISUAL_GRADE = {
+    "dark_horror": (
+        "eq=brightness=-0.08:contrast=1.25:saturation=0.75,"
+        "vignette=PI/3.2"
+    ),
+    "seduction_dark": (
+        "eq=brightness=-0.05:contrast=1.15:saturation=0.85,"
+        "colorbalance=rs=0.08:bs=-0.06,"      # push toward warm magenta shadows
+        "vignette=PI/3.8"
+    ),
+    "psychological_trap": (
+        "eq=brightness=-0.06:contrast=1.3:saturation=0.55,"  # cold, clinical, desaturated
+        "colorbalance=bs=0.08,"
+        "vignette=PI/4"
+    ),
+    "supernatural_real": (
+        "eq=brightness=-0.07:contrast=1.2:saturation=0.7,"
+        "colorbalance=gs=0.06:bs=0.05,"       # eerie teal shift
+        "vignette=PI/3.5"
+    ),
+    "obsession_dark": (
+        "eq=brightness=-0.1:contrast=1.35:saturation=0.6,"   # suffocating, dark, close
+        "vignette=PI/2.8"
+    ),
+}
+DEFAULT_VISUAL_GRADE = NICHE_VISUAL_GRADE["dark_horror"]
+
 def compose_video(narration_path, bg_path, music_path, ass_path,
-                  audio_duration, label="main"):
+                  audio_duration, label="main", niche_name=None):
     output   = str(WORK_DIR / f"composed_{label}.mp4")
     bg_dur   = get_media_duration(bg_path)
     loop_n   = max(int(audio_duration / max(bg_dur, 1)) + 2, 1)
@@ -3211,8 +3238,10 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     has_sub  = ass_path and Path(ass_path).exists()
 
     # Subtitles disabled — timing sync not reliable enough for dark content
+    grade = NICHE_VISUAL_GRADE.get(niche_name, DEFAULT_VISUAL_GRADE)
     vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-          "pad=1280:720:(ow-iw)/2:(oh-ih)/2")
+          "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+          f"{grade}")
 
     if has_mus:
         cmd = [
@@ -4008,14 +4037,184 @@ def run_approval_gate(title, niche_name, script_clean, edge_voice, score):
     return "auto_approved"
 
 
-def assemble_video(niche_name, audio_path, audio_duration, topic):
-    """Assemble final video: background footage + narration + ambient music."""
-    niche    = next(n for n in NICHES if n["name"] == niche_name)
-    script   = ""  # background video doesn't need script for single-keyword search
-    bg_path  = get_background_video(niche, audio_duration, script)
-    mus_path = generate_ambient_music(audio_duration)
-    composed = compose_video(audio_path, bg_path, mus_path, None,
-                              audio_duration, label="main")
+
+# ════════════════════════════════════════════════════════════
+# KINETIC TYPOGRAPHY — animated text overlays at key story beats
+# Per user requirement: "animation for key beats, stock footage as
+# backdrop" (Ch1 style pairing: atmospheric motion + minimal kinetic
+# type overlays). Free, built entirely with FFmpeg drawtext — no new
+# API, no paid service, no self-hosted model.
+# ════════════════════════════════════════════════════════════
+
+NICHE_ACCENT_COLORS = {
+    "dark_horror":        "0xE01010",  # blood red
+    "seduction_dark":     "0xB0208A",  # deep magenta
+    "psychological_trap": "0x4A6FA5",  # cold clinical blue
+    "supernatural_real":  "0x2FA0A0",  # eerie teal
+    "obsession_dark":     "0x8B0000",  # dark red, suffocating
+}
+
+def extract_key_phrases(script, num_phrases=6):
+    """
+    Split the script proportionally into `num_phrases` segments (same
+    stage-proportion approach as inject_ssml_rate) and pull the single
+    most punchy short phrase from each — prioritizing numbers and dread
+    hook-words, same scoring logic as the title generator. These become
+    the on-screen kinetic text callouts, timed to stage boundaries so
+    they don't need fragile word-level timing data.
+    Returns list of (phrase, start_fraction, end_fraction) — fractions
+    of total audio_duration, so the caller can convert to real seconds.
+    """
+    hook_words = ["never", "nobody", "secret", "revealed", "truth", "years", "days",
+                  "finally", "hidden", "classified", "documented", "knew", "told", "found",
+                  "no one", "alone", "silence", "disappeared", "vanished", "warning"]
+
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script) if s.strip()]
+    if not sentences:
+        return []
+
+    total = len(sentences)
+    chunk_size = max(1, total // num_phrases)
+    phrases = []
+
+    def score(sent):
+        s = 0
+        if any(c.isdigit() for c in sent): s += 3
+        for hw in hook_words:
+            if hw in sent.lower(): s += 2
+        wc = len(sent.split())
+        if 3 <= wc <= 8: s += 2       # short punchy fragments overlay better than long lines
+        return s
+
+    for i in range(num_phrases):
+        start_idx = i * chunk_size
+        end_idx = min(start_idx + chunk_size, total)
+        if start_idx >= total:
+            break
+        chunk = sentences[start_idx:end_idx]
+        if not chunk:
+            continue
+        best = max(chunk, key=score)
+        # Trim to a punchy fragment: first clause, capped at 6 words for on-screen impact
+        words = re.sub(r'[^\w\s0-9,]', '', best).split()
+        fragment = " ".join(words[:6]).upper()
+        if not fragment.strip():
+            continue
+        start_frac = i / num_phrases
+        end_frac   = (i + 1) / num_phrases
+        phrases.append((fragment, start_frac, end_frac))
+
+    return phrases
+
+
+def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, output_path):
+    """
+    Horror-appropriate visual treatment — replaces the earlier boxed
+    kinetic-text-callout system (that was an explainer-video convention,
+    wrong genre fit for dark psychology/horror content). Built and
+    verified against real rendered test output before going into
+    production, same discipline as everything else in this pipeline:
+      - continuous film grain (dread, unease, "found footage" texture)
+      - 2 brief chromatic-aberration bursts at key story beats (glitch/wrong feeling)
+      - ONE jump-scare white flash at the biggest reveal moment (~65% through)
+      - unstable, jittery, flickering text instead of confident boxed captions
+    All pure FFmpeg (noise, rgbashift, blend, drawtext) — no new dependency,
+    no repeat of the Lottie dead end. Non-fatal: falls back to the
+    un-treated video if anything goes wrong.
+    """
+    try:
+        phrases = extract_key_phrases(script, num_phrases=5)
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        ]
+        font_path = next((fp for fp in font_paths if Path(fp).exists()), None)
+
+        # ── Continuous film grain — applied throughout ──
+        video_filters = ["noise=alls=15:allf=t+u"]
+
+        # ── Chromatic aberration bursts at 2 dread beats ──
+        if len(phrases) >= 2:
+            beat_fracs = [phrases[1][1], phrases[-1][1]]  # 2nd and last story beat
+        elif phrases:
+            beat_fracs = [phrases[0][1]]
+        else:
+            beat_fracs = [0.3, 0.7]
+        for frac in beat_fracs[:2]:
+            t0 = max(0.5, frac * audio_duration)
+            t1 = min(t0 + 0.5, audio_duration - 0.2)
+            if t1 > t0:
+                video_filters.append(f"rgbashift=rh=6:bh=-6:enable='between(t,{t0:.2f},{t1:.2f})'")
+
+        # ── Unstable, jittery, flickering text (no box, no confident callout) ──
+        if font_path and phrases:
+            DISPLAY_SECONDS = 3.0
+            for phrase, start_frac, end_frac in phrases:
+                t0 = start_frac * audio_duration
+                t1 = min(t0 + DISPLAY_SECONDS, end_frac * audio_duration)
+                if t1 - t0 < 1.2:
+                    continue
+                esc = phrase.replace("'", "").replace(":", "").replace("\\", "")
+                # Jittery position (small sine wobble) + irregular flicker alpha
+                # (on/off pattern mimicking a failing light / interference),
+                # instead of a smooth confident fade — reads as unstable/dread.
+                video_filters.append(
+                    f"drawtext=fontfile={font_path}:text='{esc}':"
+                    f"fontsize=58:fontcolor=white:borderw=3:bordercolor=black:"
+                    f"x='(w-text_w)/2+5*sin(45*t)':y='h-h/3+3*cos(38*t)':"
+                    f"alpha='if(lt(mod(t*17,1),0.82),1,0)':"
+                    f"enable='between(t,{t0:.2f},{t1:.2f})'"
+                )
+
+        # ── ONE jump-scare white flash at the biggest reveal moment ──
+        flash_frac = 0.65
+        flash_t0 = flash_frac * audio_duration
+        flash_t1 = flash_t0 + 0.15
+
+        filter_complex = (
+            f"[0:v]{','.join(video_filters)}[graded];"
+            f"color=c=white:size=1280x720:rate=24[whitesrc];"
+            f"[whitesrc]trim=duration={audio_duration:.2f},setpts=PTS-STARTPTS[wht];"
+            f"[graded][wht]blend=all_expr='if(between(T,{flash_t0:.2f},{flash_t1:.2f}),B,A)':shortest=1[out]"
+        )
+
+        run_ffmpeg([
+            "ffmpeg", "-y", "-i", video_path,
+            "-filter_complex", filter_complex,
+            "-map", "[out]", "-map", "0:a?",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-c:a", "copy", output_path
+        ], label="horror-fx", timeout=600)
+
+        if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
+            log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
+                f"1 jump-scare flash + {len(phrases)} unstable text beats")
+            return output_path
+        else:
+            log("  Horror FX: output invalid — using un-treated video (non-fatal)")
+            return video_path
+    except Exception as e:
+        log(f"  Horror atmosphere FX failed (non-fatal): {e}")
+        return video_path
+
+
+def assemble_video(niche_name, audio_path, audio_duration, topic, script=""):
+    """Assemble final video: background footage + narration + ambient music
+    + kinetic text overlays at key story beats (dark/atmospheric style,
+    matched to niche — mix approach: animation for key beats, stock
+    footage as backdrop)."""
+    niche       = next(n for n in NICHES if n["name"] == niche_name)
+    search_kw   = ""  # background video doesn't need script for single-keyword search
+    bg_path     = get_background_video(niche, audio_duration, search_kw)
+    mus_path    = generate_ambient_music(audio_duration)
+    composed    = compose_video(audio_path, bg_path, mus_path, None,
+                                 audio_duration, label="main", niche_name=niche_name)
+
+    if script:
+        overlaid = str(WORK_DIR / "composed_horror_fx.mp4")
+        composed = add_horror_atmosphere_fx(composed, script, audio_duration,
+                                             niche_name, overlaid)
+
     intro    = create_intro(niche["series"])
     outro    = create_outro(niche["series"])
     final    = str(WORK_DIR / "final.mp4")
@@ -4269,7 +4468,7 @@ def main():
 
         # Approval gate
         title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode)
-        title        = title_result[0] if title_result else f"{niche['series']} Ep{episode}"
+        title        = title_result if title_result else f"{niche['series']} Ep{episode}"
 
         decision = run_approval_gate(title, niche_name, script_clean, edge_voice, score_val)
         if decision == "rejected":
@@ -4282,7 +4481,7 @@ def main():
 
         log("\nSTAGE 4: Video")
         video_path = run_stage_with_retry(
-            assemble_video, "Video", niche_name, audio_path, audio_duration, topic)
+            assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean)
 
         log("\nSTAGE 5: Thumbnail")
         ab_style    = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
