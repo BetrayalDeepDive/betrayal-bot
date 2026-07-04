@@ -476,10 +476,10 @@ NICHES = [
 ]
 
 VOICES = {
-    "dark_horror":        ["en-US-DavisNeural", "en-GB-RyanNeural"],
+    "dark_horror":        ["en-US-JasonNeural", "en-GB-RyanNeural"],  # DavisNeural unavailable on Actions
     "seduction_dark":     ["en-GB-RyanNeural",  "en-US-AndrewNeural"],
     "psychological_trap": ["en-US-BrianNeural", "en-GB-ThomasNeural"],
-    "supernatural_real":  ["en-GB-RyanNeural",  "en-US-DavisNeural"],
+    "supernatural_real":  ["en-GB-RyanNeural",  "en-US-JasonNeural"],  # DavisNeural unavailable on Actions
     "obsession_dark":     ["en-US-AndrewNeural","en-GB-RyanNeural"],
 }
 
@@ -2075,23 +2075,55 @@ def inject_ssml_rate(script):
     but not inline SSML. Instead we split the audio into segments
     with different rates and concatenate.
     Returns list of (text_segment, rate_string) tuples.
+
+    FIX (voice-quality pass):
+    - Rate range narrowed to -5%..-10% (was up to -18%). Neural voices are
+      trained on natural pacing; large negative rates cause unnatural
+      syllable elongation, which reads as "robotic."
+    - Segments now break on the nearest SENTENCE boundary to each target
+      word count instead of a hard word-count cut. Cutting mid-sentence
+      meant two independently-synthesized halves — with different rates —
+      got glued together inside a single thought, producing an audible
+      speed jump and unnatural gap mid-sentence.
     """
+    import re as _re
+    # Find all sentence-end positions (index into `words`) so we can snap
+    # each stage boundary to the nearest sentence end rather than a raw
+    # word count.
     words = script.split()
     total = len(words)
-    # Stage word boundaries (proportional to STAGE_WORDS)
+    sentence_end_word_idxs = []
+    running = 0
+    for sent in _re.split(r'(?<=[.!?])\s+', script):
+        sent_wc = len(sent.split())
+        running += sent_wc
+        if running <= total:
+            sentence_end_word_idxs.append(running)
+    if not sentence_end_word_idxs or sentence_end_word_idxs[-1] != total:
+        sentence_end_word_idxs.append(total)
+
+    def snap_to_sentence_end(target_idx):
+        if not sentence_end_word_idxs:
+            return target_idx
+        return min(sentence_end_word_idxs, key=lambda x: abs(x - target_idx))
+
+    # Stage word boundaries (proportional to STAGE_WORDS), rates narrowed
     stage_rates = [
         (100,  "-5%"),   # Cold open: urgent, attention-grabbing
-        (200,  "-8%"),   # The Before: normal documentary pace
-        (250,  "-8%"),   # First Signals: measured, building
+        (200,  "-7%"),   # The Before: normal documentary pace
+        (250,  "-7%"),   # First Signals: measured, building
         (400,  "-5%"),   # Escalation: faster, momentum
-        (200,  "-12%"),  # False Resolution: slow, relief
-        (650,  "-18%"),  # Real Reveal: devastatingly slow
-        (200,  "-10%"),  # Implication + CTA: deliberate
+        (200,  "-8%"),   # False Resolution: slow, relief
+        (650,  "-10%"),  # Real Reveal: slower, weighty (was -18%)
+        (200,  "-8%"),   # Implication + CTA: deliberate
     ]
     segments = []
     idx = 0
+    cumulative_target = 0
     for word_count, rate in stage_rates:
-        end = min(idx + word_count, total)
+        cumulative_target += word_count
+        end = snap_to_sentence_end(min(cumulative_target, total))
+        end = max(end, idx)  # never go backwards
         segment = " ".join(words[idx:end])
         if segment.strip():
             segments.append((segment, rate))
@@ -2102,7 +2134,7 @@ def inject_ssml_rate(script):
     if idx < total:
         remaining = " ".join(words[idx:])
         if remaining.strip():
-            segments.append((remaining, "-10%"))
+            segments.append((remaining, "-8%"))
     return segments
 
 async def _edge_tts_segment(text, voice, rate, path):
@@ -2116,6 +2148,16 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
     Multi-rate audio: split script into 7 stage segments,
     generate each with its own delivery rate, concatenate via FFmpeg.
     Produces audio that sounds like a real documentary narrator.
+
+    FIX (voice-quality pass): removed the mid-narration voice swap. If a
+    segment failed before, it silently fell back to en-GB-RyanNeural or
+    en-US-BrianNeural for JUST that one piece — meaning the narrator's
+    voice could audibly change color for a few seconds mid-video, then
+    switch back. Now every segment retries on the SAME configured voice
+    (with backoff) before giving up, so the narrator stays consistent
+    throughout. Also added a short crossfade at each concat join instead
+    of a raw stream copy, to smooth the seams between independently
+    synthesized segments.
     """
     segments = inject_ssml_rate(script)
     log(f"  SSML segments: {len(segments)} at rates {[r for _,r in segments]}")
@@ -2123,18 +2165,22 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
     part_paths = []
     for i, (text, rate) in enumerate(segments):
         part_path = str(WORK_DIR / f"audio_seg_{i}.mp3")
-        voices_to_try = [edge_voice, "en-GB-RyanNeural", "en-US-BrianNeural"]
-        for _vsi, v in enumerate(voices_to_try):
-            if _vsi > 0: time.sleep(2)  # avoid edge-tts rate limit
+        ok = False
+        for attempt in range(3):
+            if attempt > 0:
+                time.sleep(3 * attempt)  # backoff, avoid edge-tts rate limit
             try:
-                asyncio.run(asyncio.wait_for(_edge_tts_segment(text, v, rate, part_path), timeout=90))
+                asyncio.run(asyncio.wait_for(
+                    _edge_tts_segment(text, edge_voice, rate, part_path), timeout=90))
                 if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
                     part_paths.append(part_path)
+                    ok = True
                     break
             except Exception as e:
-                log(f"    Segment {i} {v}: {e}")
-        else:
-            log(f"  Segment {i} failed all voices — skipping")
+                log(f"    Segment {i} attempt {attempt+1} ({edge_voice}): {e}")
+        if not ok:
+            log(f"  Segment {i} failed on {edge_voice} after 3 attempts — skipping "
+                f"(NOT switching narrator voice mid-video)")
 
     if not part_paths:
         return None, 0.0
@@ -2145,14 +2191,39 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
         shutil.copy(part_paths[0], out)
         return out, get_media_duration(out)
 
-    # Concatenate all segments
-    list_file = str(WORK_DIR / "seg_list.txt")
-    with open(list_file, "w") as f:
-        for p in part_paths:
-            f.write(f"file '{p}'\n")
+    # Concatenate all segments with a short crossfade at each join instead
+    # of a raw stream copy, so rate/pace transitions between segments don't
+    # sound like an abrupt cut.
     out = str(WORK_DIR / "ssml_narration.mp3")
-    run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", list_file, "-c", "copy", out], label="ssml-concat")
+    CROSSFADE_S = 0.12
+    try:
+        filter_parts = []
+        inputs = []
+        for p in part_paths:
+            inputs += ["-i", p]
+        n = len(part_paths)
+        prev_label = "0:a"
+        for i in range(1, n):
+            cur_label = f"a{i}"
+            filter_parts.append(
+                f"[{prev_label}][{i}:a]acrossfade=d={CROSSFADE_S}:c1=tri:c2=tri[{cur_label}]"
+            )
+            prev_label = cur_label
+        filter_complex = ";".join(filter_parts)
+        run_ffmpeg(["ffmpeg", "-y", *inputs,
+                    "-filter_complex", filter_complex,
+                    "-map", f"[{prev_label}]", out], label="ssml-crossfade-concat")
+        if not Path(out).exists() or Path(out).stat().st_size < 5000:
+            raise RuntimeError("crossfade concat produced no usable output")
+    except Exception as e:
+        log(f"  Crossfade concat failed ({e}) — falling back to plain concat")
+        list_file = str(WORK_DIR / "seg_list.txt")
+        with open(list_file, "w") as f:
+            for p in part_paths:
+                f.write(f"file '{p}'\n")
+        run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", list_file, "-c", "copy", out], label="ssml-concat")
+
     duration = get_media_duration(out)
     log(f"  SSML audio: {duration:.1f}s ({duration/60:.1f} min)")
     return out, duration
@@ -2214,7 +2285,7 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     if not el_ok:
         voices_to_try = [edge_voice] + [v for v in
-            ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-DavisNeural"] if v != edge_voice]
+            ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-JasonNeural"] if v != edge_voice]  # DavisNeural unavailable on Actions
         for _vfi, v in enumerate(voices_to_try):
             if _vfi > 0: time.sleep(3)  # avoid edge-tts rate limit
             try:
@@ -2228,7 +2299,87 @@ def run_audio_stage(script, niche_name, edge_voice):
             except Exception as e: log(f"  {v}: {e}")
 
     if not Path(audio_path).exists() or Path(audio_path).stat().st_size < 10000:
-        raise RuntimeError("All TTS failed")
+        # ── FALLBACK CHAIN: every edge-tts voice failed today. Try alternate
+        # providers before giving up entirely. Ordered by quality: Fish Audio
+        # (natural, free tier via API key) -> gTTS (free, no key, noticeably
+        # more robotic but reliable) -> offline espeak-ng (guaranteed local
+        # synthesis, most robotic, true last resort).
+        log("  All edge-tts voices exhausted — trying backup TTS providers...")
+        script_clean = script
+        dur_expected = min((len(script_clean.split()) / 125.0) * 60.0, 900.0)
+        fallback_ok = False
+
+        fish_key = os.environ.get("FISH_AUDIO_API_KEY", "")
+        if fish_key:
+            try:
+                r = requests.post("https://api.fish.audio/v1/tts",
+                    headers={"Authorization": f"Bearer {fish_key}",
+                             "Content-Type": "application/json",
+                             "model": "s2-pro"},
+                    json={"text": script_clean, "format": "mp3",
+                          "normalize": True, "prosody": {"speed": 1.0}},
+                    timeout=180)
+                if r.status_code == 200 and len(r.content) > 50000:
+                    with open(audio_path, "wb") as f: f.write(r.content)
+                    log(f"  ACCEPTED: Fish Audio backup | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
+                    tg("⚠️ Ch1: all edge-tts voices failed today — used Fish Audio backup instead (still natural-sounding)")
+                    fallback_ok = True
+                else:
+                    log(f"  Fish Audio: {r.status_code}")
+            except Exception as e:
+                log(f"  Fish Audio backup failed: {e}")
+        else:
+            log("  FISH_AUDIO_API_KEY not set — skipping Fish Audio backup")
+
+        if not fallback_ok:
+            try:
+                from gtts import gTTS
+                import shutil as _shutil
+                _words = script_clean.split()
+                gtts_chunks = [" ".join(_words[i:i+400]) for i in range(0, len(_words), 400)]
+                parts = []
+                for i, chunk in enumerate(gtts_chunks):
+                    part = str(WORK_DIR / f"gtts_part_{i}.mp3")
+                    try:
+                        gTTS(text=chunk, lang="en", tld="co.uk", slow=False).save(part)
+                        if Path(part).exists() and Path(part).stat().st_size > 2000:
+                            parts.append(part)
+                    except Exception as e:
+                        log(f"    gTTS chunk {i} error: {e}")
+                if parts:
+                    if len(parts) == 1:
+                        _shutil.copy(parts[0], audio_path)
+                    else:
+                        lst = str(WORK_DIR / "gtts_list.txt")
+                        with open(lst, "w") as f:
+                            for p in parts: f.write(f"file '{p}'\n")
+                        subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",audio_path],
+                                       capture_output=True, timeout=300)
+                    if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
+                        log(f"  ACCEPTED: gTTS backup | {Path(audio_path).stat().st_size/1024/1024:.1f}MB (lower quality)")
+                        tg("⚠️ Ch1: edge-tts AND Fish Audio both failed today — used gTTS backup "
+                           "(noticeably more robotic). Check FISH_AUDIO_API_KEY / provider status.")
+                        fallback_ok = True
+            except Exception as e:
+                log(f"  gTTS backup failed: {e}")
+
+        if not fallback_ok:
+            try:
+                wav = str(WORK_DIR / "audio_espeak.wav")
+                subprocess.run(["espeak-ng", "-v", "en-us", "-s", "150", "-w", wav, script_clean[:20000]],
+                               capture_output=True, timeout=180)
+                if Path(wav).exists() and Path(wav).stat().st_size > 50000:
+                    subprocess.run(["ffmpeg","-y","-i",wav,audio_path], capture_output=True, timeout=60)
+                    if Path(audio_path).exists():
+                        log(f"  ACCEPTED: offline espeak-ng (LAST RESORT) | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
+                        tg("🚨 Ch1: ALL providers failed today (edge-tts, Fish Audio, gTTS) — used OFFLINE "
+                           "robotic voice as last resort so the video still published. Check provider status urgently.")
+                        fallback_ok = True
+            except Exception as e:
+                log(f"  espeak-ng backup failed: {e}")
+
+        if not fallback_ok:
+            raise RuntimeError("All TTS failed")
 
     duration = get_media_duration(audio_path)
     log(f"  Duration: {duration:.1f}s ({duration/60:.1f} min)")
