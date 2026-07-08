@@ -76,7 +76,19 @@ jobs:
           PIPELINE_PHASE:            "generate"
           IS_MAKEUP:                 ${{ github.event.inputs.is_makeup || 'false' }}
         run: |
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          # FIX (critical, found while verifying the new authenticity_guard
+          # integration): video_pipeline/ — where phase_manager.py,
+          # thumbnail_engine_v2.py, shorts_reels_engine.py, growth_engine.py,
+          # and authenticity_guard.py all actually live — was NEVER on the
+          # Python path here, only channels/ was. main()'s phase_manager
+          # import has NO error handling around it at all — if this path was
+          # genuinely missing in the real repo, evidence_room_pipeline.py's
+          # main() would crash immediately with ModuleNotFoundError on every
+          # single run, both generate and upload, before any pipeline logic
+          # ever executes. Verified this precisely by simulating the exact
+          # real import scenario, not guessed. Fixed by adding video_pipeline/
+          # to the path alongside channels/.
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
           python -u channels/evidence_room/evidence_room_pipeline.py
 
       # ── FIX: persist rendered video/audio/thumbnail across runners ──
@@ -102,6 +114,13 @@ jobs:
           git add channels/evidence_room/state.json || true
           git add channels/evidence_room/intel.json || true
           git add channels/evidence_room/pending_upload.json || true
+          # FIX: same gap found and fixed for Ch1 — without committing this,
+          # the avatar cache is silently lost on this ephemeral runner every
+          # single run, defeating the purpose of caching it at all.
+          git add channels/evidence_room/avatar_cache/ || true
+          # FIX: same pattern as Ch1 — topic_database.json gets written
+          # here too (add_topic_candidate scores fresh candidates during generate)
+          git add channels/evidence_room/topic_database.json || true
           git diff --staged --quiet || git commit -m "chore: ch2 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
