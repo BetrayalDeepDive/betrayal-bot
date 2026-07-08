@@ -130,45 +130,45 @@
   },
   "propaganda_systems": {
     "top_hook_formulas": [
-      "Exposing the Truth",
-      "Hidden Secrets Revealed",
-      "You Won't Believe"
+      "The evidence was there the entire time. Nobody looked at it correctly.",
+      "This document changed everything. It had been sitting in a drawer for 11 years.",
+      "The number on page 3 did not match the number on page 3 of a different filing. That was the beginning."
     ],
     "winning_title_patterns": [
-      "The Shocking History of Propaganda",
-      "How Propaganda Controls Your Mind",
-      "The Propaganda Machine Exposed"
+      "The [DOCUMENT/DATA] That Proved [CRIME] Had Been [DURATION]",
+      "[NUMBER] [DOCUMENTS/ACCOUNTS] \u2014 The Investigation That Changed Everything"
     ],
     "thumbnail_text_examples": [
-      "WAKE UP SHEEPLE",
-      "PROPAGANDA EXPOSED",
-      "HIDDEN TRUTH REVEALED",
-      "MIND CONTROL TECHNIQUES",
-      "THE TRUTH IS OUT"
+      "OPERATION FOUND",
+      "STILL RUNNING",
+      "DOCUMENT LEAKED",
+      "THEY DESIGNED IT"
     ],
-    "emotional_arc": "The video takes the viewer on a journey from unawareness to awareness, leaving them feeling informed and motivated to take action",
+    "emotional_arc": "Methodical discovery then growing horror then full documented exposure",
     "retention_hooks": [
-      "A shocking statistic about propaganda at 30%",
-      "A personal story of how propaganda affected someone at 60%",
-      "A call to action to spread awareness at 80%"
+      "What the next document revealed changed the entire investigation",
+      "The pattern only became visible when all 847 records were laid side by side",
+      "The final piece of evidence was the most ordinary thing imaginable"
     ],
     "niche_specific_power_words": [
-      "propaganda",
-      "manipulation",
-      "mind control",
-      "brainwashing",
-      "disinformation",
-      "censorship"
+      "documented",
+      "evidence",
+      "pattern",
+      "records",
+      "exposed",
+      "concealed",
+      "verified"
     ],
-    "what_makes_videos_viral": "The combination of a provocative title, a shocking revelation, and a clear call to action that resonates with the viewer's desire for truth and autonomy",
+    "what_makes_videos_viral": "Methodical evidence revelation that builds to an undeniable conclusion",
     "fresh_topic_ideas": [
-      "The Propaganda of Social Media",
-      "The History of Mind Control Techniques",
-      "How to Recognize and Resist Propaganda",
-      "The Role of Propaganda in Shaping Public Opinion",
-      "The Dark Side of Advertising and Marketing",
-      "The Future of Propaganda and Disinformation"
+      "Operation Mockingbird: the declassified CIA program to place agents inside major US newsrooms",
+      "The documented propaganda playbook used in four different countries with the same template",
+      "A government information campaign that ran for 14 years before the internal memos were released",
+      "Cambridge Analytica's documented methodology: how 87 million profiles became a targeting system",
+      "The wartime information bureau that fabricated 340 documented stories placed in foreign newspapers",
+      "A social media platform's internal research confirmed it amplified outrage to increase engagement",
+      "The advertising industry's documented framework for manufacturing consumer desire from 1927 onward"
     ],
-    "last_run": "2026-06-30T10:42:40.626293"
+    "last_run": "2026-07-08T07:18:01.358164"
   }
 }
