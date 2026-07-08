@@ -22,5 +22,49 @@
   "last_url": "https://www.youtube.com/watch?v=IaibaQuOycQ",
   "total_uploads": 7,
   "total_shorts": 2,
-  "last_voice": "en-US-JasonNeural"
+  "last_voice": "en-US-JasonNeural",
+  "viral_intel": {
+    "psychological_trap": {
+      "top_hook_formulas": [
+        "The Dark Truth About",
+        "Uncovering the Secrets of",
+        "The Shocking Reality of"
+      ],
+      "winning_title_patterns": [
+        "The [Adjective] World of [Topic]",
+        "Inside the [Adjective] Mind of [Topic]",
+        "[Topic]: The [Adjective] Reality"
+      ],
+      "thumbnail_text_examples": [
+        "MIND GAMES EXPOSED",
+        "GASLIGHTING TACTICS REVEALED",
+        "PSYCHOLOGICAL MANIPULATION UNCOVERED",
+        "DARK SECRETS REVEALED NOW",
+        "THE TRUTH ABOUT GASLIGHTING"
+      ],
+      "retention_hooks": [
+        "20pct: introducing the concept of gaslighting",
+        "40pct: sharing personal stories of gaslighting",
+        "60pct: explaining the psychology behind gaslighting",
+        "80pct: providing tips on how to overcome gaslighting"
+      ],
+      "niche_power_words": [
+        "Gaslighting",
+        "Psychological",
+        "Manipulation",
+        "Mind",
+        "Control",
+        "Abuse"
+      ],
+      "fresh_topic_ideas": [
+        "The Psychology of Gaslighting in Relationships",
+        "Uncovering the Tactics of Emotional Manipulation",
+        "The Dark Side of Social Media: How Gaslighting Thrives Online",
+        "Gaslighting in the Workplace: Recognizing the Signs",
+        "Overcoming Gaslighting: Strategies for Recovery",
+        "The Intersection of Gaslighting and Trauma: Understanding the Connection"
+      ],
+      "last_run": "2026-07-08T19:00:19.101378"
+    }
+  }
 }
