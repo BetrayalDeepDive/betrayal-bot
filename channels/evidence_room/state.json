@@ -2,14 +2,38 @@
   "last_style": "dark_minimal",
   "last_niche": "corporate_exposure",
   "last_voice": "en-GB-RyanNeural",
-  "last_title": "400 Accounts, 1 Pattern: How A 12-Year Fraud Was Concealed",
-  "last_url": "https://www.youtube.com/watch?v=LV0EQ9Tc0Ak",
+  "last_title": "72 Months, 50,000 Scammed: The Crypto Ponzi Exposed",
+  "last_url": "https://www.youtube.com/watch?v=-qE01LRQgiY",
   "thumbnail_ab": {
     "last_style": "B"
   },
   "playlists": {
-    "forensic_finance": "PL_Ao7LH9gYd4F1Dgb8CuaXMBzbNRWcHq-"
+    "forensic_finance": "PL_Ao7LH9gYd4F1Dgb8CuaXMBzbNRWcHq-",
+    "corporate_exposure": "PL_Ao7LH9gYd6bRGEzA3OyO4kgsxKrPLK7"
   },
-  "total_uploads": 4,
-  "total_shorts": 2
+  "total_uploads": 5,
+  "total_shorts": 2,
+  "performance": {
+    "corporate_exposure": {
+      "scores": [
+        10.0
+      ],
+      "streak_below": 0,
+      "last_episode": 63
+    },
+    "voice_en-GB-RyanNeural": {
+      "scores": [
+        10.0
+      ]
+    }
+  },
+  "episode_history": [
+    {
+      "episode": 63,
+      "niche": "corporate_exposure",
+      "topic": "The Rise of Crypto Fraud",
+      "score": 10.0,
+      "date": "2026-07-08"
+    }
+  ]
 }
