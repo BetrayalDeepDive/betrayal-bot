@@ -17,7 +17,7 @@ What it does:
 import os, sys, json, re, time, datetime, requests
 from pathlib import Path
 
-# ── Credentials ──────────────────────────────────────────────
+# ── Credentials (Ch1 defaults — per-channel overrides in CHANNELS below) ──
 GEMINI_KEY    = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY      = os.environ.get("GROQ_API_KEY", "")
 CEREBRAS_KEY  = os.environ.get("CEREBRAS_API_KEY", "")
@@ -27,14 +27,14 @@ YT_REFRESH    = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
 TG_TOKEN      = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT       = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-SCRIPT_DIR    = Path(__file__).parent
+SCRIPT_DIR    = Path(__file__).parent   # video_pipeline/ — Ch1's own directory
 STATE_FILE    = SCRIPT_DIR / "state.json"
 INTEL_FILE    = SCRIPT_DIR / "weekly_intel.json"
 YT_DATA_URL   = "https://www.googleapis.com/youtube/v3"
 YT_ANALYTICS  = "https://youtubeanalytics.googleapis.com/v2"
 YT_TOKEN_URL  = "https://oauth2.googleapis.com/token"
 
-# ── Competitor channels per niche ─────────────────────────────
+# ── Competitor channels per niche — Ch1 ───────────────────────
 COMPETITOR_SEARCHES = {
     "dark_horror":        "dark horror documentary narration faceless",
     "seduction_dark":     "dark psychology manipulation documentary",
@@ -42,6 +42,50 @@ COMPETITOR_SEARCHES = {
     "supernatural_real":  "paranormal evidence documentary narration",
     "obsession_dark":     "dark obsession true crime faceless documentary",
 }
+
+# ── Competitor channels per niche — Ch2 ───────────────────────
+COMPETITOR_SEARCHES_CH2 = {
+    "forensic_finance":        "forensic accounting fraud investigation documentary",
+    "criminal_investigation":  "cold case investigation evidence documentary",
+    "corporate_exposure":      "corporate fraud scandal documentary",
+    "digital_forensics":       "digital forensics cybercrime investigation documentary",
+}
+
+# ══════════════════════════════════════════════════════════════════
+# FIX: this whole file only ever analysed and reported on Ch1 — Ch2's
+# niches, credentials, and output file location were never touched, so
+# weekly_report.py silently produced a "whole empire" report that only
+# ever covered one of the two active channels. CHANNELS below is the
+# real fix — main() now loops over every entry here, each with its own
+# credentials, competitor niches, and output directory (this matters:
+# each pipeline reads next_week_strategy.json from ITS OWN SCRIPT_DIR,
+# e.g. Ch2 reads from channels/evidence_room/, a completely different
+# path than Ch1's video_pipeline/ — writing only to one location meant
+# Ch2 never received a strategy file at all, regardless of whether the
+# analysis covered it). Add one new entry here to extend to Ch3/4/5 —
+# not a rewrite.
+# ══════════════════════════════════════════════════════════════════
+CHANNELS = [
+    {
+        "channel_id":       "betrayal_deepdive",
+        "display_name":     "BetrayalDeepDive",
+        "yt_client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
+        "yt_client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
+        "yt_refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
+        "competitor_searches": COMPETITOR_SEARCHES,
+        "output_dir":       SCRIPT_DIR,   # video_pipeline/
+    },
+    {
+        "channel_id":       "evidence_room",
+        "display_name":     "The Evidence Room",
+        "yt_client_id":     os.environ.get("EVIDENCE_YT_CLIENT_ID", ""),
+        "yt_client_secret": os.environ.get("EVIDENCE_YT_CLIENT_SECRET", ""),
+        "yt_refresh_token": os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", ""),
+        "competitor_searches": COMPETITOR_SEARCHES_CH2,
+        "output_dir":       SCRIPT_DIR.parent / "channels" / "evidence_room",
+    },
+]
+
 
 def log(m): print(m, flush=True)
 
@@ -53,10 +97,17 @@ def tg(m):
                 json={"chat_id": TG_CHAT, "text": chunk, "parse_mode": "HTML"}, timeout=15)
         except: pass
 
-def get_yt_token():
+def get_yt_token(client_id=None, client_secret=None, refresh_token=None):
+    """
+    FIX: previously always used Ch1's module-level YT_CLIENT_ID/SEC/REFRESH
+    constants — now accepts per-channel credentials so this can fetch a
+    real token for any channel in CHANNELS, not just Ch1.
+    """
     r = requests.post(YT_TOKEN_URL,
-        data={"client_id": YT_CLIENT_ID, "client_secret": YT_CLIENT_SEC,
-              "refresh_token": YT_REFRESH, "grant_type": "refresh_token"}, timeout=30)
+        data={"client_id": client_id or YT_CLIENT_ID,
+              "client_secret": client_secret or YT_CLIENT_SEC,
+              "refresh_token": refresh_token or YT_REFRESH,
+              "grant_type": "refresh_token"}, timeout=30)
     d = r.json()
     if "access_token" not in d: raise Exception(f"YT auth failed: {d}")
     return d["access_token"]
@@ -101,7 +152,12 @@ def ai(prompt, tokens=2000):
 
 # ── STEP 1: Your own YouTube Analytics ────────────────────────
 def get_own_analytics(token):
-    """Pull CTR, view duration, impressions for last 7 days."""
+    """Pull CTR, view duration, impressions for last 7 days.
+    FIX: the metrics list previously never actually included impressions
+    or CTR despite the docstring claiming it did — a real gap given the
+    explicit CTR target this whole system is now built around. Added
+    impressions + impressionClickThroughRate, the real YouTube Analytics
+    API metric names for this."""
     try:
         end   = datetime.date.today().isoformat()
         start = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
@@ -110,7 +166,8 @@ def get_own_analytics(token):
             params={"ids": "channel==MINE",
                     "startDate": start, "endDate": end,
                     "metrics": "views,estimatedMinutesWatched,averageViewDuration,"
-                               "subscribersGained,likes",
+                               "subscribersGained,likes,impressions,"
+                               "impressionsClickThroughRate",
                     "dimensions": "video",
                     "sort": "-views", "maxResults": 10},
             timeout=20)
@@ -361,22 +418,35 @@ def analyse_channel_retention(token, video_ids, details, ai_fn):
 
     return stage_fixes, total_videos_analysed
 
-def main():
+def run_weekly_report_for_channel(channel_cfg):
+    """
+    FIX: this used to BE main() itself, hardcoded entirely to Ch1's
+    credentials, niches, and output path. Now takes a channel config
+    (from CHANNELS) and runs the complete analysis for THAT channel,
+    writing its strategy file to THAT channel's own directory.
+    """
+    channel_id   = channel_cfg["channel_id"]
+    display_name = channel_cfg["display_name"]
+    output_dir   = Path(channel_cfg["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    state_file   = output_dir / "state.json"
+
     log("=" * 60)
-    log("DeepDive Empire — Weekly Self-Improvement Engine")
+    log(f"DeepDive Empire — Weekly Self-Improvement Engine — {display_name}")
     log(f"Week ending: {datetime.date.today().isoformat()}")
     log("=" * 60)
 
     state = {}
     try:
-        if STATE_FILE.exists():
-            state = json.loads(STATE_FILE.read_text())
+        if state_file.exists():
+            state = json.loads(state_file.read_text())
     except: pass
 
     try:
-        token = get_yt_token()
+        token = get_yt_token(channel_cfg["yt_client_id"], channel_cfg["yt_client_secret"],
+                              channel_cfg["yt_refresh_token"])
     except Exception as e:
-        tg(f"⚠️ Weekly report: YouTube auth failed — {e}")
+        tg(f"⚠️ Weekly report ({display_name}): YouTube auth failed — {e}")
         log(f"Auth failed: {e}")
         return
 
@@ -385,6 +455,28 @@ def main():
     rows = get_own_analytics(token)
     video_ids = [r[0] for r in rows[:10]] if rows else []
     details   = get_video_details(token, video_ids)
+
+    # Real performance feedback loop — matches each analyzed video back to
+    # its original topic (via the publishing archive's video_url, which
+    # contains the same video_id) and records the REAL CTR against it, so
+    # future topic scoring can genuinely learn from real outcomes instead
+    # of only ever guessing once and never checking itself.
+    try:
+        from topic_scoring import record_real_performance
+        from publishing_archive import load_archive
+        archive = load_archive(output_dir)
+        for row in rows:
+            if len(row) < 8 or row[7] is None:
+                continue
+            video_id, real_ctr = row[0], row[7] * 100  # API returns a fraction
+            matching = [a for a in archive if video_id in a.get("video_url", "")]
+            if matching:
+                episode_num = matching[0].get("episode_number")
+                if episode_num is not None:
+                    record_real_performance(output_dir, episode_num, real_ctr)
+        log(f"  Real performance recorded for {len([r for r in rows if len(r) >= 8])} videos")
+    except Exception as e:
+        log(f"  Real performance feedback loop (non-fatal): {e}")
 
     # Retention analysis — find which script stages lose viewers
     log("\n[1b] Analysing viewer retention curves...")
@@ -399,11 +491,11 @@ def main():
     own_performance = "\n".join(own_perf_lines) if own_perf_lines else "No data yet (channel new)"
     log(f"  Found {len(details)} videos with analytics")
 
-    # Competitor analysis
+    # Competitor analysis — uses THIS channel's own niches, not always Ch1's
     log("\n[2] Scanning competitor channels...")
     all_competitor_data = {}
     competitor_analyses = {}
-    for niche_name, search_q in COMPETITOR_SEARCHES.items():
+    for niche_name, search_q in channel_cfg["competitor_searches"].items():
         log(f"  Niche: {niche_name}")
         videos = get_competitor_videos(token, niche_name, search_q)
         all_competitor_data[niche_name] = videos
@@ -446,7 +538,7 @@ def main():
         for name, fix in stage_fixes.items()
     ) or "Not enough view data yet (need 100+ views per video)"
 
-    report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report</b>
+    report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report ({display_name})</b>
 Week ending {datetime.date.today().strftime('%B %d, %Y')}
 
 <b>YOUR CHANNEL THIS WEEK</b>
@@ -472,11 +564,11 @@ Latest: {last_title[:55]}
 <b>SYSTEM STATUS</b>
 ✅ Intel recalibrated for next week
 ✅ Title scoring model updated
-✅ Competitor patterns stored in weekly_intel.json
+✅ Competitor patterns stored
 
-Auto-improvement complete. Next run: Sunday."""
+Auto-improvement complete ({display_name}). Next run: Sunday."""
 
-    # ── Write strategy file for pipelines to consume next week ──
+    # ── Write strategy file for THIS channel's pipeline to consume ──
     strategy_data = {
         "generated_date":        datetime.date.today().isoformat(),
         "strategy":              strategy,
@@ -513,15 +605,141 @@ Return JSON only:
                 strategy_data["winning_hook_format"] = parsed.get("hook_format", "")
         except: pass
 
-    # Save to repo root for both pipelines to read
-    strategy_file = SCRIPT_DIR / "next_week_strategy.json"
+    # FIX: writes to THIS channel's own output_dir now, not always
+    # video_pipeline/ — this is what actually makes the strategy file
+    # reachable by Ch2 (and future channels), which each read from their
+    # own SCRIPT_DIR, a genuinely different path than Ch1's.
+    strategy_file = output_dir / "next_week_strategy.json"
     strategy_file.write_text(json.dumps(strategy_data, indent=2))
     log(f"  Strategy written: {strategy_file}")
 
+    # Resource-page generation — weekly cadence, since these aggregate
+    # MULTIPLE episodes (not per-video like companion pages). Safe to
+    # run every week: always reflects the current full episode cluster,
+    # not additive/incremental.
+    try:
+        from site_generator import generate_all_resource_pages
+        # weekly_report.py's own location is always video_pipeline/,
+        # regardless of which channel is being processed — simpler and
+        # more robust than computing per-channel relative depth.
+        docs_root = Path(__file__).parent.parent / "docs"
+        resource_results = generate_all_resource_pages(
+            channel_id, output_dir, docs_root,
+            ai_fn=lambda p, tokens=500: ai(p, tokens=tokens),
+        )
+        for r in resource_results:
+            log(f"  Resource page ({r['niche']}, {r['episode_count']} episodes): {r['path']}")
+    except Exception as e:
+        log(f"  Resource page generation (non-fatal): {e}")
+
+    # Topic approval review — the real automation-boundary enforcement.
+    # Presents top-scoring pending topics for human APPROVE/REJECT via
+    # Telegram, matching the document's own weekly time-block for this
+    # exact decision. Never auto-approves anything; times out gracefully
+    # if nobody responds, leaving topics pending for next week.
+    try:
+        from topic_scoring import review_pending_topics_via_telegram
+        review_result = review_pending_topics_via_telegram(
+            output_dir, display_name, TG_TOKEN, TG_CHAT, top_n=6, poll_minutes=15
+        )
+        log(f"  Topic review: {review_result}")
+    except Exception as e:
+        log(f"  Topic review (non-fatal): {e}")
+
     tg(report)
-    log("\nWeekly report sent to Telegram")
+    log(f"\nWeekly report sent to Telegram ({display_name})")
     log(f"Strategy preview: {strategy[:200]}")
     log("=" * 60)
+
+    # FIX: check_ctr_against_target existed fully built (checks real
+    # per-video CTR against the explicit 5% target) but was never wired
+    # into the actual dashboard output — it needs the real analytics rows
+    # already fetched above, just never passed anywhere. Returned here so
+    # main() can collect it per channel and hand it to build_empire_dashboard.
+    return rows
+
+
+def main():
+    """
+    FIX: this used to run once, hardcoded to Ch1 only. Now loops over
+    every channel in CHANNELS — add a new entry there to extend to
+    Ch3/4/5, no changes needed here.
+    """
+    all_analytics_rows = {}
+    for channel_cfg in CHANNELS:
+        try:
+            rows = run_weekly_report_for_channel(channel_cfg)
+            all_analytics_rows[channel_cfg["channel_id"]] = rows or []
+        except Exception as e:
+            tg(f"⚠️ Weekly report failed for {channel_cfg['display_name']}: {e}")
+            log(f"Channel {channel_cfg['channel_id']} failed (non-fatal, continuing): {e}")
+            all_analytics_rows[channel_cfg["channel_id"]] = []
+        time.sleep(5)  # brief gap between channels to avoid rate-limit collisions
+
+    # Site navigation regeneration — needs ALL channels' data together
+    # (the root index lists every channel), so this runs once after the
+    # per-channel loop above, not inside it.
+    try:
+        from site_generator import generate_site_navigation
+        docs_root = Path(__file__).parent.parent / "docs"
+        channel_dirs = {c["channel_id"]: c["output_dir"] for c in CHANNELS}
+        written = generate_site_navigation(channel_dirs, docs_root)
+        log(f"Site navigation regenerated: {len(written)} pages")
+
+        # Real SEO infrastructure — previously entirely missing. Runs after
+        # navigation so the sitemap reflects every page that actually exists
+        # this week, not a stale snapshot.
+        from site_generator import generate_seo_files, generate_legal_pages
+        site_base_url = os.environ.get("SITE_BASE_URL", "https://example.github.io/betrayal-bot/")
+        seo_result = generate_seo_files(docs_root, site_base_url)
+        log(f"SEO files (sitemap/robots.txt): {seo_result}")
+
+        legal_pages = generate_legal_pages(docs_root)
+        log(f"Legal pages regenerated: {legal_pages}")
+    except Exception as e:
+        log(f"Site navigation regeneration (non-fatal): {e}")
+
+    # Product PDF exports + product landing pages — same weekly cadence.
+    # products_root is the same for every channel (repo-root products/),
+    # since all channels feed into a shared set of 3 products.
+    try:
+        from monetization import export_all_products
+        from site_generator import render_all_product_pages
+        products_root = Path(__file__).parent.parent / "products"
+        pdf_root = Path(__file__).parent.parent / "products" / "exports"
+        docs_root = Path(__file__).parent.parent / "docs"
+
+        pdf_results = export_all_products(products_root, pdf_root)
+        for r in pdf_results:
+            if r["exported"]:
+                log(f"  Product PDF exported: {r['product_id']} ({r['note_count']} notes)")
+            else:
+                log(f"  Product PDF skipped: {r['product_id']} ({r['reason']})")
+
+        product_pages = render_all_product_pages(products_root, docs_root)
+        log(f"  Product landing pages regenerated: {len(product_pages)}")
+    except Exception as e:
+        log(f"Product export / page generation (non-fatal): {e}")
+
+    # CEO Dashboard — the real single-source-of-truth report, combining
+    # every channel's health, product growth, real site traffic, and
+    # (once configured) real sales into one message.
+    try:
+        from ceo_dashboard import build_empire_dashboard
+        products_root = Path(__file__).parent.parent / "products"
+        repo_owner = os.environ.get("GITHUB_REPO_OWNER", "BetrayalDeepDive")
+        repo_name = os.environ.get("GITHUB_REPO_NAME", "betrayal-bot")
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        gumroad_token = os.environ.get("GUMROAD_ACCESS_TOKEN", "")
+
+        dashboard_report = build_empire_dashboard(
+            CHANNELS, products_root, repo_owner, repo_name, github_token, gumroad_token,
+            analytics_rows_by_channel=all_analytics_rows
+        )
+        tg(dashboard_report)
+        log("Empire Dashboard sent to Telegram")
+    except Exception as e:
+        log(f"Empire Dashboard generation (non-fatal): {e}")
 
 if __name__ == "__main__":
     main()
