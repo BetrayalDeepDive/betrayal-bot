@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block structured_data %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": {{ episode_title|tojson }},
+  "description": {{ why_it_matters|tojson }},
+  "datePublished": {{ publish_date|tojson }},
+  "publisher": {"@type": "Organization", "name": "Next Layer Media"},
+  "isPartOf": {"@type": "WebSite", "name": {{ channel_display_name|tojson }}}
+}
+</script>
+{% endblock %}
+{% block content %}
+
+<span class="case-stamp">Case File #{{ episode_number }}</span>
+<h1>{{ episode_title }}</h1>
+
+<div class="case-meta">
+  <span>CHANNEL: {{ channel_display_name }}</span>
+  <span>FILED: {{ publish_date }}</span>
+  <span>SERIES: {{ series_name }}</span>
+</div>
+
+<p>{{ why_it_matters }}</p>
+
+<h2>Episode Summary</h2>
+<p>{{ episode_summary }}</p>
+
+<div class="framework-box">
+  <strong>{{ framework_name }}</strong>
+  <p>{{ framework_description }}</p>
+</div>
+
+<h2>Key Takeaways</h2>
+<ul class="takeaways">
+  {% for takeaway in takeaways %}
+  <li>{{ takeaway }}</li>
+  {% endfor %}
+</ul>
+
+<h2>Watch the Full Investigation</h2>
+<p><a href="{{ video_url }}">{{ episode_title }} — full episode on {{ channel_display_name }}</a></p>
+
+<div class="product-cta">
+  <span class="eyebrow">Go deeper</span>
+  <strong>{{ product_cta_headline }}</strong>
+  <p>{{ product_cta_body }}</p>
+  <a class="button" href="{{ product_url }}">{{ product_cta_button_text }}</a>
+</div>
+
+<div class="optin-box">
+  <strong>{{ optin_headline }}</strong>
+  <p>{{ optin_body }}</p>
+  {% if optin_form_action %}
+  <form action="{{ optin_form_action }}" method="POST">
+    <input type="email" name="email" placeholder="you@example.com" required>
+    <button type="submit">Subscribe</button>
+  </form>
+  {% else %}
+  <p><em>Email signup isn't connected yet — check back soon.</em></p>
+  {% endif %}
+</div>
+
+{% if related_links %}
+<h2>Related Cases</h2>
+<ul class="related-links">
+  {% for link in related_links %}
+  <li><a href="{{ link.url }}">{{ link.title }}</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% endblock %}

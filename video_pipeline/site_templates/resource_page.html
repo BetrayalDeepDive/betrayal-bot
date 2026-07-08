@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+
+<span class="case-stamp">Field Guide</span>
+<h1>{{ resource_title }}</h1>
+
+<p>{{ resource_intro }}</p>
+
+<h2>{{ framework_section_title }}</h2>
+<div class="framework-box">
+  {{ framework_content | safe }}
+</div>
+
+<h2>Related Investigations</h2>
+<ul class="related-links">
+  {% for link in related_episodes %}
+  <li><a href="{{ link.url }}">{{ link.title }}</a></li>
+  {% endfor %}
+</ul>
+
+<div class="product-cta">
+  <span class="eyebrow">Go deeper</span>
+  <strong>{{ product_cta_headline }}</strong>
+  <p>{{ product_cta_body }}</p>
+  <a class="button" href="{{ product_url }}">{{ product_cta_button_text }}</a>
+</div>
+
+<div class="optin-box">
+  <strong>{{ optin_headline }}</strong>
+  <p>{{ optin_body }}</p>
+  {% if optin_form_action %}
+  <form action="{{ optin_form_action }}" method="POST">
+    <input type="email" name="email" placeholder="you@example.com" required>
+    <button type="submit">Subscribe</button>
+  </form>
+  {% else %}
+  <p><em>Email signup isn't connected yet — check back soon.</em></p>
+  {% endif %}
+</div>
+
+{% endblock %}
