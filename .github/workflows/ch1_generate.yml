@@ -102,6 +102,17 @@ jobs:
           git add video_pipeline/state.json || true
           git add video_pipeline/pending_upload.json || true
           git add video_pipeline/next_week_strategy.json || true
+          # FIX: without this, the avatar cache is pointless — GitHub Actions
+          # runners are fully ephemeral, so any cached avatar image not
+          # committed here is silently lost the moment this runner finishes,
+          # meaning every episode would regenerate a fresh image from
+          # scratch anyway, defeating the entire purpose of caching it.
+          git add video_pipeline/avatar_cache/ || true
+          git add video_pipeline/fingerprint_history.json || true
+          # FIX: topic_database.json gets written here too (add_topic_candidate
+          # scores fresh candidates during generate) — without committing it,
+          # every scored candidate is lost on this ephemeral runner.
+          git add video_pipeline/topic_database.json || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
