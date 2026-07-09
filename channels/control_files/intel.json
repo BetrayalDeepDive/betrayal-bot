@@ -44,46 +44,46 @@
   },
   "mass_deception": {
     "top_hook_formulas": [
-      "Exposing the Truth",
-      "Uncovering the Lies",
-      "The Shocking Reality"
+      "You won't believe the truth",
+      "The shocking reality is",
+      "What they don't want you to know"
     ],
     "winning_title_patterns": [
-      "The [Adjective] Story of [Topic]",
-      "[Topic]: The [Adjective] Truth",
-      "Uncovering the [Topic] Conspiracy"
+      "EXPOSED: The [Topic] Conspiracy",
+      "The Dark Truth About [Topic]",
+      "Uncovering the [Topic] Deception"
     ],
     "thumbnail_text_examples": [
-      "YOU WON'T BELIEVE",
+      "WAKE UP SHEEPLE",
       "THE TRUTH IS OUT",
-      "EXPOSED AT LAST",
-      "THE SHOCKING TRUTH",
-      "WHAT THEY DON'T WANT"
+      "DON'T BELIEVE THE LIES",
+      "THE SHOCKING TRUTH REVEALED",
+      "WHAT THEY DON'T WANT YOU TO KNOW"
     ],
-    "emotional_arc": "The videos typically start with a provocative statement, build up to a shocking revelation, and conclude with a call to action or a thought-provoking question.",
+    "emotional_arc": "The videos create a sense of outrage and curiosity by exposing hidden truths and conspiracies, keeping viewers engaged and emotionally invested.",
     "retention_hooks": [
-      "Introduction to a lesser-known theory or perspective at 30%",
-      "Revelation of a surprising fact or evidence at 60%",
-      "Expert opinion or insider testimony at 80%"
+      "30%: Introduction to a shocking claim",
+      "60%: Revelation of a surprising twist",
+      "80%: Conclusion with a call to action"
     ],
     "niche_specific_power_words": [
+      "Conspiracy",
       "Deception",
+      "Exposure",
       "Manipulation",
       "Control",
-      "Exposure",
-      "Truth",
-      "Conspiracy"
+      "Awakening"
     ],
-    "what_makes_videos_viral": "The combination of provocative titles, shocking revelations, and expert opinions, along with the use of power words and emotional storytelling, contributes to the virality of these documentary investigation videos.",
+    "what_makes_videos_viral": "The combination of provocative titles, intriguing thumbnails, and shocking revelations creates a viral loop that spreads rapidly across social media platforms.",
     "fresh_topic_ideas": [
-      "The Dark Side of Social Media Manipulation",
-      "Uncovering the Truth Behind the Pandemic",
-      "The Secret History of Mind Control Experiments",
-      "Exposing the Agenda Behind Climate Change",
-      "The Hidden Dangers of 5G Technology",
-      "Unraveling the Mystery of the Illuminati"
+      "The Role of Social Media in Shaping Public Opinion",
+      "Uncovering the Truth Behind Vaccination Mandates",
+      "Exposing the Agenda of the New World Order",
+      "The Connection Between 5G and Population Control",
+      "Unveiling the Secrets of the Illuminati",
+      "The Dark Side of Artificial Intelligence"
     ],
-    "last_run": "2026-07-02T19:19:19.165619"
+    "last_run": "2026-07-09T23:09:43.910137"
   },
   "cult_psychology": {
     "top_hook_formulas": [
