@@ -128,45 +128,45 @@
   },
   "digital_forensics": {
     "top_hook_formulas": [
-      "The Untold Story of",
-      "Uncovering the Truth Behind",
-      "The Dark Secrets of"
+      "The Dark Secret",
+      "The Shocking Truth",
+      "Uncovering the Lies"
     ],
     "winning_title_patterns": [
-      "The [Adjective] Case of [ Famous Person/Event]",
-      "[Number] Things You Didn't Know About [Topic]",
-      "The [Adjective] Investigation That Changed [Field]"
+      "The [Case/Investigation] of [Notorious Figure]",
+      "Unraveling the [Mystery/Crime] of [Location]",
+      "Inside the [Mind/World] of [Serial Killer/Cyber Criminal]"
     ],
     "thumbnail_text_examples": [
-      "NEW EVIDENCE",
-      "REAL LIFE CRIME",
-      "CYBER ATTACK",
-      "FORENSIC FILES",
-      "TRUE CRIME STORY"
+      "EXPOSED BY HACKER",
+      "CYBER CRIME CAUGHT",
+      "DIGITAL EVIDENCE REVEALED",
+      "FORENSIC ANALYSIS UNCOVERS",
+      "CRIME SCENE INVESTIGATION"
     ],
-    "emotional_arc": "The videos often start with an intriguing mystery, build up to a shocking revelation, and conclude with a sense of justice or resolution, keeping viewers emotionally invested throughout.",
+    "emotional_arc": "Viewers are taken on a thrilling journey from curiosity to shock and finally to a sense of justice being served.",
     "retention_hooks": [
-      "30%: Introduction to a shocking crime or mystery",
-      "60%: Revelation of new evidence or a surprising twist",
-      "80%: The final verdict or conclusion, often with a dramatic flair"
+      "Introduction to a puzzling crime at 30%",
+      "Revelation of surprising evidence at 60%",
+      "Dramatic conclusion and justice served at 80%"
     ],
     "niche_specific_power_words": [
-      "Forensic",
-      "Cybercrime",
+      "Hacking",
       "Investigation",
-      "Evidence",
-      "Mystery",
-      "True Crime"
+      "Forensics",
+      "Cybercrime",
+      "Digital Evidence",
+      "Crime Scene"
     ],
-    "what_makes_videos_viral": "The combination of intriguing real-life stories, surprising plot twists, and the use of forensic science and investigation techniques to unravel mysteries makes these videos highly engaging and shareable.",
+    "what_makes_videos_viral": "The combination of intriguing real-life crimes, in-depth investigations, and the reveal of surprising digital evidence makes these videos viral.",
     "fresh_topic_ideas": [
       "The Rise of Deepfake Crimes",
-      "Investigating Cyberattacks on Critical Infrastructure",
-      "The Use of AI in Forensic Analysis",
-      "The Psychology of Cybercriminals",
-      "The Future of Digital Forensics",
-      "Cold Cases Solved by New DNA Evidence"
+      "Investigating Ransomware Attacks",
+      "Cyberwarfare and National Security",
+      "The Psychology of Cyber Criminals",
+      "AI in Digital Forensics",
+      "The Dark Web Exposed"
     ],
-    "last_run": "2026-07-02T22:47:32.444494"
+    "last_run": "2026-07-09T23:00:01.886971"
   }
 }

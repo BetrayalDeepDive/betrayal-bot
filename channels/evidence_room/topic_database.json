@@ -36,5 +36,62 @@
     "status": "pending",
     "created_at": "2026-07-09T02:02:46.189431",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "5aaffc4c6406",
+    "channel_id": "evidence_room",
+    "topic_text": "The offshore account trail that exposed a 12-year bank fraud hidden across 40 shell companies",
+    "niche_name": "forensic_finance",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 4.0,
+      "product_fit": 7.0
+    },
+    "composite_score": 6.75,
+    "reasoning": "The weakest dimension is monetization_fit, as the topic of exposing bank fraud through offshore accounts, while intriguing, doesn't naturally lend itself to a clear call-to-action for a product or resource beyond general awareness or ad revenue.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-10T02:19:07.419542",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "637dd53439b9",
+    "channel_id": "evidence_room",
+    "topic_text": "How auditors missed 3.2 billion in concealed losses because they trusted the software the fraudster built",
+    "niche_name": "forensic_finance",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 7.0,
+      "product_fit": 8.0
+    },
+    "composite_score": 7.5,
+    "reasoning": "The viral_pull score is relatively low because, although intriguing, the topic may not be immediately attention-grabbing for a broad audience without additional context or a sensational headline.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-10T02:21:26.686257",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "69e6d4c1cf3d",
+    "channel_id": "evidence_room",
+    "topic_text": "The wire transfer pattern a junior analyst flagged in 2019 that nobody acted on for 3 years",
+    "niche_name": "forensic_finance",
+    "scores": {
+      "viral_pull": 4.0,
+      "evergreen_value": 6.0,
+      "source_depth": 8.0,
+      "monetization_fit": 3.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 5.15,
+    "reasoning": "The weakest dimension is monetization_fit, as the topic is highly specific and niche, making it challenging to create a compelling call-to-action or promote a relevant product beyond general interest in forensic finance.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-10T02:22:51.382797",
+    "produced_episode_number": null
   }
 ]
