@@ -1,0 +1,17 @@
+[
+  {
+    "episode_number": 9,
+    "title": "4368 pages of darkest thoughts",
+    "niche_name": "obsession_dark",
+    "quality_score": 10.0,
+    "quality_attempt": 1,
+    "authenticity_score": 7.2,
+    "providers_healthy": 1,
+    "verdict": "REVIEW",
+    "reasons": [
+      "Authenticity score 7.2/10 \u2014 one dimension weak, worth a look.",
+      "Only 1/7 AI providers were healthy during generation \u2014 content was produced under real infrastructure strain, worth a quality spot-check."
+    ],
+    "audited_at": "2026-07-10T18:20:03.466144"
+  }
+]

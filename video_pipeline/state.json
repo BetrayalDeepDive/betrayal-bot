@@ -1,6 +1,7 @@
 {
   "playlists": {
-    "dark_horror": "PLqZixoXroaTfKwQV1PEgbnoClEP8WD4ko"
+    "dark_horror": "PLqZixoXroaTfKwQV1PEgbnoClEP8WD4ko",
+    "obsession_dark": "PLbqqA3yvFSbI"
   },
   "performance": {
     "dark_horror": {
@@ -14,15 +15,27 @@
       "scores": [
         10.0
       ]
+    },
+    "obsession_dark": {
+      "scores": [
+        10.0
+      ],
+      "streak_below": 0,
+      "last_episode": 9
+    },
+    "voice_en-US-AndrewNeural": {
+      "scores": [
+        10.0
+      ]
     }
   },
   "episode_count": 9,
   "last_upload": "2026-06-21T07:45:15.986501",
-  "last_title": "23 Years Alone In Winchester Mansion",
-  "last_url": "https://www.youtube.com/watch?v=IaibaQuOycQ",
-  "total_uploads": 7,
+  "last_title": "4368 pages of darkest thoughts",
+  "last_url": "https://www.youtube.com/watch?v=mwB-L72xZV4",
+  "total_uploads": 8,
   "total_shorts": 2,
-  "last_voice": "en-US-JasonNeural",
+  "last_voice": "en-US-AndrewNeural",
   "viral_intel": {
     "psychological_trap": {
       "top_hook_formulas": [
@@ -67,5 +80,16 @@
       "last_run": "2026-07-08T19:00:19.101378"
     }
   },
-  "last_title_register": "dread"
+  "last_title_register": "dread",
+  "episode_history": [
+    {
+      "episode": 9,
+      "niche": "obsession_dark",
+      "topic": "4,380 consecutive days of obsessive behaviour documented in handwritten detail across 47 notebooks",
+      "score": 10.0,
+      "hook_type": "",
+      "cold_open_style": "",
+      "date": "2026-07-10"
+    }
+  ]
 }
