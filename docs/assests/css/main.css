@@ -1,0 +1,228 @@
+/* ============================================================
+   NEXT LAYER MEDIA — Site design system
+   Signature: stamped case-file aesthetic, ties directly to the
+   classification-stamp/evidence-board visual language already
+   used in the actual video content (esp. The Evidence Room).
+   Deliberately NOT the generic cream+terracotta / near-black+
+   acid-green / broadsheet-newspaper defaults.
+   ============================================================ */
+
+:root {
+  /* Shared dark shell */
+  --ink:            #14161a;   /* near-black charcoal, not pure black */
+  --ink-raised:     #1c1f26;   /* panel background, one step up */
+  --paper:          #e8e2d0;   /* aged case-file paper, for stamps/tags */
+  --text-primary:   #eceae4;
+  --text-muted:     #9a9690;
+  --hairline:       #33363d;
+
+  /* BetrayalDeepDive accent — case-file amber/sepia */
+  --bdd-accent:     #c9a768;
+  --bdd-accent-dim: #7d6b45;
+
+  /* The Evidence Room accent — cold forensic blue */
+  --ter-accent:     #4a8fae;
+  --ter-accent-dim: #2f5b6e;
+
+  /* The Control Files accent — analytical violet, distinct from Ch1's
+     amber and Ch2's blue; echoes the cult_psychology/mass_deception
+     thumbnail palette without clashing with the dark shell */
+  --cf-accent:      #8a6bc9;
+  --cf-accent-dim:  #5a4680;
+
+  /* Shared warning/CTA red — desaturated, not alarm-bright */
+  --stamp-red:      #a34141;
+
+  --font-display:   'Courier Prime', 'Courier New', monospace; /* evidence-tag face */
+  --font-body:      Georgia, 'Times New Roman', serif;         /* reading face */
+  --font-ui:        -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ink);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+}
+
+/* Channel-scoped accent — set data-channel="bdd", "ter", or "cf" on <body> */
+body[data-channel="bdd"] { --accent: var(--bdd-accent); --accent-dim: var(--bdd-accent-dim); }
+body[data-channel="ter"] { --accent: var(--ter-accent); --accent-dim: var(--ter-accent-dim); }
+body[data-channel="cf"]  { --accent: var(--cf-accent);  --accent-dim: var(--cf-accent-dim); }
+body:not([data-channel]) { --accent: var(--bdd-accent); --accent-dim: var(--bdd-accent-dim); }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.site-header {
+  border-bottom: 1px solid var(--hairline);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-ui);
+}
+.site-header .brand {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.site-header .brand strong { color: var(--text-primary); }
+.site-header nav a {
+  margin-left: 1.25rem;
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.site-header nav a:hover { color: var(--accent); }
+
+main { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+/* ── Signature element: the case-file stamp badge ── */
+.case-stamp {
+  display: inline-block;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.7rem;
+  transform: rotate(-1.5deg);
+  margin-bottom: 1.25rem;
+  background: rgba(0,0,0,0.15);
+}
+
+.case-meta {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+  border-top: 1px dashed var(--hairline);
+  border-bottom: 1px dashed var(--hairline);
+  padding: 0.6rem 0;
+  margin: 1.5rem 0;
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-family: var(--font-body);
+  font-size: 2rem;
+  line-height: 1.25;
+  margin: 0 0 0.5rem;
+}
+h2 {
+  font-family: var(--font-ui);
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 0.4rem;
+  margin-top: 2.5rem;
+}
+
+.framework-box {
+  background: var(--ink-raised);
+  border-left: 3px solid var(--accent);
+  padding: 1.25rem 1.5rem;
+  margin: 1.5rem 0;
+}
+.framework-box ol, .framework-box ul { margin: 0.5rem 0 0; padding-left: 1.2rem; }
+
+.takeaways { list-style: none; padding: 0; margin: 1rem 0; }
+.takeaways li {
+  padding: 0.6rem 0 0.6rem 1.8rem;
+  border-bottom: 1px solid var(--hairline);
+  position: relative;
+}
+.takeaways li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-family: var(--font-display);
+}
+
+/* ── CTA / product bridge ── */
+.product-cta {
+  margin: 2.5rem 0;
+  padding: 1.5rem;
+  border: 1px solid var(--accent-dim);
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+}
+.product-cta .eyebrow {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.product-cta a.button {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.6rem 1.4rem;
+  background: var(--accent);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.product-cta a.button:hover { text-decoration: none; opacity: 0.9; }
+
+/* ── Email opt-in (owned-audience layer) ── */
+.optin-box {
+  margin: 2.5rem 0;
+  padding: 1.5rem;
+  background: var(--ink-raised);
+  border-radius: 2px;
+}
+.optin-box form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+.optin-box input[type="email"] {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.6rem 0.8rem;
+  background: var(--ink);
+  border: 1px solid var(--hairline);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+.optin-box button {
+  padding: 0.6rem 1.2rem;
+  background: var(--accent);
+  color: var(--ink);
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.related-links { padding-left: 1.2rem; }
+.related-links a { display: block; margin-bottom: 0.5rem; }
+
+.site-footer {
+  border-top: 1px solid var(--hairline);
+  padding: 2rem 1.5rem;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
