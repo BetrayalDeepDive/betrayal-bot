@@ -19,7 +19,12 @@ env:
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # FIX: was 60 minutes — too tight now that the growth engine sprint
+    # actually blocks (see control_files_pipeline.py fix) rather than
+    # firing-and-forgetting. Sprint alone can take up to ~40 minutes
+    # (30min wait + comment-engine work); video upload itself needs
+    # headroom on top of that.
+    timeout-minutes: 90
     permissions:
       contents: write
 
@@ -61,14 +66,39 @@ jobs:
           YOUTUBE_REFRESH_TOKEN:     ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
+          # v5 addition: Ch3's own dedicated bot — the Shorts checkpoint
+          # (recap short review) happens in this upload-phase workflow,
+          # so it needs these here too, not just in ch3_generate.yml.
+          TELEGRAM_TOKEN_CH3:        ${{ secrets.TELEGRAM_TOKEN_CH3 }}
+          TELEGRAM_CHAT_ID_CH3:      ${{ secrets.TELEGRAM_CHAT_ID_CH3 }}
+          GMAIL_SENDER_EMAIL:        ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
           CEREBRAS_API_KEY:          ${{ secrets.CEREBRAS_API_KEY }}
           SAMBANOVA_API_KEY:         ${{ secrets.SAMBANOVA_API_KEY }}
           GEMINI_API_KEY:            ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:          ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY:              ${{ secrets.GROQ_API_KEY }}
+          COHERE_API_KEY:            ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:           ${{ secrets.MISTRAL_API_KEY }}
           OPENROUTER_API_KEY:        ${{ secrets.OPENROUTER_API_KEY }}
           PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
+          # Optional — enables real trending-topic lookup for standalone
+          # Shorts via NewsAPI (newsapi.org, free tier). Already correctly
+          # gated in shorts_reels_engine.py (skips gracefully if unset) —
+          # found via sequential re-audit that this was never passed
+          # through even though the code was ready for it.
+          NEWS_API_KEY:              ${{ secrets.NEWS_API_KEY }}
+          FISH_AUDIO_API_KEY:        ${{ secrets.FISH_AUDIO_API_KEY }}
           PIPELINE_PHASE:            "upload"
         run: |
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          # FIX: PYTHONPATH previously only added "channels" — never
+          # "video_pipeline", where phase_manager.py, thumbnail_engine_v2.py,
+          # shorts_reels_engine.py, growth_engine.py, authenticity_guard.py,
+          # daily_audit_engine.py, publishing_archive.py, product_manuscript.py,
+          # topic_scoring.py, and site_generator.py all actually live. Every
+          # one of this session's new integrations depends on this being fixed.
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
           python -u channels/control_files/control_files_pipeline.py
 
       - name: Commit upload state
@@ -84,6 +114,42 @@ jobs:
           git add channels/control_files/state.json || true
           git add channels/control_files/intel.json || true
           git add channels/control_files/pending_upload.json || true
+          # CRITICAL FIX (found on final re-audit): every one of these 4
+          # files is written during the confirmed-publish step of THIS
+          # workflow (daily_audit_engine.py, publishing_archive.py,
+          # authenticity_guard.py, topic_scoring.py) but NONE were ever
+          # in this commit step — meaning the entire audit history,
+          # publishing archive, authenticity fingerprint baseline, and
+          # topic backlog would have been silently wiped by the ephemeral
+          # runner after every single run, resetting to zero every day
+          # despite appearing to work correctly within any one run.
+          git add channels/control_files/audit_index.json || true
+          git add channels/control_files/publishing_archive.json || true
+          git add channels/control_files/fingerprint_history.json || true
+          git add channels/control_files/topic_database.json || true
+          # CRITICAL FIX (found on most advanced re-audit): same gap as
+          # ch3_generate.yml — review_queue.json was never committed here
+          # either. This phase both reads it (to review the recap Short
+          # with the real, already-accumulated check-in count) and
+          # ultimately deletes it via clear_queue() once the episode's
+          # review is fully resolved — `git add` on a since-deleted,
+          # previously-tracked file correctly stages that deletion too,
+          # so the queue genuinely frees up for the next episode instead
+          # of silently never having existed from git's perspective.
+          git add channels/control_files/review_queue.json || true
+          # CRITICAL FIX: render_companion_page() writes a new page to
+          # docs/controlfiles/ep{N}.html during this same confirmed-publish
+          # step — without committing docs/ here, every companion page
+          # would vanish the moment this runner terminates, and the
+          # weekly site-navigation job (which only links to *existing*
+          # pages, it doesn't regenerate them) would have nothing to link to.
+          git add docs/ || true
+          # CRITICAL FIX: add_product_note() also runs at this same
+          # confirmed-publish step, appending to the shared product
+          # manuscript — without committing products/ here (not just in
+          # the separate weekly job), every note added between one Sunday
+          # and the next would be lost.
+          git add products/ || true
           git diff --staged --quiet || git commit -m "chore: ch3 uploaded [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing

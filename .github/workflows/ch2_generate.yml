@@ -6,7 +6,8 @@
 # Niches: Forensic Finance, Criminal Investigation, Corporate Exposure,
 #         Digital Forensics, Body Cam, Courtroom Drama, Robbery Docs
 # Features: 13-attempt engine, SSML audio, stage-matched video,
-#           3-variant cold open, pattern memory, 6 Shorts per video
+#           3-variant cold open, pattern memory, 4 Shorts/day (2 on-topic +
+#           2 real-trend-researched, teaser/recap removed per explicit request)
 # ============================================================
 name: Ch2 Evidence Room — Generate
 
@@ -45,6 +46,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
           pip install requests pillow edge-tts gTTS -q
+          # Kokoro (local TTS, genuinely natural-sounding, no rate limit) —
+          # CPU-only torch wheel avoids unnecessary CUDA packages.
+          # espeak-ng is already installed above (a Kokoro dependency).
+          pip install --index-url https://download.pytorch.org/whl/cpu torch -q
+          pip install kokoro soundfile -q
 
       - name: Pull latest state
         run: |
@@ -64,9 +70,33 @@ jobs:
           MISTRAL_API_KEY:           ${{ secrets.MISTRAL_API_KEY }}
           PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
           PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
-          TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
+          # FIX (found on full workflow audit, matching Ch3/Ch4's
+          # workflows): NEWS_API_KEY is used by shorts_reels_engine.py's
+          # real trend-research feature — was missing here entirely.
+          NEWS_API_KEY:              ${{ secrets.NEWS_API_KEY }}
+          # FIX: this was genuinely using secrets.TELEGRAM_TOKEN (Ch1's
+          # original bot) — meaning every Ch2 review would have landed
+          # in Ch1's chat, completely defeating the whole separate-bot-
+          # per-channel design the project owner specifically set up.
+          #
+          # FIX (found on full workflow audit, robustness improvement):
+          # this only ever set the env var named "TELEGRAM_TOKEN" to the
+          # CH2 secret's value — the .py code's real primary lookup is
+          # literally named env var "TELEGRAM_TOKEN_CH2", with
+          # "TELEGRAM_TOKEN" only as its fallback. The old setup worked,
+          # but only by relying on that fallback chain rather than the
+          # code's actual intended primary path — fragile if that lookup
+          # order is ever changed. Now sets both explicitly.
+          TELEGRAM_TOKEN_CH2:        ${{ secrets.TELEGRAM_TOKEN_CH2 }}
+          TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN_CH2 }}
           FISH_AUDIO_API_KEY:    ${{ secrets.FISH_AUDIO_API_KEY }}  # optional TTS backup — leave secret empty/unset if not using it
-          TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
+          # FIX: same real issue as the token — each bot conversation has
+          # its own distinct chat ID, even talking to it from the same
+          # Telegram account, so this needs its own secret too.
+          TELEGRAM_CHAT_ID_CH2:      ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          GMAIL_SENDER_EMAIL:        ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
           EVIDENCE_YT_CLIENT_ID:     ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
           EVIDENCE_YT_CLIENT_SECRET: ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
           EVIDENCE_YT_REFRESH_TOKEN: ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}

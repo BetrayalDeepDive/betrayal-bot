@@ -1,0 +1,151 @@
+# ============================================================
+# BETRAYAL DEEPDIVE — Ch1 Generation Workflow
+# Phase 1: GENERATE only (no upload)
+# Runs: Mon-Fri 8:30 PM IST = 15:00 UTC
+# Stores video + script + thumbnail via pending_upload.json in repo
+# Features: 13-attempt engine, SSML multi-rate audio, stage-matched
+#           video, 3-variant cold open, provider health check,
+#           pattern memory, A/B thumbnails, 4 Shorts/day (2 on-topic +
+#           2 real-trend-researched, teaser/recap removed per explicit request)
+# ============================================================
+name: Ch1 BetrayalDeepDive — Generate
+
+on:
+  schedule:
+    - cron: '0 15 * * 1-5'   # 8:30 PM IST | Mon-Fri
+  workflow_dispatch:
+    inputs:
+      is_makeup:
+        description: 'Resume from checkpoint'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "generate"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
+          pip install requests pillow edge-tts gTTS -q
+          # Kokoro (local TTS, genuinely natural-sounding, no rate limit) —
+          # CPU-only torch wheel keeps this from downloading unnecessary
+          # CUDA packages, which matters since GitHub Actions runners have
+          # no GPU anyway. espeak-ng is already installed above (a Kokoro
+          # dependency for phonemization).
+          pip install --index-url https://download.pytorch.org/whl/cpu torch -q
+          pip install kokoro soundfile -q
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      - name: Generate video (no upload)
+        env:
+          CEREBRAS_API_KEY:      ${{ secrets.CEREBRAS_API_KEY }}
+          SAMBANOVA_API_KEY:     ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:      ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY:    ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY:        ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:       ${{ secrets.MISTRAL_API_KEY }}
+          PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
+          # FIX (found on full workflow audit, matching the same fix
+          # already present in Ch3/Ch4's workflows): NEWS_API_KEY is used
+          # by shorts_reels_engine.py's real trend-research feature (the
+          # 2 daily trending Shorts) — was missing here entirely.
+          NEWS_API_KEY:          ${{ secrets.NEWS_API_KEY }}
+          ELEVENLABS_API_KEY:    ${{ secrets.ELEVENLABS_API_KEY }}
+          TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+          FISH_AUDIO_API_KEY:    ${{ secrets.FISH_AUDIO_API_KEY }}  # optional TTS backup — leave secret empty/unset if not using it
+          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Dedicated Gmail account for review-gate email fallback (a
+          # separate account, not the per-channel branded emails) —
+          # was genuinely missing before, meaning the email fallback
+          # could never actually fire despite the code reading it correctly.
+          GMAIL_SENDER_EMAIL:    ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_APP_PASSWORD:    ${{ secrets.GMAIL_APP_PASSWORD }}
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          PIPELINE_PHASE:        "generate"
+          IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
+          python -u video_pipeline/master_pipeline.py
+
+      # ── FIX: persist the rendered video/audio/thumbnail across runners ──
+      # GitHub Actions machines are destroyed after each job. /tmp never
+      # survives to the Upload workflow. This step ships the actual files
+      # out as a build artifact so Upload can pull them back down later.
+      - name: Upload video artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch1-pending-video
+          path: /tmp/deepdive/*
+          retention-days: 2
+          if-no-files-found: warn
+
+      - name: Commit generated artifacts + state
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          # FIX: one git add per file. Previously all paths were in a single
+          # git add command — if ANY one file didn't exist (e.g. next_week_strategy.json
+          # only gets created on certain episodes), git aborted the WHOLE add as fatal,
+          # silently swallowed by the old "|| true", and NOTHING got staged — not even
+          # files that did exist. This is why pushes looked successful but saved nothing.
+          git add video_pipeline/state.json || true
+          git add video_pipeline/pending_upload.json || true
+          git add video_pipeline/next_week_strategy.json || true
+          # FIX: without this, the avatar cache is pointless — GitHub Actions
+          # runners are fully ephemeral, so any cached avatar image not
+          # committed here is silently lost the moment this runner finishes,
+          # meaning every episode would regenerate a fresh image from
+          # scratch anyway, defeating the entire purpose of caching it.
+          git add video_pipeline/avatar_cache/ || true
+          git add video_pipeline/fingerprint_history.json || true
+          # FIX: topic_database.json gets written here too (add_topic_candidate
+          # scores fresh candidates during generate) — without committing it,
+          # every scored candidate is lost on this ephemeral runner.
+          git add video_pipeline/topic_database.json || true
+          git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
+          # FIX: retry push instead of silently dropping it on conflict.
+          # "|| true" alone meant a failed push (e.g. two workflows landing
+          # near the same time) was swallowed with zero indication — the
+          # commit would exist locally on that dead runner and nowhere else.
+          for i in 1 2 3 4 5; do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+            echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
+            sleep $((i*5))
+            git pull --rebase origin main || true
+            if [ "$i" = "5" ]; then
+              echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+            fi
+          done
