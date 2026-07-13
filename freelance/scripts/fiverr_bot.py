@@ -18,7 +18,7 @@ GMAIL_PASS     = os.environ["GMAIL_APP_PASSWORD"]
 TG_TOKEN       = os.environ["TELEGRAM_TOKEN"]
 TG_CHAT        = os.environ["TELEGRAM_CHAT_ID"]
 groq_client    = Groq(api_key=GROQ_KEY)
-GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+GEMINI_URL     = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 SENDER_NAME    = "Mohammed Sultan | NextLayer Media"
 FIVERR_USER    = "nextlayermedia"
 GIG_PACKAGES   = {
@@ -56,17 +56,24 @@ def call_gemini(prompt,tokens=3000):
     return None
 
 def call_groq(prompt,tokens=800):
-    for attempt in range(3):
-        try:
-            r=groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role":"user","content":prompt}],
-                temperature=0.7,max_tokens=min(tokens,2000))
-            return r.choices[0].message.content
-        except Exception as e:
-            if "429" in str(e) or "rate_limit" in str(e).lower():
-                time.sleep(60); continue
-            break
+    """
+    FIX: only ever tried "llama-3.3-70b-versatile" — deprecated by Groq
+    on June 17, 2026 — with no model fallback. Now tries a real chain
+    of genuinely current models.
+    """
+    models = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]
+    for model in models:
+        for attempt in range(3):
+            try:
+                r=groq_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role":"user","content":prompt}],
+                    temperature=0.7,max_tokens=min(tokens,2000))
+                return r.choices[0].message.content
+            except Exception as e:
+                if "429" in str(e) or "rate_limit" in str(e).lower():
+                    time.sleep(60); continue
+                break  # try next model
     return None
 
 def call_ai(prompt,tokens=3000):
