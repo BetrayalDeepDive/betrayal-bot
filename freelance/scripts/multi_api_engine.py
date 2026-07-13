@@ -10,8 +10,8 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY")
 
-GROQ_MODELS = ["llama-3.3-70b-versatile", "mixtral-8x7b-32768"]
-GEMINI_MODEL = "gemini-1.5-pro"
+GROQ_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]
+GEMINI_MODEL = "gemini-2.5-flash"
 MISTRAL_MODEL = "mistral-large-latest"
 
 
