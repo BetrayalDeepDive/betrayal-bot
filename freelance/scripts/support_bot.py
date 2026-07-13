@@ -29,17 +29,25 @@ def tg(msg):
     except: pass
 
 def call_groq(prompt):
-    for attempt in range(3):
-        try:
-            r = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role":"user","content":prompt}],
-                temperature=0.7, max_tokens=500)
-            return r.choices[0].message.content
-        except Exception as e:
-            if "429" in str(e) or "rate_limit" in str(e).lower():
-                time.sleep(60); continue
-            break
+    """
+    FIX: this only ever tried "llama-3.3-70b-versatile" — a model Groq
+    announced deprecated on June 17, 2026 — with retries only on rate
+    limiting, never falling back to a different model. Now tries a real
+    chain of genuinely current models before giving up.
+    """
+    models = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]
+    for model in models:
+        for attempt in range(3):
+            try:
+                r = groq_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role":"user","content":prompt}],
+                    temperature=0.7, max_tokens=500)
+                return r.choices[0].message.content
+            except Exception as e:
+                if "429" in str(e) or "rate_limit" in str(e).lower():
+                    time.sleep(60); continue
+                break  # try next model
     return None
 
 def safe_decode(value):
