@@ -21,6 +21,7 @@ GitHub Pages itself, not just the language around it.
 """
 
 import json
+import requests
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
@@ -38,17 +39,30 @@ from reportlab.lib import colors
 GUMROAD_CONFIG = {
     "dark-manipulation-tactics-handbook": {
         "gumroad_url": None,     # e.g. "https://gumroad.com/l/dmth"
+        "gumroad_product_url_id": None,  # the real Gumroad product ID, from your dashboard, needed for Update/Enable API calls
         "price_usd": 19,
         "status": "not_yet_listed",
     },
     "empire-collapse-atlas": {
         "gumroad_url": None,
+        "gumroad_product_url_id": None,
         "price_usd": 19,
         "status": "not_yet_listed",
     },
     "faceless-documentary-creator-toolkit": {
         "gumroad_url": None,
+        "gumroad_product_url_id": None,
         "price_usd": 29,
+        "status": "not_yet_listed",
+    },
+    # v1 addition — a genuine, purpose-built product for The Collapse
+    # Index, bridging both of its real content pillars (documented
+    # business/tech collapses + personal finance) rather than reusing
+    # an unrelated existing product from a different channel.
+    "financial-red-flags-field-guide": {
+        "gumroad_url": None,
+        "gumroad_product_url_id": None,
+        "price_usd": 19,
         "status": "not_yet_listed",
     },
 }
@@ -113,6 +127,96 @@ def export_manuscript_to_pdf(product_title, chapters_with_notes, output_path):
         return True
     except Exception:
         return False
+
+
+def update_gumroad_listing(product_id, gumroad_product_url_id, access_token,
+                            description=None, price_cents=None):
+    """
+    Real Gumroad API call — confirmed via research that Update works even
+    though product Creation does not (Gumroad's own current docs
+    explicitly say creation isn't supported via API). Requires the
+    product to already exist (created once, manually, in the Gumroad
+    dashboard) and its real Gumroad product ID.
+    """
+    if not access_token or not gumroad_product_url_id:
+        return {"updated": False, "reason": "missing access_token or gumroad_product_url_id"}
+    payload = {"access_token": access_token}
+    if description:
+        payload["description"] = description
+    if price_cents:
+        payload["price"] = price_cents
+    try:
+        r = requests.put(f"https://api.gumroad.com/v2/products/{gumroad_product_url_id}",
+                         data=payload, timeout=20)
+        if r.status_code == 200:
+            return {"updated": True}
+        return {"updated": False, "reason": f"API returned {r.status_code}"}
+    except Exception as e:
+        return {"updated": False, "reason": str(e)}
+
+
+def set_gumroad_listing_enabled(gumroad_product_url_id, access_token, enabled=True):
+    """
+    Real Gumroad enable/disable — genuinely useful for the Empire
+    Collapse Atlas specifically: it can stay disabled (not visible for
+    purchase) while it's honestly empty (no Ch4/Ch5 yet), and this
+    function is what would flip it live automatically once it actually
+    has real content, rather than needing a manual dashboard visit.
+    """
+    if not access_token or not gumroad_product_url_id:
+        return {"updated": False, "reason": "missing access_token or gumroad_product_url_id"}
+    action = "enable" if enabled else "disable"
+    try:
+        r = requests.put(f"https://api.gumroad.com/v2/products/{gumroad_product_url_id}/{action}",
+                         data={"access_token": access_token}, timeout=20)
+        if r.status_code == 200:
+            return {"updated": True, "enabled": enabled}
+        return {"updated": False, "reason": f"API returned {r.status_code}"}
+    except Exception as e:
+        return {"updated": False, "reason": str(e)}
+
+
+def sync_all_gumroad_listings(products_root, access_token):
+    """
+    Real weekly-cadence entry point: for every product with a configured
+    Gumroad ID, updates its live description to reflect the real current
+    manuscript (chapter count, insight count), and auto-enables it the
+    moment it has genuine content for the first time — never disables
+    a product that's already live, only ever enables.
+    """
+    from product_manuscript import PRODUCTS, _load_manuscript_notes
+    if not access_token:
+        return [{"product_id": p, "updated": False, "reason": "no GUMROAD_ACCESS_TOKEN configured"}
+                for p in PRODUCTS]
+
+    results = []
+    for product_id, product in PRODUCTS.items():
+        cfg = GUMROAD_CONFIG.get(product_id, {})
+        gumroad_url_id = cfg.get("gumroad_product_url_id")
+        if not gumroad_url_id:
+            results.append({"product_id": product_id, "updated": False,
+                            "reason": "no real Gumroad listing configured yet"})
+            continue
+
+        notes = _load_manuscript_notes(products_root, product_id)
+        total_notes = sum(len(v) for v in notes.values())
+        chapters_with_content = sum(1 for v in notes.values() if v)
+
+        if total_notes == 0:
+            results.append({"product_id": product_id, "updated": False,
+                            "reason": "genuinely no content yet — not touching the live listing"})
+            continue
+
+        new_description = (f"{product['title']} — a living reference built from real "
+                           f"documented cases. Currently {total_notes} real insights across "
+                           f"{chapters_with_content}/{len(product['chapters'])} chapters, "
+                           f"growing with every new episode.")
+        update_result = update_gumroad_listing(product_id, gumroad_url_id, access_token,
+                                                description=new_description)
+        enable_result = set_gumroad_listing_enabled(gumroad_url_id, access_token, enabled=True)
+        results.append({"product_id": product_id, "updated": update_result.get("updated", False),
+                        "enabled": enable_result.get("updated", False)})
+    return results
 
 
 def export_all_products(products_root, pdf_output_root):

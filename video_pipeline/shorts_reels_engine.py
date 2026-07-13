@@ -69,7 +69,45 @@ MISTRAL_KEY = os.environ.get("MISTRAL_API_KEY", "")
 PIX_KEY     = os.environ.get("PIXABAY_KEY", "")
 TG_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT     = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# FIX (critical, found on full re-audit): TG_TOKEN/TG_CHAT were always
+# the generic Ch1 bot credentials, with no per-channel routing at all —
+# same bug class already found and fixed for YouTube credentials above.
+# Every Shorts alert (upload success/failure) from every channel was
+# silently going to Ch1's Telegram bot regardless of which channel's
+# Short actually produced it.
+TG_CREDENTIAL_ENV_BY_CHANNEL = {
+    "betrayal_deepdive": ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"),
+    "evidence_room":     ("TELEGRAM_TOKEN_CH2", "TELEGRAM_CHAT_ID_CH2"),
+    "control_files":     ("TELEGRAM_TOKEN_CH3", "TELEGRAM_CHAT_ID_CH3"),
+    "archive":           ("TELEGRAM_TOKEN_CH4", "TELEGRAM_CHAT_ID_CH4"),
+    "collapse_index":    ("TELEGRAM_TOKEN_CH5", "TELEGRAM_CHAT_ID_CH5"),
+}
 NEWS_KEY    = os.environ.get("NEWS_API_KEY", "")
+# FIX (found on sequential re-audit — the single most severe bug found
+# this entire session): YT_CLIENT/YT_SECRET/YT_REFRESH previously only
+# ever read the generic YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN (Ch1's own
+# real credentials), with ZERO channel awareness — despite this whole
+# file having a real, working CHANNEL_CONFIGS/set_active_channel system
+# for branding. Every Ch3 Short (teaser/standalone/recap) would have
+# authenticated as Ch1's YouTube channel and uploaded there instead of
+# Ch3's own channel, since both credential sets are present in Ch3's
+# workflow environment and this function was reading the wrong one.
+# Matches each channel's real per-channel secret naming convention
+# already used in control_files_pipeline.py itself and weekly_report.py.
+YT_CREDENTIAL_ENV_BY_CHANNEL = {
+    "betrayal_deepdive": ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"),
+    "evidence_room":     ("EVIDENCE_YT_CLIENT_ID", "EVIDENCE_YT_CLIENT_SECRET", "EVIDENCE_YT_REFRESH_TOKEN"),
+    "control_files":     ("CHANNEL3_YT_CLIENT_ID", "CHANNEL3_YT_CLIENT_SECRET", "CHANNEL3_YT_REFRESH_TOKEN"),
+    # FIX (critical, found on full re-audit): "archive" (Ch4/The Archive)
+    # was missing entirely — every Short Ch4 tried to produce would have
+    # silently fallen back to the generic YOUTUBE_* credentials (Ch1's
+    # own), meaning Ch4's Shorts would upload to Ch1's YouTube channel
+    # instead of The Archive's. Exact same credential-routing bug class
+    # already found and fixed multiple times in the main pipelines.
+    "archive":           ("CHANNEL4_YT_CLIENT_ID", "CHANNEL4_YT_CLIENT_SECRET", "CHANNEL4_YT_REFRESH_TOKEN"),
+    "collapse_index":    ("CHANNEL5_YT_CLIENT_ID", "CHANNEL5_YT_CLIENT_SECRET", "CHANNEL5_YT_REFRESH_TOKEN"),
+}
 YT_CLIENT   = os.environ.get("YOUTUBE_CLIENT_ID", "")
 YT_SECRET   = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
 YT_REFRESH  = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
@@ -102,14 +140,22 @@ CHANNEL_CONFIGS = {
         "hashtags_base":  "#betrayaldeepdive #shorts",
         "tagline":        "Betrayal DeepDive — New betrayal story every day.",
         "bg_search_term": "betrayal",
+        # FIX (v7 rebuild, per explicit correction): these used to be
+        # "standalone_1"/"standalone_2" pools that were STILL same-niche
+        # as the channel (just different specific angles on betrayal/
+        # crime) — not genuinely different niches or trending topics as
+        # explicitly requested. Renamed to "trending_1"/"trending_2" and
+        # rebuilt as genuinely cross-niche, broad-appeal categories
+        # (real trend research below narrows these further to what's
+        # actually current).
         "standalone_topics": {
             "standalone_1": [
-                "betrayal revenge", "shocking truth revealed", "she discovered the secret",
-                "he lied for years", "best friend betrayal", "family secret exposed"
+                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
+                "viral life hack", "unexpected science discovery", "trending internet story"
             ],
             "standalone_2": [
-                "CEO fraud exposed", "legal case shocking verdict", "true crime cold case",
-                "dark psychology manipulation", "financial scam billions", "Silicon Valley scandal"
+                "shocking world record", "viral animal story", "trending travel discovery",
+                "surprising history fact", "unexpected food trend", "viral challenge explained"
             ],
         },
         "default_niche": "betrayal",
@@ -122,17 +168,73 @@ CHANNEL_CONFIGS = {
         "bg_search_term": "forensic investigation evidence dark",
         "standalone_topics": {
             "standalone_1": [
-                "one piece of evidence solved it", "the alibi that fell apart",
-                "cold case reopened after decades", "the fingerprint everyone missed",
-                "DNA evidence changed everything", "the confession that didn't match"
+                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
+                "viral life hack", "unexpected science discovery", "trending internet story"
             ],
             "standalone_2": [
-                "corporate fraud investigation", "forensic accounting exposed billions",
-                "digital forensics caught the criminal", "the timeline that broke the case",
-                "financial crime evidence trail", "the paper trail nobody found"
+                "shocking world record", "viral animal story", "trending travel discovery",
+                "surprising history fact", "unexpected food trend", "viral challenge explained"
             ],
         },
         "default_niche": "forensic investigation",
+    },
+    "control_files": {
+        "display_name":   "THE CONTROL FILES",
+        "watermark":      "@TheControlFiles",
+        "hashtags_base":  "#thecontrolfiles #shorts #psychology",
+        "tagline":        "The Control Files — How control systems really work, every day.",
+        "bg_search_term": "psychology manipulation control documentary dark",
+        "standalone_topics": {
+            "standalone_1": [
+                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
+                "viral life hack", "unexpected science discovery", "trending internet story"
+            ],
+            "standalone_2": [
+                "shocking world record", "viral animal story", "trending travel discovery",
+                "surprising history fact", "unexpected food trend", "viral challenge explained"
+            ],
+        },
+        "default_niche": "psychology manipulation",
+    },
+    # FIX: "archive" (Ch4) had NO entry here at all — every Short Ch4
+    # tried to produce would have silently fallen back to BetrayalDeepDive's
+    # branding, watermark, hashtags, and topic pools. Same hardcoded-
+    # identity bug class already found and fixed for Ch2/Ch3.
+    "archive": {
+        "display_name":   "THE ARCHIVE",
+        "watermark":      "@TheArchive",
+        "hashtags_base":  "#thearchive #shorts #history",
+        "tagline":        "The Archive — Real documented history, every day.",
+        "bg_search_term": "ancient history documentary archive",
+        "standalone_topics": {
+            "standalone_1": [
+                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
+                "viral life hack", "unexpected science discovery", "trending internet story"
+            ],
+            "standalone_2": [
+                "shocking world record", "viral animal story", "trending travel discovery",
+                "surprising history fact", "unexpected food trend", "viral challenge explained"
+            ],
+        },
+        "default_niche": "history documentary",
+    },
+    "collapse_index": {
+        "display_name":   "THE COLLAPSE INDEX",
+        "watermark":      "@TheCollapseIndex",
+        "hashtags_base":  "#thecollapseindex #shorts #finance",
+        "tagline":        "The Collapse Index — Real numbers behind tech and finance, every day.",
+        "bg_search_term": "business finance documentary dramatic",
+        "standalone_topics": {
+            "standalone_1": [
+                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
+                "viral life hack", "unexpected science discovery", "trending internet story"
+            ],
+            "standalone_2": [
+                "shocking world record", "viral animal story", "trending travel discovery",
+                "surprising history fact", "unexpected food trend", "viral challenge explained"
+            ],
+        },
+        "default_niche": "business finance documentary",
     },
 }
 
@@ -146,12 +248,24 @@ def set_active_channel(channel_id: str):
     directly keeps working, without needing every helper's signature
     rewritten) to match the real calling channel instead of always Ch1.
     Falls back safely to betrayal_deepdive's config for any unknown channel.
+
+    FIX (critical, found on full re-audit): this used to leave TG_TOKEN/
+    TG_CHAT untouched entirely — every Shorts alert from every channel
+    silently went to Ch1's Telegram bot. Now routes those too, with a
+    safe fallback to the generic bot if a channel-specific one isn't
+    actually configured (e.g. secret not yet added), rather than sending
+    nowhere.
     """
-    global CHANNEL, WATERMARK, _active_channel_id
+    global CHANNEL, WATERMARK, _active_channel_id, TG_TOKEN, TG_CHAT
     cfg = CHANNEL_CONFIGS.get(channel_id, CHANNEL_CONFIGS["betrayal_deepdive"])
     CHANNEL   = cfg["display_name"]
     WATERMARK = cfg["watermark"]
     _active_channel_id = channel_id if channel_id in CHANNEL_CONFIGS else "betrayal_deepdive"
+
+    tg_token_env, tg_chat_env = TG_CREDENTIAL_ENV_BY_CHANNEL.get(
+        _active_channel_id, ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"))
+    TG_TOKEN = os.environ.get(tg_token_env, os.environ.get("TELEGRAM_TOKEN", ""))
+    TG_CHAT  = os.environ.get(tg_chat_env, os.environ.get("TELEGRAM_CHAT_ID", ""))
 
 def get_active_channel_config():
     """Returns the full config dict for whichever channel is currently active."""
@@ -163,38 +277,49 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Research: Multi-gender US + British voices = wider global audience
 # Groq Orpheus tags make voice emotional, not robotic
 VOICES_EN = [
-    # US Male
+    # FIX (critical, found while investigating "sounds robotic/AI-built"):
+    # this list previously had 10 voice IDs — "luna", "stella", "atlas",
+    # "orion", "kora", "muse" were completely fabricated, not real Groq
+    # Orpheus voices at all. Verified directly against Groq's own
+    # documentation and changelog: canopylabs/orpheus-v1-english has
+    # EXACTLY 6 real voices — autumn, diana, hannah, austin, daniel, troy.
+    # Since pick_voice() rotates through this list, 6 of the previous 10
+    # entries (60%) would have failed on every single call — Groq's API
+    # would reject the invalid voice parameter, silently falling back to
+    # the much more robotic espeak-ng synthesizer. This is very likely
+    # the direct, concrete cause of Shorts narration sounding "AI-built."
+    # Genders inferred from Groq's own naming (autumn/diana/hannah read
+    # as female, austin/daniel/troy as male) — not independently
+    # confirmed beyond that, since Groq doesn't publish per-voice gender
+    # labels; if this proves wrong on a real run, it's a one-line fix.
     {"id": "troy",   "tag": "[intense]",   "gender": "male",   "accent": "US",
      "desc": "Deep US male, intense dramatic"},
     {"id": "austin", "tag": "[disbelief]", "gender": "male",   "accent": "US",
      "desc": "US male, shocked disbelief"},
     {"id": "daniel", "tag": "[outraged]",  "gender": "male",   "accent": "US",
      "desc": "US male, angry outrage"},
-    # US Female
-    {"id": "luna",   "tag": "[intense]",   "gender": "female", "accent": "US",
+    {"id": "autumn", "tag": "[intense]",   "gender": "female", "accent": "US",
      "desc": "US female, intense dramatic"},
-    {"id": "stella", "tag": "[disbelief]", "gender": "female", "accent": "US",
+    {"id": "diana",  "tag": "[disbelief]", "gender": "female", "accent": "US",
      "desc": "US female, shocked"},
-    {"id": "autumn", "tag": "[outraged]",  "gender": "female", "accent": "US",
+    {"id": "hannah", "tag": "[outraged]",  "gender": "female", "accent": "US",
      "desc": "US female, outrage"},
-    # British Male
-    {"id": "atlas",  "tag": "[intense]",   "gender": "male",   "accent": "British",
-     "desc": "British male, deep intense"},
-    {"id": "orion",  "tag": "[disbelief]", "gender": "male",   "accent": "British",
-     "desc": "British male, disbelief"},
-    # British Female
-    {"id": "kora",   "tag": "[intense]",   "gender": "female", "accent": "British",
-     "desc": "British female, dramatic"},
-    {"id": "muse",   "tag": "[outraged]",  "gender": "female", "accent": "British",
-     "desc": "British female, outraged"},
 ]
 
-# For reels: bilingual voices with Hinglish capability
+# FIX: Groq's Orpheus TTS only supports English (canopylabs/orpheus-v1-english)
+# and Saudi Arabic (canopylabs/orpheus-arabic-saudi) — there is no Hindi/
+# Hinglish model at all. This entire voice list was fabricated and would
+# have failed 100% of the time. Confirmed this path is currently dead code
+# (produce_instagram_reel is never called from any of the 4 real pipelines,
+# only from this file's own standalone test block) — fixed for correctness
+# so it's not a landmine whenever Instagram Reels support is actually built.
+# Until then, for_reels should not be used with real Hindi/Hinglish script
+# content; this now honestly falls back to the same 6 real English voices.
 VOICES_HINGLISH = [
-    {"id": "luna",   "tag": "[intense]",   "gender": "female", "lang": "hinglish"},
-    {"id": "stella", "tag": "[disbelief]", "gender": "female", "lang": "hinglish"},
-    {"id": "troy",   "tag": "[intense]",   "gender": "male",   "lang": "hinglish"},
-    {"id": "austin", "tag": "[outraged]",  "gender": "male",   "lang": "hinglish"},
+    {"id": "autumn", "tag": "[intense]",   "gender": "female", "lang": "en"},
+    {"id": "diana",  "tag": "[disbelief]", "gender": "female", "lang": "en"},
+    {"id": "troy",   "tag": "[intense]",   "gender": "male",   "lang": "en"},
+    {"id": "austin", "tag": "[outraged]",  "gender": "male",   "lang": "en"},
 ]
 
 # Rotate voices to ensure gender variety
@@ -226,23 +351,46 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
             continue
         try:
             if provider == "groq":
-                r = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": "llama-3.3-70b-versatile",
-                          "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": max_tokens, "temperature": temp},
-                    timeout=45
-                )
-                if r.status_code == 429:
-                    time.sleep(3)
+                # FIX (confirmed against Groq's own official deprecations
+                # page): llama-3.3-70b-versatile was announced deprecated
+                # by Groq on June 17, 2026, with openai/gpt-oss-120b and
+                # qwen/qwen3.6-27b as the recommended replacements — same
+                # fragile single-hardcoded-model pattern already fixed
+                # elsewhere in this project for Gemini. Tries current
+                # models first, keeping the deprecated name only as a
+                # last-resort in case it's still briefly reachable.
+                r = None
+                for _groq_model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]:
+                    try:
+                        r = requests.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                            json={"model": _groq_model,
+                                  "messages": [{"role": "user", "content": prompt}],
+                                  "max_tokens": max_tokens, "temperature": temp},
+                            timeout=45
+                        )
+                        if r.status_code == 200:
+                            break
+                    except Exception:
+                        r = None
+                        continue
+                if r is None or r.status_code != 200:
+                    if r is not None and r.status_code == 429:
+                        time.sleep(3)
                     continue
                 r.raise_for_status()
                 return r.json()["choices"][0]["message"]["content"].strip()
 
             elif provider == "gemini":
+                # FIX (critical, confirmed against Google's own official
+                # deprecation pages): gemini-2.0-flash was shut down by
+                # Google on June 1, 2026 — every call here has been
+                # returning a 404 for 6 weeks. The 4 main channel
+                # pipelines already correctly use gemini-2.5-flash for
+                # this same reason; this file was missed. Matching that fix.
                 r = requests.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}",
                     json={"contents": [{"parts": [{"text": prompt}]}],
                           "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temp}},
                     timeout=60
@@ -333,11 +481,45 @@ def is_instagram_ready() -> bool:
 
 
 # ── TOPIC SELECTION ───────────────────────────────────────────────────────────
+def get_real_youtube_trending_signal(niche_hint=""):
+    """
+    v7 addition — real "what's working today" research, per explicit
+    request: "AI to do the research and find out what is working on
+    that day". Uses YouTube's own real Data API (videos.list with
+    chart=mostPopular) — genuinely current, and needs no new API key
+    since it reuses the same OAuth credentials already required for
+    uploads. This is a materially different, more relevant signal than
+    the existing NewsAPI check below: it reflects what's ACTUALLY
+    getting attention on YouTube specifically today, not just news
+    headlines. Returns a list of real trending video titles (empty list
+    on any failure — never fabricated).
+    """
+    try:
+        token = get_yt_token()
+        if not token:
+            return []
+        r = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={"part": "snippet", "chart": "mostPopular",
+                    "regionCode": "US", "maxResults": 15,
+                    "access_token": token},
+            timeout=15)
+        if r.status_code != 200:
+            return []
+        items = r.json().get("items", [])
+        titles = [it["snippet"]["title"] for it in items if it.get("snippet", {}).get("title")]
+        return titles[:15]
+    except Exception as e:
+        log.warning("YouTube trending fetch (non-fatal): %s", e)
+        return []
+
+
 def get_trending_short_topic(mode: str) -> dict:
     """
     Find viral-worthy topic for standalone Shorts.
-    Uses NewsAPI for real events + LLM for angle optimization.
-    Different topics for standalone_1 vs standalone_2.
+    Uses real YouTube trending signal + NewsAPI for real events + LLM
+    for angle optimization. Different topics for standalone_1 vs
+    standalone_2.
     FIX: now uses the ACTIVE channel's own topic pools (set via
     set_active_channel before this is called) instead of always using
     Ch1's betrayal/crime-flavored pools regardless of which channel
@@ -368,12 +550,30 @@ def get_trending_short_topic(mode: str) -> dict:
     if not topic:
         topic = query
 
-    # Use LLM to optimise angle for Shorts virality
-    result = llm_json(f"""You are a viral YouTube Shorts creator for {cfg['display_name']}.
-Topic seed: {topic}
-Mode: {mode}
+    # v7 addition — real trending signal, always attempted (no API key
+    # needed), genuinely reflecting what's performing on YouTube today.
+    trending_titles = get_real_youtube_trending_signal(query)
+    trending_block = ""
+    if trending_titles:
+        trending_block = (
+            "\n\nWhat's genuinely trending on YouTube today (real titles, for "
+            "genuine inspiration on angle/format/hook style — do NOT copy these, "
+            "use them only to understand what's actually landing right now):\n" +
+            "\n".join(f"- {t}" for t in trending_titles[:8])
+        )
 
-Create a SHORT (45-55 second) viral concept.
+    # Use LLM to optimise angle for Shorts virality
+    result = llm_json(f"""You are producing a Short for {cfg['display_name']}'s channel, but
+this specific Short is DELIBERATELY a different, trending topic — not the
+channel's usual subject matter. Per explicit design: 2 of this channel's 4
+daily Shorts cover today's main video topic, and 2 (this one) cover whatever
+is genuinely trending and in-demand right now, to draw in broader attention
+and new viewers who wouldn't otherwise find this channel.
+Topic seed: {topic}
+Mode: {mode}{trending_block}
+
+Create a SHORT (45-55 second) viral concept about this trending topic itself
+— do not connect it back to the channel's usual subject matter.
 
 Rules for YouTube Shorts 2026:
 - First frame must create immediate "I NEED to watch this" feeling
@@ -386,7 +586,7 @@ Return JSON:
   "hook_text": "5-7 words for text overlay — must shock",
   "script": "120-140 words, starts with most shocking moment, ends with loop hook",
   "hashtags": "{cfg['hashtags_base']} #shocking #viral",
-  "niche": "{cfg['default_niche']}",
+  "niche": "the real trending topic's own category, NOT {cfg['default_niche']}",
   "us_audience_appeal": 8,
   "replay_potential": 9}}""")
 
@@ -458,48 +658,130 @@ def score_short_script(script: str, title: str, hook: str,
 
 
 # ── TTS AUDIO GENERATION ──────────────────────────────────────────────────────
+def _split_into_tts_chunks(script, max_chars=180):
+    """
+    Split script into chunks under Groq Orpheus's real, documented
+    200-character-per-request limit (confirmed directly against Groq's
+    own docs — this is not a guess), respecting sentence boundaries so
+    each chunk still sounds like natural, complete speech rather than
+    an arbitrary character cutoff. max_chars=180 leaves headroom for
+    the emotion tag prefix added to the first chunk.
+    """
+    import re as _re
+    sentences = _re.split(r'(?<=[.!?])\s+', script.strip())
+    chunks = []
+    current = ""
+    for sent in sentences:
+        candidate = f"{current} {sent}".strip() if current else sent
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            if current:
+                chunks.append(current)
+            # A single sentence longer than max_chars on its own — split
+            # on commas/words as a last resort rather than dropping it.
+            if len(sent) > max_chars:
+                words = sent.split()
+                piece = ""
+                for w in words:
+                    cand2 = f"{piece} {w}".strip() if piece else w
+                    if len(cand2) <= max_chars:
+                        piece = cand2
+                    else:
+                        if piece:
+                            chunks.append(piece)
+                        piece = w
+                current = piece
+            else:
+                current = sent
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def generate_audio(script: str, voice: dict, output_path: str) -> bool:
     """
     Generate audio via Groq Orpheus with emotional tags.
     Falls back to espeak-ng if Groq unavailable.
     Applies audio enhancement: noise reduction + normalization.
+
+    FIX (critical, confirmed directly against Groq's own documentation):
+    Orpheus has a real, hard 200-character limit PER REQUEST — this
+    function used to send the entire 120-140 word script (typically
+    600-800+ characters) in a single call. Every real narration request
+    would have either been rejected outright by the API or silently
+    truncated to roughly the first 30-35 words, meaning the vast
+    majority of every Short's narration was likely never actually
+    generated. Now splits the script into real, sentence-respecting
+    chunks under the documented limit, generates each separately, and
+    concatenates the resulting audio into one continuous narration
+    track before the same enhancement pipeline as before.
     """
     tag = voice.get("tag", "[intense]")
     voice_id = voice.get("id", "troy")
 
-    # Groq Orpheus TTS
     if GROQ_KEY:
         try:
-            tagged_script = f"{tag} {script}"
-            r = requests.post(
-                "https://api.groq.com/openai/v1/audio/speech",
-                headers={"Authorization": f"Bearer {GROQ_KEY}",
-                         "Content-Type": "application/json"},
-                json={"model": "canopylabs/orpheus-v1-english",
-                      "input": tagged_script[:2800],
-                      "voice": voice_id,
-                      "response_format": "wav"},
-                timeout=90
-            )
-            if r.status_code == 200 and len(r.content) > 1000:
-                wav_path = output_path.replace(".mp3", ".wav")
-                with open(wav_path, "wb") as f:
+            chunks = _split_into_tts_chunks(script, max_chars=180)
+            if not chunks:
+                raise ValueError("no chunks produced from script")
+
+            chunk_wavs = []
+            for i, chunk_text in enumerate(chunks):
+                # Only the first chunk carries the emotion tag — Orpheus
+                # applies it as a delivery style for the whole utterance,
+                # and repeating it on every chunk risks it being read
+                # aloud as literal text on subsequent chunks.
+                tagged = f"{tag} {chunk_text}" if i == 0 else chunk_text
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/audio/speech",
+                    headers={"Authorization": f"Bearer {GROQ_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"model": "canopylabs/orpheus-v1-english",
+                          "input": tagged[:195],  # hard safety margin under the real 200-char limit
+                          "voice": voice_id,
+                          "response_format": "wav"},
+                    timeout=90
+                )
+                if r.status_code != 200 or len(r.content) < 500:
+                    raise RuntimeError(f"chunk {i} failed: HTTP {r.status_code}")
+                chunk_path = output_path.replace(".mp3", f"_chunk{i}.wav")
+                with open(chunk_path, "wb") as f:
                     f.write(r.content)
+                chunk_wavs.append(chunk_path)
 
-                # Convert WAV → MP3 with audio enhancement
-                # anlmdn = AI noise reduction | loudnorm = volume normalize
-                # highpass = remove low-frequency rumble
-                result = subprocess.run([
-                    "ffmpeg", "-y", "-i", wav_path,
-                    "-af", "anlmdn=s=7:p=0.002,loudnorm=I=-16:TP=-1.5:LRA=11,highpass=f=80",
-                    "-codec:a", "libmp3lame", "-b:a", "192k", "-ar", "44100",
-                    output_path
-                ], capture_output=True)
+            # Concatenate all real chunk WAVs into one continuous track
+            concat_list = output_path.replace(".mp3", "_concat.txt")
+            with open(concat_list, "w") as f:
+                for cw in chunk_wavs:
+                    f.write(f"file '{os.path.abspath(cw)}'\n")
+            wav_path = output_path.replace(".mp3", ".wav")
+            concat_result = subprocess.run([
+                "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
+                "-c", "copy", wav_path
+            ], capture_output=True)
 
-                if result.returncode == 0 and os.path.exists(output_path):
-                    log.info("Audio: Groq Orpheus %s (%s) ✅", voice_id, voice.get("accent",""))
-                    os.remove(wav_path)
-                    return True
+            for cw in chunk_wavs:
+                try: os.remove(cw)
+                except Exception: pass
+            try: os.remove(concat_list)
+            except Exception: pass
+
+            if concat_result.returncode != 0 or not os.path.exists(wav_path):
+                raise RuntimeError("chunk concatenation failed")
+
+            # Convert WAV → MP3 with audio enhancement (same as before)
+            result = subprocess.run([
+                "ffmpeg", "-y", "-i", wav_path,
+                "-af", "anlmdn=s=7:p=0.002,loudnorm=I=-16:TP=-1.5:LRA=11,highpass=f=80",
+                "-codec:a", "libmp3lame", "-b:a", "192k", "-ar", "44100",
+                output_path
+            ], capture_output=True)
+
+            if result.returncode == 0 and os.path.exists(output_path):
+                log.info("Audio: Groq Orpheus %s (%s), %d real chunks ✅", voice_id, voice.get("accent",""), len(chunks))
+                os.remove(wav_path)
+                return True
         except Exception as e:
             log.warning("Groq TTS failed: %s", e)
 
@@ -519,9 +801,15 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
             espeak_voice = "en-us"
 
         raw_wav = output_path.replace(".mp3", "_raw.wav")
+        # FIX (found on sequential re-audit): this was truncating to 500
+        # chars while the primary Groq path allows 2800 — a typical
+        # 60-second short script (~800-900 chars at the 155wpm speed set
+        # below) would have lost roughly 40% of its content the moment
+        # Groq ever failed and this fallback fired. Raised to match a
+        # realistic full short script length.
         subprocess.run([
             "espeak-ng", "-v", espeak_voice, "-s", "155", "-p", "50",
-            "-w", raw_wav, script[:500]
+            "-w", raw_wav, script[:2000]
         ], capture_output=True)
 
         if os.path.exists(raw_wav):
@@ -543,22 +831,68 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
 def generate_synced_subtitles(script: str, audio_path: str,
                                srt_path: str) -> bool:
     """
-    Generate frame-accurate SRT subtitles synced to actual audio duration.
+    Generate subtitles synced to the actual audio.
 
-    Method:
-    1. Get actual audio duration from FFprobe
-    2. Calculate words-per-second from script word count + duration
-    3. Group words into subtitle chunks (3-5 words each)
-    4. Assign timestamps based on word rate
-    5. Result: subtitles that sync perfectly with spoken audio
-
-    This is the ONLY reliable way to sync subtitles without a paid
-    speech-recognition API — it matches word timing to audio duration.
+    FIX (found while investigating "sounds/looks AI-built" specifically):
+    this previously ONLY used a naive uniform words-per-second estimate
+    across the whole clip — real speech always has pauses, emphasis, and
+    variable pacing, so over a 45-55 second clip this would visibly
+    drift out of sync with the actual audio. Caption drift is one of the
+    most common, most noticeable "this was made cheaply/by a bot" tells
+    in short-form video. Now tries GENUINE word-level timestamps first,
+    via Groq's Whisper transcription (same API/key already used
+    elsewhere in this file for the LLM calls — no new setup required) —
+    real forced-alignment against the actual generated audio, not an
+    estimate. Falls back to the old uniform-rate method only if the
+    Whisper call fails for any reason, so this never has zero captions.
     """
     if not os.path.exists(audio_path):
         return False
 
-    # Get audio duration
+    # Real, word-level accurate path: transcribe the ACTUAL generated
+    # audio with Groq Whisper (word timestamps), so captions reflect
+    # genuinely where each word falls, including natural pauses.
+    if GROQ_KEY:
+        try:
+            with open(audio_path, "rb") as f:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                    files={"file": (os.path.basename(audio_path), f, "audio/mpeg")},
+                    data={"model": "whisper-large-v3-turbo",
+                          "response_format": "verbose_json",
+                          "timestamp_granularities[]": "word",
+                          "language": "en"},
+                    timeout=60
+                )
+            if r.status_code == 200:
+                words_data = r.json().get("words", [])
+                if words_data:
+                    chunk_size = 4
+                    chunks = []
+                    for i in range(0, len(words_data), chunk_size):
+                        group = words_data[i:i + chunk_size]
+                        start_sec = group[0]["start"]
+                        end_sec = group[-1]["end"]
+                        text = " ".join(w["word"] for w in group)
+                        chunks.append((start_sec, end_sec, text))
+
+                    def fmt_time_real(sec: float) -> str:
+                        h = int(sec // 3600); m = int((sec % 3600) // 60)
+                        s = int(sec % 60); ms = int((sec - int(sec)) * 1000)
+                        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+                    with open(srt_path, "w", encoding="utf-8") as f:
+                        for idx, (start, end, text) in enumerate(chunks, 1):
+                            clean = text.replace("...", " ").strip()
+                            f.write(f"{idx}\n{fmt_time_real(start)} --> {fmt_time_real(end)}\n{clean}\n\n")
+                    log.info("Subtitles: %d chunks, real word-level sync via Whisper ✅", len(chunks))
+                    return True
+        except Exception as e:
+            log.warning("Whisper word-level sync failed, falling back to estimate: %s", e)
+
+    # Fallback: the original uniform-rate estimate — used only if the
+    # real Whisper path above fails for any reason.
     try:
         probe = subprocess.run([
             "ffprobe", "-v", "quiet", "-print_format", "json",
@@ -575,7 +909,6 @@ def generate_synced_subtitles(script: str, audio_path: str,
     total_words = len(words)
     secs_per_word = duration / max(total_words, 1)
 
-    # Group into chunks of 4-5 words for readability
     chunk_size = 4
     chunks = []
     for i in range(0, total_words, chunk_size):
@@ -593,11 +926,10 @@ def generate_synced_subtitles(script: str, audio_path: str,
 
     with open(srt_path, "w", encoding="utf-8") as f:
         for idx, (start, end, text) in enumerate(chunks, 1):
-            # Clean text for SRT
             clean = text.replace("...", " ").strip()
             f.write(f"{idx}\n{fmt_time(start)} --> {fmt_time(end)}\n{clean}\n\n")
 
-    log.info("Subtitles: %d chunks, %.1fs duration ✅", len(chunks), duration)
+    log.info("Subtitles: %d chunks, %.1fs duration (estimate, not word-level) ⚠️", len(chunks), duration)
     return True
 
 
@@ -616,6 +948,22 @@ def download_background_clip(niche: str, output_path: str) -> bool:
         "forensic investigation evidence dark": [
             "forensic evidence documents dark", "crime scene investigation night",
             "detective case file dark room", "police evidence room dramatic"
+        ],
+        # FIX: added — control_files passes "psychology manipulation control
+        # documentary dark" as its search term; same silent-fallback gap.
+        "psychology manipulation control documentary dark": [
+            "crowd silhouette dark control", "redacted documents dark room",
+            "puppet strings shadow dramatic", "surveillance camera dark office",
+            "chalkboard diagram dark room"
+        ],
+        # FIX: "ancient history documentary archive" (Ch4/The Archive) had
+        # no entry at all — every one of Ch4's Shorts would have silently
+        # fallen back to generic "mystery thriller" footage, completely
+        # mismatched to historical documentary content.
+        "ancient history documentary archive": [
+            "ancient ruins cinematic", "old manuscript parchment dark",
+            "historical map candlelight", "ancient temple columns dramatic",
+            "archaeological dig site dramatic"
         ],
         "default":      ["cinematic dark drama","mystery thriller","emotional shadow"],
     }
@@ -643,18 +991,52 @@ def download_background_clip(niche: str, output_path: str) -> bool:
         except Exception as e:
             log.warning("Pixabay: %s", e)
 
-    # Fallback: dark cinematic background
-    log.info("Using FFmpeg background fallback")
+    # FIX: this fallback used to be a completely flat, static black screen
+    # with a vignette — about as visually "dead"/robotic-looking as a
+    # background can be, directly working against "should never look
+    # AI-built." A slow animated gradient drift plus a subtle moving
+    # particle-like noise field reads as genuine, deliberate motion
+    # graphics rather than a placeholder, while still being fully
+    # generatable offline with no network dependency.
+    log.info("Using improved FFmpeg background fallback (animated, not static)")
     subprocess.run([
         "ffmpeg", "-y", "-f", "lavfi",
-        "-i", "color=c=0x0a0a0a:size=1080x1920:r=30",
-        "-vf", "vignette=PI/3",
+        "-i", "gradients=s=1080x1920:c0=0x0a0a12:c1=0x1a1420:x0=0:y0=0:x1=1080:y1=1920:speed=0.02",
+        "-vf", "noise=alls=6:allf=t+u,vignette=PI/3",
         "-t", "70", output_path
     ], capture_output=True)
     return os.path.exists(output_path)
 
 
 # ── VIDEO ASSEMBLY (9:16 WITH SUBTITLES) ─────────────────────────────────────
+def _generate_short_music_bed(duration, output_path):
+    """
+    v7 addition — found while investigating "sounds robotic": Shorts had
+    ZERO background music of any kind, just narration over a silent
+    audio bed under the video clip — noticeably sparser than virtually
+    every real, successful Short, which nearly always has at least a
+    subtle music bed underneath. Genuinely distinct synthesis (same real
+    ffmpeg approach already proven for the main channel pipelines, not a
+    placeholder), kept deliberately subtle (very low volume) so it never
+    competes with narration or subtitles.
+    """
+    try:
+        dur = int(duration) + 3
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"sine=frequency=80:duration={dur}",
+            "-f", "lavfi", "-i", f"sine=frequency=120:duration={dur}",
+            "-filter_complex",
+            "[0]volume=0.05[a];[1]volume=0.03[b];"
+            "[a][b]amix=inputs=2:duration=first,lowpass=f=300,volume=0.12[out]",
+            "-map", "[out]", "-c:a", "aac", "-b:a", "128k", output_path
+        ], capture_output=True, timeout=30)
+        return os.path.exists(output_path) and os.path.getsize(output_path) > 1000
+    except Exception as e:
+        log.warning("Short music bed generation failed (non-fatal): %s", e)
+        return False
+
+
 def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
                           hook_text: str, output_path: str,
                           is_reel: bool = False) -> bool:
@@ -726,36 +1108,90 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
 
     vf = ",".join(vf_parts)
 
-    result = subprocess.run([
-        "ffmpeg", "-y",
-        "-stream_loop", "-1", "-i", bg_path,
-        "-i", audio_path,
-        "-t", str(dur + 0.5),
-        "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
-        "-shortest",
-        "-movflags", "+faststart",  # Web-optimised
-        output_path
-    ], capture_output=True)
+    # v7 addition — mix in a subtle background music bed under the
+    # narration (found while investigating "sounds robotic": previously
+    # zero background music existed at all, just narration over silence).
+    music_path = audio_path.replace(".mp3", "_musicbed.aac")
+    has_music = _generate_short_music_bed(dur, music_path)
+
+    if has_music:
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", bg_path,
+            "-i", audio_path,
+            "-i", music_path,
+            "-filter_complex", "[1:a][2:a]amix=inputs=2:duration=first:weights=1 1[aout]",
+            "-map", "0:v", "-map", "[aout]",
+            "-t", str(dur + 0.5),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+            "-shortest",
+            "-movflags", "+faststart",
+            output_path
+        ], capture_output=True)
+        try:
+            os.remove(music_path)
+        except Exception:
+            pass
+    else:
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", bg_path,
+            "-i", audio_path,
+            "-t", str(dur + 0.5),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+            "-shortest",
+            "-movflags", "+faststart",  # Web-optimised
+            output_path
+        ], capture_output=True)
 
     if result.returncode != 0:
         log.error("FFmpeg assembly failed: %s", result.stderr[-300:].decode("utf-8", errors="ignore"))
         return False
 
     size_mb = os.path.getsize(output_path) / 1024 / 1024
-    log.info("Video assembled: %.1f MB, %.1fs ✅", size_mb, dur)
+    log.info("Video assembled: %.1f MB, %.1fs, music bed: %s ✅", size_mb, dur, has_music)
     return True
 
 
 # ── QUALITY SCORING ───────────────────────────────────────────────────────────
+# FIX (found on sequential re-audit): score_final_video's "script" and
+# "title" checks were hardcoded to Ch1's betrayal-themed vocabulary
+# ("betrayal", "lied", "exposed") with zero channel awareness. Since this
+# score GATES retries (< QUALITY_MIN triggers a retry, max 3 attempts),
+# Ch3's genuinely good psychology/control-systems content would
+# systematically lose up to ~2.7 of 10 possible points purely for not
+# containing Ch1's keywords — not because the content was actually worse.
+SHOCK_WORDS_BY_CHANNEL = {
+    "betrayal_deepdive": ["shocking","betrayal","secret","exposed","truth","destroyed","lied"],
+    "evidence_room":     ["shocking","evidence","secret","exposed","truth","proof","confession"],
+    "control_files":     ["documented","control","exposed","truth","manipulation","pattern","confirmed"],
+    # FIX (critical, found on full re-audit): "archive" (Ch4) was missing
+    # entirely — every Ch4 Short would have been scored against Ch1's
+    # crime/betrayal-themed keywords instead of anything historically
+    # appropriate, unfairly penalizing genuinely good historical content.
+    "archive":           ["documented","discovered","ancient","truth","real","evidence","history"],
+    "collapse_index":    ["documented","real","collapsed","exposed","specific","evidence","numbers"],
+}
+TITLE_WORDS_BY_CHANNEL = {
+    "betrayal_deepdive": ["SHOCKING","SECRET","TRUTH","EXPOSED","BETRAYAL","CAUGHT","FRAUD","LIED"],
+    "evidence_room":     ["SHOCKING","SECRET","TRUTH","EXPOSED","EVIDENCE","CAUGHT","PROOF","CONFESSION"],
+    "control_files":     ["DOCUMENTED","TRUTH","EXPOSED","CONTROL","PATTERN","MANIPULATION","CONFIRMED","SYSTEM"],
+    "archive":           ["DOCUMENTED","ANCIENT","DISCOVERED","TRUTH","REAL","HISTORY","LOST","REVEALED"],
+    "collapse_index":    ["DOCUMENTED","REAL","COLLAPSED","EXPLAINED","SPECIFIC","REVEALED","DATA","EXPOSED"],
+}
+
 def score_final_video(video_path: str, script: str, title: str,
-                       has_subtitles: bool, has_thumbnail: bool) -> dict:
+                       has_subtitles: bool, has_thumbnail: bool,
+                       channel: str = "betrayal_deepdive") -> dict:
     """Final 5-point quality check after assembly."""
     scores = {}
 
     # 1. Script quality
-    shock_words = ["shocking","betrayal","secret","exposed","truth","destroyed","lied"]
+    shock_words = SHOCK_WORDS_BY_CHANNEL.get(channel, SHOCK_WORDS_BY_CHANNEL["betrayal_deepdive"])
     hook_hits = sum(1 for w in shock_words if w in script[:100].lower())
     scores["script"] = min(2.0, hook_hits * 0.5 + 1.0)
 
@@ -769,9 +1205,8 @@ def score_final_video(video_path: str, script: str, title: str,
     scores["subtitles"] = 2.0 if has_subtitles else 0.0
 
     # 4. Title
-    title_ok = len(title) <= 70 and any(
-        w in title.upper() for w in ["SHOCKING","SECRET","TRUTH","EXPOSED","BETRAYAL","CAUGHT","FRAUD","LIED"]
-    )
+    title_words = TITLE_WORDS_BY_CHANNEL.get(channel, TITLE_WORDS_BY_CHANNEL["betrayal_deepdive"])
+    title_ok = len(title) <= 70 and any(w in title.upper() for w in title_words)
     scores["title"] = 1.5 if title_ok else 0.8
 
     # 5. Video length (45-65 seconds ideal for Shorts)
@@ -793,12 +1228,24 @@ def score_final_video(video_path: str, script: str, title: str,
 
 # ── YOUTUBE UPLOAD ────────────────────────────────────────────────────────────
 def get_yt_token() -> str:
-    if not all([YT_CLIENT, YT_SECRET, YT_REFRESH]):
+    # FIX: now looks up the REAL credentials for whichever channel is
+    # currently active (set via set_active_channel), falling back to the
+    # generic YOUTUBE_* names only for an unrecognized channel — instead
+    # of always using Ch1's credentials regardless of which channel is
+    # actually producing the Short.
+    client_env, secret_env, refresh_env = YT_CREDENTIAL_ENV_BY_CHANNEL.get(
+        _active_channel_id, ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"))
+    client  = os.environ.get(client_env, "")
+    secret  = os.environ.get(secret_env, "")
+    refresh = os.environ.get(refresh_env, "")
+    if not all([client, secret, refresh]):
+        log.error("Missing YouTube credentials for active channel '%s' (%s)",
+                  _active_channel_id, client_env)
         return ""
     r = requests.post(
         "https://oauth2.googleapis.com/token",
-        data={"client_id": YT_CLIENT, "client_secret": YT_SECRET,
-              "refresh_token": YT_REFRESH, "grant_type": "refresh_token"},
+        data={"client_id": client, "client_secret": secret,
+              "refresh_token": refresh, "grant_type": "refresh_token"},
         timeout=30
     )
     return r.json().get("access_token", "") if r.status_code == 200 else ""
@@ -989,7 +1436,7 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         final_score = score_final_video(
             video_out, script, title,
             has_subtitles=os.path.exists(srt_out),
-            has_thumbnail=False
+            has_thumbnail=False, channel=_active_channel_id
         )
         log.info("Final score: %.1f/10 (need %.1f)", final_score["total"], QUALITY_MIN)
 
@@ -1002,6 +1449,21 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         description = f"{script}\n\n{tags_str}\n\n{cfg['tagline']}"
         yt_url = upload_youtube_short(video_out, title, description, tags)
 
+        # FIX (found on re-audit): this previously returned "status":
+        # "success" unconditionally, even when upload_youtube_short
+        # returned "" (upload genuinely failed — no token, API error,
+        # etc.). Every caller checking .get("status")=="success" before
+        # counting a Short as produced or posting a pinned comment was
+        # silently fooled by a failed upload reporting as a success with
+        # an empty URL. Same bug confirmed in produce_teaser_short and
+        # produce_recap_short — fixed in all 3. Retries via `continue`
+        # (consistent with every other failure mode in this loop) rather
+        # than failing immediately — a fresh attempt costs little and an
+        # upload failure isn't necessarily going to repeat.
+        if not yt_url:
+            log.info("Upload failed for '%s' — retrying", title)
+            continue
+
         # 10. Telegram report
         tg(f"""⚡ *YOUTUBE SHORT UPLOADED*
 Mode: {mode}
@@ -1009,7 +1471,7 @@ Title: {title}
 Voice: {voice['id']} ({voice['accent']} {voice['gender']})
 Score: {final_score['total']}/10
 Subtitles: ✅ Synced
-URL: {yt_url if yt_url else '⚠️ Upload pending'}""")
+URL: {yt_url}""")
 
         # Cleanup
         for f in [audio_out, srt_out, bg_out]:
@@ -1130,10 +1592,102 @@ YouTube Short: {yt_url if yt_url else "⚠️ Pending"}""")
             except Exception:
                 pass
 
+        # FIX: this previously returned only "yt_url" while
+        # produce_standalone_short/produce_recap_short both return "url" —
+        # any caller checking .get("url") on a teaser result silently got
+        # None even on full success. Now returns both keys for consistency.
         return {"status": "success", "ig_posted": ig_ok, "yt_url": yt_url,
-                "score": final_score["total"]}
+                "url": yt_url, "score": final_score["total"]}
 
     return {"status": "failed", "reason": "max retries"}
+
+
+def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str = "angle_1",
+                                channel: str = "betrayal_deepdive") -> dict:
+    """
+    v7 rebuild — replaces produce_teaser_short/produce_recap_short (kept
+    below, unused, for reference/rollback only). Per explicit correction:
+    "2 shorts focus on the video" does NOT mean a teaser/recap tied to a
+    separate main video — these are genuinely complete, standalone
+    Shorts that happen to cover the same real topic as today's main
+    video, written fresh by AI (not a literal clip, and not framed as a
+    preview of or callback to something else). Two angle variants
+    ("angle_1"/"angle_2") take genuinely different narrative approaches
+    to the same real topic so the pair isn't a near-duplicate.
+    channel: determines branding/hashtags/background search (see CHANNEL_CONFIGS).
+    """
+    set_active_channel(channel)
+    cfg = get_active_channel_config()
+    if not main_script:
+        main_script = main_topic
+
+    angle_instructions = {
+        "angle_1": ("Lead with the single most surprising, concrete fact from this real "
+                    "story. Build a complete, self-contained account around it — a full "
+                    "arc with its own beginning, middle, and end."),
+        "angle_2": ("Lead with a specific consequence or human impact from this real "
+                    "story that most people wouldn't expect. Build a complete, "
+                    "self-contained account around it, different from a simple "
+                    "chronological retelling."),
+    }
+    instruction = angle_instructions.get(angle, angle_instructions["angle_1"])
+
+    script_data = llm_json(f"""Create a complete, standalone 45-55 second YouTube Short.
+Real topic: {main_topic}
+Real story details: {main_script[:500]}
+
+{instruction}
+
+Rules:
+- This is a COMPLETE piece on its own — no "part 2", no "full story elsewhere",
+  no reference to any other video existing
+- Real specific details only (numbers, dates, names where used in the source) —
+  never invent facts not grounded in the real topic above
+- Must resolve — end with the actual point/payoff, not a cliffhanger
+
+Return JSON:
+{{"title": "under 55 chars, curiosity-gap title, no 'part 1' or 'full video' language",
+  "script": "110-140 words, complete standalone account",
+  "hook_text": "5-7 words overlay text",
+  "hashtags": "{cfg['hashtags_base']} #shorts"}}""")
+
+    if not script_data:
+        return {"status": "failed", "reason": "script generation failed"}
+
+    voice = pick_voice(for_reels=False)
+    run_id = uuid.uuid4().hex[:8]
+    audio_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}.mp3")
+    srt_out   = audio_out.replace(".mp3", ".srt")
+    bg_out    = os.path.join(OUTPUT_DIR, f"bg_vtopic_{run_id}.mp4")
+    video_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}_final.mp4")
+
+    if not generate_audio(script_data["script"], voice, audio_out):
+        return {"status": "failed", "reason": "audio failed"}
+
+    generate_synced_subtitles(script_data["script"], audio_out, srt_out)
+    download_background_clip(cfg["bg_search_term"], bg_out)
+
+    if not assemble_short_video(bg_out, audio_out, srt_out,
+                                 script_data["hook_text"], video_out):
+        return {"status": "failed", "reason": "assembly failed"}
+
+    tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
+    url = upload_youtube_short(video_out, script_data["title"],
+                                script_data["script"] + "\n\n#Shorts", tags)
+
+    for f in [audio_out, srt_out, bg_out]:
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+
+    if not url:
+        tg(f"⚠️ *VIDEO-TOPIC SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
+           f"Video was assembled but the actual YouTube upload failed.")
+        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
+
+    tg(f"⚡ *VIDEO-TOPIC SHORT UPLOADED*\n{script_data['title']}\n{url}")
+    return {"status": "success", "url": url}
 
 
 def produce_teaser_short(main_topic: str, main_script: str = "", channel: str = "betrayal_deepdive") -> dict:
@@ -1196,6 +1750,16 @@ Return JSON:
         except Exception:
             pass
 
+    # FIX (found on re-audit — systemic across all 3 Shorts functions):
+    # this previously returned "status": "success" unconditionally, even
+    # when upload_youtube_short returned "" (upload genuinely failed).
+    # This function has no retry loop of its own, so a failed upload is
+    # reported honestly rather than silently as a success.
+    if not url:
+        tg(f"⚠️ *TEASER SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
+           f"Video was assembled but the actual YouTube upload failed.")
+        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
+
     tg(f"⚡ *TEASER SHORT UPLOADED*\n{script_data['title']}\n{url}")
     return {"status": "success", "url": url}
 
@@ -1237,11 +1801,18 @@ Return JSON:
     bg_out    = os.path.join(OUTPUT_DIR, f"bg_recap_{run_id}.mp4")
     video_out = os.path.join(OUTPUT_DIR, f"recap_{run_id}_final.mp4")
 
-    generate_audio(script_data["script"], voice, audio_out)
+    # FIX (found on re-audit): this function never checked whether audio
+    # generation or video assembly actually succeeded before proceeding —
+    # both produce_teaser_short and produce_standalone_short DO check
+    # this. A silent audio/assembly failure here would have proceeded to
+    # try uploading a missing or broken video file.
+    if not generate_audio(script_data["script"], voice, audio_out):
+        return {"status": "failed", "reason": "audio failed"}
     generate_synced_subtitles(script_data["script"], audio_out, srt_out)
     download_background_clip(cfg["bg_search_term"], bg_out)
-    assemble_short_video(bg_out, audio_out, srt_out,
-                          script_data["hook_text"], video_out)
+    if not assemble_short_video(bg_out, audio_out, srt_out,
+                                script_data["hook_text"], video_out):
+        return {"status": "failed", "reason": "assembly failed"}
 
     tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
     url = upload_youtube_short(video_out, script_data["title"],
@@ -1253,6 +1824,13 @@ Return JSON:
             os.remove(f)
         except Exception:
             pass
+
+    # FIX: same systemic bug as the other 2 Shorts functions — was
+    # unconditionally "success" even on empty upload URL.
+    if not url:
+        tg(f"⚠️ *RECAP SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
+           f"Video was assembled but the actual YouTube upload failed.")
+        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
 
     tg(f"🔁 *RECAP SHORT UPLOADED*\n{script_data['title']}\n{url}")
     return {"status": "success", "url": url}

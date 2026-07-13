@@ -64,7 +64,7 @@ def _save_audit_index(channel_dir, index):
 
 def run_full_video_audit(channel_dir, episode_number, title, niche_name,
                           quality_score, quality_attempt, authenticity_result,
-                          provider_health_working_count):
+                          provider_health_working_count, quality_review_threshold=None):
     """
     The real per-video entry point — call this once, right after a video
     is confirmed generated (before or alongside the confirmed-publish
@@ -72,8 +72,20 @@ def run_full_video_audit(channel_dir, episode_number, title, niche_name,
     This does NOT re-run those checks — it aggregates their real outputs
     into one verdict and persists it to the searchable index.
 
+    quality_review_threshold: FIX (found on re-audit) — this was
+    hardcoded to VERDICT_THRESHOLDS["quality_review"] (8.5), the
+    original empire-wide attempts-1-8 standard. Once Ch3's own gate was
+    explicitly raised to 8.8, this shared check silently went stale for
+    Ch3 specifically — a script scoring e.g. 8.6 (genuinely below Ch3's
+    real gate, meaning it needed the graduated fallback tier) would NOT
+    have been flagged for review, since 8.6 > 8.5. Pass the channel's
+    real MIN_GATE value here to keep this check honest per-channel;
+    defaults to the original 8.5 for channels that don't override it.
+
     Returns {"verdict": "PASS"|"REVIEW"|"HOLD", "reasons": [...], "record": {...}}
     """
+    review_threshold = quality_review_threshold if quality_review_threshold is not None \
+                        else VERDICT_THRESHOLDS["quality_review"]
     reasons = []
     verdict = "PASS"
 
@@ -83,12 +95,13 @@ def run_full_video_audit(channel_dir, episode_number, title, niche_name,
         reasons.append(f"Script quality {quality_score}/10 is below the absolute floor "
                        f"({VERDICT_THRESHOLDS['quality_hold']}) — should never happen if the "
                        f"graduated gate is working correctly; investigate immediately.")
-    elif quality_score < VERDICT_THRESHOLDS["quality_review"] and quality_attempt <= 8:
-        # Only flag as a review item if it's in the "should be 8.5" tier but
-        # landed lower — attempts 9+ are EXPECTED to be below 8.5, that's
-        # the graduated gate working as designed, not a problem.
+    elif quality_score < review_threshold and quality_attempt <= 8:
+        # Only flag as a review item if it's in the "should be [gate]" tier
+        # but landed lower — attempts 9+ are EXPECTED to be below the
+        # attempts-1-8 gate, that's the graduated gate working as
+        # designed, not a problem.
         reasons.append(f"Script scored {quality_score}/10 on attempt {quality_attempt} — "
-                       f"below the {VERDICT_THRESHOLDS['quality_review']} standard for "
+                       f"below the {review_threshold} standard for "
                        f"attempts 1-8, published only via the graduated fallback tier.")
         if verdict == "PASS":
             verdict = "REVIEW"

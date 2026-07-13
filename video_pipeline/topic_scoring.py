@@ -38,6 +38,12 @@ SCORING_WEIGHTS = {
 PRODUCT_ROUTES = {
     "betrayal_deepdive": "dark-manipulation-tactics-handbook",
     "evidence_room":     "faceless-documentary-creator-toolkit",
+    # FIX (found on re-audit): this is a SEPARATE dict from
+    # site_generator.py's own PRODUCT_ROUTES (already fixed earlier this
+    # session) — missing control_files here too meant every Ch3 topic
+    # entry silently got product_route="" instead of the correct handbook
+    # mapping, even though nothing crashed.
+    "control_files":     "dark-manipulation-tactics-handbook",
 }
 
 

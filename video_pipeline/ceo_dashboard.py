@@ -62,6 +62,19 @@ def get_gumroad_sales(product_gumroad_ids, gumroad_access_token):
     genuine one-time manual step, same category as the account itself).
     Returns per-product sales/revenue, or an honest "not_connected"
     state if no token is configured yet — never a fabricated zero.
+
+    FIX (found on re-audit): this previously grouped sales by Gumroad's
+    own opaque internal product_id (a permalink-style string that has no
+    relationship to our own product names like
+    "dark-manipulation-tactics-handbook") — the dashboard would have
+    displayed confusing, unreadable identifiers the moment real sales
+    started flowing in, defeating the whole point of a human-readable
+    report. Gumroad's Sales API includes a real "product_name" field
+    (the actual listing title you set on gumroad.com) — grouping by that
+    instead makes the report genuinely readable without needing a
+    separate ID-mapping system. The product_gumroad_ids parameter is
+    kept for future use (e.g. if a stricter cross-check against known
+    listings is ever wanted) but currently only product_name is needed.
     """
     if not gumroad_access_token:
         return {"connected": False, "reason": "GUMROAD_ACCESS_TOKEN not set yet"}
@@ -74,11 +87,11 @@ def get_gumroad_sales(product_gumroad_ids, gumroad_access_token):
             return {"connected": False, "reason": f"API returned {resp.status_code}"}
         sales = resp.json().get("sales", [])
         for sale in sales:
-            product_id = sale.get("product_id", "unknown")
-            if product_id not in results:
-                results[product_id] = {"count": 0, "revenue_cents": 0}
-            results[product_id]["count"] += 1
-            results[product_id]["revenue_cents"] += sale.get("price", 0)
+            label = sale.get("product_name") or sale.get("product_id", "unknown")
+            if label not in results:
+                results[label] = {"count": 0, "revenue_cents": 0}
+            results[label]["count"] += 1
+            results[label]["revenue_cents"] += sale.get("price", 0)
         return {"connected": True, "by_product": results}
     except Exception as e:
         return {"connected": False, "reason": str(e)}

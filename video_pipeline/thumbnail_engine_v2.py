@@ -78,6 +78,27 @@ CHANNEL_AVATARS = {
             "standing at a rain-streaked window, back to camera",
         ],
     },
+    # FIX: added — Ch3 had no avatar entry at all, so get_channel_avatar_prompt
+    # silently returned None for it (per this function's own documented
+    "The Control Files": {
+        "avatar_description": (
+            "stylized illustrated analyst figure, simple flat hand-drawn "
+            "doodle/sketch illustration style matching a whiteboard "
+            "aesthetic, charcoal ink line art with a single red-marker "
+            "accent, no photorealistic face, no real person, consistent "
+            "character design across every episode"
+        ),
+        "pose_variations": [
+            "standing at a whiteboard mid-sketch, marker in hand",
+            "pointing at a hand-drawn flowchart diagram",
+            "seated, reviewing a stack of case documents",
+            "sketching a connecting arrow between two boxes",
+            "standing beside a hand-drawn timeline",
+            "circling a key detail on a redacted document",
+            "gesturing toward a crowd diagram mid-explanation",
+            "silhouetted against a paper-textured backdrop",
+        ],
+    },
 }
 
 def get_channel_avatar_prompt(channel_name, seed):
@@ -86,8 +107,9 @@ def get_channel_avatar_prompt(channel_name, seed):
     character every time (brand consistency), pose rotates by seed so
     the SAME exact pose/composition never repeats often enough to become
     the templated pattern that actually triggers policy risk. Falls back
-    to None for any channel without a defined avatar yet (Ch3/4/5 —
-    add an entry here when building those channels, not a rewrite).
+    to None for any channel without a defined avatar (currently Ch4/Ch5
+    only — BetrayalDeepDive, The Evidence Room, and The Control Files
+    all have real entries in CHANNEL_AVATARS below).
     """
     cfg = CHANNEL_AVATARS.get(channel_name)
     if not cfg:
@@ -426,6 +448,48 @@ NICHE_PROFILES = {
         ),
         "composition":     "text_center",
     },
+    # FIX: added — these 2 niches existed in control_files_pipeline.py with
+    # full seed topics and RPM data but had no thumbnail profile at all;
+    # combined with the DAY_NICHE dead-niche bug (now fixed), this closes
+    # the gap end to end.
+    "dark_business_documentaries": {
+        "bg_color":        (5, 4, 2),
+        "primary_text":    (250, 240, 220),
+        "accent_text":     (220, 160, 20),
+        "shadow_color":    (70, 45, 0),
+        "badge_color":     (180, 120, 10),
+        "glow_color":      (255, 190, 60),
+        "vignette_strength": 0.86,
+        "brightness":      0.17,
+        "pollinations_style": (
+            "dark corporate boardroom empty chairs atmospheric "
+            "gold dramatic no faces no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette executive figure at podium dramatic "
+            "gold backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "scams_fraud_exposed": {
+        "bg_color":        (6, 2, 2),
+        "primary_text":    (250, 235, 220),
+        "accent_text":     (230, 80, 30),
+        "shadow_color":    (70, 10, 0),
+        "badge_color":     (190, 60, 15),
+        "glow_color":      (255, 120, 50),
+        "vignette_strength": 0.87,
+        "brightness":      0.17,
+        "pollinations_style": (
+            "dark call center rows of phones atmospheric orange "
+            "dramatic no faces no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure on phone dramatic orange "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
 }
 
 # Fallback profile for unknown niches
@@ -719,6 +783,8 @@ def enforce_number_noun(thumb_text, topic, niche_name):
         "propaganda_systems":  ["40M PEOPLE", "7 TECHNIQUES", "1 NARRATIVE", "14 YEARS", "3 AGENCIES"],
         "social_engineering":  ["6 PRINCIPLES", "847 TARGETS", "23 HOURS", "1 CALL", "7 TRIGGERS"],
         "mass_deception":      ["1B PEOPLE", "14 MONTHS", "3 NETWORKS", "1 LIE", "23 COUNTRIES"],
+        "dark_business_documentaries": ["$1.2B LOST", "800K VICTIMS", "14 MONTHS", "1 MEMO", "23 COUNTRIES"],
+        "scams_fraud_exposed":         ["19 YEARS", "300 EMPLOYEES", "$65B GONE", "1 PERSON", "STILL RUNNING"],
     }
     bank = number_banks.get(niche_name, ["14 YEARS", "47 CASES", "1 TRUTH", "23 HOURS"])
     # Try to extract a number from the topic
@@ -817,7 +883,12 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
     img = apply_vignette(img, profile["vignette_strength"])
 
     # ── LAYER 3: Text ─────────────────────────────────────────────
-    draw = ImageDraw.Draw(img.convert("RGBA")).im  # draw on RGB
+    # FIX (found on sequential re-audit): the line that used to be here
+    # created an ImageDraw.Draw object and accessed its internal .im
+    # attribute, assigning it to `draw` — then immediately overwrote
+    # `draw` on the very next line with a fresh, correct Draw object.
+    # The first line did nothing but waste a bit of computation; harmless
+    # but confusing. Removed.
     img_rgba = img.convert("RGBA")
     draw     = ImageDraw.Draw(img_rgba)
 

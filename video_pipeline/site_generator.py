@@ -43,6 +43,15 @@ CHANNEL_SITE_CONFIG = {
         "dir_name": "evidenceroom",
         "series_default": "The Evidence Room: Cold Cases",
     },
+    # FIX: control_files was never onboarded here — render_companion_page
+    # silently returns None for any channel_id not in this dict, so every
+    # Ch3 companion page call was a guaranteed silent no-op.
+    "control_files": {
+        "slug": "cf",
+        "display_name": "The Control Files",
+        "dir_name": "controlfiles",
+        "series_default": "The Control Files: Case Files",
+    },
 }
 
 PRODUCT_ROUTES = {
@@ -55,6 +64,11 @@ PRODUCT_ROUTES = {
         "product_id": "faceless-documentary-creator-toolkit",
         "headline": "Want the investigative framework behind this case?",
         "cta_button": "Get the Faceless Documentary Creator Toolkit",
+    },
+    "control_files": {
+        "product_id": "dark-manipulation-tactics-handbook",
+        "headline": "Want the full control-systems pattern library?",
+        "cta_button": "Get the Dark Manipulation Tactics Handbook",
     },
 }
 

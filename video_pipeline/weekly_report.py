@@ -49,6 +49,59 @@ COMPETITOR_SEARCHES_CH2 = {
     "criminal_investigation":  "cold case investigation evidence documentary",
     "corporate_exposure":      "corporate fraud scandal documentary",
     "digital_forensics":       "digital forensics cybercrime investigation documentary",
+    # FIX (found on full workflow/weekly-report audit): these 3 real Ch2
+    # niches were missing entirely — same exact gap pattern already
+    # found and fixed multiple times this session for other channel-
+    # keyed dicts (NUMBER_NOUN_BANKS, SHORTS_TEMPLATES).
+    "body_cam_police":         "police bodycam footage investigation documentary",
+    "courtroom_drama":         "courtroom trial verdict documentary",
+    "robbery_documentaries":   "robbery heist investigation documentary",
+}
+
+# FIX: added — Ch3 had zero entry in this file (confirmed by direct
+# inspection: no "control_files" string anywhere in the original file).
+# All 6 of Ch3's real niches covered, matching the DAY_NICHE fix that
+# makes all 6 reachable in the pipeline.
+COMPETITOR_SEARCHES_CH3 = {
+    "cult_psychology":             "cult psychology mind control documentary",
+    "propaganda_systems":          "propaganda manipulation media documentary",
+    "social_engineering":          "social engineering manipulation fraud documentary",
+    "mass_deception":              "mass deception manipulation exposed documentary",
+    "dark_business_documentaries": "corporate scandal collapse fraud documentary",
+    "scams_fraud_exposed":         "scam fraud exposed investigation documentary",
+}
+
+# FIX (critical, found on full workflow/weekly-report audit): Ch4 (The
+# Archive) was missing from this whole file entirely — weekly reports,
+# competitor analysis, and strategy generation never covered it at all
+# since it launched.
+COMPETITOR_SEARCHES_CH4 = {
+    "egyptian_civilization":               "ancient egypt pharaoh documentary",
+    "chinese_civilization":                "ancient china dynasty documentary",
+    "mesopotamian_lost_civilizations":     "lost civilization mesopotamia documentary",
+    "islamic_civilization_history":        "islamic golden age history documentary",
+    "fallen_empires_military_overstretch": "fallen empire collapse documentary",
+    "elite_betrayal_infighting":           "royal betrayal court intrigue documentary",
+    "propaganda_institutional_decline":    "institutional decline propaganda documentary",
+    "modern_parallels":                    "history repeating modern parallels documentary",
+}
+
+# v1 addition — Ch5 (The Collapse Index), same gap already found and
+# fixed for Ch4 above.
+COMPETITOR_SEARCHES_CH5 = {
+    "ai_startup_collapse":          "ai startup collapse documentary",
+    "tech_company_collapse":       "tech company collapse documentary",
+    "crypto_collapse":             "crypto exchange collapse documentary",
+    "cybersecurity_disasters":     "cybersecurity breach documentary",
+    "product_flops":               "product flop failure documentary",
+    "dotcom_era_collapse":         "dot com bubble documentary",
+    "personal_finance_mistakes":   "personal finance mistakes explained",
+    "investing_fundamentals":      "investing fundamentals explained",
+    "retirement_planning":         "retirement planning explained",
+    "credit_debt_repair":          "credit score debt repair explained",
+    "real_estate_affordability":   "real estate affordability explained",
+    "budgeting_saving_strategies": "budgeting saving strategies explained",
+    "stock_market_crashes_history":"stock market crash history documentary",
 }
 
 # ══════════════════════════════════════════════════════════════════
@@ -72,6 +125,8 @@ CHANNELS = [
         "yt_client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "yt_client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
         "yt_refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
+        "tg_token":         os.environ.get("TELEGRAM_TOKEN", ""),
+        "tg_chat":          os.environ.get("TELEGRAM_CHAT_ID", ""),
         "competitor_searches": COMPETITOR_SEARCHES,
         "output_dir":       SCRIPT_DIR,   # video_pipeline/
     },
@@ -81,20 +136,67 @@ CHANNELS = [
         "yt_client_id":     os.environ.get("EVIDENCE_YT_CLIENT_ID", ""),
         "yt_client_secret": os.environ.get("EVIDENCE_YT_CLIENT_SECRET", ""),
         "yt_refresh_token": os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", ""),
+        "tg_token":         os.environ.get("TELEGRAM_TOKEN_CH2", ""),
+        "tg_chat":          os.environ.get("TELEGRAM_CHAT_ID_CH2", ""),
         "competitor_searches": COMPETITOR_SEARCHES_CH2,
         "output_dir":       SCRIPT_DIR.parent / "channels" / "evidence_room",
+    },
+    {
+        "channel_id":       "control_files",
+        "display_name":     "The Control Files",
+        "yt_client_id":     os.environ.get("CHANNEL3_YT_CLIENT_ID", ""),
+        "yt_client_secret": os.environ.get("CHANNEL3_YT_CLIENT_SECRET", ""),
+        "yt_refresh_token": os.environ.get("CHANNEL3_YT_REFRESH_TOKEN", ""),
+        "tg_token":         os.environ.get("TELEGRAM_TOKEN_CH3", ""),
+        "tg_chat":          os.environ.get("TELEGRAM_CHAT_ID_CH3", ""),
+        "competitor_searches": COMPETITOR_SEARCHES_CH3,
+        "output_dir":       SCRIPT_DIR.parent / "channels" / "control_files",
+    },
+    {
+        "channel_id":       "archive",
+        "display_name":     "The Archive",
+        "yt_client_id":     os.environ.get("CHANNEL4_YT_CLIENT_ID", ""),
+        "yt_client_secret": os.environ.get("CHANNEL4_YT_CLIENT_SECRET", ""),
+        "yt_refresh_token": os.environ.get("CHANNEL4_YT_REFRESH_TOKEN", ""),
+        "tg_token":         os.environ.get("TELEGRAM_TOKEN_CH4", ""),
+        "tg_chat":          os.environ.get("TELEGRAM_CHAT_ID_CH4", ""),
+        "competitor_searches": COMPETITOR_SEARCHES_CH4,
+        "output_dir":       SCRIPT_DIR.parent / "channels" / "archive",
+    },
+    {
+        "channel_id":       "collapse_index",
+        "display_name":     "The Collapse Index",
+        "yt_client_id":     os.environ.get("CHANNEL5_YT_CLIENT_ID", ""),
+        "yt_client_secret": os.environ.get("CHANNEL5_YT_CLIENT_SECRET", ""),
+        "yt_refresh_token": os.environ.get("CHANNEL5_YT_REFRESH_TOKEN", ""),
+        "tg_token":         os.environ.get("TELEGRAM_TOKEN_CH5", ""),
+        "tg_chat":          os.environ.get("TELEGRAM_CHAT_ID_CH5", ""),
+        "competitor_searches": COMPETITOR_SEARCHES_CH5,
+        "output_dir":       SCRIPT_DIR.parent / "channels" / "collapse_index",
     },
 ]
 
 
 def log(m): print(m, flush=True)
 
-def tg(m):
-    if not TG_TOKEN: return
+def tg(m, token=None, chat=None):
+    """
+    FIX (v5 merge): same real gap already found and fixed for Ch2's
+    weekly report — this always used the module-level TG_TOKEN/TG_CHAT
+    (Ch1's bot), meaning every OTHER channel's weekly report/topic-review
+    would silently go through Ch1's bot regardless of which channel was
+    actually being reported on. Now accepts per-channel overrides,
+    matching the same real pattern already proven correct for
+    get_yt_token right below; defaults preserve existing behavior for
+    any call site that doesn't pass them.
+    """
+    use_token = token or TG_TOKEN
+    use_chat  = chat or TG_CHAT
+    if not use_token: return
     for chunk in [m[i:i+4000] for i in range(0, len(m), 4000)]:
         try:
-            requests.post(f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-                json={"chat_id": TG_CHAT, "text": chunk, "parse_mode": "HTML"}, timeout=15)
+            requests.post(f"https://api.telegram.org/bot{use_token}/sendMessage",
+                json={"chat_id": use_chat, "text": chunk, "parse_mode": "HTML"}, timeout=15)
         except: pass
 
 def get_yt_token(client_id=None, client_secret=None, refresh_token=None):
@@ -235,15 +337,27 @@ Be specific. Give actionable instructions. Max 200 words."""
     return ai(prompt, tokens=400) or "Analysis unavailable."
 
 # ── STEP 4: Recalibrate title scoring ─────────────────────────
-def recalibrate_title_model(state, competitor_patterns):
+def recalibrate_title_model(state, competitor_patterns, channel_dir=None):
     """
     Compare predicted CTR scores vs actual performance.
     Update the scoring model weights for next week.
+
+    FIX (found on re-audit): this previously always wrote to a single
+    module-level INTEL_FILE path (video_pipeline/weekly_intel.json),
+    completely unscoped by channel — since main() loops over every
+    channel calling this once each, every channel's recalibration
+    overwrote the exact same file, meaning only the LAST channel
+    processed in the loop ever kept its data; every other channel's
+    weekly calibration was silently discarded. Currently write-only
+    (nothing reads this back yet), so this hasn't corrupted live
+    decisions, but it's a real landmine for whenever it does get wired
+    into something. Now scoped per-channel.
     """
+    intel_path = (Path(channel_dir) / "weekly_intel.json") if channel_dir else INTEL_FILE
     intel = {}
     try:
-        if INTEL_FILE.exists():
-            intel = json.loads(INTEL_FILE.read_text())
+        if intel_path.exists():
+            intel = json.loads(intel_path.read_text())
     except: pass
 
     intel["last_updated"]          = datetime.datetime.now().isoformat()
@@ -253,8 +367,12 @@ def recalibrate_title_model(state, competitor_patterns):
         "Next week's scripts will prioritize: " + competitor_patterns[:150]
     )
 
-    INTEL_FILE.write_text(json.dumps(intel, indent=2))
-    log("  Intel recalibrated and saved")
+    try:
+        intel_path.parent.mkdir(parents=True, exist_ok=True)
+        intel_path.write_text(json.dumps(intel, indent=2))
+        log("  Intel recalibrated and saved")
+    except Exception as e:
+        log(f"  Intel save (non-fatal): {e}")
     return intel
 
 # ── STEP 5: Next week strategy ────────────────────────────────
@@ -340,23 +458,44 @@ def find_retention_dropoffs(retention_curve):
     return dropoffs[:3]
 
 
-def map_retention_to_stage(elapsed_ratio):
+def map_retention_to_stage(elapsed_ratio, channel_id="betrayal_deepdive"):
     """
-    Map a timestamp (as fraction of video) to the script stage
-    that was playing at that point. Uses STAGE_WORDS proportions.
+    Map a timestamp (as fraction of video) to the script stage that was
+    playing at that point.
+
+    FIX (found on re-audit): this was hardcoded to Ch1's specific 7-stage
+    word-count proportions and stage names, with zero channel awareness —
+    the exact same "copy-pasted structure from another channel" bug
+    pattern found repeatedly elsewhere this session, just for stage
+    structure instead of niche names. When called for Ch3, a real
+    drop-off at (say) 45% through the video would have been mapped to
+    whatever stage sits at 45% of CH1's proportions, not Ch3's — feeding
+    a wrong stage name into generate_stage_fix's AI prompt, producing
+    advice that doesn't correspond to what's actually in the Ch3 script
+    at that point. Now uses each channel's own real stage word-counts.
     """
-    stage_words = [100, 200, 250, 400, 200, 650, 200]
-    stage_names = [
-        "Cold Open", "The Before", "First Signals",
-        "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"
-    ]
+    channel_stage_words = {
+        "betrayal_deepdive": [100, 200, 250, 400, 200, 650, 200],
+        "evidence_room":     [100, 200, 250, 400, 200, 650, 200],
+        "control_files":     [120, 200, 280, 480, 150, 520, 150],  # matches control_files_pipeline.py's real stage_targets
+    }
+    channel_stage_names = {
+        "betrayal_deepdive": ["Cold Open", "The Before", "First Signals",
+                               "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"],
+        "evidence_room":     ["Cold Open", "The Before", "First Signals",
+                               "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"],
+        "control_files":     ["The System", "How It Was Built", "Documented Cases",
+                               "The Evidence", "The Scale", "Those Who Resisted", "Implications"],
+    }
+    stage_words = channel_stage_words.get(channel_id, channel_stage_words["betrayal_deepdive"])
+    stage_names = channel_stage_names.get(channel_id, channel_stage_names["betrayal_deepdive"])
     total = sum(stage_words)
     cumulative = 0
     for i, (words, name) in enumerate(zip(stage_words, stage_names)):
         cumulative += words
         if elapsed_ratio <= cumulative / total:
             return i + 1, name
-    return 7, "Implication + CTA"
+    return 7, stage_names[-1]
 
 
 def generate_stage_fix(stage_num, stage_name, drop_magnitude, ai_fn):
@@ -381,7 +520,7 @@ Be specific about what to change. Return only the instruction."""
     return f"Add more specific evidence and shorten sentences in the {stage_name} stage."
 
 
-def analyse_channel_retention(token, video_ids, details, ai_fn):
+def analyse_channel_retention(token, video_ids, details, ai_fn, channel_id="betrayal_deepdive"):
     """
     Analyse retention for all videos this week.
     Returns dict of stage fixes to apply next week.
@@ -396,7 +535,7 @@ def analyse_channel_retention(token, video_ids, details, ai_fn):
         total_videos_analysed += 1
         dropoffs = find_retention_dropoffs(curve)
         for elapsed, magnitude in dropoffs:
-            stage_num, stage_name = map_retention_to_stage(elapsed)
+            stage_num, stage_name = map_retention_to_stage(elapsed, channel_id)
             if stage_num not in stage_drops:
                 stage_drops[stage_num] = {"drops": [], "name": stage_name}
             stage_drops[stage_num]["drops"].append(magnitude)
@@ -446,7 +585,8 @@ def run_weekly_report_for_channel(channel_cfg):
         token = get_yt_token(channel_cfg["yt_client_id"], channel_cfg["yt_client_secret"],
                               channel_cfg["yt_refresh_token"])
     except Exception as e:
-        tg(f"⚠️ Weekly report ({display_name}): YouTube auth failed — {e}")
+        tg(f"⚠️ Weekly report ({display_name}): YouTube auth failed — {e}",
+           token=channel_cfg.get("tg_token"), chat=channel_cfg.get("tg_chat"))
         log(f"Auth failed: {e}")
         return
 
@@ -481,7 +621,7 @@ def run_weekly_report_for_channel(channel_cfg):
     # Retention analysis — find which script stages lose viewers
     log("\n[1b] Analysing viewer retention curves...")
     stage_fixes, vids_analysed = analyse_channel_retention(
-        token, video_ids, details, ai)
+        token, video_ids, details, ai, channel_id=channel_id)
     log(f"  Analysed {vids_analysed} videos for retention data")
     own_perf_lines = []
     for d in details[:5]:
@@ -509,7 +649,7 @@ def run_weekly_report_for_channel(channel_cfg):
     log("\n[3] Recalibrating title model...")
     combined_patterns = "\n\n".join(
         f"[{n.upper()}] {a}" for n, a in competitor_analyses.items())
-    intel = recalibrate_title_model(state, combined_patterns)
+    intel = recalibrate_title_model(state, combined_patterns, channel_dir=output_dir)
 
     # Next week strategy
     log("\n[4] Generating next week strategy...")
@@ -640,13 +780,14 @@ Return JSON only:
     try:
         from topic_scoring import review_pending_topics_via_telegram
         review_result = review_pending_topics_via_telegram(
-            output_dir, display_name, TG_TOKEN, TG_CHAT, top_n=6, poll_minutes=15
+            output_dir, display_name, channel_cfg.get("tg_token") or TG_TOKEN,
+            channel_cfg.get("tg_chat") or TG_CHAT, top_n=6, poll_minutes=15
         )
         log(f"  Topic review: {review_result}")
     except Exception as e:
         log(f"  Topic review (non-fatal): {e}")
 
-    tg(report)
+    tg(report, token=channel_cfg.get("tg_token"), chat=channel_cfg.get("tg_chat"))
     log(f"\nWeekly report sent to Telegram ({display_name})")
     log(f"Strategy preview: {strategy[:200]}")
     log("=" * 60)
@@ -671,7 +812,8 @@ def main():
             rows = run_weekly_report_for_channel(channel_cfg)
             all_analytics_rows[channel_cfg["channel_id"]] = rows or []
         except Exception as e:
-            tg(f"⚠️ Weekly report failed for {channel_cfg['display_name']}: {e}")
+            tg(f"⚠️ Weekly report failed for {channel_cfg['display_name']}: {e}",
+               token=channel_cfg.get("tg_token"), chat=channel_cfg.get("tg_chat"))
             log(f"Channel {channel_cfg['channel_id']} failed (non-fatal, continuing): {e}")
             all_analytics_rows[channel_cfg["channel_id"]] = []
         time.sleep(5)  # brief gap between channels to avoid rate-limit collisions
@@ -703,7 +845,7 @@ def main():
     # products_root is the same for every channel (repo-root products/),
     # since all channels feed into a shared set of 3 products.
     try:
-        from monetization import export_all_products
+        from monetization import export_all_products, sync_all_gumroad_listings
         from site_generator import render_all_product_pages
         products_root = Path(__file__).parent.parent / "products"
         pdf_root = Path(__file__).parent.parent / "products" / "exports"
@@ -718,6 +860,17 @@ def main():
 
         product_pages = render_all_product_pages(products_root, docs_root)
         log(f"  Product landing pages regenerated: {len(product_pages)}")
+
+        # v5 addition: real Gumroad Update/Enable sync — confirmed
+        # feasible via research (Gumroad's own current API docs: Update
+        # works, Creation doesn't) but not actually built until this
+        # session. Only ever updates/enables products that already have
+        # a real configured Gumroad ID and genuine content — never
+        # touches anything else, never disables anything already live.
+        gumroad_token = os.environ.get("GUMROAD_ACCESS_TOKEN", "")
+        gumroad_results = sync_all_gumroad_listings(products_root, gumroad_token)
+        for r in gumroad_results:
+            log(f"  Gumroad sync ({r['product_id']}): {r}")
     except Exception as e:
         log(f"Product export / page generation (non-fatal): {e}")
 
