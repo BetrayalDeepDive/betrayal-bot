@@ -52,15 +52,30 @@ ALL_NICHES = [
 ]
 
 def groq(prompt: str, max_tokens: int = 1500, temp: float = 0.4) -> str:
-    r = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-        json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}],
-              "max_tokens": max_tokens, "temperature": temp},
-        timeout=45
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"].strip()
+    """
+    FIX: this used to call a single hardcoded model
+    ("llama-3.3-70b-versatile") with no fallback. That model was
+    announced deprecated by Groq on June 17, 2026 — every strategy
+    scan would fail outright once Groq fully retires it. Now tries a
+    real chain of genuinely current models.
+    """
+    models = ["openai/gpt-oss-120b", "qwen/qwen3-32b", "llama-3.3-70b-versatile"]
+    last_err = None
+    for model in models:
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": max_tokens, "temperature": temp},
+                timeout=45
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            last_err = e
+            log.warning("Groq model %s failed (%s) — trying next", model, e)
+    raise last_err if last_err else RuntimeError("All Groq models failed")
 
 
 # ── 1. Google Trends (free, no API key) ───────────────────────────────────────

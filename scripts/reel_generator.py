@@ -49,15 +49,30 @@ REEL_SCENES = {
 
 
 def groq_text(prompt: str, max_tokens: int = 1000) -> str:
-    r = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-        json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}],
-              "max_tokens": max_tokens, "temperature": 0.8},
-        timeout=45
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"].strip()
+    """
+    FIX: this used to call a single hardcoded model
+    ("llama-3.3-70b-versatile") with no fallback. That model was
+    announced deprecated by Groq on June 17, 2026 — every Reel/Short
+    script would fail outright once Groq fully retires it. Now tries a
+    real chain of genuinely current models.
+    """
+    models = ["openai/gpt-oss-120b", "qwen/qwen3-32b", "llama-3.3-70b-versatile"]
+    last_err = None
+    for model in models:
+        try:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+                json={"model": model, "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": max_tokens, "temperature": 0.8},
+                timeout=45
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            last_err = e
+            log.warning("Groq model %s failed (%s) — trying next", model, e)
+    raise last_err if last_err else RuntimeError("All Groq models failed")
 
 
 def generate_reel_content(topic: str, target: str, fmt: str, hook: str) -> dict:
@@ -135,15 +150,25 @@ Return ONLY valid JSON:
 
 
 def generate_audio(script: str, voice: dict, out_path: str) -> bool:
-    """Generate TTS audio using Groq Orpheus."""
+    """
+    Generate TTS audio using Groq Orpheus.
+
+    FIX (critical): this used to chunk at 2800 characters — Groq's
+    Orpheus TTS has a real, hard 200-character limit PER REQUEST
+    (confirmed directly against Groq's own API behavior, same limit
+    already fixed elsewhere in this project). Every chunk sent at the
+    old size would have been silently truncated or rejected by the API,
+    meaning every single Reel/Short's narration was broken. Fixed to
+    180 chars (safe margin under the real 200-char limit).
+    """
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     full_text = voice["tag"] + " " + script
 
-    # Split into chunks (max 2800 chars each)
+    # Split into chunks (max 180 chars each — real Groq Orpheus limit is 200)
     words = full_text.split()
     chunks, chunk = [], ""
     for word in words:
-        if len(chunk) + len(word) + 1 > 2800:
+        if len(chunk) + len(word) + 1 > 180:
             chunks.append(chunk.strip())
             chunk = word
         else:
