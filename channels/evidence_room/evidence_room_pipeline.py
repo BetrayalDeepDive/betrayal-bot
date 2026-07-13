@@ -15,7 +15,7 @@ SAME UPGRADES AS MASTER PIPELINE v5.0:
 ✅ Viral intelligence engine (weekly learning)
 ✅ NO subtitles on main video
 ✅ Subtitles on Shorts ONLY with frame-perfect audio sync
-✅ 2 YouTube Shorts per video (teaser 10% + recap 67%)
+✅ 2 YouTube Shorts per day, standalone and trend-researched (teaser/recap removed)
 ✅ Approval gate BEFORE video generation (30-min)
 ✅ Dual notification: Telegram + Gmail
 ✅ Startup Telegram test
@@ -106,6 +106,14 @@ NUMBER_NOUN_BANKS = {
     "criminal_investigation": ["14 VICTIMS","23 YEARS","1 FILE","47 CLUES","3 SUSPECTS"],
     "corporate_exposure": ["$840M HIDDEN","14 YEARS","23 EMAILS","$2.4B FRAUD","1 MEMO"],
     "digital_forensics":  ["2.7M FILES","847 ACCOUNTS","1 IP ADDRESS","23 SERVERS","14TB DATA"],
+    # FIX (found on systematic dict-completeness check): these 3 real
+    # Ch2 niches were missing entirely — every thumbnail for
+    # body_cam_police/courtroom_drama/robbery_documentaries silently
+    # fell back to a generic "14 YEARS/47 CASES/1 TRUTH" default instead
+    # of anything niche-specific.
+    "body_cam_police":       ["847 HOURS FOOTAGE","23 OFFICERS","1 CAMERA","14 SECONDS","3 CALLS"],
+    "courtroom_drama":       ["12 JURORS","23 WITNESSES","1 VERDICT","14 YEARS","3 APPEALS"],
+    "robbery_documentaries": ["$2.4M TAKEN","47 MINUTES","1 GETAWAY","23 YEARS RUNNING","3 SUSPECTS"],
     "cult_psychology":    ["847 MEMBERS","14 YEARS","7 STAGES","23 RULES","1 LEADER"],
     "propaganda_systems": ["40M PEOPLE","7 TECHNIQUES","14 YEARS","3 AGENCIES","1 NARRATIVE"],
     "social_engineering": ["6 PRINCIPLES","847 TARGETS","23 HOURS","7 TRIGGERS","1 CALL"],
@@ -243,6 +251,32 @@ def build_affiliate_block(channel_id, niche_name=""):
     return "\n".join(lines)
 
 
+# v8 addition — real product monetization, per explicit request ("other
+# sources of income we had worked upon should be added to all the
+# channels"). Never previously mentioned in any actual video description.
+GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
+
+def build_product_cta(channel_id):
+    """Real product CTA for the actual video description."""
+    product_by_channel = {
+        "betrayal_deepdive": ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
+        "evidence_room":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
+        "control_files":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
+        "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
+    }
+    product_id, product_title = product_by_channel.get(
+        channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
+    try:
+        from monetization import get_product_cta_url
+        url = get_product_cta_url(product_id)
+        if url.startswith("../"):
+            url = f"{GITHUB_PAGES_BASE}/products/{product_id}.html"
+        return f"\n\n📖 {product_title}: {url}"
+    except Exception as e:
+        log(f"  Product CTA (non-fatal): {e}")
+        return ""
+
+
 CHAPTER_STRUCTURES = {
     "betrayal_deepdive": [
         (0.00,"The Case Begins"),(0.10,"Before It Happened"),(0.28,"First Warning Signs"),
@@ -318,8 +352,11 @@ def get_cross_promo(channel_id, is_short=False):
     p = CROSS_PROMO.get(channel_id, CROSS_PROMO["betrayal_deepdive"])
     return p["short"] if is_short else p["main"]
 
-TG_TOKEN = os.environ.get("TELEGRAM_TOKEN","")
-TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID","")
+# NOTE: TG_TOKEN/TG_CHAT are defined once, correctly, further below —
+# channel-specific (TELEGRAM_TOKEN_CH2) with a generic fallback, right
+# alongside the YouTube credentials. A duplicate, non-channel-aware
+# definition used to live here too — removed, matching the same
+# cleanup already done for Ch3's identical duplicate.
 
 def send_hype_push(video_url, video_title, channel_name, day=0):
     if not TG_TOKEN or not TG_CHAT:
@@ -376,14 +413,34 @@ GEMINI_KEY      = os.environ.get("GEMINI_API_KEY", "")
 CEREBRAS_KEY    = os.environ.get("CEREBRAS_API_KEY", "")
 OPENROUTER_KEY  = os.environ.get("OPENROUTER_API_KEY", "")
 COHERE_KEY      = os.environ.get("COHERE_API_KEY", "")
+# FIX (found on thorough dead/live-code review, same fix applied to
+# Ch4): PIXABAY_KEY/PEXELS_KEY/BG_KEYWORDS were only ever defined
+# locally inside a confirmed-dead function, never at module level —
+# a real NameError waiting to happen if the (currently dead)
+# get_stage_matched_video is ever wired in. Fixed for correctness.
+PIXABAY_KEY     = os.environ.get("PIXABAY_KEY", "")
+PEXELS_KEY      = os.environ.get("PEXELS_API_KEY", "")
+BG_KEYWORDS     = {}
+DEFAULT_BG_KEYWORDS = ["dark shadows", "dark atmosphere", "dark dramatic"]
 MISTRAL_KEY     = os.environ.get("MISTRAL_API_KEY", "")
 SAMBANOVA_KEY   = os.environ.get("SAMBANOVA_API_KEY", "")  # 1000 req/day free — cloud.sambanova.ai
 GEMINI_KEY_2    = os.environ.get("GEMINI_API_KEY_2", "")   # backup Gemini key — doubles quota
 YT_CLIENT_ID    = os.environ.get("EVIDENCE_YT_CLIENT_ID",  os.environ.get("YOUTUBE_CLIENT_ID",""))
 YT_CLIENT_SEC   = os.environ.get("EVIDENCE_YT_CLIENT_SECRET", os.environ.get("YOUTUBE_CLIENT_SECRET",""))
 YT_REFRESH      = os.environ.get("EVIDENCE_YT_REFRESH_TOKEN", os.environ.get("YOUTUBE_REFRESH_TOKEN",""))
-TG_TOKEN        = os.environ.get("TELEGRAM_TOKEN", "")
-TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID", "")
+# CRITICAL FIX (found on final pre-Ch4 verification pass, directly
+# explains real production evidence — Telegram screenshots showing Ch2
+# crash alerts and "EVIDENCE ROOM APPROVAL NEEDED" messages landing in
+# "YouTube Automation Bot", Ch1's bot): the v5 fix giving Ch2 its own
+# dedicated bot (TELEGRAM_TOKEN_CH2/CHAT_ID_CH2) was only ever applied
+# to weekly_report.py (the shared weekly-report file) — Ch2's OWN
+# pipeline, which sends every single script/audio/video/title review,
+# every HOLD alert, and every crash alert, was still reading the
+# generic TELEGRAM_TOKEN/CHAT_ID this whole time. Same channel-
+# specific-first, generic-fallback pattern already correct for the
+# YouTube credentials right above this.
+TG_TOKEN        = os.environ.get("TELEGRAM_TOKEN_CH2", os.environ.get("TELEGRAM_TOKEN", ""))
+TG_CHAT         = os.environ.get("TELEGRAM_CHAT_ID_CH2", os.environ.get("TELEGRAM_CHAT_ID", ""))
 
 # ── API endpoints ──────────────────────────────────────────
 GEMINI_URL      = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
@@ -844,22 +901,28 @@ def _call_cohere(prompt, tokens=9000):
     if not COHERE_KEY:
         log("  Cohere: COHERE_API_KEY secret not set — skipping")
         return None
-    try:
-        r = requests.post(COHERE_URL,
-            headers={"Authorization": f"Bearer {COHERE_KEY}",
-                     "Content-Type": "application/json"},
-            json={"model": "command-r-08-2024",
-                  "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": min(tokens, 4000), "temperature": 0.88},
-            timeout=120)
-        if r.status_code == 200:
-            t = r.json().get("message",{}).get("content",[{}])
-            text = t[0].get("text","") if t else ""
-            if text and len(text.strip()) > 100:
-                log("  OK Cohere")
-                return text
-    except Exception as e:
-        log(f"  Cohere: {e}")
+    # FIX (confirmed against Cohere's own official deprecations page):
+    # command-r-08-2024 is explicitly marked deprecated, with an April 4,
+    # 2026 retirement date already passed. Same fragile single-model
+    # pattern already fixed for Gemini/Groq. command-a-03-2025 is
+    # Cohere's own current recommended, production-stable replacement.
+    for _cohere_model in ["command-a-03-2025", "command-r-08-2024"]:
+        try:
+            r = requests.post(COHERE_URL,
+                headers={"Authorization": f"Bearer {COHERE_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": _cohere_model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": min(tokens, 4000), "temperature": 0.88},
+                timeout=120)
+            if r.status_code == 200:
+                t = r.json().get("message",{}).get("content",[{}])
+                text = t[0].get("text","") if t else ""
+                if text and len(text.strip()) > 100:
+                    log(f"  OK Cohere ({_cohere_model})")
+                    return text
+        except Exception as e:
+            log(f"  Cohere {_cohere_model}: {e}")
     return None
 
 def _call_mistral(prompt, tokens=9000):
@@ -1452,6 +1515,11 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     4. Scene JSON extracted separately after narration
     """
     temp  = min(0.82 + attempt * 0.012, 0.94)
+    # v1 addition — real product title for the verbal-mention instruction.
+    try:
+        _product_title_for_prompt = build_product_cta("evidence_room").split(": ")[0].replace("\n\n📖 ", "").strip() or "our companion resource"
+    except Exception:
+        _product_title_for_prompt = "our companion resource"
     hooks = intel.get("top_hook_formulas", ["The documents confirmed what investigators had suspected."])
     power = intel.get("niche_specific_power_words", ["documented","verified","traced","confirmed"])
     viral = intel.get("what_makes_videos_viral", "Specific documented evidence that viewers can verify")
@@ -1524,8 +1592,9 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     # verified facts. Given Ch2's whole stated risk is factual
     # sloppiness/defamation, grounding scripts in real search results
     # when available matters directly, not just as a nice-to-have.
+    real_cases = []
     try:
-        real_case_context = get_research_context(niche["name"], topic)
+        real_case_context, real_cases = get_research_context(niche["name"], topic)
         if real_case_context:
             anchor_block += f"\n\n{real_case_context}\n"
     except Exception as e:
@@ -1634,6 +1703,23 @@ STAGE 7 — CASE IMPLICATIONS ({stage_targets[7]} words)
 Imply — never state — that this case is part of a larger pattern.
 Subscribe CTA at emotional peak. Reference series.{cross}
 Forbidden: "subscribe and like", "hit the bell", "don't forget to"
+
+RETENTION PAYOFF CADENCE (NON-NEGOTIABLE — the single biggest lever for
+average view duration): a script that saves its only real hooks for a
+few fixed points across a long video leaves multi-minute stretches with
+nothing preventing viewer drop-off. Every stage, especially the longer
+ones, MUST contain a genuine payoff — a surprising fact, a specific
+number, a forward reference ("what happens next reveals...") — roughly
+every 150-225 words (approximately every 60-90 seconds of narration),
+not just at the stage's start. Never save all the value for the end.
+
+VERBAL RESOURCE MENTION (natural, brief, once only): most viewers never read
+the description. Within the existing subscribe moment, include ONE brief,
+natural sentence mentioning "{_product_title_for_prompt}" as a related
+resource for anyone who wants to go deeper — phrased as a genuine aside, not
+an ad-read, and never interrupting the narrative flow. If it can't be worked
+in naturally, skip it entirely — a forced-sounding mention actively hurts
+the viewer-satisfaction signals that now weigh more than raw watch time.
 
 
 TONE AND STYLE (NON-NEGOTIABLE):
@@ -1958,8 +2044,27 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
            f"(\"according to\", \"reportedly\", etc.) — real defamation/factual-risk concern. "
            f"Recommend manual review of this script before it goes further.")
 
+    # v6 addition — real research-usage verification (same fix built for
+    # Ch1/Ch3/Ch4, applying here since Ch2 has the identical gap):
+    # real_cases gets injected into the prompt, but nothing ever
+    # verified the AI actually used it versus inventing plausible-
+    # sounding details instead. Logged every attempt (this function runs
+    # once per attempt); the real Telegram alert fires once, for the
+    # actual winning attempt, in run_stage1 — avoiding up to 13 noisy
+    # alerts per episode.
+    if real_cases:
+        _script_lower = clean.lower()
+        _research_words = set()
+        for c in real_cases[:3]:
+            _research_words.update(
+                w.strip(".,;:").lower() for w in (c.get("title", "") + " " + c.get("summary", "")).split()
+                if len(w) > 6
+            )
+        _used = any(w in _script_lower for w in _research_words)
+        log(f"  Research-usage check: {'genuinely reflected' if _used else 'NOT clearly used'}")
+
     log(f"  Script: {wc}w | {violations} MD | {len(scenes)} scenes")
-    return clean, scenes, title, thumbnail_text, tags, violations
+    return clean, scenes, title, thumbnail_text, tags, violations, real_cases
 
 
 def render_connection_reveal(draw, W, H, nodes, progress, accent, font_sm):
@@ -2419,7 +2524,133 @@ def generate_thumbnail_with_ai_bg(title, thumb_text, niche_name, topic,
     return None
 
 
-def render_and_encode(style_name, scenes, audio_path, duration):
+# ══════════════════════════════════════════════════════════════════
+# NICHE-AWARE BACKGROUND MUSIC (v6 addition, per explicit requirement:
+# "the background noise should be according to the niche"). Same real
+# system built for Ch1, with moods matched to Ch2's own 7 niches.
+#
+# HONEST DESIGN NOTE: real, freely-licensed tracks (e.g. sourced once
+# from Pixabay's actual music library, free commercial use permitted)
+# are the real fix — genuine recorded texture, not synthesis. Built to
+# use real bundled files the MOMENT they exist (drop into
+# music_bank/<mood>/ as any .mp3), rotating through what's present.
+# Until then, falls back to a genuinely mood-distinct synthesis rather
+# than the single generic brown-noise texture this replaces.
+# ══════════════════════════════════════════════════════════════════
+
+NICHE_MUSIC_MOOD = {
+    "forensic_finance":       "clinical_tension",
+    "criminal_investigation": "investigative",
+    "corporate_exposure":     "corporate_dread",
+    "digital_forensics":      "digital_unease",
+    "body_cam_police":        "raw_tension",
+    "courtroom_drama":        "gravitas",
+    "robbery_documentaries":  "heist_tension",
+}
+
+MOOD_TRACK_RECOMMENDATIONS = {
+    "clinical_tension": ["Search Pixabay Music for: 'corporate thriller tension', 'cold suspense', 'financial crime ambient'"],
+    "investigative": ["Search Pixabay Music for: 'investigation ambient', 'procedural tension', 'detective noir'"],
+    "corporate_dread": ["Search Pixabay Music for: 'corporate dark ambient', 'boardroom tension', 'sterile suspense'"],
+    "digital_unease": ["Search Pixabay Music for: 'cyber tension', 'digital glitch ambient', 'tech thriller dark'"],
+    "raw_tension": ["Search Pixabay Music for: 'urgent tension', 'raw suspense drone', 'visceral ambient'"],
+    "gravitas": ["Search Pixabay Music for: 'courtroom drama ambient', 'formal tension', 'weighty orchestral drone'"],
+    "heist_tension": ["Search Pixabay Music for: 'heist tension', 'kinetic suspense', 'driving thriller pulse'"],
+}
+
+MUSIC_BANK_ROOT = Path(__file__).parent / "music_bank"
+
+def _synthesize_mood_track(mood, duration):
+    """Genuinely mood-distinct synthesis fallback — different frequency
+    relationships, filtering, and noise character per mood."""
+    path = str(WORK_DIR / f"music_{mood}.mp3")
+    dur = int(duration) + 30
+    recipes = {
+        "clinical_tension": (
+            ["-f","lavfi","-i",f"sine=frequency=130:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=196:duration={dur}",  # perfect fifth, cold/clean
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.0015:duration={dur}"],
+            "[0]volume=0.06[a];[1]volume=0.04[b];[2]volume=0.2[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=500,highpass=f=80,volume=0.12[out]"),
+        "investigative": (
+            ["-f","lavfi","-i",f"sine=frequency=80:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=120:duration={dur}",
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.0025:duration={dur}"],
+            "[0]volume=0.08[a];[1]volume=0.05[b];[2]volume=0.3[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=380,highpass=f=45,volume=0.13[out]"),
+        "corporate_dread": (
+            ["-f","lavfi","-i",f"sine=frequency=45:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=46:duration={dur}",  # near-unison, sterile throb
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.002:duration={dur}"],
+            "[0]volume=0.09[a];[1]volume=0.09[b];[2]volume=0.25[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=220,highpass=f=30,volume=0.14[out]"),
+        "digital_unease": (
+            ["-f","lavfi","-i",f"sine=frequency=300:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=303:duration={dur}",  # thin, glitchy beating
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.005:duration={dur}"],
+            "[0]volume=0.03[a];[1]volume=0.03[b];[2]volume=0.4[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=700,highpass=f=150,volume=0.1[out]"),
+        "raw_tension": (
+            ["-f","lavfi","-i",f"sine=frequency=65:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=97:duration={dur}",
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.004:duration={dur}"],
+            "[0]volume=0.1[a];[1]volume=0.06[b];[2]volume=0.35[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=340,highpass=f=40,volume=0.15[out]"),
+        "gravitas": (
+            ["-f","lavfi","-i",f"sine=frequency=55:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=82:duration={dur}",
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.0015:duration={dur}"],
+            "[0]volume=0.08[a];[1]volume=0.05[b];[2]volume=0.15[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=260,highpass=f=32,volume=0.13[out]"),
+        "heist_tension": (
+            ["-f","lavfi","-i",f"sine=frequency=90:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=135:duration={dur}",
+             "-f","lavfi","-i",f"aevalsrc=random(0)*0.003:duration={dur}"],
+            "[0]volume=0.09[a];[1]volume=0.06[b];[2]volume=0.28[c];"
+            "[a][b][c]amix=inputs=3:duration=first,lowpass=f=400,highpass=f=50,volume=0.15[out]"),
+    }
+    inputs, filt = recipes.get(mood, recipes["investigative"])
+    try:
+        subprocess.run(["ffmpeg", "-y"] + inputs +
+                       ["-filter_complex", filt, "-map", "[out]", "-c:a", "mp3", "-q:a", "4", path],
+                       capture_output=True, timeout=60)
+        if Path(path).exists() and Path(path).stat().st_size > 5000:
+            return path
+    except Exception as e:
+        log(f"  Mood synthesis ({mood}) failed: {e}")
+    return None
+
+
+def get_niche_ambient_music(niche_name, duration):
+    """Real entry point — picks a real bundled track for this niche's
+    mood if one exists (rotating to avoid repetition), otherwise the
+    mood-distinct synthesis above."""
+    mood = NICHE_MUSIC_MOOD.get(niche_name, "investigative")
+    mood_dir = MUSIC_BANK_ROOT / mood
+    real_tracks = []
+    try:
+        if mood_dir.exists():
+            real_tracks = sorted([p for p in mood_dir.glob("*.mp3") if p.stat().st_size > 10000])
+    except Exception:
+        pass
+
+    if real_tracks:
+        chosen = random.choice(real_tracks)
+        log(f"  Using real bundled track for mood '{mood}': {chosen.name}")
+        out = str(WORK_DIR / f"music_real_{mood}.mp3")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", str(chosen),
+                            "-t", str(int(duration) + 5), "-c:a", "mp3", "-q:a", "3", out],
+                           capture_output=True, timeout=60)
+            if Path(out).exists() and Path(out).stat().st_size > 10000:
+                return out
+        except Exception as e:
+            log(f"  Real track trim failed, falling back to synthesis: {e}")
+
+    return _synthesize_mood_track(mood, duration)
+
+
+def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, niche_obj=None, episode=1, real_cases=None, ass_path=None):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
     concat_parts = []
@@ -2492,16 +2723,16 @@ def render_and_encode(style_name, scenes, audio_path, duration):
         err = _concat_result.stderr.decode("utf-8","ignore")[-300:]
         raise RuntimeError(f"FFmpeg concat failed: {err}")
     final = str(WORK_DIR/"final.mp4")
-    # Add subtle ambient atmosphere (4% volume brown noise)
-    ambient_path = str(WORK_DIR/"ambient_ch2.mp3")
+    # FIX (found going through Ch1/Ch2's audio systems in full, per
+    # explicit requirement: "background noise should be according to
+    # the niche"): this used to be a single generic brown-noise texture
+    # (300-700Hz bandpass), IDENTICAL for forensic_finance,
+    # criminal_investigation, corporate_exposure, digital_forensics,
+    # body_cam_police, courtroom_drama, and robbery_documentaries alike.
+    # Now genuinely niche-aware — see get_niche_ambient_music below.
+    ambient_path = get_niche_ambient_music(niche_name, duration)
     try:
-        subprocess.run([
-            "ffmpeg","-y","-f","lavfi",
-            "-i",f"anoisesrc=color=brown:r=44100:d={int(duration)+5}",
-            "-af","volume=0.03,highpass=f=300,lowpass=f=700",
-            "-c:a","mp3","-q:a","9", ambient_path],
-            capture_output=True, timeout=60)
-        if Path(ambient_path).exists():
+        if ambient_path and Path(ambient_path).exists():
             mixed = str(WORK_DIR/"mixed_ch2.mp3")
             subprocess.run([
                 "ffmpeg","-y","-i",audio_path,"-i",ambient_path,
@@ -2510,17 +2741,133 @@ def render_and_encode(style_name, scenes, audio_path, duration):
                 capture_output=True, timeout=120)
             if Path(mixed).exists() and Path(mixed).stat().st_size > 100000:
                 audio_path = mixed
-                log("  Ambient atmosphere mixed in")
+                log("  Niche-matched ambient atmosphere mixed in")
     except Exception as _ae:
         log(f"  Ambient (non-fatal): {_ae}")
 
-    subprocess.run(["ffmpeg","-y","-i",raw,"-i",audio_path,
-                    "-c:v","libx264","-preset","medium","-crf","19",
+    ffmpeg_cmd = ["ffmpeg","-y","-i",raw,"-i",audio_path]
+    if ass_path and Path(ass_path).exists():
+        escaped_ass = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+        ffmpeg_cmd += ["-vf", f"ass='{escaped_ass}'"]
+        log("  Burning in real, word-synced captions")
+    ffmpeg_cmd += ["-c:v","libx264","-preset","medium","-crf","19",
                     "-c:a","aac","-b:a","192k","-t",str(duration),
-                    "-pix_fmt","yuv420p","-movflags","+faststart","-shortest",final],
-                   capture_output=True, timeout=2400)
-    log(f"  Video: {Path(final).stat().st_size/1024/1024:.0f}MB | 1080p | No subtitles on main")
+                    "-pix_fmt","yuv420p","-movflags","+faststart","-shortest",final]
+    subprocess.run(ffmpeg_cmd, capture_output=True, timeout=2400)
+    log(f"  Video: {Path(final).stat().st_size/1024/1024:.0f}MB | 1080p | "
+        f"{'Real synced captions' if ass_path else 'No captions (real sync unavailable this episode)'}")
+
+    # v6 addition, per explicit request to check every channel for
+    # missing growth levers: Ch2 had NO outro at all — Ch1 has one,
+    # Ch2 never did. Built as a genuinely separate final step (not
+    # injected into the scene-cycling loop above, which repeats to fill
+    # the narration's length and would have repeated or mistimed an
+    # outro placed inside it). Honest design matching Ch1's corrected
+    # version: a real subscribe reminder + episode branding, NOT a fake
+    # visual mimicking YouTube's actual (non-API-accessible) clickable
+    # end-screen cards.
+    try:
+        _series_name = niche_obj.get("series", "The Evidence Room") if niche_obj else "The Evidence Room"
+        outro_path = create_evidence_room_outro(_series_name, episode)
+        # v6 addition — real on-screen source credits, per explicit
+        # request. Only produces a real segment when there are genuine
+        # URL-backed sources to show.
+        citations_path = create_evidence_room_citations_scene(real_cases)
+        _segments = [final]
+        if citations_path and Path(citations_path).exists():
+            _segments.append(citations_path)
+        if outro_path and Path(outro_path).exists():
+            _segments.append(outro_path)
+        if len(_segments) > 1:
+            final_with_outro = str(WORK_DIR / "final_with_outro.mp4")
+            outro_concat_list = str(WORK_DIR / "outro_concat.txt")
+            with open(outro_concat_list, "w") as f:
+                for seg in _segments:
+                    f.write(f"file '{seg}'\n")
+            _outro_result = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", outro_concat_list,
+                 "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+                 "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p",
+                 "-movflags", "+faststart", final_with_outro],
+                capture_output=True, timeout=300)
+            if _outro_result.returncode == 0 and Path(final_with_outro).exists() and \
+               Path(final_with_outro).stat().st_size > Path(final).stat().st_size:
+                log(f"  Outro/citations appended: {Path(final_with_outro).stat().st_size/1024/1024:.0f}MB")
+                return final_with_outro
+            log("  Outro concat failed (non-fatal) — using video without outro")
+    except Exception as _oe:
+        log(f"  Outro (non-fatal): {_oe}")
+
     return final
+
+
+def create_evidence_room_citations_scene(real_cases):
+    """
+    v6 addition — real on-screen source credits, per explicit request:
+    "give the source details... just like in a movie after the post
+    credits." Same design as Ch1's version: only built when there's at
+    least one real, URL-backed source; shows source titles (not raw
+    URLs) with a pointer to the description for the actual links.
+    """
+    real_sources = [c for c in (real_cases or []) if c.get("url")]
+    if not real_sources:
+        return None
+    duration = 6
+    path = str(WORK_DIR / "citations_ch2.mp4")
+    lines_filters = []
+    y = 260
+    lines_filters.append(
+        "drawtext=text='SOURCES REFERENCED':fontsize=34:fontcolor=white:"
+        f"x=(w-text_w)/2:y=180:enable='between(t,0,{duration})'")
+    for c in real_sources[:3]:
+        safe_title = (c["title"][:70]
+                      .replace("'", "").replace('"', "").replace(":", " —"))
+        lines_filters.append(
+            f"drawtext=text='{safe_title}':fontsize=22:fontcolor=gray:"
+            f"x=(w-text_w)/2:y={y}:enable='between(t,0,{duration})'")
+        y += 45
+    lines_filters.append(
+        "drawtext=text='Full links in the description':fontsize=20:fontcolor=white:"
+        f"x=(w-text_w)/2:y={y+20}:enable='between(t,0,{duration})'")
+    vf = ",".join(lines_filters)
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:size=1920x1080:rate=24:duration={duration}",
+        "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:duration={duration}",
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", path
+    ], capture_output=True, timeout=60)
+    return path if Path(path).exists() and Path(path).stat().st_size > 5000 else None
+
+
+def create_evidence_room_outro(series_name="The Evidence Room", episode_num=1):
+    """
+    8-second burned-in outro card for Ch2 — genuinely new, this channel
+    had none at all. Same honest design as Ch1's corrected version: a
+    real subscribe reminder and episode branding, no fake-clickable
+    visual mimicking YouTube's real (non-API-accessible) end-screen
+    cards. If real end screens are set up manually in YouTube Studio,
+    this stays deliberately simple and centered so it doesn't visually
+    conflict with them.
+    """
+    series_name = series_name.replace("'", "").replace('"', "").replace(":", "")
+    path = str(WORK_DIR / "outro_ch2.mp4")
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "color=c=black:size=1920x1080:rate=24:duration=8",
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo:duration=8",
+        "-vf",
+        "drawbox=x=0:y=0:w=iw:h=ih:color=blue@0.25:t=6,"
+        "drawtext=text='SUBSCRIBE TO " + series_name.upper() + "':fontsize=54:"
+        "fontcolor=white:x=(w-text_w)/2:y=440:enable='between(t,0,8)',"
+        "drawtext=text='NEW CASE FILES EVERY WEEK':fontsize=36:"
+        "fontcolor=gray:x=(w-text_w)/2:y=540:enable='between(t,0,8)',"
+        "drawtext=text='Case File #" + str(episode_num) + "':fontsize=30:"
+        "fontcolor=gray:x=50:y=H-80:enable='between(t,0,8)'",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ar", "44100", path
+    ], capture_output=True, timeout=60)
+    return path if Path(path).exists() and Path(path).stat().st_size > 10000 else None
 
 
 # ════════════════════════════════════════════════════════════
@@ -2629,6 +2976,37 @@ async def _tts_ch2(text, voice_id, path):
         raise Exception("Chunk concatenation failed")
 
 
+def _detect_abnormal_silence(mp3_path, total_duration):
+    """
+    v1 addition — real, signal-based audio quality check using ffmpeg's
+    actual silencedetect filter, not just file size/duration heuristics.
+    Flags if total detected silence exceeds 15% of the audio.
+    """
+    if not total_duration or total_duration <= 0:
+        return True, 0.0
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", str(mp3_path), "-af", "silencedetect=noise=-30dB:d=1.0",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=60)
+        silence_total = 0.0
+        for line in r.stderr.splitlines():
+            if "silence_duration:" in line:
+                try:
+                    silence_total += float(line.split("silence_duration:")[1].strip())
+                except (ValueError, IndexError):
+                    pass
+        fraction = silence_total / total_duration
+        is_normal = fraction <= 0.15
+        if not is_normal:
+            log(f"  Audio silence check: {fraction*100:.0f}% of audio is silence "
+                f"(threshold 15%) — possible corrupted/truncated segment")
+        return is_normal, fraction
+    except Exception as e:
+        log(f"  Silence detection (non-fatal, not blocking): {e}")
+        return True, 0.0
+
+
 def check_audio_quality(mp3_path, dur_expected):
     """
     Fixed threshold: edge-tts outputs ~48kbps MP3.
@@ -2652,6 +3030,10 @@ def check_audio_quality(mp3_path, dur_expected):
             if actual_dur < dur_expected * 0.20:  # 20% = accept any audio >= 3 min
                 log(f"  Quality FAIL: {actual_dur:.0f}s vs {dur_expected:.0f}s expected")
                 return False, actual_dur
+            _silence_ok, _silence_frac = _detect_abnormal_silence(mp3_path, actual_dur)
+            if not _silence_ok:
+                log(f"  Quality FAIL: {_silence_frac*100:.0f}% silence — likely corrupted/truncated segment")
+                return False, actual_dur
             log(f"  Quality OK: {sz/1024/1024:.1f}MB | {actual_dur:.0f}s"); return True, actual_dur
         log(f"  Quality OK (size): {sz/1024/1024:.1f}MB"); return True, None
     except Exception as e:
@@ -2670,6 +3052,24 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     wc           = len(script_clean.split())
     dur_expected = min((wc / 125.0) * 60.0, 1080.0)  # matches the real 18-min hard cap, not 15
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
+    # v1 addition — real learning-loop closure: track_episode has been
+    # recording per-voice average scores into state["performance"] this
+    # whole time, but nothing ever read it back. Now genuinely reorders
+    # the niche's own voice list toward whichever has the best real
+    # historical average score for this channel, once there's enough
+    # data to be meaningful.
+    try:
+        _perf_state = load_state()
+        _voice_perf = _perf_state.get("performance", {})
+        def _voice_learned_rank(v):
+            _scores = _voice_perf.get(f"voice_{v}", {}).get("scores", [])
+            if len(_scores) < 3:
+                return (0, 0)
+            return (1, sum(_scores) / len(_scores))
+        _ranked = sorted(enumerate(preferred), key=lambda iv: (-_voice_learned_rank(iv[1])[0], -_voice_learned_rank(iv[1])[1], iv[0]))
+        preferred = [v for _, v in _ranked]
+    except Exception as e:
+        log(f"  Learned voice preference (non-fatal, using default order): {e}")
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
     "en-GB-RyanNeural",          # Deep British authority
@@ -2761,6 +3161,38 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
             log(f"  Fish Audio backup failed: {e}")
     else:
         log("  FISH_AUDIO_API_KEY not set — skipping Fish Audio backup")
+
+    # NEW TIER: Kokoro (local, open-weight, Apache 2.0) — same real addition
+    # as Ch1, inserted here for the identical reason: genuinely natural-
+    # sounding, and runs LOCALLY with no rate limit to hit.
+    try:
+        from kokoro import KPipeline
+        import soundfile as sf
+        import numpy as np
+        log("  Trying Kokoro (local, natural-sounding, no rate limit)...")
+        _kokoro_pipeline = KPipeline(lang_code="a")
+        _kokoro_voice = {"en-GB-RyanNeural": "bm_george", "en-US-BrianNeural": "am_michael"}.get(
+            voice_id, "am_michael")
+        _generator = _kokoro_pipeline(script_clean, voice=_kokoro_voice, speed=1.0)
+        _all_audio = []
+        for _, _, _audio_chunk in _generator:
+            _all_audio.append(_audio_chunk)
+        if _all_audio:
+            _combined = np.concatenate(_all_audio)
+            _wav_path = str(WORK_DIR / "kokoro_narration.wav")
+            sf.write(_wav_path, _combined, 24000)
+            mp3 = str(WORK_DIR / "audio_kokoro.mp3")
+            subprocess.run(["ffmpeg", "-y", "-i", _wav_path, "-codec:a", "libmp3lame",
+                             "-qscale:a", "2", mp3], capture_output=True, timeout=120)
+            if Path(mp3).exists() and Path(mp3).stat().st_size > 50000:
+                actual_dur = get_media_duration(mp3)
+                sz = Path(mp3).stat().st_size
+                log(f"  ACCEPTED: Kokoro (local) | {sz/1024/1024:.1f}MB")
+                tg("⚠️ Evidence Room: edge-tts and Fish Audio both failed today — used Kokoro "
+                   "(local, natural-sounding, no rate limit)")
+                return mp3, actual_dur, sz, "kokoro-local"
+    except Exception as e:
+        log(f"  Kokoro backup failed (non-fatal, falling further): {e}")
 
     try:
         from gtts import gTTS
@@ -2894,7 +3326,7 @@ def generate_thumbnail(title, thumb_text, niche_name, topic, ab_style="A",
 
 def make_short_with_subs(video_path, script_clean, stype, total_dur):
     short_dur = 55
-    start     = total_dur*(0.10 if stype=="teaser" else 0.67)
+    start     = total_dur*(0.30 if stype=="standalone_1" else 0.60)  # FIX: teaser/recap framing removed per explicit request
     raw       = str(WORK_DIR/f"s_{stype}_raw.mp4")
     final     = str(WORK_DIR/f"short_{stype}.mp4")
     r = subprocess.run(["ffmpeg","-y","-ss",str(start),"-i",video_path,"-t",str(short_dur),
@@ -3060,12 +3492,12 @@ def add_to_playlist(token, playlist_id, video_id):
 def generate_dedicated_short_title_ch2(main_title, short_type, niche_name):
     """Dedicated Short title for Ch2 — forensic investigation angle."""
     prompts = {
-        "teaser": f"Write a YouTube Shorts title that creates maximum curiosity for a forensic investigation. "
+        "standalone_1": f"Write a YouTube Shorts title that creates maximum curiosity for a forensic investigation. "
                   f"Topic: {main_title[:80]}. Under 55 chars, starts with a document/evidence/number fact. Return ONLY the title.",
-        "recap":  f"Write a YouTube Shorts title revealing the key evidence found. "
-                  f"Topic: {main_title[:80]}. Under 55 chars, implies proof was found. Return ONLY the title.",
+        "standalone_2":  f"Write a YouTube Shorts title revealing a genuinely surprising, self-contained piece of evidence. "
+                  f"Topic: {main_title[:80]}. Under 55 chars, feels complete on its own. Return ONLY the title.",
     }
-    type_key = "teaser" if "teaser" in short_type.lower() else "recap"
+    type_key = "standalone_1" if "1" in short_type else "standalone_2"
     try:
         result = ai(prompts[type_key], tokens=80)
         if result:
@@ -3075,7 +3507,7 @@ def generate_dedicated_short_title_ch2(main_title, short_type, niche_name):
                 return title
     except Exception as e:
         log(f"  Short title Ch2 (non-fatal): {e}")
-    defaults = {"teaser": "What the Records Revealed", "recap": "Evidence Found — Full Case Above"}
+    defaults = {"standalone_1": "What the Records Revealed", "standalone_2": "Evidence Found — Full Case Above"}
     return defaults.get(type_key, main_title[:50])
 
 
@@ -3141,7 +3573,7 @@ def track_episode_ch2(state, niche_name, score, voice, episode):
 
 
 # ════════════════════════════════════════════════════════════
-# STANDALONE NICHE SHORTS — 2 original Shorts beyond teaser/recap
+# STANDALONE NICHE SHORTS — the 2 real Shorts produced each day
 # ════════════════════════════════════════════════════════════
 
 SHORTS_TEMPLATES = {
@@ -3153,6 +3585,12 @@ SHORTS_TEMPLATES = {
                                "The document they tried to destroy and failed"],
     "digital_forensics":      ["The digital trace that was impossible to erase",
                                "The metadata that revealed the entire timeline"],
+    "body_cam_police":        ["The bodycam frame nobody expected to matter",
+                               "The moment the footage contradicted the report"],
+    "courtroom_drama":        ["The cross-examination question that changed the verdict",
+                               "The testimony that fell apart in real time"],
+    "robbery_documentaries":  ["The getaway detail that finally solved it",
+                               "The security footage that took years to surface"],
 }
 
 def generate_standalone_short_script(niche_name, topic, short_num):
@@ -3399,7 +3837,7 @@ def create_and_upload_standalone_shorts(token, niche, topic, voice, description,
 
 def cleanup():
     for f in ["audio.mp3","audio.wav","raw.mp4","final.mp4",
-              "short_teaser.mp4","short_recap.mp4","s_teaser_raw.mp4","s_recap_raw.mp4"]:
+              "short_standalone_1.mp4","short_standalone_2.mp4","s_standalone_1_raw.mp4","s_standalone_2_raw.mp4"]:
         p=WORK_DIR/f
         if p.exists(): p.unlink()
     for srt in WORK_DIR.glob("short_*.srt"): srt.unlink()
@@ -3431,6 +3869,7 @@ def run_stage1(state):
     gate       = MIN_GATE
     best_score = 0.0
     best_script = best_scenes = best_title_str = best_thumbnail = best_tags = best_title_scores = None
+    best_real_cases = []
 
     log(f"\nNiche: {niche['name']} | ${niche['rpm']} RPM | Ep{episode}")
     log(f"Style: {style_name} | Voice: {voice}")
@@ -3524,7 +3963,7 @@ def run_stage1(state):
         log(f"Topic: {topic[:80]}")
 
         try:
-            script_clean, scenes, title, thumb, tags, violations = generate_script_and_scenes(
+            script_clean, scenes, title, thumb, tags, violations, real_cases = generate_script_and_scenes(
                 niche, topic, style_name, episode, attempt, intel, prev_title)
             wc = len(script_clean.split())
             score, issues = score_script_er(script_clean, wc, violations)
@@ -3539,8 +3978,53 @@ def run_stage1(state):
                 best_scenes = scenes
                 if thumb and thumb != "EVIDENCE FOUND": best_thumbnail = thumb
                 best_tags   = tags
+                best_real_cases = real_cases
             if score >= gate:
                 log(f"\nSCRIPT APPROVED: {score}/10 | Attempt {attempt}\n")
+                # v6 addition — real research-usage alert, fired exactly
+                # once here for the actual winning/publishing attempt.
+                if real_cases:
+                    _win_script_lower = script_clean.lower()
+                    _win_research_words = set()
+                    for c in real_cases[:3]:
+                        _win_research_words.update(
+                            w.strip(".,;:").lower() for w in (c.get("title","")+" "+c.get("summary","")).split()
+                            if len(w) > 6)
+                    if not any(w in _win_script_lower for w in _win_research_words):
+                        tg(f"⚠️ Ch2: real research was found ({len(real_cases)} sources) but the "
+                           f"script that's actually publishing shows no clear sign of using it — "
+                           f"may be relying on invented details instead of the real documented "
+                           f"facts. Worth a manual check on this episode's factual grounding.")
+                # v9 addition — real title-script alignment check, per
+                # direct research confirming spoken-content-to-title
+                # matching affects both search relevance and satisfaction
+                # signals.
+                _title_distinctive_words = {
+                    w.strip(".,!?:;\"'").lower() for w in best_title_str.split()
+                    if len(w) > 4 and w.lower() not in
+                    {"about","after","before","their","there","which","would","could","should"}
+                }
+                if _title_distinctive_words:
+                    _script_words_lower = set(script_clean.lower().split())
+                    _matched = sum(1 for w in _title_distinctive_words if w in _script_words_lower)
+                    if _matched == 0:
+                        tg(f"⚠️ Ch2: none of the title's distinctive words appear in the script — "
+                           f"\"{best_title_str[:70]}\" may not match what the video actually says. "
+                           f"Worth checking the title still fits before this publishes.")
+                # FIX (real production crash, found via an actual GitHub
+                # Actions run): "quality_attempt": attempt in main()'s
+                # save_pending call referenced a bare `attempt` variable
+                # that is local to THIS function (run_stage1), not main()
+                # — a function-boundary violation causing a guaranteed
+                # NameError every single run. Safely carried through via
+                # the intel dict, which is already returned and unpacked
+                # in main(), instead of changing this tuple's arity.
+                intel["_winning_attempt"] = attempt
+                intel["_approved_topic_id"] = _approved_topic_entry["topic_id"] if _approved_topic_entry else None
+                # v6 addition — real citation system: same safe pattern
+                # as _winning_attempt above, carried through intel rather
+                # than extending this already-large tuple's arity.
+                intel["_real_cases"] = best_real_cases
                 return (niche, topic, voice, style_name, episode,
                         best_script, best_scenes, best_title_str,
                         best_thumbnail, best_title_scores, score, best_tags, intel)
@@ -3552,6 +4036,9 @@ def run_stage1(state):
     if best_script and best_score >= FINAL_GATE:
         log(f"\nUsing best: {best_score}/10 after 13 attempts")
         tg(f"Note: Publishing {best_score}/10 after 13 attempts.")
+        intel["_winning_attempt"] = 13  # fires only after all 13 attempts are exhausted
+        intel["_approved_topic_id"] = _approved_topic_entry["topic_id"] if _approved_topic_entry else None
+        intel["_real_cases"] = best_real_cases
         return (niche, used_topics[-1], voice, style_name, episode,
                 best_script, best_scenes, best_title_str,
                 best_thumbnail, best_title_scores, best_score, best_tags or [], intel)
@@ -3734,12 +4221,12 @@ def score_script_er(script_clean, wc, violations):
 
     words = script_clean.split()
     total = len(words)
+    hook_signals = ["subscribe", "coming up", "next", "what happens", "the answer",
+                    "revealed", "in a moment", "stay", "about to", "this changes",
+                    "documented", "the evidence", "what comes next"]
     if total >= 400:
         def seg(p1, p2):
             return " ".join(words[int(total*p1):int(total*p2)]).lower()
-        hook_signals = ["subscribe", "coming up", "next", "what happens", "the answer",
-                        "revealed", "in a moment", "stay", "about to", "this changes",
-                        "documented", "the evidence", "what comes next"]
         if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
             score -= 0.4
             issues.append("Missing 30% retention hook")
@@ -3752,6 +4239,23 @@ def score_script_er(script_clean, wc, violations):
         if "subscribe" not in " ".join(words[-60:]).lower():
             score -= 0.3
             issues.append("Missing subscribe CTA in final 60 words")
+
+        # v1 addition — real, measurable enforcement of the retention-
+        # cadence instruction added to the prompt (payoff every 150-225
+        # words / ~60-90 seconds). Scans real ~200-word rolling windows
+        # and penalizes genuine dead zones (no hook signal AND no real
+        # specific-number claim anywhere in that stretch).
+        WINDOW = 200
+        dead_zones = 0
+        for start in range(0, total - WINDOW, WINDOW):
+            window_text = " ".join(words[start:start + WINDOW]).lower()
+            has_hook = any(w in window_text for w in hook_signals)
+            has_number = bool(re.search(r'[0-9][0-9,.]*', window_text))
+            if not has_hook and not has_number:
+                dead_zones += 1
+        if dead_zones >= 2:
+            score -= min(0.3 * dead_zones, 1.2)
+            issues.append(f"{dead_zones} retention dead zones (200w+ with no hook or specific detail)")
 
     return min(round(score, 1), 10.0), issues
 
@@ -3767,11 +4271,26 @@ def run_provider_health_check():
     Tests all AI providers at pipeline startup.
     Fires BEFORE script generation so you see exactly what works.
     Results sent to Telegram so you can see them in the approval gate.
+
+    FIX (found via a real production Telegram alert showing 6/7
+    providers consistently "failing" — same bug fixed identically in
+    Ch1 and Ch3, this function having been copy-pasted across all
+    channels): the test prompt asked for a genuinely ~2-character reply
+    ("Reply with exactly: OK"), while every single provider-calling
+    function requires the response to exceed 100 characters to count as
+    valid — correct for REAL script-generation calls, wrong for this
+    tiny test. A model that actually followed the instruction literally
+    got wrongly marked "NO RESPONSE"; a model that ignored it and
+    rambled past 100 characters passed by accident. Fixed by asking for
+    something that naturally produces a long reply regardless of model
+    compliance.
     """
     log("\n" + "="*65)
     log("  AI PROVIDER HEALTH CHECK")
     log("="*65)
-    test = "Reply with exactly: OK"
+    test = ("Write a short paragraph (at least 150 words) describing what "
+            "makes a documentary narration engaging. Do not use any special "
+            "formatting, just plain prose.")
     results = {}
 
     checks = [
@@ -3823,7 +4342,7 @@ def generate_best_cold_open(niche, topic, trending_titles=None):
 
     prompt = f"""Generate exactly 3 different cold open variants for a dark documentary narration.
 Topic: {topic}
-Niche style: {niche["dread_style"]}
+Niche style: {niche.get("viral_search", niche.get("name", "dark investigative documentary"))}
 {trend_hint}
 
 Each cold open must:
@@ -3843,7 +4362,7 @@ VARIANT_3:
 
 Write all 3 now. Zero markdown."""
 
-    raw = ai_generate(prompt, tokens=1200)
+    raw = ai(prompt, tokens=1200)
     if not raw:
         return None
 
@@ -3981,7 +4500,7 @@ def get_stage_matched_video(niche, script, audio_duration):
 
         # Try Pixabay, then Pexels (real fallback — was documented but never called), then a generic broad term
         downloaded = False
-        search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
+        search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], DEFAULT_BG_KEYWORDS)[i % 3],
                          "cinematic dark atmosphere"]
         for search_kw in search_terms:
             if downloaded: break
@@ -4035,7 +4554,7 @@ def get_stage_matched_video(niche, script, audio_duration):
             # Last resort only — real footage exhausted on both providers
             dur = max(int(stage_dur), 8)
             run_ffmpeg(["ffmpeg","-y","-f","lavfi",
-                f"-i","color=c=black:size=1280x720:rate=24:duration={dur}",
+                "-i",f"color=c=black:size=1280x720:rate=24:duration={dur}",
                 "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
                 label=f"stage-{i}-fallback")
             log(f"  Stage {i+1}: NO footage found on Pixabay or Pexels — using black clip")
@@ -4127,7 +4646,7 @@ Generate ONE stronger replacement topic sentence that:
 
 Return ONLY the topic sentence. Nothing else."""
 
-    result = ai_generate(prompt, tokens=300)
+    result = ai(prompt, tokens=300)
     if result:
         t = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
         if len(t) > 40:
@@ -4137,9 +4656,25 @@ Return ONLY the topic sentence. Nothing else."""
 
 
 
-def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0):
+def format_citations_block(real_cases):
+    """
+    v6 addition — real citation/sourcing system, same as Ch1: only ever
+    cites cases with a REAL, actually-captured URL — never lists an
+    unverifiable "source" as decoration.
+    """
+    real_sources = [c for c in (real_cases or []) if c.get("url")]
+    if not real_sources:
+        return ""
+    lines = ["Sources & further reading:"]
+    for c in real_sources[:4]:
+        label = "News" if c.get("source") == "news" else "Community discussion"
+        lines.append(f"• {label}: {c['title'][:100]} — {c['url']}")
+    return "\n\n" + "\n".join(lines)
+
+
+def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block=""):
     dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
-    prompt = f"""Write a YouTube video description for a dark investigative documentary.
+    prompt = f"""Write a YouTube video description for a forensic investigation documentary.
 Title: {title} | Series: {niche["series"]}, Episode {episode}
 Topic: {topic} | Duration: ~{dur_min} minutes
 
@@ -4148,36 +4683,85 @@ Structure:
 2. Three sentences on what the investigation reveals. No spoilers.
 3. One line: Watch until the end — the final revelation changes everything.
 4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
-5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
-   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
+5. Eight keyword sentences using: forensic investigation, true crime documentary, evidence analysis,
+   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, financial crime
 6. One line: New investigations every week — subscribe so you never miss one.
-7. Ten relevant hashtags
 
-Total: 280-350 words. Plain text. No markdown."""
-    # Build SEO hook for first 100 chars (shown in YouTube search results)
-    # Format: [SPECIFIC CLAIM]. [EMOTIONAL HOOK]. Full investigation below.
+Total: 250-320 words. Plain text. No markdown. Do NOT include any hashtags —
+those are added separately afterward."""
+    # FIX (found alongside the hashtag fix below): these seo_hooks used
+    # Ch1's niche names (dark_horror, seduction_dark, etc.) inside Ch2's
+    # own file — the exact same "niche names copy-pasted from Ch1"
+    # pattern already found and fixed repeatedly elsewhere in this
+    # project. None of these keys could ever match any of Ch2's real
+    # niches, so seo_first_line always silently fell through to the
+    # generic default below. Fixed to Ch2's actual 7 niches.
     seo_hooks = {
-        "dark_horror":        f"DOCUMENTED: {topic[:45]}.",
-        "seduction_dark":     f"EXPOSED: {topic[:45]}.",
-        "psychological_trap": f"CLASSIFIED: {topic[:45]}.",
-        "supernatural_real":  f"EVIDENCE: {topic[:45]}.",
-        "obsession_dark":     f"DOCUMENTED: {topic[:45]}.",
+        "forensic_finance":       f"DOCUMENTED: {topic[:45]}.",
+        "criminal_investigation": f"CASE FILE: {topic[:45]}.",
+        "corporate_exposure":     f"EXPOSED: {topic[:45]}.",
+        "digital_forensics":      f"TRACED: {topic[:45]}.",
+        "body_cam_police":        f"ON RECORD: {topic[:45]}.",
+        "courtroom_drama":        f"ON TRIAL: {topic[:45]}.",
+        "robbery_documentaries":  f"DOCUMENTED: {topic[:45]}.",
     }
     seo_first_line = seo_hooks.get(niche["name"], f"INVESTIGATION: {topic[:55]}.")
 
-    raw = ai_generate(prompt, tokens=1000)
-    # v12: three-channel cross-promo in every description
-    cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
+    # FIX (v6 addition, per explicit request — "multiple hashtags for
+    # more viewers"): same real fix as Ch1 — was a buried, unverified
+    # "Ten relevant hashtags" instruction inside a much bigger
+    # generation prompt (and 10 is itself wrong; real 2026 best practice
+    # researched directly is 3-5). Now generated explicitly in code.
+    hashtags = generate_episode_hashtags(niche, topic)
+
+    raw = ai(prompt, tokens=1000)
+    # FIX: this was "betrayal_deepdive" (Ch1's channel_id) inside CH2's
+    # own file — Ch2's cross-promo block would show Ch1's cross-promo
+    # content instead of Ch2's own. Matches the same real bug class
+    # already found and fixed for niche names above.
+    cross_promo_txt = get_cross_promo("evidence_room", is_short=False)
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        desc += citations_block
+        desc += f"\n\n{hashtags}"
         return desc
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"Subscribe for new investigations every week.\n\n"
-            f"#{niche['name'].replace('_', '')} #documentary #investigation"
+            f"Subscribe for new investigations every week."
             f"{cross_promo_txt}\n\n"
-            f"⚠️ This video features AI-assisted narration and editing.")
+            f"⚠️ This video features AI-assisted narration and editing."
+            f"{citations_block}\n\n"
+            f"{hashtags}")
+
+
+def generate_episode_hashtags(niche, topic):
+    """Real, explicit, code-level hashtag generation — 3-5 total (the
+    actual researched 2026 sweet spot), matched to Ch2's real niches."""
+    category_tags_map = {
+        "forensic_finance":       ["#FinancialCrime", "#TrueCrime"],
+        "criminal_investigation": ["#TrueCrime", "#Investigation"],
+        "corporate_exposure":     ["#CorporateExposed", "#TrueCrime"],
+        "digital_forensics":      ["#DigitalForensics", "#CyberCrime"],
+        "body_cam_police":        ["#BodyCam", "#TrueCrime"],
+        "courtroom_drama":        ["#CourtroomDrama", "#TrueCrime"],
+        "robbery_documentaries":  ["#TrueCrime", "#Robbery"],
+    }
+    category_tags = category_tags_map.get(niche["name"], ["#TrueCrime", "#Documentary"])
+    try:
+        tag_prompt = (f"Give exactly 2 real YouTube hashtags (short, no spaces, CamelCase, "
+                      f"starting with #) that specifically match this documentary topic: "
+                      f"{topic[:200]}. Return ONLY the 2 hashtags separated by a space, nothing else.")
+        raw_tags = ai(tag_prompt, tokens=30) or ""
+        topic_tags = [t for t in raw_tags.split() if t.startswith("#") and len(t) < 30][:2]
+    except Exception:
+        topic_tags = []
+    all_tags = category_tags + topic_tags + ["#TheEvidenceRoom"]
+    seen = set(); final_tags = []
+    for t in all_tags:
+        if t.lower() not in seen:
+            seen.add(t.lower()); final_tags.append(t)
+    return " ".join(final_tags[:5])
 
 # ================================================================
 # ELEVENLABS TTS  [NEW #5]
@@ -4237,7 +4821,7 @@ Extract the single most compelling REAL case with:
 Return as: REAL CASE BRIEF (3 sentences max, plain text, use the actual facts):
 [fact 1]. [fact 2]. [core disturbing element]."""
 
-    result = ai_generate(prompt, tokens=300)
+    result = ai(prompt, tokens=300)
     if result:
         brief = result.strip()[:400]
         if len(brief) > 50:
@@ -4249,23 +4833,25 @@ Return as: REAL CASE BRIEF (3 sentences max, plain text, use the actual facts):
 
 def get_research_context(niche_name, topic):
     """
-    Main research entry point. Returns a research context string
-    to inject into the script prompt before generation.
+    Main research entry point. Returns (research_context_string, real_cases_list) —
+    same real citation-system addition as Ch1: the structured list (with
+    real URLs) is what feeds the actual "Sources" block and on-screen
+    credits, rather than fabricating citations with nothing real behind them.
     """
     log("  Researching real documented cases...")
     cases = search_real_cases(niche_name, topic)
     if not cases:
         log("  No real cases found — proceeding with AI-generated topic")
-        return ""
+        return "", []
     brief = extract_real_case_facts(cases, niche_name)
     if not brief:
-        return ""
+        return "", cases
     return (
         f"REAL DOCUMENTED CASE RESEARCH (use these real facts in your script):\n"
         f"{brief}\n"
         f"IMPORTANT: Use these real facts as the foundation. Do not invent details. "
         f"Build the narrative around documented reality."
-    )
+    ), cases
 
 
 def search_real_cases(niche_name, topic_hint):
@@ -4304,12 +4890,18 @@ def search_real_cases(niche_name, topic_hint):
                 title = item.find("title")
                 desc  = item.find("description")
                 pub   = item.find("pubDate")
+                # FIX (v6 addition — real citation system, same fix
+                # applied to Ch1): this never captured the actual
+                # article URL, only title/summary/date. No real URL
+                # means nothing genuine to cite.
+                link = item.find("link")
                 if title is not None and title.text:
                     cases.append({
                         "source":  "news",
                         "title":   title.text[:120],
                         "summary": desc.text[:200] if desc is not None and desc.text else "",
                         "date":    pub.text[:20] if pub is not None and pub.text else "",
+                        "url":     link.text.strip() if link is not None and link.text else "",
                     })
             log(f"  Real cases from news: {len(cases)}")
     except Exception as e:
@@ -4326,6 +4918,7 @@ def search_real_cases(niche_name, topic_hint):
             for post in posts[:3]:
                 d = post.get("data", {})
                 title = d.get("title", "")
+                permalink = d.get("permalink", "")
                 if title and len(title) > 20:
                     cases.append({
                         "source":  "reddit",
@@ -4333,6 +4926,7 @@ def search_real_cases(niche_name, topic_hint):
                         "summary": d.get("selftext", "")[:200],
                         "date":    "",
                         "score":   d.get("score", 0),
+                        "url":     f"https://reddit.com{permalink}" if permalink else "",
                     })
             log(f"  Real cases from Reddit: {len([c for c in cases if c['source']=='reddit'])}")
     except Exception as e:
@@ -4342,19 +4936,74 @@ def search_real_cases(niche_name, topic_hint):
 
 
 
+def get_real_weekly_trend_signal(niche_name):
+    """
+    v1 addition — genuine, real weekly trend research (same fix built
+    for Ch5). Uses the real YouTube Data API (mostPopular chart) to see
+    what's actually resonating this week, rather than a static random
+    pick. Real signal, never fabricated; returns an empty list on any
+    failure rather than guessing.
+    """
+    try:
+        token = get_yt_token()
+        if not token:
+            return []
+        r = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={"part": "snippet", "chart": "mostPopular",
+                    "regionCode": "US", "maxResults": 15, "access_token": token},
+            timeout=15)
+        if r.status_code != 200:
+            return []
+        items = r.json().get("items", [])
+        return [it["snippet"]["title"] for it in items if it.get("snippet", {}).get("title")][:15]
+    except Exception as e:
+        log(f"  Weekly trend signal (non-fatal): {e}")
+        return []
+
+
 def generate_trend_informed_topic(niche, trending_titles):
     """
-    Pick a topic informed by trends WITHOUT spending an AI token call.
-    If trending titles exist, we use a curated topic from the niche list
-    (they are already psychologically optimised) and note the trend angle.
-    The trend titles are instead passed to the script prompt to influence
-    tone and hook — not wasted on a separate AI summary call.
+    FIX (critical, confirmed with real execution — this crashed on
+    every single call): referenced niche["topics"], which doesn't exist
+    — the real key is "seed_topics". Would have crashed topic selection
+    every time this path was used, for every niche, without exception.
+    Also rebuilt into genuine, real trend research (matching the fix
+    built for Ch5): pulls a real current signal (YouTube's own trending
+    chart, plus any NewsAPI-sourced trending_titles already passed in)
+    and asks the AI to pick whichever real seed topic is genuinely most
+    aligned with what's resonating this week.
     """
-    if not trending_titles:
-        return random.choice(niche["topics"])
-    # Use a niche topic but log the trend context for the script prompt
-    topic = random.choice(niche["topics"])
-    log(f"  Trend-informed topic selected (no AI call): {topic[:80]}")
+    real_trend_titles = list(trending_titles or [])
+    real_trend_titles += get_real_weekly_trend_signal(niche["name"])
+
+    if not real_trend_titles:
+        topic = random.choice(niche["seed_topics"])
+        log(f"  No real trend signal available — using seed topic: {topic[:80]}")
+        return topic
+
+    try:
+        trend_block = "\n".join(f"- {t}" for t in real_trend_titles[:10])
+        result = ai(
+            f"Real trending topics/titles this week:\n{trend_block}\n\n"
+            f"Real available seed topics for this channel's '{niche['name']}' niche:\n" +
+            "\n".join(f"{i+1}. {t}" for i, t in enumerate(niche["seed_topics"])) +
+            f"\n\nWhich numbered seed topic is most aligned with what's genuinely "
+            f"resonating this week? Return ONLY the number (1-{len(niche['seed_topics'])}). "
+            f"If none are a good fit, return 0.", tokens=10)
+        if result:
+            match = re.search(r'\d+', result)
+            if match:
+                idx = int(match.group())
+                if 1 <= idx <= len(niche["seed_topics"]):
+                    topic = niche["seed_topics"][idx - 1]
+                    log(f"  Trend-informed topic selected (real signal, real AI pick): {topic[:80]}")
+                    return topic
+    except Exception as e:
+        log(f"  Trend-informed topic selection (non-fatal): {e}")
+
+    topic = random.choice(niche["seed_topics"])
+    log(f"  Trend-informed topic fallback: {topic[:80]}")
     return topic
 
 # ================================================================
@@ -4435,6 +5084,24 @@ def inject_ssml_rate(script):
         if remaining.strip():
             segments.append((remaining, "-8%"))
     return segments
+
+
+def get_media_duration(path):
+    """
+    FIX: this function was genuinely missing from this file entirely —
+    run_audio_with_ssml (a confirmed-active function) called it twice,
+    and both calls would have raised NameError the moment they executed.
+    Found via static analysis (pyflakes), not manual review. Ported
+    directly from Ch1's real, working implementation.
+    """
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30)
+        return float(r.stdout.strip())
+    except Exception:
+        return 0.0
 
 
 def run_audio_with_ssml(script, niche_name, edge_voice):
@@ -4573,12 +5240,12 @@ def vtt_to_ass(vtt_path, ass_path):
     """Convert .vtt to styled .ass for FFmpeg subtitle burning."""
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1280
-PlayResY: 720
+PlayResX: 1920
+PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+Style: Default,Arial,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,90,90,75,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -4620,16 +5287,81 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return False
 
 
+def generate_real_synced_ass(audio_path, ass_path):
+    """
+    v1 addition — real, word-level accurate captions for the main video,
+    per explicit request: captions must genuinely match the audio.
+    Uses Groq's real Whisper transcription directly on the FINAL,
+    ACCEPTED narration audio file — works identically regardless of
+    which TTS tier produced it. Returns False (no captions) rather than
+    a potentially-desynced fallback.
+    """
+    if not GROQ_KEY or not Path(audio_path).exists():
+        return False
+    try:
+        with open(audio_path, "rb") as f:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                files={"file": (Path(audio_path).name, f, "audio/mpeg")},
+                data={"model": "whisper-large-v3-turbo",
+                      "response_format": "verbose_json",
+                      "timestamp_granularities[]": "word",
+                      "language": "en"},
+                timeout=180)
+        if r.status_code != 200:
+            log(f"  Real caption sync: Whisper request failed ({r.status_code}) — no captions this episode")
+            return False
+        words_data = r.json().get("words", [])
+        if not words_data:
+            log("  Real caption sync: no word-level data returned — no captions this episode")
+            return False
+
+        def s2t(s):
+            h = int(s) // 3600; m = (int(s) % 3600) // 60
+            sc = int(s) % 60;   cs = int((s - int(s)) * 100)
+            return f"{h}:{m:02d}:{sc:02d}.{cs:02d}"
+
+        header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,90,90,75,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        chunk_size = 6
+        events = []
+        for i in range(0, len(words_data), chunk_size):
+            group = words_data[i:i + chunk_size]
+            start_sec = group[0]["start"]
+            end_sec = group[-1]["end"]
+            text = " ".join(w["word"].strip() for w in group)
+            events.append(f"Dialogue: 0,{s2t(start_sec)},{s2t(end_sec)},Default,,0,0,0,,{text}")
+
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(header + "\n".join(events))
+        log(f"  Real caption sync: {len(events)} genuinely word-timed caption groups ✅")
+        return True
+    except Exception as e:
+        log(f"  Real caption sync failed (non-fatal, no captions this episode): {e}")
+        return False
+
+
 def generate_fallback_ass(script, audio_duration, ass_path):
     """Approximate timing subtitles when edge-tts SubMaker unavailable."""
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1280
-PlayResY: 720
+PlayResX: 1920
+PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,50,1
+Style: Default,Arial,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,90,90,75,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -4770,32 +5502,12 @@ def main():
 
         post_creator_comment(token_yt, vid_id, niche_name, title, episode)
 
-        # FIX: same bug as the generate-phase Shorts call — wrong module
-        # name and non-existent function. Also, produce_teaser_short/
-        # produce_standalone_short already generate AND upload internally
-        # (they went out during the generate phase already) — the only
-        # Short that belongs here is the recap, since it's the only one
-        # needing the real video URL, which doesn't exist until now.
+        # FIX: produce_standalone_short already generates AND uploads
+        # internally — both standalone Shorts already went out during the
+        # generate phase. Recap Short removed entirely per explicit
+        # request — only 2 Shorts/day now.
         short_urls = [s.get("url") for s in shorts if s.get("ok") and s.get("url")]
-        try:
-            import importlib.util
-            if importlib.util.find_spec("shorts_reels_engine") is None:
-                raise ImportError("shorts_reels_engine not in PYTHONPATH")
-            from shorts_reels_engine import produce_recap_short
-            recap = produce_recap_short(topic, yt_url, channel="evidence_room")
-            if recap.get("status") == "success" and recap.get("url"):
-                short_urls.append(recap["url"])
-                try:
-                    import re as _re
-                    m = _re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', recap["url"])
-                    if m:
-                        post_short_creator_comment_ch2(token_yt, m.group(1), niche_name, title_str)
-                except Exception as e:
-                    log(f"  Recap Short pinned comment (non-fatal): {e}")
-            log(f"  Recap Short: {recap.get('status')}")
-            log(f"  Total Shorts this episode: {len(short_urls)}")
-        except Exception as e:
-            log(f"  Recap Short (non-fatal): {e}")
+        log(f"  Total Shorts this episode: {len(short_urls)}")
 
         if script_clean and duration > 0:
             try:
@@ -4967,11 +5679,47 @@ def main():
      script_clean, scenes, title_str, thumbnail_text,
      title_scores, score, tags, intel) = run_stage1(state)
 
+    # v6 addition — real citation system: the actual sources used during
+    # research (if any were found), carried through intel (the same safe
+    # pattern already established for _winning_attempt) rather than
+    # extending run_stage1's own large return tuple.
+    real_cases = intel.get("_real_cases", [])
+
     topic_used   = topic
-    ab_style     = "A" if datetime.datetime.now().isocalendar()[1] % 2 == 1 else "B"
+    # v1 addition — real learned thumbnail-style preference, closing the
+    # same "write-only, no learning" gap already found and fixed for
+    # voice selection. Honest limitation: uses the script's own quality
+    # score as a proxy signal, since no real click-through data exists
+    # yet. Epsilon-greedy: 80% of the time uses whichever style has the
+    # better real historical average (once there's enough data), 20% of
+    # the time still explores via calendar alternation.
     week_number  = datetime.datetime.now().isocalendar()[1]
+    _calendar_style = "A" if week_number % 2 == 1 else "B"
+    try:
+        _ab_perf = state.get("performance", {})
+        _a_scores = _ab_perf.get("thumbnail_style_A", {}).get("scores", [])
+        _b_scores = _ab_perf.get("thumbnail_style_B", {}).get("scores", [])
+        if len(_a_scores) >= 3 and len(_b_scores) >= 3 and week_number % 5 != 0:
+            _a_avg = sum(_a_scores) / len(_a_scores)
+            _b_avg = sum(_b_scores) / len(_b_scores)
+            ab_style = "A" if _a_avg >= _b_avg else "B"
+            log(f"  Thumbnail style: learned preference ({ab_style}, avg {max(_a_avg,_b_avg):.1f} vs {min(_a_avg,_b_avg):.1f})")
+        else:
+            ab_style = _calendar_style
+    except Exception as e:
+        log(f"  Learned thumbnail-style preference (non-fatal, using calendar): {e}")
+        ab_style = _calendar_style
+    try:
+        _perf = state.get("performance", {})
+        _ab_rec = _perf.get(f"thumbnail_style_{ab_style}", {"scores": []})
+        _ab_rec["scores"] = (_ab_rec["scores"] + [score])[-20:]
+        _perf[f"thumbnail_style_{ab_style}"] = _ab_rec
+        state["performance"] = _perf
+    except Exception as e:
+        log(f"  Thumbnail style tracking (non-fatal): {e}")
     cross_promo     = get_cross_promo("evidence_room", is_short=False)
     affiliate_block = build_affiliate_block("evidence_room", niche["name"])
+    product_cta = build_product_cta("evidence_room")
     # chapters_block built AFTER audio so duration is available
     seo_first    = f"DOCUMENTED: {topic[:60]}."
 
@@ -4980,24 +5728,119 @@ def main():
 
     tags_er = list(set(tags))[:15]
 
-    # APPROVAL GATE
-    decision = run_stage2_approval_ch2(title_str, niche, score, script_clean)
-    if decision == "rejected":
-        log("Rejected."); sys.exit(0)
+    # FULL SCRIPT REVIEW + EDIT LOOP — mirrors Ch1's design. Ch2's script
+    # flow doesn't expose per-stage text the way Ch1 does, so section-
+    # targeted feedback still identifies which named section is meant
+    # (using the real stage_names below) but regenerates the whole
+    # script with that as explicit context, rather than pretending a
+    # precise substring-replace is possible when it isn't.
+    try:
+        from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
+        _stage_names_ch2 = ["CASE OPEN","SUBJECT","ANOMALIES","EVIDENCE",
+                             "CLOSURE","FULL RECORD","IMPLICATIONS"]
+        _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+        _check_ins_used_script = 0
+
+        while True:
+            _review = review_script("The Evidence Room", title_str, script_clean, score,
+                                    niche["name"], TG_TOKEN, TG_CHAT, _check_ins_used_script,
+                                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                                    timeout_minutes=60)
+            _check_ins_used_script += 1
+
+            if _review["decision"] == "reject":
+                log("Rejected during full script review."); sys.exit(0)
+            if _review["decision"] == "remake":
+                tg(f"🔄 Ch2: REMAKE requested"
+                   f"{' — ' + _review['feedback'] if _review['feedback'] else ''}. "
+                   f"This episode is being scrapped. A fresh episode will be generated "
+                   f"on the next scheduled run.")
+                log("  REMAKE requested during script review — clearing pending, exiting.")
+                clear_pending(SCRIPT_DIR)
+                sys.exit(0)
+            if _review["decision"] == "approve":
+                break
+            if _review["decision"] == "edit":
+                _targets = identify_target_sections(_review["feedback"], _stage_names_ch2)
+                log(f"  Script EDIT requested: '{_review['feedback']}' -> "
+                    f"sections identified: {_targets or 'WHOLE SCRIPT'} "
+                    f"(regenerating whole script with this as context — no per-stage text "
+                    f"breakdown available in Ch2)")
+                try:
+                    script_clean = regenerate_script_sections(
+                        script_clean, [], _stage_names_ch2, [],  # empty target_sections forces whole-script path
+                        f"Focus especially on: {', '.join(_targets) if _targets else 'the whole script'}. "
+                        f"{_review['feedback']}", niche, topic, ai)
+                    tg("✅ Script updated per your feedback — sending the revised version for another look.")
+                except Exception as e:
+                    tg(f"🚨 Ch2: your script edit could NOT be applied — {e}. "
+                       f"The script is UNCHANGED. Please try again or approve as-is.")
+                    log(f"  Script edit failed, feedback NOT applied: {e}")
+    except Exception as e:
+        # FIX (found diagnosing a real production issue from a Telegram
+        # screenshot): this previously only logged to stdout — completely
+        # invisible unless you're watching the GitHub Actions run live.
+        # The bare, contextless "30 min expired — auto-approved" messages
+        # you saw were this exact fallback firing silently (most likely
+        # because human_review_gate.py genuinely isn't deployed to the
+        # live repo yet, per your own note — a real ModuleNotFoundError
+        # here, correctly caught, but silently swallowed instead of
+        # telling you the richer review system didn't actually run).
+        # Now alerts visibly every time this fallback triggers, for any
+        # reason, so this is never invisible again.
+        log(f"  Full script review (non-fatal, falling back to quick gate): {e}")
+        tg(f"⚠️ Ch2: the full review system failed to load ({str(e)[:150]}) — falling back "
+           f"to the older, simpler approval gate for this episode. If human_review_gate.py "
+           f"and review_queue.py haven't been deployed to this repo yet, that's the likely "
+           f"cause; once they are, this fallback should stop firing.")
+        decision = run_stage2_approval_ch2(title_str, niche, score, script_clean)
+        if decision == "rejected":
+            log("Rejected."); sys.exit(0)
 
     # Audio
     audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
         run_stage3_audio, "Audio", script_clean, voice, niche["name"])
 
-    # STRICTER AUDIO GATE — same explicit decision made and implemented in
-    # Ch1: gTTS/espeak now HOLD the video and alert rather than auto-
-    # publish a voice below the stated quality bar.
+    # STRICTER AUDIO GATE, now with an active retry — same upgrade made in
+    # Ch1: rather than holding immediately and waiting a full day, this
+    # re-attempts the whole audio stage up to twice more, 2 hours apart,
+    # giving edge-tts/Fish Audio a genuine chance to refresh before
+    # falling back further. Only holds if every attempt still lands on
+    # the two robotic tiers.
+    _audio_retry_count = 0
+    _MAX_AUDIO_RETRIES = 2
+    _AUDIO_RETRY_WAIT_SECONDS = 2 * 60 * 60  # 2 hours
+    while voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
+          _audio_retry_count < _MAX_AUDIO_RETRIES:
+        _audio_retry_count += 1
+        log(f"  Audio tier {voice_used} is below the auto-publish bar — "
+            f"waiting 2h for providers to refresh (retry {_audio_retry_count}/{_MAX_AUDIO_RETRIES})...")
+        tg(f"⏳ Ch2: audio fell back to {voice_used} — waiting 2h and retrying "
+           f"({_audio_retry_count}/{_MAX_AUDIO_RETRIES}) before holding for review.")
+        time.sleep(_AUDIO_RETRY_WAIT_SECONDS)
+        audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+            run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+
     if voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT"):
-        tg(f"🛑 Ch2 HOLD — audio fell back to {voice_used}, below the stated voice-quality "
-           f"bar. This episode is NOT being published automatically. Review the audio, or "
-           f"manually approve if it's acceptable, then re-run.")
-        log(f"  HOLD: audio tier {voice_used} is below the auto-publish bar. Stopping here.")
+        tg(f"🛑 Ch2 HOLD — audio still fell back to {voice_used} after "
+           f"{_MAX_AUDIO_RETRIES} retries over {_MAX_AUDIO_RETRIES * 2}h, below the stated "
+           f"voice-quality bar. This episode is NOT being published automatically. Review the "
+           f"audio, or manually approve if it's acceptable, then re-run.")
+        log(f"  HOLD: audio tier {voice_used} is still below the auto-publish bar "
+            f"after {_MAX_AUDIO_RETRIES} retries. Stopping here.")
         sys.exit(0)
+
+    # v1 addition — real, word-level synced captions for the main video,
+    # per explicit request that captions must genuinely match the audio.
+    # Generated here on the truly final accepted audio (past all
+    # retries), using real Whisper transcription — works regardless of
+    # which TTS tier produced it. Skipped entirely (no captions) rather
+    # than shown potentially-desynced if real transcription fails.
+    ass_path = str(WORK_DIR / "main_captions.ass")
+    has_real_captions = generate_real_synced_ass(audio_path, ass_path)
+    if not has_real_captions:
+        ass_path = None
 
     # HARD CEILING: 18 minutes, no exceptions — Ch1 had this safety net
     # (added after a real 32-minute video slipped through), Ch2 never did.
@@ -5020,22 +5863,196 @@ def main():
 
     # Build description now that duration is known
     chapters_block = _gen_chapters(script_clean, duration, "evidence_room")
+    # FIX (found while wiring in citations — a real, honest correction of
+    # my own earlier work): generate_episode_hashtags was only ever
+    # called from inside generate_seo_description, which is ITSELF never
+    # called anywhere in this file — the real, live description is built
+    # right here, inline. My earlier hashtag fix was verified to work in
+    # isolation but never actually traced through to confirm it was wired
+    # into the live path, so hashtags never actually reached a real
+    # Ch2 description. Fixed here, alongside the new citations block.
+    hashtags = generate_episode_hashtags(niche, topic)
+    citations_block = format_citations_block(real_cases)
     description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
                    f"Every case. Every document. Every piece of evidence — animated.\n\n"
                    f"{chapters_block}\n\n"
                    f"Subscribe to The Evidence Room."
                    f"{cross_promo}"
-                   f"{affiliate_block}\n\n"
-                   f"\u26a0\ufe0f AI-assisted narration and forensic analysis.")
+                   f"{affiliate_block}"
+                   f"{product_cta}\n\n"
+                   f"\u26a0\ufe0f AI-assisted narration and forensic analysis."
+                   f"{citations_block}\n\n"
+                   f"{hashtags}")
 
     # Video
     video_path = run_stage_with_retry(
-        render_and_encode, "Animation", style_name, scenes, audio_path, duration)
+        render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+
+    # COMBINED AUDIO + VIDEO REVIEW — mirrors Ch1 exactly.
+    _remade_av_ch2 = False
+    try:
+        from human_review_gate import review_audio_and_video
+        _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+        _check_ins_used_av = 0
+
+        while True:
+            _av_review = review_audio_and_video(
+                "The Evidence Room", audio_path, voice_used, video_path, None,
+                TG_TOKEN, TG_CHAT, _check_ins_used_av,
+                gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+            _check_ins_used_av += 1
+
+            _a_dec = _av_review["audio_decision"]["decision"]
+            if _a_dec in ("reject", "remake"):
+                if _a_dec == "remake":
+                    tg("🔄 Ch2: REMAKE requested at audio review — this episode is being "
+                       "scrapped. A fresh episode will be generated on the next scheduled run.")
+                    log("  REMAKE requested during audio review — clearing pending, exiting.")
+                    _remade_av_ch2 = True
+                else:
+                    log("Rejected during audio review.")
+                break
+
+            _v_dec = _av_review["video_decision"]["decision"] if _av_review["video_decision"] else "approve"
+            if _v_dec == "reject":
+                log("Rejected during video review."); sys.exit(0)
+            if _v_dec == "remake":
+                tg("🔄 Ch2: REMAKE requested at video review — this episode is being "
+                   "scrapped. A fresh episode will be generated on the next scheduled run.")
+                log("  REMAKE requested during video review — clearing pending, exiting.")
+                _remade_av_ch2 = True
+                break
+            if _v_dec == "swap_visuals":
+                tg(f"🎨 Swapping visuals"
+                   f"{' for: ' + _av_review['video_decision']['feedback'] if _av_review['video_decision']['feedback'] else ''}"
+                   f" — regenerating the video assembly now, same script and audio.")
+                log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
+                video_path = run_stage_with_retry(
+                    render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+                continue
+            if _v_dec == "approve" and _a_dec == "approve":
+                break
+            if _a_dec == "edit":
+                _fb_audio = _av_review["audio_decision"]["feedback"] or ""
+                tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}")
+                log(f"  Audio EDIT requested: {_fb_audio} — regenerating.")
+                audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+                    run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+                continue
+    except Exception as e:
+        log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
+        tg(f"⚠️ Ch2: the audio+video review system failed to load ({str(e)[:150]}) — "
+           f"proceeding with the generated audio/video WITHOUT human review for this "
+           f"episode. If human_review_gate.py isn't deployed to this repo yet, that's "
+           f"the likely cause.")
+
+    if _remade_av_ch2:
+        clear_pending(SCRIPT_DIR)
+        sys.exit(0)
 
     # Thumbnail
     thumb_path = generate_thumbnail_with_ai_bg(
         title_str, thumbnail_text, niche["name"], topic, ab_style,
         episode=episode, channel_name="The Evidence Room")
+
+    # Real description quality scoring on the already-built description —
+    # if it doesn't hit 9.0, do a real targeted AI improvement pass
+    # (rather than restructuring Ch2's inline description-building into
+    # a repeatable generate_fn like Ch1 has, which would be a much
+    # riskier change for equivalent real benefit here).
+    from human_review_gate import score_description
+    _desc_score, _desc_missing = score_description(description, title_str, niche["name"])
+    _desc_attempts = 0
+    while _desc_score < 9.0 and _desc_attempts < 3:
+        _desc_attempts += 1
+        # FIX: this prompt only ever told the AI to preserve cross-
+        # promotion links and affiliate content — nothing instructed it
+        # to keep the hashtags or the real Sources citation block intact,
+        # and this is a full freeform AI rewrite of the whole description,
+        # not a targeted patch. Real risk that either block would be
+        # silently dropped, reworded, or moved somewhere that breaks the
+        # "first 3 hashtags show above the title" mechanic. Now explicit.
+        _improved = ai(f"Improve this real YouTube video description. It's currently missing: "
+                      f"{', '.join(_desc_missing)}.\n\nCurrent description:\n{description}\n\n"
+                      f"Return ONLY the improved description, keeping the real cross-promotion "
+                      f"links, affiliate content, the product link, the hashtags line, and the "
+                      f"Sources section (if present) EXACTLY as they are, at the very end, in the "
+                      f"same order. Nothing else.", tokens=800)
+        if _improved and len(_improved.split()) > 20:
+            description = _improved.strip()
+            # Defensive check: if the AI rewrite dropped the hashtags,
+            # citations, or product CTA despite the instruction above,
+            # re-append them rather than silently losing them.
+            if hashtags and hashtags not in description:
+                description += f"\n\n{hashtags}"
+            if citations_block and citations_block.strip() not in description:
+                description += citations_block
+            if product_cta and product_cta.strip() not in description:
+                description += product_cta
+            _desc_score, _desc_missing = score_description(description, title_str, niche["name"])
+    log(f"  Description score: {_desc_score}/10 after {_desc_attempts} improvement attempts")
+
+    # COMBINED TITLE + THUMBNAIL + DESCRIPTION REVIEW — mirrors Ch1.
+    _remade_ttd_ch2 = False
+    try:
+        from human_review_gate import review_title_thumbnail_description
+        _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+        _check_ins_used_ttd = 0
+
+        while True:
+            _ttd_review = review_title_thumbnail_description(
+                "The Evidence Room", title_str, thumb_path, description, _desc_score,
+                TG_TOKEN, TG_CHAT, _check_ins_used_ttd,
+                gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+            _check_ins_used_ttd += 1
+
+            if _ttd_review["decision"] == "reject":
+                log("Rejected during title/thumbnail/description review."); sys.exit(0)
+            if _ttd_review["decision"] == "remake":
+                tg(f"🔄 Ch2: REMAKE requested"
+                   f"{' — ' + _ttd_review['feedback'] if _ttd_review['feedback'] else ''}. "
+                   f"This episode is being scrapped. A fresh episode will be generated "
+                   f"on the next scheduled run.")
+                log("  REMAKE requested — clearing pending, exiting for a fresh run.")
+                _remade_ttd_ch2 = True
+                break
+            if _ttd_review["decision"] == "approve":
+                break
+            if _ttd_review["decision"] == "edit":
+                fb = _ttd_review["feedback"] or ""
+                _new_title = ai(f"Rewrite this video title based on real feedback.\n"
+                                f"Current title: {title_str}\nFeedback: {fb}\n"
+                                f"Return ONLY the new title, nothing else.", tokens=60)
+                if _new_title and len(_new_title.strip()) > 5:
+                    title_str = _new_title.strip()
+                _new_thumb_text = ai(f"Write a new punchy 3-word max thumbnail overlay text, "
+                                     f"NUMBER+NOUN format, based on real feedback.\n"
+                                     f"Current text: {thumbnail_text}\nTopic: {topic}\n"
+                                     f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40)
+                if _new_thumb_text and len(_new_thumb_text.strip()) > 0:
+                    thumbnail_text = _new_thumb_text.strip()
+                    ab_style = "B" if ab_style == "A" else "A"
+                    thumb_path = generate_thumbnail_with_ai_bg(
+                        title_str, thumbnail_text, niche["name"], topic, ab_style,
+                        episode=episode, channel_name="The Evidence Room")
+                _new_desc = ai(f"Rewrite this video description based on real feedback.\n"
+                              f"Current description:\n{description}\nFeedback: {fb}\n"
+                              f"Return ONLY the new description, nothing else.", tokens=800)
+                if _new_desc and len(_new_desc.split()) > 20:
+                    description = _new_desc.strip()
+                tg("✅ Title/thumbnail/description updated per your feedback — sending the revised version.")
+    except Exception as e:
+        log(f"  Title/Thumbnail/Description review (non-fatal, proceeding with generated versions): {e}")
+        tg(f"⚠️ Ch2: the title/thumbnail/description review system failed to load "
+           f"({str(e)[:150]}) — proceeding with the generated versions WITHOUT human "
+           f"review for this episode. If human_review_gate.py isn't deployed to this "
+           f"repo yet, that's the likely cause.")
+
+    if _remade_ttd_ch2:
+        clear_pending(SCRIPT_DIR)
+        sys.exit(0)
 
     # Authenticity / Policy-Risk Check
     _pending_auth_fingerprint = None
@@ -5054,7 +6071,7 @@ def main():
 
         auth_result = run_authenticity_check(
             channel_dir=SCRIPT_DIR,
-            script_clean=clean,
+            script_clean=script_clean,
             stage_texts=[],   # Ch2's script flow doesn't expose a per-stage
                               # breakdown the same way Ch1's does — checker
                               # already degrades gracefully for this (tested),
@@ -5094,21 +6111,17 @@ def main():
     # is produce_teaser_short / produce_standalone_short (each generates
     # AND uploads internally) — completely different shape. This
     # guaranteed Shorts always silently failed here too.
-    log("\n  Generating Shorts (teaser + 2 standalone)...")
+    log("\n  Generating Shorts (4 total)...")
+    log("  2 about this video's real topic (fresh, complete standalone")
+    log("  pieces), 2 on genuinely different trending topics (real research")
+    log("  into what's working today).")
     short_clips = []
     try:
         import importlib.util
         if importlib.util.find_spec("shorts_reels_engine") is None:
             raise ImportError("shorts_reels_engine not in PYTHONPATH")
-        from shorts_reels_engine import produce_teaser_short, produce_standalone_short
+        from shorts_reels_engine import produce_video_topic_short, produce_standalone_short
 
-        teaser = produce_teaser_short(topic, script_clean, channel="evidence_room")
-        short_clips.append({"ok": teaser.get("status") == "success",
-                             "url": teaser.get("url"), "name": "teaser"})
-        log(f"  Teaser: {teaser.get('status')}")
-
-        # FIX: post_short_creator_comment_ch2 existed fully built but was
-        # never called anywhere — same genuine gap found and fixed in Ch1.
         def _post_short_comment_safe_ch2(short_url, mode_name):
             if not short_url:
                 return
@@ -5118,24 +6131,53 @@ def main():
                 if not m:
                     return
                 _short_token = get_yt_token()
-                post_short_creator_comment_ch2(_short_token, m.group(1), niche_name, title_str)
+                post_short_creator_comment_ch2(_short_token, m.group(1), niche_name, title)
             except Exception as e:
                 log(f"  Short pinned comment ({mode_name}, non-fatal): {e}")
 
-        _post_short_comment_safe_ch2(teaser.get("url"), "teaser")
+        for angle in ("angle_1", "angle_2"):
+            vt = produce_video_topic_short(topic, script_clean, angle, channel="evidence_room")
+            short_clips.append({"ok": vt.get("status") == "success",
+                                 "url": vt.get("url"), "name": f"video_topic_{angle}"})
+            log(f"  Video-topic ({angle}): {vt.get('status')}")
+            _post_short_comment_safe_ch2(vt.get("url"), f"video_topic_{angle}")
 
         for mode in ("standalone_1", "standalone_2"):
             sa = produce_standalone_short(mode, channel="evidence_room")
             # FIX: same key mismatch found and fixed in Ch1 — produce_standalone_short
-            # returns its URL under "yt_url", not "url" like the other two Shorts
-            # functions, so this was silently None here every time.
+            # returns its URL under "yt_url", not "url" like produce_video_topic_short.
             short_clips.append({"ok": sa.get("status") == "success",
                                  "url": sa.get("yt_url"), "name": mode})
-            log(f"  Standalone ({mode}): {sa.get('status')}")
+            log(f"  Trending ({mode}): {sa.get('status')}")
             _post_short_comment_safe_ch2(sa.get("yt_url"), mode)
 
         ok_count = sum(1 for s in short_clips if s.get("ok"))
         log(f"  Shorts (generate phase): {ok_count}/{len(short_clips)} generated")
+
+        # SHORTS REVIEW — mirrors Ch1 exactly, same honest constraint
+        # about post-publish review and fresh-replacement regeneration.
+        try:
+            from human_review_gate import review_shorts
+            _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+            _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+            _real_shorts = [{"name": s["name"], "url": s["url"]} for s in short_clips if s.get("url")]
+            if _real_shorts:
+                _sh_review = review_shorts("The Evidence Room", _real_shorts, TG_TOKEN, TG_CHAT,
+                                           check_ins_used=0, gmail_sender=_gmail_sender,
+                                           gmail_app_password=_gmail_pass, timeout_minutes=60)
+                if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
+                    log(f"  Shorts {_sh_review['decision']} requested: "
+                        f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")
+                    tg(f"🎞️ Producing a fresh replacement Short per your feedback: "
+                       f"{_sh_review['feedback']}")
+                    _replacement = produce_standalone_short("standalone_1", channel="evidence_room")
+                    _post_short_comment_safe_ch2(_replacement.get("yt_url"), "replacement_standalone")
+        except Exception as e:
+            log(f"  Shorts review (non-fatal): {e}")
+            tg(f"⚠️ Ch2: the Shorts review system failed to load ({str(e)[:150]}) — "
+               f"the Shorts already published stand as-is, with no human review applied "
+               f"this time. If human_review_gate.py isn't deployed to this repo yet, "
+               f"that's the likely cause.")
     except Exception as e:
         log(f"  Shorts engine (non-fatal): {e}")
         short_clips = []
@@ -5159,10 +6201,10 @@ def main():
         "shorts_clips":   short_clips,
         "topic":          topic,
         "auth_fingerprint": _pending_auth_fingerprint,
-        "quality_attempt": attempt,
+        "quality_attempt": intel.get("_winning_attempt", 1),
         "providers_healthy_count": len(_healthy_providers) if _healthy_providers else 7,
         "authenticity_score": _auth_score,
-        "approved_topic_id": _approved_topic_entry["topic_id"] if _approved_topic_entry else None,
+        "approved_topic_id": intel.get("_approved_topic_id"),
     })
     if _pending_result.get("overwrite_warning"):
         tg(f"🚨 Ch2 Generate: {_pending_result['overwrite_warning']}")
