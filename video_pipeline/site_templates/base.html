@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ page_title }} — {{ channel_display_name }}</title>
+<meta name="description" content="{{ meta_description }}">
+<link rel="canonical" href="{{ canonical_url|default('') }}">
+<!-- Open Graph / Twitter card — were completely missing before; without
+     these, shared links show no preview image/title on any platform -->
+<meta property="og:title" content="{{ page_title }} — {{ channel_display_name }}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta property="og:type" content="article">
+<meta property="og:url" content="{{ canonical_url|default('') }}">
+<meta property="og:site_name" content="Next Layer Media">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ page_title }} — {{ channel_display_name }}">
+<meta name="twitter:description" content="{{ meta_description }}">
+<link rel="stylesheet" href="{{ root_path }}assets/css/main.css">
+{% block structured_data %}{% endblock %}
+</head>
+<body data-channel="{{ channel_slug }}">
+<header class="site-header">
+  <div class="brand">NEXT LAYER MEDIA <span aria-hidden="true">/</span> <strong>{{ channel_display_name }}</strong></div>
+  <nav>
+    <a href="{{ root_path }}index.html">Home</a>
+    <a href="{{ root_path }}products/index.html">Products</a>
+    <a href="{{ root_path }}resources/index.html">Resources</a>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  Next Layer Media — {{ channel_display_name }}. AI-assisted research and narration; see individual episode sourcing notes.
+</footer>
+</body>
+</html>
