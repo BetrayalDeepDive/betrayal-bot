@@ -1,0 +1,53 @@
+name: Telegram Job Drafter
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # checks every 15 minutes for a pasted job
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  check-pasted-jobs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write   # needed to commit the message-offset tracking file back to the repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests --break-system-packages -q
+
+      - name: Pull latest state (in case a previous run just committed)
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      - name: Run Telegram Job Drafter
+        working-directory: video_pipeline
+        env:
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+          GMAIL_USER:          ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
+          TELEGRAM_TOKEN:      ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -u telegram_job_drafter.py
+
+      - name: Commit message offset tracking
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add video_pipeline/telegram_offset.txt || true
+          git diff --staged --quiet || git commit -m "chore: update telegram offset [skip ci]"
+          git push origin main || echo "nothing to push"
