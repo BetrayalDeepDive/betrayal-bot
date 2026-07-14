@@ -1,0 +1,126 @@
+# ============================================================
+# THE EVIDENCE ROOM — Ch2 Upload Workflow
+# Phase 2: UPLOAD only (reads pending_upload.json from repo)
+# Runs: Tue-Sat 11:30 PM IST = 18:00 UTC (1h after Ch1 upload)
+# US: 2 PM ET | UK: 7 PM BST — indexed by 8-9 PM ET peak
+# ============================================================
+name: Ch2 Evidence Room — Upload
+
+on:
+  schedule:
+    - cron: '0 18 * * 2-6'   # 11:30 PM IST | Tue-Sat
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+  PHASE: "upload"
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg -qq
+          pip install requests pillow jinja2 reportlab -q
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      # ── FIX: pull back actual video/audio/thumbnail files from Generate ──
+      - name: Download video artifact from latest Generate run
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ch2_generate.yml
+          name: ch2-pending-video
+          path: /tmp/evidence_room
+          workflow_conclusion: success
+          if_no_artifact_found: fail
+
+      - name: Upload pre-generated video
+        env:
+          EVIDENCE_YT_CLIENT_ID:     ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
+          EVIDENCE_YT_CLIENT_SECRET: ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
+          EVIDENCE_YT_REFRESH_TOKEN: ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          YOUTUBE_CLIENT_ID:         ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET:     ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN:     ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN_CH2:        ${{ secrets.TELEGRAM_TOKEN_CH2 }}
+          TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN_CH2 }}
+          TELEGRAM_CHAT_ID_CH2:      ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          GMAIL_SENDER_EMAIL:        ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
+          CEREBRAS_API_KEY:          ${{ secrets.CEREBRAS_API_KEY }}
+          SAMBANOVA_API_KEY:         ${{ secrets.SAMBANOVA_API_KEY }}
+          GEMINI_API_KEY:            ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2:          ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY:              ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY:        ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY:            ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY:           ${{ secrets.MISTRAL_API_KEY }}
+          PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
+          PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
+          FISH_AUDIO_API_KEY:        ${{ secrets.FISH_AUDIO_API_KEY }}
+          PIPELINE_PHASE:            "upload"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
+          python -u channels/evidence_room/evidence_room_pipeline.py
+
+      - name: Commit upload state
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          # FIX: one git add per file. Previously all paths were in a single
+          # git add command — if ANY one file didn't exist (e.g. next_week_strategy.json
+          # only gets created on certain episodes), git aborted the WHOLE add as fatal,
+          # silently swallowed by the old "|| true", and NOTHING got staged — not even
+          # files that did exist. This is why pushes looked successful but saved nothing.
+          git add channels/evidence_room/state.json || true
+          git add channels/evidence_room/intel.json || true
+          git add channels/evidence_room/pending_upload.json || true
+          # FIX: same critical gap as Ch1 — this is where the authenticity
+          # checker actually writes fingerprint_history.json after confirmed
+          # publish success. Without committing it here, the comparison
+          # history never survives to the next run.
+          git add channels/evidence_room/fingerprint_history.json || true
+          # FIX: topic_database.json is ALSO written here (mark_produced)
+          git add channels/evidence_room/topic_database.json || true
+          git add channels/evidence_room/publishing_archive.json || true
+          git add channels/evidence_room/audit_index.json || true
+          # Companion pages only get generated here (need the real
+          # published URL) — this is the only workflow that writes docs/.
+          git add docs/ || true
+          git add products/ || true
+          git diff --staged --quiet || git commit -m "chore: ch2 uploaded [skip ci]"
+          # FIX: retry push instead of silently dropping it on conflict.
+          # "|| true" alone meant a failed push (e.g. two workflows landing
+          # near the same time) was swallowed with zero indication — the
+          # commit would exist locally on that dead runner and nowhere else.
+          for i in 1 2 3 4 5; do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+            echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
+            sleep $((i*5))
+            git pull --rebase origin main || true
+            if [ "$i" = "5" ]; then
+              echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+            fi
+          done
