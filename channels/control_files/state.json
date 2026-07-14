@@ -1,3 +1,17 @@
 {
-  "last_niche": "cult_psychology"
+  "last_niche": "cult_psychology",
+  "performance": {
+    "cult_psychology": {
+      "scores": [
+        10.0
+      ],
+      "streak_below": 0,
+      "last_episode": 65
+    },
+    "voice_en-GB-ThomasNeural": {
+      "scores": [
+        10.0
+      ]
+    }
+  }
 }

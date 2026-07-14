@@ -1,0 +1,20 @@
+{
+  "episode": 65,
+  "title": "The 34 Audio Files That Proved NXIVM's Guilt",
+  "artifacts": {
+    "topic": "NXIVM: the self-help empire that branded members and kept documented evidence of its own crimes",
+    "niche_name": "cult_psychology"
+  },
+  "checkpoint": "AUDIO_VIDEO",
+  "check_ins_used": 1,
+  "started_at": "2026-07-13T22:59:41.625333",
+  "last_updated": "2026-07-14T02:00:15.522273",
+  "history": [
+    {
+      "decision": "approve",
+      "feedback": null,
+      "at": "2026-07-14T02:00:15.522273",
+      "checkpoint_at_time": "SCRIPT"
+    }
+  ]
+}
