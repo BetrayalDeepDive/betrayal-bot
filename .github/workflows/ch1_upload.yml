@@ -87,8 +87,8 @@ jobs:
           PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
           PIPELINE_PHASE:        "upload"
         run: |
-          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels"
-          python -u video_pipeline/master_pipeline.py
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
+          python -u channels/betrayal_deepdive/master_pipeline.py
 
       - name: Commit upload state
         if: always()
@@ -100,23 +100,23 @@ jobs:
           # only gets created on certain episodes), git aborted the WHOLE add as fatal,
           # silently swallowed by the old "|| true", and NOTHING got staged — not even
           # files that did exist. This is why pushes looked successful but saved nothing.
-          git add video_pipeline/state.json || true
-          git add video_pipeline/pending_upload.json || true
+          git add channels/betrayal_deepdive/state.json || true
+          git add channels/betrayal_deepdive/pending_upload.json || true
           # FIX: this is the workflow where the authenticity checker actually
           # writes fingerprint_history.json (after confirmed publish success,
           # in the upload phase) — without committing it here, every run's
           # comparison history is wiped on this ephemeral runner and the
           # structural-variation check would always see an empty history,
           # never actually detecting real repetition across episodes.
-          git add video_pipeline/fingerprint_history.json || true
+          git add channels/betrayal_deepdive/fingerprint_history.json || true
           # FIX: topic_database.json is ALSO written here (mark_produced,
           # after confirmed success) — needs committing from both phases,
           # same "check which phase actually writes it" lesson as before.
-          git add video_pipeline/topic_database.json || true
-          git add video_pipeline/publishing_archive.json || true
+          git add channels/betrayal_deepdive/topic_database.json || true
+          git add channels/betrayal_deepdive/publishing_archive.json || true
           # The unified audit search engine writes its index here, after
           # confirmed success — same persistence discipline as everything else.
-          git add video_pipeline/audit_index.json || true
+          git add channels/betrayal_deepdive/audit_index.json || true
           # Companion pages only get generated here (need the real published
           # URL, which doesn't exist until upload succeeds) — this is the
           # ONLY workflow that ever writes to docs/.
