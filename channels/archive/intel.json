@@ -1,1 +1,43 @@
-{}
+{
+  "fallen_empires_military_overstretch": {
+    "top_hook_formulas": [
+      "The evidence was there the entire time. Nobody looked at it correctly.",
+      "This document changed everything. It had been sitting in a drawer for 11 years.",
+      "The number on page 3 did not match the number on page 3 of a different filing. That was the beginning."
+    ],
+    "winning_title_patterns": [
+      "The [DOCUMENT/DATA] That Proved [CRIME] Had Been [DURATION]",
+      "[NUMBER] [DOCUMENTS/ACCOUNTS] \u2014 The Investigation That Changed Everything"
+    ],
+    "thumbnail_text_examples": [
+      "THE EMPIRE THAT",
+      "OVERSTRETCHED",
+      "THE MATH THAT KILLED IT",
+      "IT COULDN'T HOLD"
+    ],
+    "emotional_arc": "Methodical discovery then growing horror then full documented exposure",
+    "retention_hooks": [
+      "What the next document revealed changed the entire investigation",
+      "The pattern only became visible when all 847 records were laid side by side",
+      "The final piece of evidence was the most ordinary thing imaginable"
+    ],
+    "niche_specific_power_words": [
+      "documented",
+      "evidence",
+      "pattern",
+      "records",
+      "exposed",
+      "concealed",
+      "verified"
+    ],
+    "what_makes_videos_viral": "Methodical evidence revelation that builds to an undeniable conclusion",
+    "fresh_topic_ideas": [
+      "The Roman Empire's frontier defense budget, documented in the Notitia Dignitatum military registry",
+      "Philip II of Spain's four documented state bankruptcies, funded by silver that arrived too late",
+      "Napoleon's Grande Arm\u00e9e logistics \u2014 the real supply-chain math behind the retreat from Moscow",
+      "The Ottoman Public Debt Administration \u2014 how European creditors documented control of imperial finances",
+      "The Soviet Politburo's own documented cost assessments of the Afghanistan war, released after 1991"
+    ],
+    "last_run": "2026-07-14T03:45:12.783813"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "episode": 66,
+  "title": "The Archive: Fallen Empires: The Investigation That Changed Everything",
+  "artifacts": {
+    "topic": "Part 1: Rome's overstretch \u2014 the documented cost of defending a border twice the length it could afford",
+    "niche_name": "fallen_empires_military_overstretch"
+  },
+  "checkpoint": "AUDIO_VIDEO",
+  "check_ins_used": 1,
+  "started_at": "2026-07-14T03:50:31.042216",
+  "last_updated": "2026-07-14T06:51:02.931520",
+  "history": [
+    {
+      "decision": "approve",
+      "feedback": null,
+      "at": "2026-07-14T06:51:02.931520",
+      "checkpoint_at_time": "SCRIPT"
+    }
+  ]
+}
