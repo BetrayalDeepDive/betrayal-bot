@@ -18,7 +18,7 @@ name: Ch5 The Collapse Index — Generate
 
 on:
   schedule:
-    - cron: '30 0 * * 1-5'   # 6:00 AM IST | Mon-Fri (2.5h after Ch3 generate)
+    - cron: '0 3 * * 1-5'   # 8:30 AM IST | Mon-Fri (2.5h after Ch4 generate; was an exact duplicate of Ch4's schedule)
   workflow_dispatch:
     inputs:
       is_makeup:
@@ -124,8 +124,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ch3-pending-video
-          path: /tmp/archive/*
+          name: ch5-pending-video
+          path: /tmp/deepdive/*
           retention-days: 2
           if-no-files-found: warn
 

@@ -8,7 +8,7 @@ name: Ch5 The Collapse Index — Upload
 
 on:
   schedule:
-    - cron: '0 20 * * 2-6'   # 1:30 AM IST | Tue-Sat (1h after Ch3 upload)
+    - cron: '0 21 * * 2-6'   # 2:30 AM IST | Tue-Sat (1h after Ch4 upload; was an exact duplicate of Ch4's schedule)
   workflow_dispatch:
 
 env:
@@ -51,8 +51,8 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ch3_generate.yml
-          name: ch3-pending-video
-          path: /tmp/archive
+          name: ch5-pending-video
+          path: /tmp/deepdive
           workflow_conclusion: success
           if_no_artifact_found: fail
 
@@ -150,7 +150,7 @@ jobs:
           # the separate weekly job), every note added between one Sunday
           # and the next would be lost.
           git add products/ || true
-          git diff --staged --quiet || git commit -m "chore: ch4 uploaded [skip ci]"
+          git diff --staged --quiet || git commit -m "chore: ch5 uploaded [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
           # near the same time) was swallowed with zero indication — the

@@ -51,7 +51,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: ch3_generate.yml
-          name: ch3-pending-video
+          name: ch4-pending-video
           path: /tmp/archive
           workflow_conclusion: success
           if_no_artifact_found: fail
