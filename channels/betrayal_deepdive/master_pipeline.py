@@ -991,20 +991,43 @@ def call_mistral(prompt, tokens=8000):
         log(f"  Mistral: {e}")
     return None
 
+_DEAD_PROVIDERS_THIS_RUN = set()
+
+def _strip_reasoning(text):
+    """FIX (July 14 2026 audit): strip reasoning-model chain-of-thought
+    (gpt-oss-120b via Cerebras/Groq) so it never leaks into a script."""
+    if not text:
+        return text
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    if '<|channel|>final<|message|>' in text:
+        text = text.split('<|channel|>final<|message|>')[-1]
+        text = text.split('<|end|>')[0].split('<|return|>')[0].split('<|start|>')[0]
+    text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
+    return text.strip()
+
 def ai_generate(prompt, tokens=8000):
     """
-    Provider order: Cerebras → Gemini → Groq → OpenRouter → Cohere → Mistral
-    6 layers of fallback. Sleep 10s between failures.
+    Provider order: Cerebras -> SambaNova -> Gemini -> Groq -> OpenRouter -> Cohere -> Mistral
+    FIX (July 14 2026 audit): providers that fail once are skipped for the
+    rest of this run instead of being retried from scratch on every call
+    (this alone was responsible for a large share of multi-hour runtimes).
     """
-    # Provider order: primary free → backup free → quota-based → fallbacks
-    # SambaNova is between Cerebras and Gemini — same quality, no quota wall
-    providers = [call_cerebras, call_sambanova, call_gemini,
-                 call_groq, call_openrouter, call_cohere, call_mistral]
-    for i, fn in enumerate(providers):
+    providers = [("cerebras", call_cerebras), ("sambanova", call_sambanova),
+                 ("gemini", call_gemini), ("groq", call_groq),
+                 ("openrouter", call_openrouter), ("cohere", call_cohere),
+                 ("mistral", call_mistral)]
+    live = [(name, fn) for name, fn in providers if name not in _DEAD_PROVIDERS_THIS_RUN]
+    if not live:
+        live = providers
+        _DEAD_PROVIDERS_THIS_RUN.clear()
+    for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens)
-        if r: return r
-        if i < len(providers) - 1:
-            log(f"  Waiting 10s before next provider...")
+        if r:
+            return _strip_reasoning(r)
+        _DEAD_PROVIDERS_THIS_RUN.add(name)
+        if i < len(live) - 1:
+            log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
     return None
 
@@ -3313,11 +3336,34 @@ def get_stage_matched_video(niche, script, audio_duration):
 
         stage_words= [w.strip(".,!?;:") for w in stage_text.split()
                       if len(w) > 4 and w not in stopwords]
+        # FIX (found on direct user report, July 15 2026): top_nouns pulled
+        # ANY sufficiently long word straight out of the actual narration
+        # with zero check on whether it's visually compatible with a dark
+        # aesthetic — a completely ordinary sentence like "she left
+        # flowers at the grave" or "it had been raining that morning"
+        # handed "flowers" or "raining" straight to Pexels/Pixabay as a
+        # search term. Stock APIs match on whatever's most strongly
+        # tagged, so "flowers" reliably returns bright wedding/garden
+        # footage no matter what dark-mood word rides along with it in
+        # the same query — which is exactly what showed up in a real
+        # generated episode. Blocked here at the source: words strongly
+        # associated with bright/ordinary/celebratory visuals never
+        # become a search keyword, dark-compatible words still do.
+        BRIGHT_MUNDANE_BLOCKLIST = {
+            "flowers","flower","garden","wedding","birthday","party","parties",
+            "sunshine","sunny","picnic","vacation","holiday","holidays","beach",
+            "celebration","celebrate","smiling","smile","laughing","laughter",
+            "balloons","cake","gift","gifts","present","presents","rainbow",
+            "puppy","kitten","baby","babies","wedding","graduation","summer",
+            "playground","festival","carnival","circus","confetti",
+        }
         from collections import Counter
-        top_nouns  = [w for w,_ in Counter(stage_words).most_common(2)]
-        # Keyword = actual narration content at this exact moment + niche
-        # theme, so the visual matches BOTH the audio and the niche mood.
-        kw = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
+        top_nouns  = [w for w, _ in Counter(stage_words).most_common(6)
+                      if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
+        # Dark mood word (base_kw) now leads the query instead of trailing
+        # it, so relevance ranking favors the niche's actual visual
+        # language even when a content noun is also present.
+        kw = f"{base_kw} {top_nouns[0]}" if top_nouns else base_kw
 
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
@@ -4257,7 +4303,13 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     has_mus  = music_path and Path(music_path).exists()
     has_sub  = ass_path and Path(ass_path).exists()
 
-    # Subtitles disabled — timing sync not reliable enough for dark content
+    # FIX (found on direct user report, July 15 2026): has_sub was computed
+    # here but never actually used anywhere in this function — real
+    # subtitles were being generated (generate_real_synced_ass runs fine
+    # upstream) and then silently dropped at the one place they'd
+    # actually reach the video. The person was told subtitles would be
+    # there and they simply weren't, in every single episode. Genuinely
+    # burned in now via ffmpeg's own ass filter when a valid file exists.
     grade = NICHE_VISUAL_GRADE.get(niche_name, DEFAULT_VISUAL_GRADE)
     # fps=24 added — normalizes whatever native frame rate the source
     # background clip has (this path also serves the single-clip fallback,
@@ -4266,6 +4318,12 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
           "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,"
           f"{grade}")
+    if has_sub:
+        # ffmpeg's filter syntax requires colons and backslashes in the
+        # path escaped, since the ass filter's own argument parser uses
+        # colons as a separator.
+        _escaped_ass = str(ass_path).replace("\\", "\\\\\\\\").replace(":", "\\:").replace("'", "\\'")
+        vf += f",ass='{_escaped_ass}'"
 
     if has_mus:
         cmd = [
@@ -4353,10 +4411,14 @@ def create_short(narration_path, bg_path, music_path, ass_path,
     has_mus = music_path and Path(music_path).exists()
     has_sub = ass_path and Path(ass_path).exists()
 
-    # Subtitles disabled on Shorts — timing sync not reliable
+    # FIX (found on direct user report, July 15 2026): same bug as the
+    # main compose_video — has_sub was computed and then never used.
     vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
           "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
           "crop=405:720:(iw-405)/2:0,scale=1080:1920,fps=24")
+    if has_sub:
+        _escaped_ass = str(ass_path).replace("\\", "\\\\\\\\").replace(":", "\\:").replace("'", "\\'")
+        vf += f",ass='{_escaped_ass}'"
 
     # fps=24 + explicit -ar 44100 added — same fix as the main video path,
     # since this background source clip's native frame rate is unknown and
@@ -4971,7 +5033,20 @@ def run_stage1(state):
     prev_title = state.get("last_title", "")
 
     intel          = run_ch1_viral_intelligence(niche)
-    trending       = []
+    # FIX (found on word-by-word re-audit, July 15 2026): trending was
+    # hardcoded to an empty list and never reassigned anywhere in this
+    # file — fetch_trending_titles (a real, working YouTube Data API
+    # call, verified against real endpoints) was fully built and
+    # correctly threaded through generate_script_content, generate_titles,
+    # and generate_best_cold_open as a parameter, but never actually
+    # invoked to populate it. Every episode's "trend-aware" title/cold-
+    # open generation was silently running on zero real data. Wired in.
+    try:
+        _yt_token_for_trends = get_yt_token()
+        trending = fetch_trending_titles(niche, _yt_token_for_trends)
+    except Exception as e:
+        log(f"  Trending titles fetch (non-fatal): {e}")
+        trending = []
     used_topics    = []
     gate           = MIN_GATE
     best_score     = 0.0
@@ -5357,7 +5432,7 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             "-map", "[out]", "-map", "[mixedaudio]",
             "-c:v", "libx264", "-preset", "fast", "-crf", "20",
             "-c:a", "aac", "-ar", "44100", output_path
-        ], label="horror-fx", timeout=600)
+        ], label="horror-fx", timeout=1200)
 
         if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
             log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
@@ -5370,6 +5445,8 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
         log(f"  Horror atmosphere FX failed (non-fatal): {e}")
         return video_path
 
+
+_last_video_fallback_flags = {}  # FIX (final re-audit): see collapse_index_pipeline.py for full rationale
 
 def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, ass_path=None):
     """Assemble final video: background footage + narration + ambient music
@@ -5393,10 +5470,15 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     composed    = compose_video(audio_path, bg_path, mus_path, ass_path,
                                  audio_duration, label="main", niche_name=niche_name)
 
+    global _last_video_fallback_flags
+    _last_video_fallback_flags = {}
+
     if script:
         overlaid = str(WORK_DIR / "composed_horror_fx.mp4")
+        _pre_horror_composed = composed
         composed = add_horror_atmosphere_fx(composed, script, audio_duration,
                                              niche_name, overlaid)
+        _last_video_fallback_flags["horror_fx_failed"] = (composed == _pre_horror_composed)
 
     # FIX (warbook v3 retention blueprint): removed the 2-second silent
     # black branded intro card that used to play BEFORE the cold open. That
@@ -5414,9 +5496,12 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
                f"x=w-text_w-20:y=20:borderw=1:bordercolor=black@0.4",
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
         "-c:a", "copy", composed_watermarked
-    ], label="watermark", timeout=300)
+    ], label="watermark", timeout=900)
     if Path(composed_watermarked).exists() and Path(composed_watermarked).stat().st_size > 1_000_000:
         composed = composed_watermarked
+        _last_video_fallback_flags["watermark_failed"] = False
+    else:
+        _last_video_fallback_flags["watermark_failed"] = True
 
     # FIX: create_outro's episode_num defaults to 1 and was never being
     # passed the real episode — same category of bug as the thumbnail
@@ -5570,10 +5655,10 @@ def main():
         niche_name  = pending["niche_name"]
         video_path  = pending["video_path"]
         topic       = pending.get("topic", title)  # FIX: was never extracted at all —
-        # produce_recap_short's "main_topic" parameter needs the actual story
-        # details to write a real recap script from ("pick the most jaw-
-        # dropping reveal from the full story"); a bare title has none of
-        # that. Falls back to title only if topic is somehow missing.
+        # produce_video_topic_short/produce_standalone_short's "main_topic"
+        # parameter needs the actual story details to write a real Shorts
+        # script from; a bare title has none of that. Falls back to title
+        # only if topic is somehow missing.
         thumb_path  = pending.get("thumbnail_path","")
         shorts      = pending.get("shorts_clips", [])
         script_clean= pending.get("script_clean","")
@@ -5922,24 +6007,48 @@ def main():
             _script_was_edited = False
 
             while True:
+                try:
+                    _hook_penalty, _hook_issues = _validate_retention_hooks_ch1(script_clean)
+                    _hook_score = round(min(max(10.0 + _hook_penalty, 0), 10), 1)
+                    _hook_note = _hook_issues[0] if _hook_issues else "all hook checkpoints present"
+                except Exception as e:
+                    log(f"  Hook scoring (non-fatal): {e}")
+                    _hook_score, _hook_note = None, None
+
+                # FIX (July 14 2026 audit): now passes stage_texts/stage_names
+                # so the script review is sent stage-by-stage with clear
+                # headers instead of one undifferentiated wall of text.
                 _review = review_script("BetrayalDeepDive", title, script_clean, score_val,
                                         niche_name, TG_TOKEN, TG_CHAT,
                                         gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
-                                        timeout_minutes=60)
+                                        timeout_minutes=60,
+                                        stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
+                                        sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
                 if _review["decision"] == "approve":
                     break
                 if _review["decision"] == "edit" and _stage_texts_ch1:
                     _targets = identify_target_sections(_review["feedback"], _stage_names_ch1)
+                    if len(_stage_texts_ch1) != len(_stage_names_ch1):
+                        _targets = []  # a prior whole-script edit collapsed this list — avoid an IndexError
                     log(f"  Script EDIT requested: '{_review['feedback']}' -> sections: {_targets or 'WHOLE SCRIPT'}")
                     try:
-                        script_clean = regenerate_script_sections(
+                        script_clean, _updated_sections = regenerate_script_sections(
                             script_clean, _stage_texts_ch1, _stage_names_ch1, _targets,
                             _review["feedback"], niche, topic, ai_generate)
-                        # Refresh stage_texts to the new script so a second
-                        # round of edits still targets the right substrings
-                        _stage_texts_ch1 = [script_clean] if not _targets else _stage_texts_ch1
+                        # FIX (found on final re-audit): refresh each
+                        # changed section's real new text, not just leave
+                        # the list untouched — otherwise a second edit
+                        # targeting the same section searches for text
+                        # that's already been replaced once and silently
+                        # finds nothing to change.
+                        if not _targets:
+                            _stage_texts_ch1 = [script_clean]
+                        else:
+                            for _sec_name, _new_text in _updated_sections.items():
+                                _idx = _stage_names_ch1.index(_sec_name)
+                                _stage_texts_ch1[_idx] = _new_text
                         # FIX (found via a final expert-level re-audit): the
                         # ORIGINAL script_result["stage_texts"] (used later
                         # by the authenticity check's fingerprint) would go
@@ -5995,7 +6104,21 @@ def main():
         # this retry-then-hold behavior.
         _audio_retry_count = 0
         _MAX_AUDIO_RETRIES = 2
-        _AUDIO_RETRY_WAIT_SECONDS = 2 * 60 * 60  # 2 hours
+        # FIX (found on final re-audit, prompted by a direct question
+        # about the real job-timeline math): 2 retries x 2h each = up
+        # to 4 real hours silently spent HERE, before the audio+video
+        # review checkpoint is even reached — inside a 6-hour job that
+        # also has a 4.5h review-time budget shared across every other
+        # checkpoint. In the worst case this single wait-and-retry
+        # could consume most of the entire job's time before a human
+        # ever sees anything to review. It also doesn't achieve what
+        # its own name claims: provider DAILY quotas reset roughly
+        # every 24h, not every 2h, so this wait was never actually
+        # long enough to "wait for providers to refresh" from a daily
+        # limit anyway -- only genuinely helpful for clearing a brief,
+        # short-lived rate limit, which resolves in minutes, not hours.
+        # Shortened to a realistic wait for that actual case.
+        _AUDIO_RETRY_WAIT_SECONDS = 10 * 60  # 10 minutes
         while edge_voice in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
               _audio_retry_count < _MAX_AUDIO_RETRIES:
             _audio_retry_count += 1
@@ -6050,15 +6173,33 @@ def main():
         _remade_av = False
         try:
             from human_review_gate import review_audio_and_video
+            from quality_scoring import score_audio_quality, score_video_quality, get_media_duration
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
             _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
             _check_ins_used_av = 0
 
             while True:
+                try:
+                    _audio_score, _audio_breakdown = score_audio_quality(
+                        audio_path, audio_duration, len(script_clean.split()), edge_voice)
+                except Exception as e:
+                    log(f"  Audio scoring (non-fatal): {e}")
+                    _audio_score, _audio_breakdown = None, None
+                try:
+                    _real_video_duration = get_media_duration(video_path)
+                    _video_score, _video_breakdown = score_video_quality(
+                        video_path, _real_video_duration, audio_duration, content_type="stock_footage",
+                        fallback_flags=_last_video_fallback_flags)
+                except Exception as e:
+                    log(f"  Video scoring (non-fatal): {e}")
+                    _video_score, _video_breakdown = None, None
+
                 _av_review = review_audio_and_video(
                     "BetrayalDeepDive", audio_path, edge_voice, video_path, None,
                     TG_TOKEN, TG_CHAT, _check_ins_used_av,
-                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
+                    audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
+                    video_score=_video_score, video_score_breakdown=_video_breakdown)
                 _check_ins_used_av += 1
 
                 _a_dec = _av_review["audio_decision"]["decision"]
@@ -6096,10 +6237,46 @@ def main():
                 # separately re-generated here (voice/pacing edits are a
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
+                if _a_dec == "swap_voice":
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                                   if v != edge_voice]
+                    _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                    tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
+                    log(f"  SWAP VOICE requested: {edge_voice} -> {_new_voice}")
+                    edge_voice = _new_voice
+                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                        run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+                    edge_voice = voice_used
+                    ass_path = str(WORK_DIR / "main_captions.ass")
+                    if not generate_real_synced_ass(audio_path, ass_path):
+                        ass_path = None
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path)
+                    continue  # send the newly-generated audio/video for another look
                 if _a_dec == "edit":
                     _fb_audio = _av_review["audio_decision"]["feedback"] or ""
-                    tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}")
-                    log(f"  Audio EDIT requested: {_fb_audio} — regenerating.")
+                    # FIX (found on direct user report, July 15 2026): this
+                    # used to call run_audio_stage with the SAME edge_voice
+                    # every time -- the feedback text was echoed back to
+                    # Telegram to LOOK like it was heard, but nothing about
+                    # the regeneration actually changed: same script, same
+                    # voice, same TTS engine. A person asking "the voice
+                    # sounds robotic, change it" would get the exact same
+                    # audio back, every time, with no indication anything
+                    # was ignored. The only real lever available at the
+                    # AUDIO checkpoint is which voice narrates it — the
+                    # script itself is reviewed separately at the SCRIPT
+                    # checkpoint — so EDIT here now actually swaps to a
+                    # genuinely different voice, same as SWAP VOICE does.
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                                   if v != edge_voice]
+                    _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                    tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
+                       f"Voice: {edge_voice} → {_new_voice}")
+                    log(f"  Audio EDIT requested: '{_fb_audio}' — swapping voice {edge_voice} -> {_new_voice} "
+                        f"(the audio checkpoint's only real lever; script changes belong at the script checkpoint).")
+                    edge_voice = _new_voice
                     audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
@@ -6330,7 +6507,7 @@ def main():
             for angle in ("angle_1", "angle_2"):
                 vt = produce_video_topic_short(topic, script_clean, angle, channel="betrayal_deepdive")
                 shorts.append({"ok": vt.get("status") == "success",
-                               "path": None, "url": vt.get("url"), "name": f"video_topic_{angle}"})
+                               "path": vt.get("local_path"), "url": vt.get("url"), "name": f"video_topic_{angle}"})
                 log(f"  Video-topic ({angle}): {vt.get('status')}")
                 _post_short_comment_safe(vt.get("url"), f"video_topic_{angle}")
 
@@ -6344,7 +6521,7 @@ def main():
                 # time, even on success, dropping standalone Shorts from
                 # every downstream count.
                 shorts.append({"ok": sa.get("status") == "success",
-                               "path": None, "url": sa.get("yt_url"), "name": mode})
+                               "path": sa.get("local_path"), "url": sa.get("yt_url"), "name": mode})
                 log(f"  Trending ({mode}): {sa.get('status')}")
                 _post_short_comment_safe(sa.get("yt_url"), mode)
 
@@ -6360,7 +6537,19 @@ def main():
                 from human_review_gate import review_shorts
                 _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
                 _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-                _real_shorts = [{"name": s["name"], "url": s["url"]} for s in shorts if s.get("url")]
+                def _score_short_safe(short_path):
+                    if not short_path:
+                        return None
+                    try:
+                        from quality_scoring import score_shorts_quality
+                        if not os.path.exists(short_path):
+                            return None
+                        return score_shorts_quality(short_path)[0]
+                    except Exception as e:
+                        log(f"  Shorts scoring (non-fatal): {e}")
+                        return None
+                _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
+                                for s in shorts if s.get("url")]
                 if _real_shorts:
                     _sh_review = review_shorts("BetrayalDeepDive", _real_shorts, TG_TOKEN, TG_CHAT,
                                                check_ins_used=0, gmail_sender=_gmail_sender,
