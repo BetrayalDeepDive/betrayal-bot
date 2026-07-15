@@ -1,1 +1,156 @@
-{}
+# ============================================================
+# BETRAYAL DEEPDIVE — Weekly Self-Improvement Report
+# Runs: Sunday 3:30 AM UTC = 9:00 AM IST
+# Pulls your own analytics + competitor channels, analyses retention
+# drop-off by script stage, recalibrates the title model, and writes
+# next_week_strategy.json (read by Monday's script generation) — then
+# sends the full report to Telegram.
+#
+# THIS WORKFLOW DID NOT EXIST BEFORE — weekly_report.py has been sitting
+# in the repo this whole time with no scheduled trigger, which is very
+# likely the entire reason no weekly report has ever arrived in Telegram.
+# ============================================================
+name: Weekly Self-Improvement Report
+
+on:
+  schedule:
+    - cron: '30 3 * * 0'   # 9:00 AM IST | Sunday
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    # FIX (found on re-audit): was 60 minutes — but review_pending_topics_
+    # via_telegram polls for up to 15 minutes and runs ONCE PER CHANNEL
+    # inside the per-channel loop. With 3 channels (betrayal_deepdive,
+    # evidence_room, control_files) that's up to 45 minutes of polling
+    # alone, before any of the real analytics/competitor/retention API
+    # work per channel, or the final site-nav/product-export/dashboard
+    # steps that run after the loop. 60 minutes was very plausibly not
+    # enough — a mid-run timeout would silently skip whichever channels
+    # hadn't been processed yet, and possibly the final dashboard too.
+    timeout-minutes: 150
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests jinja2 reportlab -q
+
+      - name: Pull latest state
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git pull --rebase origin main || true
+
+      - name: Run weekly report
+        env:
+          GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY:      ${{ secrets.CEREBRAS_API_KEY }}
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          EVIDENCE_YT_CLIENT_ID:     ${{ secrets.EVIDENCE_YT_CLIENT_ID }}
+          EVIDENCE_YT_CLIENT_SECRET: ${{ secrets.EVIDENCE_YT_CLIENT_SECRET }}
+          EVIDENCE_YT_REFRESH_TOKEN: ${{ secrets.EVIDENCE_YT_REFRESH_TOKEN }}
+          # FIX: added — Ch3 had no credentials here at all, so weekly_report.py's
+          # CHANNELS loop would authenticate with empty strings for control_files.
+          CHANNEL3_YT_CLIENT_ID:     ${{ secrets.CHANNEL3_YT_CLIENT_ID }}
+          CHANNEL3_YT_CLIENT_SECRET: ${{ secrets.CHANNEL3_YT_CLIENT_SECRET }}
+          CHANNEL3_YT_REFRESH_TOKEN: ${{ secrets.CHANNEL3_YT_REFRESH_TOKEN }}
+          # FIX (critical, found on full workflow audit): Ch4 (The Archive)
+          # was missing from this whole file entirely — same real gap
+          # already found and fixed for Ch3 above.
+          CHANNEL4_YT_CLIENT_ID:     ${{ secrets.CHANNEL4_YT_CLIENT_ID }}
+          CHANNEL4_YT_CLIENT_SECRET: ${{ secrets.CHANNEL4_YT_CLIENT_SECRET }}
+          CHANNEL4_YT_REFRESH_TOKEN: ${{ secrets.CHANNEL4_YT_REFRESH_TOKEN }}
+          # v1 addition — Ch5 (The Collapse Index), same real gap already
+          # found and fixed for Ch4 above.
+          CHANNEL5_YT_CLIENT_ID:     ${{ secrets.CHANNEL5_YT_CLIENT_ID }}
+          CHANNEL5_YT_CLIENT_SECRET: ${{ secrets.CHANNEL5_YT_CLIENT_SECRET }}
+          CHANNEL5_YT_REFRESH_TOKEN: ${{ secrets.CHANNEL5_YT_REFRESH_TOKEN }}
+          TELEGRAM_TOKEN:        ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          # v5 addition: Ch2's weekly report / topic-review was genuinely
+          # going through Ch1's bot before this — each channel now needs
+          # its own real bot credentials here too, including Ch3 and Ch4.
+          TELEGRAM_TOKEN_CH2:    ${{ secrets.TELEGRAM_TOKEN_CH2 }}
+          TELEGRAM_CHAT_ID_CH2:  ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          TELEGRAM_TOKEN_CH3:    ${{ secrets.TELEGRAM_TOKEN_CH3 }}
+          TELEGRAM_CHAT_ID_CH3:  ${{ secrets.TELEGRAM_CHAT_ID_CH3 }}
+          TELEGRAM_TOKEN_CH4:    ${{ secrets.TELEGRAM_TOKEN_CH4 }}
+          TELEGRAM_CHAT_ID_CH4:  ${{ secrets.TELEGRAM_CHAT_ID_CH4 }}
+          TELEGRAM_TOKEN_CH5:    ${{ secrets.TELEGRAM_TOKEN_CH5 }}
+          TELEGRAM_CHAT_ID_CH5:  ${{ secrets.TELEGRAM_CHAT_ID_CH5 }}
+          GMAIL_SENDER_EMAIL:    ${{ secrets.GMAIL_SENDER_EMAIL }}
+          GMAIL_APP_PASSWORD:    ${{ secrets.GMAIL_APP_PASSWORD }}
+          # GITHUB_TOKEN is provided automatically by GitHub Actions for
+          # every workflow run — no manual setup needed, genuinely free,
+          # used here only to read this same repo's own traffic stats.
+          GITHUB_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER:     ${{ github.repository_owner }}
+          GITHUB_REPO_NAME:      betrayal-bot
+          # Needed by site_generator.py's SEO file generation (sitemap.xml,
+          # canonical URLs, Open Graph tags) — your real GitHub Pages URL.
+          # FIX: this was genuinely missing entirely before — without it,
+          # sitemap.xml/robots.txt would always contain the wrong
+          # hardcoded placeholder URL instead of your actual GitHub Pages
+          # address. Set to e.g. "https://yourusername.github.io/betrayal-bot/"
+          SITE_BASE_URL:         ${{ secrets.SITE_BASE_URL }}
+          # Optional — leave unset until you create a real Gumroad account
+          # and generate an access token (Settings -> Advanced, on
+          # gumroad.com). The dashboard reports "not connected yet"
+          # honestly until this is set, never a fake number.
+          GUMROAD_ACCESS_TOKEN:  ${{ secrets.GUMROAD_ACCESS_TOKEN }}
+        run: |
+          python -u video_pipeline/weekly_report.py
+
+      - name: Commit strategy files
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          # FIX: only staged Ch1's strategy file before — now both, one
+          # git add per file (a single combined command aborts entirely
+          # if either file happens to be missing, same lesson learned
+          # from the ch1_generate.yml git-add bug earlier in this project).
+          git add video_pipeline/next_week_strategy.json || true
+          git add channels/evidence_room/next_week_strategy.json || true
+          git add channels/control_files/next_week_strategy.json || true
+          # FIX (critical, found on full workflow audit): Ch4 (The
+          # Archive) was missing here too — same gap already found and
+          # fixed for the CHANNELS list and secrets above.
+          git add channels/archive/next_week_strategy.json || true
+          git add channels/collapse_index/next_week_strategy.json || true
+          # FIX: resource pages get generated here (weekly cadence, since
+          # they aggregate multiple episodes) — without this, they'd be
+          # silently lost on this ephemeral runner every week.
+          git add docs/ || true
+          # PDF exports of the growing manuscripts get written here —
+          # separate from docs/ (working drafts to be sold, not free pages)
+          git add products/ || true
+          git diff --staged --quiet || git commit -m "chore: weekly report [skip ci]"
+          # Retry push instead of silently dropping it on conflict — this
+          # exact "|| true" silent-failure pattern is what broke Ch1's
+          # uploads for two weeks earlier in this project.
+          for i in 1 2 3 4 5; do
+            if git push origin main; then
+              echo "Push succeeded on attempt $i"
+              break
+            fi
+            echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
+            sleep $((i*5))
+            git pull --rebase origin main || true
+            if [ "$i" = "5" ]; then
+              echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+            fi
+          done
