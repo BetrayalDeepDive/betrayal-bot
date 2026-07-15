@@ -29,15 +29,28 @@ and tested in upwork_assistant.py — nothing duplicated, nothing new
 invented, just a different, genuinely free trigger instead of an email
 that doesn't exist yet for your account.
 
-ENV VARS needed (all already set up): GROQ_API_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+ENV VARS needed: TELEGRAM_TOKEN_UPWORK + TELEGRAM_CHAT_ID_UPWORK (a dedicated
+bot — recommended), or GROQ_API_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID as a
+fallback if you haven't created the dedicated bot yet.
+
+FIX (found on live-run audit, July 14 2026): this workflow runs every 15
+minutes, all day, forever. When it shared Channel 1's plain TELEGRAM_TOKEN/
+TELEGRAM_CHAT_ID, it was silently consuming Channel 1's review-gate button
+taps and typed replies (Telegram's getUpdates offset is per-bot-token and
+irreversible — whichever process calls it first with a higher offset wins,
+and the loser never sees that update again). The real fix is a fully
+separate bot for this script, made with BotFather exactly like the other
+five — free, two minutes. Until TELEGRAM_TOKEN_UPWORK is set, this still
+falls back to the shared bot so it keeps working, but that fallback still
+carries the same collision risk with Channel 1 described above.
 """
 import os, sys, time, requests
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from upwork_assistant import score_job, draft_proposal, tg, REAL_SERVICES
 
-TG_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TG_CHAT = os.environ["TELEGRAM_CHAT_ID"]
+TG_TOKEN = os.environ.get("TELEGRAM_TOKEN_UPWORK", os.environ.get("TELEGRAM_TOKEN", ""))
+TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID_UPWORK", os.environ.get("TELEGRAM_CHAT_ID", ""))
 OFFSET_FILE = "telegram_offset.txt"
 
 

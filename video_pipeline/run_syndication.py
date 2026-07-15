@@ -76,11 +76,16 @@ def main():
             continue
 
         print(f"{channel_id}: new episode found — '{last_title[:60]}'")
+        # FIX (found while writing blog_syndication.py, July 15 2026):
+        # last_url was read above for the tracking-key comparison but
+        # never actually passed through here — every syndicated post
+        # would have published with no link back to the source video.
         result = syndicate_episode(
             episode_title=last_title,
             topic_summary=f"A real, documented episode from {channel_id.replace('_', ' ').title()}.",
             channel_id=channel_id,
             niche_name=last_niche or "general",
+            episode_url=last_url,
         )
         tracking[channel_id] = last_url
         synced_this_run += 1

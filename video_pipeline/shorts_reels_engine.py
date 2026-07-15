@@ -1481,7 +1481,7 @@ URL: {yt_url}""")
                 pass
 
         return {"status": "success", "url": yt_url, "score": final_score["total"],
-                "title": title, "voice": voice["id"]}
+                "title": title, "voice": voice["id"], "local_path": video_out}
 
     return {"status": "failed", "reason": "max retries"}
 
@@ -1597,7 +1597,7 @@ YouTube Short: {yt_url if yt_url else "⚠️ Pending"}""")
         # any caller checking .get("url") on a teaser result silently got
         # None even on full success. Now returns both keys for consistency.
         return {"status": "success", "ig_posted": ig_ok, "yt_url": yt_url,
-                "url": yt_url, "score": final_score["total"]}
+                "url": yt_url, "score": final_score["total"], "local_path": video_out}
 
     return {"status": "failed", "reason": "max retries"}
 
@@ -1687,153 +1687,20 @@ Return JSON:
         return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
 
     tg(f"⚡ *VIDEO-TOPIC SHORT UPLOADED*\n{script_data['title']}\n{url}")
-    return {"status": "success", "url": url}
+    return {"status": "success", "url": url, "local_path": video_out}
 
 
-def produce_teaser_short(main_topic: str, main_script: str = "", channel: str = "betrayal_deepdive") -> dict:
-    """
-    YouTube Short 1 (Teaser) — posted 8h BEFORE main video.
-    Pulls most shocking moment from main video script.
-    channel: determines branding/hashtags/background search (see CHANNEL_CONFIGS).
-    """
-    set_active_channel(channel)
-    cfg = get_active_channel_config()
-    if not main_script:
-        main_script = main_topic
-
-    script_data = llm_json(f"""Create a 45-second TEASER YouTube Short.
-Main video topic: {main_topic}
-Main script excerpt: {main_script[:500]}
-
-This teaser goes live 8 HOURS BEFORE the full video.
-Goal: Make people desperately want to watch the full video.
-
-Rules:
-- Start with the MOST SHOCKING moment from the main story
-- Cut off before the resolution — maximum suspense
-- End with: "Full story dropping in a few hours..."
-- Do NOT give away the ending
-
-Return JSON:
-{{"title": "TEASER: [shocking hook] | Full Story Coming Soon",
-  "script": "110-130 words teaser script",
-  "hook_text": "5-7 words overlay text",
-  "hashtags": "{cfg['hashtags_base']} #comingsoon #shocking"}}""")
-
-    if not script_data:
-        return {"status": "failed", "reason": "script generation failed"}
-
-    voice = pick_voice(for_reels=False)
-    run_id = uuid.uuid4().hex[:8]
-    audio_out = os.path.join(OUTPUT_DIR, f"teaser_{run_id}.mp3")
-    srt_out   = audio_out.replace(".mp3", ".srt")
-    bg_out    = os.path.join(OUTPUT_DIR, f"bg_teaser_{run_id}.mp4")
-    video_out = os.path.join(OUTPUT_DIR, f"teaser_{run_id}_final.mp4")
-
-    if not generate_audio(script_data["script"], voice, audio_out):
-        return {"status": "failed", "reason": "audio failed"}
-
-    generate_synced_subtitles(script_data["script"], audio_out, srt_out)
-    download_background_clip(cfg["bg_search_term"], bg_out)
-
-    if not assemble_short_video(bg_out, audio_out, srt_out,
-                                 script_data["hook_text"], video_out):
-        return {"status": "failed", "reason": "assembly failed"}
-
-    tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
-    url = upload_youtube_short(video_out, script_data["title"],
-                                script_data["script"] + "\n\n#Shorts", tags)
-
-    for f in [audio_out, srt_out, bg_out]:
-        try:
-            os.remove(f)
-        except Exception:
-            pass
-
-    # FIX (found on re-audit — systemic across all 3 Shorts functions):
-    # this previously returned "status": "success" unconditionally, even
-    # when upload_youtube_short returned "" (upload genuinely failed).
-    # This function has no retry loop of its own, so a failed upload is
-    # reported honestly rather than silently as a success.
-    if not url:
-        tg(f"⚠️ *TEASER SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
-           f"Video was assembled but the actual YouTube upload failed.")
-        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
-
-    tg(f"⚡ *TEASER SHORT UPLOADED*\n{script_data['title']}\n{url}")
-    return {"status": "success", "url": url}
-
-
-def produce_recap_short(main_topic: str, main_video_url: str = "", channel: str = "betrayal_deepdive") -> dict:
-    """
-    YouTube Short 2 (Recap) — posted 24h AFTER main video.
-    Highlights the best/most shocking moment to drive people back.
-    channel: determines branding/hashtags/background search (see CHANNEL_CONFIGS).
-    """
-    set_active_channel(channel)
-    cfg = get_active_channel_config()
-    script_data = llm_json(f"""Create a 50-second RECAP YouTube Short.
-Main video topic: {main_topic}
-Main video URL: {main_video_url}
-
-This recap goes live 24 HOURS AFTER the full video.
-Goal: Catch people who missed the full video and drive them to watch it.
-
-Rules:
-- Pick THE most jaw-dropping reveal from the full story
-- Create FOMO: "If you missed this yesterday..."
-- End with: "Watch the full story — link in bio"
-- Include the shocking resolution/twist
-
-Return JSON:
-{{"title": "The moment that SHOCKED everyone | [topic]",
-  "script": "120-140 words recap",
-  "hook_text": "5-7 words overlay",
-  "hashtags": "{cfg['hashtags_base']} #shocking #mustsee"}}""")
-
-    if not script_data:
-        return {"status": "failed", "reason": "script failed"}
-
-    voice = pick_voice(for_reels=False)
-    run_id    = uuid.uuid4().hex[:8]
-    audio_out = os.path.join(OUTPUT_DIR, f"recap_{run_id}.mp3")
-    srt_out   = audio_out.replace(".mp3", ".srt")
-    bg_out    = os.path.join(OUTPUT_DIR, f"bg_recap_{run_id}.mp4")
-    video_out = os.path.join(OUTPUT_DIR, f"recap_{run_id}_final.mp4")
-
-    # FIX (found on re-audit): this function never checked whether audio
-    # generation or video assembly actually succeeded before proceeding —
-    # both produce_teaser_short and produce_standalone_short DO check
-    # this. A silent audio/assembly failure here would have proceeded to
-    # try uploading a missing or broken video file.
-    if not generate_audio(script_data["script"], voice, audio_out):
-        return {"status": "failed", "reason": "audio failed"}
-    generate_synced_subtitles(script_data["script"], audio_out, srt_out)
-    download_background_clip(cfg["bg_search_term"], bg_out)
-    if not assemble_short_video(bg_out, audio_out, srt_out,
-                                script_data["hook_text"], video_out):
-        return {"status": "failed", "reason": "assembly failed"}
-
-    tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
-    url = upload_youtube_short(video_out, script_data["title"],
-                                script_data["script"] + f"\n\nFull video: {main_video_url}\n\n#Shorts",
-                                tags)
-
-    for f in [audio_out, srt_out, bg_out]:
-        try:
-            os.remove(f)
-        except Exception:
-            pass
-
-    # FIX: same systemic bug as the other 2 Shorts functions — was
-    # unconditionally "success" even on empty upload URL.
-    if not url:
-        tg(f"⚠️ *RECAP SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
-           f"Video was assembled but the actual YouTube upload failed.")
-        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
-
-    tg(f"🔁 *RECAP SHORT UPLOADED*\n{script_data['title']}\n{url}")
-    return {"status": "success", "url": url}
+# FIX (found on direct user request, July 14 2026): produce_teaser_short
+# and produce_recap_short have been REMOVED entirely. The real, active
+# Shorts flow across all 5 channels only ever calls
+# produce_video_topic_short (x2, today's actual topic) and
+# produce_standalone_short (x2, different/trending topics) -- exactly
+# 4 Shorts per episode, per explicit instruction. These two were dead
+# code (never called by any real generate.yml workflow), but their
+# continued existence -- plus a CLI entry point below that could still
+# invoke them by hand -- was exactly the kind of leftover, no-longer-
+# relevant content this cleanup was asked to remove outright, not just
+# leave unused.
 
 
 # ── ENTRY POINT ───────────────────────────────────────────────────────────────
@@ -1849,10 +1716,6 @@ if __name__ == "__main__":
         result = produce_instagram_reel("reel_1")
     elif mode == "reel_2":
         result = produce_instagram_reel("reel_2")
-    elif mode == "teaser":
-        result = produce_teaser_short(MAIN_TOPIC)
-    elif mode == "recap":
-        result = produce_recap_short(MAIN_TOPIC)
     else:
         print(f"Unknown mode: {mode}")
         sys.exit(1)

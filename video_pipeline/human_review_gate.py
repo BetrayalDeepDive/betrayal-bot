@@ -34,6 +34,7 @@ account needed beyond the Gmail account already in use.
 """
 
 import time
+import re
 import datetime
 import subprocess
 import smtplib
@@ -125,7 +126,8 @@ def check_email_replies(sender_email, app_password, since_datetime=None):
                 results.append((decision, extra, msg_id))
 
         imap.logout()
-    except Exception:
+    except Exception as e:
+        print(f"  Email reply check failed (check GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD): {e}")
         return []
     return results
 
@@ -153,6 +155,9 @@ def _parse_email_decision(body):
         if upper.startswith("SWAP VISUALS") or upper.startswith("SWAP_VISUALS"):
             which = line.split(":", 1)[1].strip() if ":" in line else None
             return "swap_visuals", which
+        if upper.startswith("SWAP VOICE") or upper.startswith("SWAP_VOICE"):
+            which = line.split(":", 1)[1].strip() if ":" in line else None
+            return "swap_voice", which
         if upper.startswith("EDIT:") or upper.startswith("EDIT "):
             feedback = line.split(":", 1)[1].strip() if ":" in line else line[4:].strip()
             return "edit", feedback
@@ -181,7 +186,17 @@ def send_email_notification(subject, html_body, sender_email, app_password, reci
             smtp.login(sender_email, app_password)
             smtp.sendmail(sender_email, recipient_email, msg.as_string())
         return True
-    except Exception:
+    except Exception as e:
+        # FIX (found on live-run audit, July 14 2026): this used to fail
+        # completely silently — `except Exception: return False` with no
+        # trace anywhere. If GMAIL_APP_PASSWORD is wrong/expired, or
+        # GMAIL_SENDER_EMAIL doesn't match the account that generated the
+        # app password, email would just never arrive with zero clue why.
+        # Common real causes: app password needs 2-Step Verification
+        # turned on first; the 16-character app password, not the normal
+        # account password; sender_email must be the exact account that
+        # generated it.
+        print(f"  Gmail send failed (check GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD): {e}")
         return False
 
 
@@ -208,46 +223,69 @@ def _esc(text):
 
 def _tg_send_message(tg_token, tg_chat, text):
     try:
-        requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
                       json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML"}, timeout=15)
-    except Exception:
-        pass
+        if r.status_code != 200:
+            # FIX (found on final re-audit): this used to fail completely
+            # silently. If the bot token/chat ID are wrong, EVERY message
+            # this pipeline ever tries to send just vanishes with zero
+            # trace — the exact same blind spot the Gmail bug had, and the
+            # kind of thing that made the original Ch5 button issue take
+            # this many rounds to actually find. Logged so a broken
+            # token/chat shows up immediately in the run's own console
+            # output instead of looking identical to "no reply yet".
+            print(f"  Telegram sendMessage failed (check the bot token/chat ID): {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"  Telegram sendMessage failed (check the bot token/chat ID): {e}")
 
 
-def _tg_send_message_with_buttons(tg_token, tg_chat, text, include_swap_visuals=False):
+def _tg_send_message_with_buttons(tg_token, tg_chat, text, include_swap_visuals=False, fifth_option=None):
     """
-    v9 addition — real, genuine Telegram inline-keyboard buttons, per
-    explicit question ("does it have the clickable options... are they
-    working or not?"). Honest finding before this fix: it did not — the
-    whole review-gate system only ever sent plain text with instructions
-    to TYPE a reply ("Reply APPROVE, REJECT..."), despite five options
-    being designed. APPROVE/REJECT/REMAKE (and SWAP VISUALS where it
-    applies) are now real, one-tap buttons. EDIT deliberately stays as a
-    typed reply — it inherently requires describing WHAT to change, which
-    no button can collect; the message still explains this clearly.
+    v9 addition, v10 revision (July 14 2026 audit): real, genuine Telegram
+    inline-keyboard buttons. Original v9 finding: it didn't have any —
+    plain text with instructions to TYPE a reply, despite five options
+    being designed. v10 finding, from direct user feedback: EDIT was
+    STILL typed-only after v9, even though the person explicitly asked
+    for a real workable EDIT button. Fixed here — EDIT is now a genuine
+    button on every checkpoint. Tapping it prompts for the one thing a
+    button truly cannot collect (what to change); the reply after that
+    prompt is treated as the edit content, not a fresh decision.
+    `include_swap_visuals` is kept only for backward compatibility with
+    older call sites — prefer passing `fifth_option` directly.
     """
+    if fifth_option is None and include_swap_visuals:
+        fifth_option = ("🎨 SWAP VISUALS", "swap_visuals")
     try:
-        requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
                       json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
-                            "reply_markup": _button_keyboard(include_swap_visuals=include_swap_visuals)},
+                            "reply_markup": _button_keyboard(fifth_option=fifth_option)},
                       timeout=15)
-    except Exception:
-        pass
+        if r.status_code != 200:
+            print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): {e}")
 
 
-def _button_keyboard(include_swap_visuals=False, options=("approve", "reject", "remake")):
-    """v9 addition — shared real inline-keyboard builder, used by every
-    checkpoint (text, audio, video, photo) so all five checkpoint types
-    get genuine one-tap buttons, not just plain text instructions."""
+def _button_keyboard(options=("approve", "reject", "remake", "edit"), fifth_option=None):
+    """
+    Shared real inline-keyboard builder, used by every checkpoint (text,
+    audio, video, photo). All four core decisions — APPROVE, REJECT,
+    REMAKE, EDIT — are real one-tap buttons. `fifth_option`, when given,
+    is a (label, callback_data) pair for the checkpoint-specific 5th
+    option — e.g. ("🎨 SWAP VISUALS", "swap_visuals") for video/shorts,
+    ("🎙️ SWAP VOICE", "swap_voice") for audio — per the explicit request
+    that this exist for both audio and video, not just video.
+    """
     label_map = {"approve": ("✅ APPROVE", "approve"), "reject": ("❌ REJECT", "reject"),
-                 "remake": ("🔄 REMAKE", "remake")}
+                 "remake": ("🔄 REMAKE", "remake"), "edit": ("✏️ EDIT", "edit")}
     row1 = [{"text": t, "callback_data": d} for key in ("approve", "reject") if key in options
             for t, d in [label_map[key]]]
-    row2 = [{"text": t, "callback_data": d} for key in ("remake",) if key in options
+    row2 = [{"text": t, "callback_data": d} for key in ("remake", "edit") if key in options
             for t, d in [label_map[key]]]
-    if include_swap_visuals:
-        row2.append({"text": "🎨 SWAP VISUALS", "callback_data": "swap_visuals"})
-    return {"inline_keyboard": [row1, row2]} if row2 else {"inline_keyboard": [row1]}
+    rows = [r for r in (row1, row2) if r]
+    if fifth_option:
+        rows.append([{"text": fifth_option[0], "callback_data": fifth_option[1]}])
+    return {"inline_keyboard": rows}
 
 
 def _tg_send_audio(tg_token, tg_chat, audio_path, caption="", reply_markup=None):
@@ -257,10 +295,23 @@ def _tg_send_audio(tg_token, tg_chat, audio_path, caption="", reply_markup=None)
         if reply_markup:
             data["reply_markup"] = json.dumps(reply_markup)
         with open(audio_path, "rb") as f:
-            requests.post(f"https://api.telegram.org/bot{tg_token}/sendAudio",
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendAudio",
                           data=data, files={"audio": f}, timeout=120)
+        # FIX (found on final re-audit): this used to return True the
+        # moment the HTTP request didn't raise — even if Telegram's API
+        # itself rejected the file (e.g. over its real ~50MB bot-upload
+        # limit, or a bad chat ID) and responded with an error status.
+        # The caller trusts this return value to decide whether to fall
+        # back to a text-only notice; a false "sent successfully" here
+        # means the pipeline would sit polling for a reply to a message
+        # the person never actually received, until it times out and
+        # auto-approves something nobody ever reviewed.
+        if r.status_code != 200:
+            print(f"  Telegram sendAudio failed (file may be too large, or check bot token/chat ID): {r.status_code} {r.text[:200]}")
+            return False
         return True
-    except Exception:
+    except Exception as e:
+        print(f"  Telegram sendAudio failed: {e}")
         return False
 
 
@@ -270,10 +321,17 @@ def _tg_send_video(tg_token, tg_chat, video_path, caption="", reply_markup=None)
         if reply_markup:
             data["reply_markup"] = json.dumps(reply_markup)
         with open(video_path, "rb") as f:
-            requests.post(f"https://api.telegram.org/bot{tg_token}/sendVideo",
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendVideo",
                           data=data, files={"video": f}, timeout=180)
+        # FIX (found on final re-audit): same real gap as _tg_send_audio —
+        # a Telegram-side rejection (file too large, bad chat ID) used to
+        # be indistinguishable from a genuine success.
+        if r.status_code != 200:
+            print(f"  Telegram sendVideo failed (file may be too large, or check bot token/chat ID): {r.status_code} {r.text[:200]}")
+            return False
         return True
-    except Exception:
+    except Exception as e:
+        print(f"  Telegram sendVideo failed: {e}")
         return False
 
 
@@ -283,10 +341,14 @@ def _tg_send_photo(tg_token, tg_chat, photo_path, caption="", reply_markup=None)
         if reply_markup:
             data["reply_markup"] = json.dumps(reply_markup)
         with open(photo_path, "rb") as f:
-            requests.post(f"https://api.telegram.org/bot{tg_token}/sendPhoto",
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendPhoto",
                           data=data, files={"photo": f}, timeout=60)
+        if r.status_code != 200:
+            print(f"  Telegram sendPhoto failed (check bot token/chat ID): {r.status_code} {r.text[:200]}")
+            return False
         return True
-    except Exception:
+    except Exception as e:
+        print(f"  Telegram sendPhoto failed: {e}")
         return False
 
 
@@ -302,11 +364,18 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
 
     Returns ("approve", None), ("reject", None),
     ("edit", "the real feedback text"), ("remake", "optional reason"),
-    ("swap_visuals", "optional which-section text"), or ("timeout", None).
+    ("swap_visuals", "optional which-section text"),
+    ("swap_voice", "optional reason"), or ("timeout", None).
     """
     offset = None
     email_check_counter = 0
     review_start_time = datetime.datetime.now()
+    _getupdates_error_logged = [False]  # mutable so the nested loop below can set it once
+    awaiting_edit_text = False  # FIX (July 14 2026): EDIT is now a real
+    # button (see _button_keyboard). A tap can't carry free-form text, so
+    # tapping it prompts for what to change, then the very next text
+    # reply — whatever its wording — is taken as that edit content,
+    # rather than re-parsed as a fresh decision keyword.
 
     for attempt in range(1, max_attempts + 1):
         if _total_review_time_exhausted():
@@ -319,6 +388,23 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
         while datetime.datetime.now() < deadline:
             time.sleep(15)
 
+            # FIX (found on final re-audit, direct user question about the
+            # real timeline): this global 4.5h budget used to only be
+            # checked once at the TOP of each 60-minute attempt — not
+            # inside this 15s loop. So if the budget ran out partway
+            # through an attempt (e.g. at the 4h20m mark, mid-attempt),
+            # nothing would notice until that ENTIRE attempt finished,
+            # potentially blowing up to a further 59 minutes past the
+            # intended 4.5h ceiling — eating directly into the 1.5h of
+            # headroom this budget exists to protect. Checked every 15s
+            # now, same cadence as the Telegram poll itself.
+            if _total_review_time_exhausted():
+                _tg_send_message(tg_token, tg_chat,
+                                 "⏱️ Total review time budget for this episode reached — "
+                                 "auto-approving to keep this run within GitHub Actions' real "
+                                 "job time limit. Whatever hasn't been decided yet proceeds as generated.")
+                return "timeout", None
+
             # Check Telegram every cycle (cheap, fast)
             try:
                 params = {"timeout": 10}
@@ -326,8 +412,24 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
                     params["offset"] = offset
                 r = requests.get(f"https://api.telegram.org/bot{tg_token}/getUpdates",
                                   params=params, timeout=20)
+                if r.status_code != 200:
+                    # FIX (found on final re-audit): a bad bot token/chat
+                    # makes getUpdates fail on EVERY single cycle for the
+                    # whole timeout window, and this used to swallow that
+                    # completely — the logs would look identical to "no
+                    # one has replied yet" whether the person genuinely
+                    # hadn't answered, or the polling was fundamentally
+                    # broken the entire time. Logged once per attempt
+                    # (not every 15s) so it's visible without flooding
+                    # the log with the same line dozens of times.
+                    if not _getupdates_error_logged[0]:
+                        print(f"  Telegram getUpdates failed (check the bot token): {r.status_code} {r.text[:200]}")
+                        _getupdates_error_logged[0] = True
                 updates = r.json().get("result", [])
-            except Exception:
+            except Exception as e:
+                if not _getupdates_error_logged[0]:
+                    print(f"  Telegram getUpdates failed (check the bot token/network): {e}")
+                    _getupdates_error_logged[0] = True
                 updates = []
             for u in updates:
                 offset = u["update_id"] + 1
@@ -346,13 +448,22 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
                                      timeout=10)
                     except Exception:
                         pass
-                    if cb_data in ("approve", "reject", "remake", "swap_visuals"):
+                    if cb_data == "edit":
+                        awaiting_edit_text = True
+                        _tg_send_message(tg_token, tg_chat,
+                                         "✏️ EDIT tapped — reply with what you'd like changed.")
+                        continue
+                    if cb_data in ("approve", "reject", "remake", "swap_visuals", "swap_voice"):
                         return cb_data, None
                     continue
 
                 text = u.get("message", {}).get("text", "").strip()
                 if not text:
                     continue
+                if awaiting_edit_text:
+                    # This is the free-form content that followed an EDIT
+                    # button tap — it IS the edit, not a decision to parse.
+                    return "edit", text
                 # FIX (found on deep re-audit): this used to be an
                 # independently duplicated copy of _parse_email_decision's
                 # exact keyword logic, not a genuine call to it — despite
@@ -406,21 +517,33 @@ def get_schedule_line(check_ins_used, max_check_ins=6, check_ins_per_day=3,
 def review_title_thumbnail_description(channel_name, title, thumbnail_path, description,
                                          description_score, tg_token, tg_chat, check_ins_used,
                                          gmail_sender=None, gmail_app_password=None,
-                                         timeout_minutes=60):
+                                         timeout_minutes=60, thumbnail_score=None):
     """
     THE COMBINED CHECKPOINT — title, thumbnail, and description reviewed
     together in one message, per the explicit request to reduce total
     review time. Shows the real description quality score so "why does
     this description look different from usual" has a concrete number
     behind it, not a black box.
+
+    FIX (found on final re-audit, direct user request for real per-stage
+    scores): thumbnail_score is optional and, when given, shown alongside
+    the description score. This reflects the score_thumbnail_text()
+    result computed at the CANDIDATE-SELECTION stage (best of several
+    real candidates, scored on having a real number, ideal 2-3 word
+    length, and specificity signals) — stated honestly: if the channel's
+    format-specific enforcement (e.g. before/after phrasing) touches the
+    text further after this point, the score reflects the selected
+    candidate, not necessarily every character of the final rendered
+    image.
     """
     schedule_line = get_schedule_line(check_ins_used)
+    thumb_score_line = f"Thumbnail attention score: {thumbnail_score}/10\n" if thumbnail_score is not None else ""
     caption = (f"🖼️🏷️📝 {channel_name} — TITLE + THUMBNAIL + DESCRIPTION REVIEW\n\n"
               f"{schedule_line}\n\n"
               f"Title: {title}\n"
+              f"{thumb_score_line}"
               f"Description quality score: {description_score}/10\n\n"
-              f"Tap a button below, or reply <b>EDIT: what to change</b> for "
-              f"targeted feedback")
+              f"Tap a button below — EDIT will ask what to change")
     _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption,
                    reply_markup=_button_keyboard())
     # FIX (found on deep re-audit): this used to send the ENTIRE
@@ -451,6 +574,7 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
         # stripped by the email client, changing what the reviewer
         # actually sees. Escaped for consistency.
         html_body = (f"<p>{schedule_line}</p><p><b>{_esc(title)}</b></p>"
+                     f"{'<p>Thumbnail attention score: ' + str(thumbnail_score) + '/10</p>' if thumbnail_score is not None else ''}"
                      f"<p>Description score: {description_score}/10</p>"
                      f"<pre style='white-space:pre-wrap'>{_esc(description)}</pre>")
         send_email_notification(f"[{channel_name}] Title/Thumbnail/Description ready for review",
@@ -572,24 +696,32 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
     swap visuals), matching the video checkpoint's design.
 
     HONEST CONSTRAINT, stated plainly: the real Shorts production
-    functions (produce_teaser_short etc.) generate AND upload in one
-    call internally — there's no clean pre-publish preview point
-    without risky changes to that already-proven shared module. So
-    this review happens on the ALREADY-PUBLISHED Shorts. EDIT, REMAKE,
+    functions (produce_video_topic_short, produce_standalone_short)
+    generate AND upload in one call internally — there's no clean
+    pre-publish preview point without risky changes to that already-
+    proven shared module. So this review happens on the ALREADY-
+    PUBLISHED Shorts. EDIT, REMAKE,
     and SWAP VISUALS all mean the same real thing here: the caller
     produces a genuinely fresh replacement Short and publishes that as
     an addition — this function does not and cannot delete/unpublish
     the original from here.
 
-    shorts_list: [{"name": str, "url": str}, ...] — the real Shorts
-    already produced this episode.
+    shorts_list: [{"name": str, "url": str, "score": float or None}, ...]
+    — the real Shorts already produced this episode. "score" is
+    optional — from quality_scoring.score_shorts_quality(), computed by
+    the caller against the local file (shorts_reels_engine.py's
+    produce_*_short functions now return "local_path" alongside "url"
+    specifically so this scoring is possible before that file, if ever
+    cleaned up, is gone) — shown when present, silently omitted
+    otherwise so this doesn't break for a caller that hasn't wired it in.
     """
     schedule_line = get_schedule_line(check_ins_used)
     lines = [f"🎞️ {channel_name} — SHORTS REVIEW\n\n{schedule_line}\n",
              "Already published (review happens post-publish — see the note below):"]
     for s in shorts_list:
-        lines.append(f"  • {_esc(s['name'])}: {_esc(s['url'])}")
-    lines.append("\nTap a button below, or reply <b>EDIT: feedback</b> for targeted changes")
+        score_part = f" — quality score: {s['score']}/10" if s.get("score") is not None else ""
+        lines.append(f"  • {_esc(s['name'])}{score_part}: {_esc(s['url'])}")
+    lines.append("\nTap a button below — EDIT will ask what to change")
     lines.append("\nNote: EDIT/REMAKE/SWAP VISUALS here produce a genuinely fresh replacement "
                  "Short and publish it as an addition — the original already-published Short "
                  "cannot be un-published from this review step.")
@@ -597,7 +729,9 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
 
     if gmail_app_password:
         html_body = f"<p>{schedule_line}</p><p>Shorts published:</p><ul>" + \
-                    "".join(f"<li>{s['name']}: {s['url']}</li>" for s in shorts_list) + "</ul>"
+                    "".join(f"<li>{s['name']}"
+                            f"{' — quality score: ' + str(s['score']) + '/10' if s.get('score') is not None else ''}"
+                            f": {s['url']}</li>" for s in shorts_list) + "</ul>"
         send_email_notification(f"[{channel_name}] Shorts ready for review", html_body,
                                  gmail_sender, gmail_app_password)
 
@@ -668,10 +802,25 @@ def regenerate_script_sections(full_script, stage_texts, stage_names, target_sec
     feedback), rewrites the entire script instead, still incorporating
     the real feedback text directly.
 
-    Returns the new full script. Never silently returns the original
-    unchanged — if the AI call fails, raises rather than pretending the
-    edit happened, so the caller can genuinely alert rather than
-    silently ignore the request.
+    Returns (new_full_script, updated_sections_dict) where
+    updated_sections_dict maps each regenerated section_name to its new
+    text — callers MUST use this to refresh their own stage_texts cache
+    for those indices. Never silently returns the original unchanged —
+    if the AI call fails, raises rather than pretending the edit
+    happened, so the caller can genuinely alert rather than silently
+    ignore the request.
+
+    FIX (found on final re-audit): a version of this that only returned
+    the merged script (no per-section map) meant a caller updating its
+    own stage_texts cache had no way to know what the new text for a
+    just-edited section actually was — the entry for that section stayed
+    on its PRE-edit text. A second edit request targeting that same
+    section would then search for text that no longer exists anywhere in
+    the script (it was already replaced once), and the substring
+    `.replace()` would silently do nothing — the person would see
+    "updated" and get back the exact same script a second time, with no
+    error. Returning the per-section map lets the caller keep every
+    entry current after every round, not just after the first.
     """
     if not target_sections:
         prompt = f"""Rewrite this ENTIRE documentary script based on real human feedback.
@@ -688,9 +837,10 @@ Return ONLY the complete rewritten script, no commentary, no markdown."""
         if not new_script or len(new_script.split()) < 50:
             raise RuntimeError("Whole-script regeneration failed or returned too little content — "
                                "feedback was NOT applied, this must be surfaced, not hidden.")
-        return new_script.strip()
+        return new_script.strip(), {}
 
     updated_script = full_script
+    updated_sections = {}
     for section_name in target_sections:
         idx = stage_names.index(section_name)
         original_section = stage_texts[idx]
@@ -711,41 +861,152 @@ Return ONLY the rewritten section text, no commentary, no markdown, no section l
             raise RuntimeError(f"Section rewrite for '{section_name}' failed or returned too "
                                f"little content — feedback was NOT applied, this must be "
                                f"surfaced, not hidden.")
-        updated_script = updated_script.replace(original_section, new_section.strip(), 1)
+        new_section = new_section.strip()
+        updated_script = updated_script.replace(original_section, new_section, 1)
+        updated_sections[section_name] = new_section
 
-    return updated_script
+    return updated_script, updated_sections
+
+
+def approximate_stage_split(full_script, stage_names, word_targets):
+    """
+    FIX (July 14 2026 audit): Channels 2/3/4's script generator doesn't
+    return real per-stage text (only Channel 1 and 5 do) — their internal
+    quality-gate scoring computes a proportional word-count split
+    on-the-fly and discards it once scoring is done. Rather than risk
+    changing that generator's tuple return signature (used elsewhere,
+    higher risk of breaking something for a cosmetic display change),
+    this reconstructs the same proportional split independently, purely
+    for the review message. It's an approximation (real sentence/idea
+    boundaries won't line up exactly with word-count math), but it's the
+    same technique the pipeline itself already trusts for stage scoring.
+
+    CRITICAL FIX applied here on re-audit: an earlier version of this
+    function rebuilt each stage's text with `" ".join(words)`, producing
+    single-space-separated text that is NOT an exact substring of the
+    original script the moment that script has a newline, a paragraph
+    break, or a double space anywhere in it (real scripts always do).
+    regenerate_script_sections() finds the section to rewrite with a
+    plain `.replace(original_section, ...)` — which silently does
+    nothing and returns the script completely unchanged if the text
+    isn't an exact match, with no error and no signal that the edit was
+    ignored. That would have made every EDIT on Channels 2/3/4 a silent
+    no-op: the person would see "regenerating..." and get back the exact
+    same script. Fixed by slicing the ORIGINAL string by character
+    offset (via each word's real start/end position), so every returned
+    stage text is guaranteed to be an exact, literal substring of
+    full_script, whitespace and all.
+    """
+    word_spans = [m.span() for m in re.finditer(r'\S+', full_script)]
+    total = len(word_spans)
+    total_target = sum(word_targets) or 1
+    pos = 0
+    stage_texts = []
+    for i, target in enumerate(word_targets):
+        share = target / total_target
+        end = pos + int(total * share) if i < len(word_targets) - 1 else total
+        end = max(end, pos)
+        if pos < total and end > pos:
+            start_char = word_spans[pos][0]
+            end_char = word_spans[end - 1][1]
+            stage_texts.append(full_script[start_char:end_char])
+        else:
+            stage_texts.append("")
+        pos = end
+    return stage_texts
 
 
 def review_script(channel_name, title, full_script, score, niche_name,
                    tg_token, tg_chat, check_ins_used=0, gmail_sender=None,
-                   gmail_app_password=None, timeout_minutes=60):
+                   gmail_app_password=None, timeout_minutes=60,
+                   stage_texts=None, stage_names=None, thumbnail_text=None, tags=None,
+                   sub_scores=None):
     """
     Real checkpoint 1: sends the FULL script text (not a preview),
     correctly split across Telegram's real 4096-character message limit,
     plus an email with the complete script attached. Waits for a real
     reply. Returns {"decision": "approve"|"reject"|"edit"|"remake"|"timeout",
     "feedback": str or None}.
+
+    FIX (July 14 2026 audit, direct user feedback): this used to send the
+    script as one undifferentiated wall of text with everything (script,
+    thumbnail text, tags) mixed together with no visual separation —
+    genuinely hard to tell where the hook ends and the body begins, or
+    what's narration versus metadata. When stage_texts/stage_names are
+    given (the pipeline already tracks these internally for edit-
+    targeting — this just also uses them for display), the script is now
+    sent stage-by-stage with a clear bold header per stage (COLD OPEN,
+    THE BEFORE, etc.) instead of one blob. Thumbnail text and tags, if
+    given, are sent as their own clearly separate, clearly labeled
+    message — never folded into the narration text.
+
+    sub_scores: optional dict of {label: (score_0_to_10, note)} for named
+    sub-metrics the caller has computed — e.g. {"Hook strength":
+    (7.4, "weak 60% hook")}. This is for real, independently-checkable
+    sub-scores (the pipeline's own existing retention-hook validator,
+    converted to a 0-10 scale, is the first real use of this), not
+    invented numbers — shown as its own line under the main score.
     """
     schedule_line = get_schedule_line(check_ins_used)
+    sub_score_lines = ""
+    if sub_scores:
+        for label, (sub_score, note) in sub_scores.items():
+            note_part = f" — {note}" if note else ""
+            sub_score_lines += f"{label}: {sub_score}/10{note_part}\n"
     header = (f"📝 <b>{channel_name} — SCRIPT REVIEW</b>\n\n{schedule_line}\n\n"
              f"Title: {_esc(title)}\nNiche: {niche_name} | Score: {score}/10\n"
+             f"{sub_score_lines}"
              f"Length: {len(full_script.split())} words\n\n"
-             f"Tap a button below, or reply <b>EDIT: what to change</b> for "
-             f"targeted feedback\n"
+             f"Tap a button below — EDIT will ask what to change\n"
              f"(auto-approves in {timeout_minutes} min)")
     _tg_send_message_with_buttons(tg_token, tg_chat, header)
 
-    # Real message-splitting — Telegram's real hard limit is 4096 characters
-    chunk_size = 3800  # leaves headroom for the chunk-number prefix
-    _escaped_script = _esc(full_script)
-    chunks = [_escaped_script[i:i+chunk_size] for i in range(0, len(_escaped_script), chunk_size)]
-    for i, chunk in enumerate(chunks):
-        _tg_send_message(tg_token, tg_chat, f"[{i+1}/{len(chunks)}]\n{chunk}")
-        time.sleep(1)  # avoid Telegram rate limits on rapid sequential sends
+    # Real message-splitting — Telegram's real hard limit is 4096 characters.
+    # Send stage-by-stage with a clear header when the caller has that
+    # breakdown; otherwise fall back to the old flat-chunk behavior so
+    # nothing breaks for a caller that doesn't pass stage data.
+    chunk_size = 3700  # leaves headroom for the header/chunk-number prefix
+    if stage_texts and stage_names and len(stage_texts) == len(stage_names):
+        for stage_name, stage_text in zip(stage_names, stage_texts):
+            escaped_stage = _esc(stage_text)
+            sub_chunks = [escaped_stage[i:i+chunk_size] for i in range(0, len(escaped_stage), chunk_size)] or [""]
+            for i, chunk in enumerate(sub_chunks):
+                part_label = f" ({i+1}/{len(sub_chunks)})" if len(sub_chunks) > 1 else ""
+                _tg_send_message(tg_token, tg_chat, f"━━━ <b>{_esc(stage_name.upper())}</b>{part_label} ━━━\n\n{chunk}")
+                time.sleep(1)
+    else:
+        _escaped_script = _esc(full_script)
+        chunks = [_escaped_script[i:i+chunk_size] for i in range(0, len(_escaped_script), chunk_size)]
+        for i, chunk in enumerate(chunks):
+            _tg_send_message(tg_token, tg_chat, f"[{i+1}/{len(chunks)}]\n{chunk}")
+            time.sleep(1)  # avoid Telegram rate limits on rapid sequential sends
+
+    # Thumbnail text / tags — always their own separate, clearly labeled
+    # message, never mixed into the narration above.
+    meta_lines = []
+    if thumbnail_text:
+        meta_lines.append(f"🖼️ <b>THUMBNAIL TEXT:</b> {_esc(thumbnail_text)}")
+    if tags:
+        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags)
+        meta_lines.append(f"🏷️ <b>TAGS:</b> {_esc(tags_str)}")
+    if meta_lines:
+        _tg_send_message(tg_token, tg_chat, "━━━ <b>METADATA (not part of the script)</b> ━━━\n\n" + "\n\n".join(meta_lines))
 
     if gmail_app_password:
-        html_body = f"<p>{schedule_line}</p><h3>{_esc(title)}</h3><p>Score: {score}/10 | {len(full_script.split())} words</p>" \
-                    f"<pre style='white-space:pre-wrap'>{_esc(full_script)}</pre>"
+        if stage_texts and stage_names and len(stage_texts) == len(stage_names):
+            body_html = "".join(
+                f"<h4>{_esc(name.upper())}</h4><pre style='white-space:pre-wrap'>{_esc(text)}</pre>"
+                for name, text in zip(stage_names, stage_texts))
+        else:
+            body_html = f"<pre style='white-space:pre-wrap'>{_esc(full_script)}</pre>"
+        meta_html = ""
+        if thumbnail_text:
+            meta_html += f"<p><b>Thumbnail text:</b> {_esc(thumbnail_text)}</p>"
+        if tags:
+            meta_html += f"<p><b>Tags:</b> {_esc(', '.join(tags) if isinstance(tags, (list, tuple)) else str(tags))}</p>"
+        html_body = (f"<p>{schedule_line}</p><h3>{_esc(title)}</h3>"
+                     f"<p>Score: {score}/10 | {len(full_script.split())} words</p>"
+                     f"{meta_html}<hr>{body_html}")
         send_email_notification(f"[{channel_name}] Script ready for review: {title}",
                                  html_body, gmail_sender, gmail_app_password)
 
@@ -758,7 +1019,9 @@ def review_script(channel_name, title, full_script, score, niche_name,
 
 def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thumbnail_path,
                             tg_token, tg_chat, check_ins_used=0, gmail_sender=None,
-                            gmail_app_password=None, timeout_minutes=60, preview_seconds=60):
+                            gmail_app_password=None, timeout_minutes=60, preview_seconds=60,
+                            audio_score=None, audio_score_breakdown=None,
+                            video_score=None, video_score_breakdown=None):
     """
     THE COMBINED AUDIO+VIDEO CHECKPOINT — sent together in one review
     window, per the explicit decision to keep this inside a single
@@ -770,15 +1033,33 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     Returns {"audio_decision": {...}, "video_decision": {...}}. If the
     audio decision is "reject" or "remake", the video step is skipped
     entirely (there's nothing left to review) and video_decision is None.
+
+    FIX (found on final re-audit, direct user request for real per-stage
+    scores): audio_score/video_score are optional 0-10 scores from
+    quality_scoring.py's score_audio_quality()/score_video_quality() —
+    real, independently-checkable signals (voice tier, A/V duration
+    match, silence-gap detection via ffmpeg, resolution/stream
+    integrity, file-size sanity), not estimates. When given, shown
+    directly in the review message with a one-line breakdown so a low
+    score is explainable, not just a number.
     """
     schedule_line = get_schedule_line(check_ins_used)
 
+    def _breakdown_line(breakdown):
+        if not breakdown:
+            return ""
+        parts = [f"{k.replace('_', ' ')}: {v.get('score')}/10" for k, v in breakdown.items()]
+        return "\n(" + " | ".join(parts) + ")"
+
     # AUDIO — real 4-option decision
+    audio_score_line = f"Audio quality score: {audio_score}/10{_breakdown_line(audio_score_breakdown)}\n\n" if audio_score is not None else ""
     audio_caption = (f"🎙️ {channel_name} — AUDIO REVIEW\n\n{schedule_line}\n\n"
-                     f"Voice tier: {voice_used}\n\n"
-                     f"Tap a button below, or reply <b>EDIT: feedback</b> for targeted changes")
+                     f"Voice tier: {voice_used}\n"
+                     f"{audio_score_line}"
+                     f"Tap a button below — EDIT prompts you for what to change, "
+                     f"SWAP VOICE regenerates with a different voice tier")
     sent = _tg_send_audio(tg_token, tg_chat, audio_path, caption=audio_caption,
-                          reply_markup=_button_keyboard())
+                          reply_markup=_button_keyboard(fifth_option=("🎙️ SWAP VOICE", "swap_voice")))
     if not sent:
         _tg_send_message(tg_token, tg_chat,
                          f"⚠️ {channel_name}: could not send audio file for review "
@@ -788,6 +1069,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
         if gmail_app_password:
             send_email_notification(f"[{channel_name}] Audio ready for review",
                                      f"<p>{schedule_line}</p><p>Voice tier: <b>{voice_used}</b></p>"
+                                     f"{'<p>Audio quality score: ' + str(audio_score) + '/10</p>' if audio_score is not None else ''}"
                                      f"<p>Listen via Telegram — audio isn't emailed directly.</p>",
                                      gmail_sender, gmail_app_password)
         d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
@@ -796,7 +1078,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
             d = "approve"
         audio_decision = {"decision": d, "feedback": fb}
 
-    if audio_decision["decision"] in ("reject", "remake"):
+    if audio_decision["decision"] in ("reject", "remake", "swap_voice"):
         return {"audio_decision": audio_decision, "video_decision": None}
 
     # VIDEO — real 5-option decision, the 5th being SWAP VISUALS
@@ -808,13 +1090,14 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     except Exception:
         preview_ready = False
 
+    video_score_line = f"Video quality score: {video_score}/10{_breakdown_line(video_score_breakdown)}\n\n" if video_score is not None else ""
     video_caption = (f"🎬 {channel_name} — VIDEO REVIEW\n\nFirst {preview_seconds}s preview\n\n"
-                     f"Tap a button below, or reply <b>EDIT: feedback</b> for targeted "
-                     f"changes, or <b>SWAP VISUALS: which section</b> (e.g. \"the escalation "
-                     f"part\") to regenerate just the visuals for, keeping the same script and audio")
+                     f"{video_score_line}"
+                     f"Tap a button below — EDIT will ask what to change, "
+                     f"SWAP VISUALS regenerates just the visuals, same script and audio")
     if preview_ready:
         _tg_send_video(tg_token, tg_chat, preview_path, caption=video_caption,
-                       reply_markup=_button_keyboard(include_swap_visuals=True))
+                       reply_markup=_button_keyboard(fifth_option=("🎨 SWAP VISUALS", "swap_visuals")))
     else:
         _tg_send_message_with_buttons(tg_token, tg_chat,
                          f"⚠️ {channel_name}: could not cut a preview clip — sending thumbnail only.\n\n{video_caption}",
@@ -825,7 +1108,8 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     if gmail_app_password:
         send_email_notification(f"[{channel_name}] Video ready for review",
                                  f"<p>Video assembled — preview sent to Telegram "
-                                 f"({'clip attached' if preview_ready else 'clip unavailable'}).</p>",
+                                 f"({'clip attached' if preview_ready else 'clip unavailable'}).</p>"
+                                 f"{'<p>Video quality score: ' + str(video_score) + '/10</p>' if video_score is not None else ''}",
                                  gmail_sender, gmail_app_password)
 
     d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
