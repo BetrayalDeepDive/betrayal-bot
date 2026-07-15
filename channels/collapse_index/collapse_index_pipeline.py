@@ -515,8 +515,8 @@ GEMINI_KEY_2   = os.environ.get("GEMINI_API_KEY_2", "")  # backup Gemini key
 YT_CLIENT_ID   = os.environ.get("CHANNEL5_YT_CLIENT_ID", "")
 YT_CLIENT_SEC  = os.environ.get("CHANNEL5_YT_CLIENT_SECRET", "")
 YT_REFRESH     = os.environ.get("CHANNEL5_YT_REFRESH_TOKEN", "")
-TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN", "")
-TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID", "")
+TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN_CH5", os.environ.get("TELEGRAM_TOKEN", ""))
+TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID_CH5", os.environ.get("TELEGRAM_CHAT_ID", ""))
 IS_MAKEUP      = os.environ.get("IS_MAKEUP", "false").lower() == "true"
 
 # ================================================================
@@ -980,6 +980,27 @@ CEREBRAS_MODELS = [
 ]  # NOTE: this constant isn't actually read by call_cerebras() below (it has its own
    # inline _models list, now fixed to match). Kept in sync here for anyone reading top-down.
 
+# FIX (found on live-run audit, July 14 2026): reasoning models like
+# gpt-oss-120b (served by both Cerebras and Groq here) can return their
+# internal chain-of-thought alongside — or not clearly separated from —
+# the actual final answer, depending on how the provider's API formats
+# it. Left unstripped, that reasoning trace becomes the "script" sent
+# for review. This covers every documented shape that trace can take:
+# explicit <think>/<thinking> tags, the gpt-oss "harmony" channel format
+# (<|channel|>analysis ... <|channel|>final<|message|>...), and stray
+# leftover channel tokens. Applied once, centrally, in ai_generate() —
+# every caller in this file benefits automatically.
+def _strip_reasoning(text):
+    if not text:
+        return text
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    if '<|channel|>final<|message|>' in text:
+        text = text.split('<|channel|>final<|message|>')[-1]
+        text = text.split('<|end|>')[0].split('<|return|>')[0].split('<|start|>')[0]
+    text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
+    return text.strip()
+
 def call_cerebras(prompt, tokens=8000):
     """
     Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
@@ -1233,20 +1254,44 @@ def call_mistral(prompt, tokens=8000):
         log(f"  Mistral: {e}")
     return None
 
+# FIX (found on live-run audit, July 14 2026): every single ai_generate()
+# call — and a real episode makes dozens across script/chapters/thumbnail
+# text/tags — re-ran the FULL 7-provider chain from scratch, including
+# providers already confirmed dead for this run (SambaNova daily-limit,
+# Gemini permission-denied, Cerebras wrong-model-name-on-all-variants).
+# Each dead provider still costs real seconds (several HTTP round-trips
+# plus a 10s sleep) on every single call — across dozens of calls in one
+# run, this alone accounts for a large share of the 3.5-hour runtime seen
+# in the July 14 log. A provider is only ever un-recoverable mid-run for
+# genuinely permanent reasons (bad/expired key, daily quota, account
+# permission denial, or a model name that's wrong for the whole run) —
+# never for a one-off network blip — so it's safe to stop retrying a
+# provider the moment it fails once, for the rest of this run only.
+_DEAD_PROVIDERS_THIS_RUN = set()
+
 def ai_generate(prompt, tokens=8000):
     """
-    Provider order: Cerebras → Gemini → Groq → OpenRouter → Cohere → Mistral
-    6 layers of fallback. Sleep 10s between failures.
+    Provider order: Cerebras → SambaNova → Gemini → Groq → OpenRouter → Cohere → Mistral
+    7 layers of fallback. Sleep 10s between failures. Providers that fail
+    once are skipped for the rest of this run (see _DEAD_PROVIDERS_THIS_RUN).
     """
-    # Provider order: primary free → backup free → quota-based → fallbacks
-    # SambaNova is between Cerebras and Gemini — same quality, no quota wall
-    providers = [call_cerebras, call_sambanova, call_gemini,
-                 call_groq, call_openrouter, call_cohere, call_mistral]
-    for i, fn in enumerate(providers):
+    providers = [("cerebras", call_cerebras), ("sambanova", call_sambanova),
+                 ("gemini", call_gemini), ("groq", call_groq),
+                 ("openrouter", call_openrouter), ("cohere", call_cohere),
+                 ("mistral", call_mistral)]
+    live = [(name, fn) for name, fn in providers if name not in _DEAD_PROVIDERS_THIS_RUN]
+    if not live:
+        # every provider has already failed this run — reset and try once
+        # more rather than guarantee a hard failure
+        live = providers
+        _DEAD_PROVIDERS_THIS_RUN.clear()
+    for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens)
-        if r: return r
-        if i < len(providers) - 1:
-            log(f"  Waiting 10s before next provider...")
+        if r:
+            return _strip_reasoning(r)
+        _DEAD_PROVIDERS_THIS_RUN.add(name)
+        if i < len(live) - 1:
+            log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
     return None
 
@@ -1436,12 +1481,12 @@ def score_result(r):
     # v12: retention hook validation
     script = r.get("script", "")
     if script:
-        penalty, hook_issues = _validate_retention_hooks_ch1(script)
+        penalty, hook_issues = _validate_retention_hooks_ch5(script)
         s += penalty
     return min(round(s, 1), 10.0), []
 
 
-def _validate_retention_hooks_ch1(script_clean):
+def _validate_retention_hooks_ch5(script_clean):
     """
     Validates retention hooks at 30/60/80% positions.
     Returns (penalty, issues). Penalty deducted from script score.
@@ -1808,7 +1853,7 @@ def build_script_prompt(niche, topic, episode, attempt,
         7: 150,   # Implication + CTA
     }
 
-    return f"""Write a {intensity} dark investigative documentary narration.
+    return f"""Write a {intensity} finance and business-collapse documentary narration.
 
 TOPIC: {topic}
 SERIES: {niche["series"]} — Episode {episode}
@@ -2242,7 +2287,7 @@ def generate_script_content(niche, topic, episode, attempt,
 
     # Step 5: CTA injection
     if len(script.split()) >= 400:
-        script = _inject_ctas_ch1(script, niche["name"])
+        script = _inject_ctas_ch5(script, niche["name"])
         # Subscribe CTA guard
         if "subscribe" not in " ".join(script.split()[-60:]).lower():
             script += " Subscribe to this channel for more documented cases."
@@ -2252,7 +2297,7 @@ def generate_script_content(niche, topic, episode, attempt,
     return {"script": script, "words": wc, "violations": violations, "stage_texts": stage_texts, "chart_data": chart_data}
 
 
-def _inject_ctas_ch1(script_clean, niche_name):
+def _inject_ctas_ch5(script_clean, niche_name):
     """
     Inject subscribe CTAs at 30%/60%/80% marks for Ch5 (TheCollapseIndex).
     Uses sentence boundary detection so CTAs never split mid-sentence.
@@ -2474,42 +2519,42 @@ match that energy, don't just follow the formulas below in isolation.
   actually contain in its opening.
 
 TITLE FORMULAS THAT WORK (dread-driven):
-- "[Number] [People/Days/Years] [Disturbing Specific Thing] — Nobody Talked About This"
-- "The [Institution] Knew. They Did It Anyway. Here's The File."
-- "How [Completely Normal Thing] Was Used To [Dark Outcome]"
-- "[Name or System] Ran [Disturbing Operation] For [Specific Duration]. Here's The Evidence."
-- "They Thought It Was [Normal Thing]. It Was [Dark Reality]."
-- "The [Number]-Day [Dark Event] Everyone Pretended Didn't Happen"
-- "[Specific Crime/System]: [Number] Victims. [Number] Years. [Number] Investigations. Zero Arrests."
+- "[Number] Employees. [Number] Months. Then The Funding Stopped."
+- "The Board Knew. They Approved It Anyway. Here's The Filing."
+- "How A $[Number]M Startup Burned Through Everything In [Number] Weeks"
+- "[Company/System] Ran On Fake Metrics For [Specific Duration]. Here's The Audit."
+- "They Thought It Was Growth. It Was Already Over."
+- "The [Number]-Day Collapse Everyone Pretended Was Temporary"
+- "[Specific Company]: $[Number]B Valuation. [Number] Investors. Zero Warning."
 
 TITLE FORMULAS THAT WORK (sympathy/woeful-driven — use these roughly as often as dread ones):
-- "She Tried To Warn Them For [Number] Years. Nobody Listened."
-- "[Number] Days Alone. Nobody Came. Here's What Happened To [Him/Her]."
-- "All [Name] Wanted Was [Simple Normal Thing]. It Cost [Him/Her] Everything."
-- "Everyone Blamed [Him/Her]. The Truth Was Worse Than Anyone Guessed."
-- "The Last [Number] Days Of A Life Nobody Was Watching"
+- "She Warned The Board For [Number] Years. Nobody Listened."
+- "[Number] Employees Lost Everything. Nobody Explained Why."
+- "All The Founders Wanted Was A Stable Company. It Cost Them Everything."
+- "Everyone Blamed The CEO. The Real Story Was Worse."
+- "The Last [Number] Days Of A Company Nobody Was Watching"
 
 TITLE FORMULAS THAT WORK (concrete/object-driven — cleaner and more specific
 than pure dread/sympathy, often outperforms both by feeling more real):
-- "The Last Tape From Room [Number]"
-- "Why She Betrayed Her Own [Sister/Brother/Mother]"
-- "The [Hospital Wing/Facility] They Closed Forever"
-- "He Heard [Family Member] After The Funeral"
-- "The Confession Hidden In The [Journal/Tape/File]"
-- "The [Patient/Person] Who Invented A Second Life"
-- "Nobody Believed The Second [Recording/Call/Witness]"
-- "The House That Remembered What [He/She] Did"
+- "The Last Slack Message From The CEO"
+- "Why The CFO Quietly Resigned Three Weeks Early"
+- "The Office They Shut Down Without Warning"
+- "The Termination Email That Went Out At 2 AM"
+- "The Audit Report They Tried To Bury"
+- "The Founder Who Built A Second Company In Secret"
+- "Nobody Believed The Second Whistleblower"
+- "The Spreadsheet That Predicted The Collapse Six Months Early"
 
 FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable", 
 "You Won't Believe", "Mind-Blowing", "Epic", "Ultimate", "Best"
 These signal low-quality content. Avoid them completely.
 
-Generate 5 YouTube titles for a dark investigative documentary.
+Generate 5 YouTube titles for a finance/business-collapse documentary.
 Series: {niche["series"]}, Episode {episode}. Topic: {topic}
 REGISTER FOR THIS EPISODE (enforced, alternates every episode): {register_instruction}
 Rules: 40-65 chars each (fits fully on mobile). Front-load the most compelling part
 in the first 40 characters. Opens a psychological loop. Specific numbers where natural.
-Dark investigative tone. No colons unless essential. No quotes.
+Serious, credible investigative tone. No colons unless essential. No quotes.
 IMPORTANT: Start with a NUMBER or specific statistic for highest CTR.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
@@ -2631,7 +2676,7 @@ def format_citations_block(real_cases):
 
 def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block=""):
     dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
-    prompt = f"""Write a YouTube video description for a dark investigative documentary.
+    prompt = f"""Write a YouTube video description for a finance and business-collapse documentary.
 Title: {title} | Series: {niche["series"]}, Episode {episode}
 Topic: {topic} | Duration: ~{dur_min} minutes
 
@@ -2640,8 +2685,8 @@ Structure:
 2. Three sentences on what the investigation reveals. No spoilers.
 3. One line: Watch until the end — the final revelation changes everything.
 4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
-5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
-   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
+5. Eight keyword sentences using: finance documentary, business collapse, documented numbers,
+   real case study, {niche["name"].replace("_", " ")}, financial analysis, real data, documented research
 6. One line: New investigations every week — subscribe so you never miss one.
 
 Total: 250-320 words. Plain text. No markdown. Do NOT include any hashtags —
@@ -3779,11 +3824,26 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None):
 
         stage_words= [w.strip(".,!?;:") for w in stage_text.split()
                       if len(w) > 4 and w not in stopwords]
+        # FIX (found on direct user report, July 15 2026 -- same bug found
+        # and fixed in Ch1): top_nouns pulled ANY sufficiently long word
+        # straight out of the actual narration with no check on whether
+        # it's visually appropriate for a serious finance documentary --
+        # an ordinary sentence mentioning "flowers" or a "birthday" bonus
+        # would hand that word straight to Pexels/Pixabay as a search
+        # term, which reliably returns bright wedding/party footage
+        # regardless of the niche's real tone.
+        BRIGHT_MUNDANE_BLOCKLIST = {
+            "flowers","flower","garden","wedding","birthday","party","parties",
+            "sunshine","sunny","picnic","vacation","holiday","holidays","beach",
+            "celebration","celebrate","smiling","smile","laughing","laughter",
+            "balloons","cake","gift","gifts","present","presents","rainbow",
+            "puppy","kitten","baby","babies","graduation","summer",
+            "playground","festival","carnival","circus","confetti",
+        }
         from collections import Counter
-        top_nouns  = [w for w,_ in Counter(stage_words).most_common(2)]
-        # Keyword = actual narration content at this exact moment + niche
-        # theme, so the visual matches BOTH the audio and the niche mood.
-        kw = " ".join(top_nouns[:1]) + " " + base_kw if top_nouns else base_kw
+        top_nouns  = [w for w, _ in Counter(stage_words).most_common(6)
+                      if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
+        kw = f"{base_kw} {top_nouns[0]}" if top_nouns else base_kw
 
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
@@ -4160,12 +4220,23 @@ NICHE_MUSIC_MOOD = {
 # commercial use, no attribution required per their license). Download
 # once, place in music_bank/<mood>/ under any filename ending .mp3, and
 # the system will use them automatically instead of synthesizing.
+# FIX (found on critical re-audit, direct user request): this only had
+# search-term suggestions for 2 of Ch5's 7 real moods (dread, unease) --
+# the other 3 entries here (sensual_tension, eerie, obsessive_tension)
+# are Ch1's moods, never used by any of Ch5's own niches at all, while
+# 5 of Ch5's genuinely-used moods (corporate_decline, volatile_tension,
+# nostalgic_unease, clear_confident, steady_reassuring) had no search
+# guidance whatsoever. The actual synthesis fallback below was already
+# correctly built for all 7 -- only this human-facing "what to search
+# for and download" guidance was missing them.
 MOOD_TRACK_RECOMMENDATIONS = {
-    "dread": ["Search Pixabay Music for: 'dark ambient drone', 'horror tension', 'suspense dark'"],
-    "sensual_tension": ["Search Pixabay Music for: 'dark sensual', 'moody atmospheric', 'noir slow'"],
-    "unease": ["Search Pixabay Music for: 'unsettling ambient', 'psychological tension', 'disorienting drone'"],
-    "eerie": ["Search Pixabay Music for: 'eerie ambient', 'paranormal atmosphere', 'ghostly drone'"],
-    "obsessive_tension": ["Search Pixabay Music for: 'relentless tension', 'driving dark ambient', 'obsessive pulse'"],
+    "dread": ["Search Pixabay Music for: 'dark ambient drone', 'financial tension', 'suspense dark'"],
+    "unease": ["Search Pixabay Music for: 'unsettling ambient', 'corporate tension', 'disorienting drone'"],
+    "corporate_decline": ["Search Pixabay Music for: 'somber corporate', 'melancholy piano ambient', 'decline drone'"],
+    "volatile_tension": ["Search Pixabay Music for: 'tense unstable drone', 'market volatility ambient', 'anxious pulse'"],
+    "nostalgic_unease": ["Search Pixabay Music for: 'vintage unease', 'faded nostalgic drone', 'retro tension ambient'"],
+    "clear_confident": ["Search Pixabay Music for: 'clean corporate ambient', 'confident minimal piano', 'bright explainer background'"],
+    "steady_reassuring": ["Search Pixabay Music for: 'warm reassuring ambient', 'steady piano background', 'calm confident drone'"],
 }
 
 MUSIC_BANK_ROOT = Path(__file__).parent / "music_bank"
@@ -4894,7 +4965,10 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     has_mus  = music_path and Path(music_path).exists()
     has_sub  = ass_path and Path(ass_path).exists()
 
-    # Subtitles disabled — timing sync not reliable enough for dark content
+    # FIX (found on direct user report, July 15 2026 -- same bug found and
+    # fixed in Ch1): has_sub was computed and then never actually used.
+    # Real subtitles were generated upstream and silently dropped right
+    # here, every single episode.
     grade = NICHE_VISUAL_GRADE.get(niche_name, DEFAULT_VISUAL_GRADE)
     # fps=24 added — normalizes whatever native frame rate the source
     # background clip has (this path also serves the single-clip fallback,
@@ -4903,6 +4977,9 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
           "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,"
           f"{grade}")
+    if has_sub:
+        _escaped_ass = str(ass_path).replace("\\", "\\\\\\\\").replace(":", "\\:").replace("'", "\\'")
+        vf += f",ass='{_escaped_ass}'"
 
     if has_mus:
         cmd = [
@@ -4990,10 +5067,14 @@ def create_short(narration_path, bg_path, music_path, ass_path,
     has_mus = music_path and Path(music_path).exists()
     has_sub = ass_path and Path(ass_path).exists()
 
-    # Subtitles disabled on Shorts — timing sync not reliable
+    # FIX (found on direct user report, July 15 2026): same bug as the
+    # main compose_video — has_sub was computed and then never used.
     vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
           "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
           "crop=405:720:(iw-405)/2:0,scale=1080:1920,fps=24")
+    if has_sub:
+        _escaped_ass = str(ass_path).replace("\\", "\\\\\\\\").replace(":", "\\:").replace("'", "\\'")
+        vf += f",ass='{_escaped_ass}'"
 
     # fps=24 + explicit -ar 44100 added — same fix as the main video path,
     # since this background source clip's native frame rate is unknown and
@@ -5318,11 +5399,17 @@ def build_three_channel_cross_promo(niche_name, is_short=False):
     )
 
 
-def run_ch1_viral_intelligence(niche):
+def run_collapse_index_viral_intelligence(niche):
     """
     Viral intelligence engine for Ch5 (ported from Ch2).
     Runs weekly — results cached in state.json under 'viral_intel'.
-    Finds what's working in the dark horror/psychological documentary niche.
+    Finds what's working in the finance/AI-collapse documentary niche.
+
+    FIX (found on direct user request, July 14 2026): this function was
+    literally named run_ch1_viral_intelligence and its docstring described
+    "the dark horror/psychological documentary niche" -- a straight
+    copy-paste leftover from Ch1's version that was never renamed or
+    corrected, despite being used for Ch5's own weekly trend research.
     """
     state = load_state()
     intel = state.get("viral_intel", {})
@@ -5418,8 +5505,17 @@ def update_channel_description(token, latest_title, latest_url):
         # missing a required field and returns 400 every time. Grab the
         # existing snippet from the GET above and only mutate description.
         existing_snippet = r.json()["items"][0].get("snippet", {})
+        # FIX (found on direct user request, July 14 2026): this was
+        # literally "Investigative documentary narrations — dark
+        # psychology, true horror, classified evidence" -- Ch1's real
+        # channel description, copy-pasted verbatim into Ch5's code. If
+        # this ever ran, Ch5's real, public YouTube "About" page would
+        # have described itself as a dark psychology/horror channel
+        # while actually publishing finance/AI-collapse documentaries --
+        # a real, visible branding mismatch, not just an internal one.
         desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
-                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
+                 "Financial collapse investigations — AI startup failures, market crashes, "
+                 "personal finance mistakes, documented with real numbers and sources.\n"
                  "New episodes every weekday. Subscribe for weekly investigations.")
         existing_snippet["description"] = desc[:1000]
         r2 = requests.put(f"{YT_DATA_URL}/channels",
@@ -5623,8 +5719,17 @@ def run_stage1(state):
     episode    = state.get("episode_count", 0) + 1
     prev_title = state.get("last_title", "")
 
-    intel          = run_ch1_viral_intelligence(niche)
-    trending       = []
+    intel          = run_collapse_index_viral_intelligence(niche)
+    # FIX (found on word-by-word re-audit, July 15 2026 -- same bug found
+    # and fixed in Ch1): trending was hardcoded to an empty list and
+    # never populated, so the trend-aware generation ran on zero real
+    # data every episode. Wired in.
+    try:
+        _yt_token_for_trends = get_yt_token()
+        trending = fetch_trending_titles(niche, _yt_token_for_trends)
+    except Exception as e:
+        log(f"  Trending titles fetch (non-fatal): {e}")
+        trending = []
     used_topics    = []
     gate           = MIN_GATE
     best_score     = 0.0
@@ -5971,148 +6076,32 @@ def extract_key_phrases(script, num_phrases=6):
     return phrases
 
 
-def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, output_path):
-    """
-    Horror-appropriate visual treatment — replaces the earlier boxed
-    kinetic-text-callout system (that was an explainer-video convention,
-    wrong genre fit for dark psychology/horror content). Built and
-    verified against real rendered test output before going into
-    production, same discipline as everything else in this pipeline:
-      - continuous film grain (dread, unease, "found footage" texture)
-      - 2 brief chromatic-aberration bursts at key story beats (glitch/wrong feeling)
-      - ONE jump-scare white flash at the biggest reveal moment (~65% through)
-      - unstable, jittery, flickering text instead of confident boxed captions
-    All pure FFmpeg (noise, rgbashift, blend, drawtext) — no new dependency,
-    no repeat of the Lottie dead end. Non-fatal: falls back to the
-    un-treated video if anything goes wrong.
-    """
-    try:
-        phrases = extract_key_phrases(script, num_phrases=5)
-        font_paths = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
-        font_path = next((fp for fp in font_paths if Path(fp).exists()), None)
+# FIX (found on direct user request, July 14 2026): add_horror_atmosphere_fx
+# has been REMOVED entirely from this file. It applied real horror-movie
+# visual effects -- continuous film grain, chromatic-aberration glitch
+# bursts, a literal jump-scare white flash, jittery flickering text -- to
+# The Collapse Index's finance/AI-collapse documentary content. It was
+# correctly built for Ch1 (dark psychology/horror) and blindly copied
+# into this file when Ch5 was built from Ch1's template, never adapted
+# or removed. assemble_video() below no longer calls it at all.
 
-        # ── Continuous film grain — applied throughout ──
-        video_filters = ["noise=alls=15:allf=t+u"]
 
-        # ── Chromatic aberration bursts at 2 dread beats ──
-        if len(phrases) >= 2:
-            beat_fracs = [phrases[1][1], phrases[-1][1]]  # 2nd and last story beat
-        elif phrases:
-            beat_fracs = [phrases[0][1]]
-        else:
-            beat_fracs = [0.3, 0.7]
-        for frac in beat_fracs[:2]:
-            t0 = max(0.5, frac * audio_duration)
-            t1 = min(t0 + 0.5, audio_duration - 0.2)
-            if t1 > t0:
-                video_filters.append(f"rgbashift=rh=6:bh=-6:enable='between(t,{t0:.2f},{t1:.2f})'")
-
-        # ── Unstable, jittery, flickering text (no box, no confident callout) ──
-        if font_path and phrases:
-            DISPLAY_SECONDS = 3.0
-            for phrase, start_frac, end_frac in phrases:
-                t0 = start_frac * audio_duration
-                t1 = min(t0 + DISPLAY_SECONDS, end_frac * audio_duration)
-                if t1 - t0 < 1.2:
-                    continue
-                esc = phrase.replace("'", "").replace(":", "").replace("\\", "")
-                # Jittery position (small sine wobble) + irregular flicker alpha
-                # (on/off pattern mimicking a failing light / interference),
-                # instead of a smooth confident fade — reads as unstable/dread.
-                video_filters.append(
-                    f"drawtext=fontfile={font_path}:text='{esc}':"
-                    f"fontsize=58:fontcolor=white:borderw=3:bordercolor=black:"
-                    f"x='(w-text_w)/2+5*sin(45*t)':y='h-h/3+3*cos(38*t)':"
-                    f"alpha='if(lt(mod(t*17,1),0.82),1,0)':"
-                    f"enable='between(t,{t0:.2f},{t1:.2f})'"
-                )
-
-        # ── ONE jump-scare white flash at the biggest reveal moment ──
-        flash_frac = 0.65
-        flash_t0 = flash_frac * audio_duration
-        flash_t1 = flash_t0 + 0.15
-
-        # ── Sound design: tension riser building into the flash, impact
-        # hit exactly at it, a continuous low ambient dread drone under
-        # the whole track, and quieter stinger hits at the 2 chromatic-
-        # aberration beats (previously those had a visual glitch but no
-        # matching audio cue at all). Untouched item from the free-tier
-        # audit — previously zero sound design beyond generic ambient
-        # noise. Can't fetch real sound libraries (not in the allowed
-        # network), so all of this synthesizes real audio procedurally
-        # via FFmpeg — each piece tested by actual render + volume
-        # measurement before integrating, not assumed to work. (One
-        # planned addition — a brief tension-dip/ducking beat right
-        # before the flash — did NOT test cleanly and was dropped rather
-        # than shipped unverified.)
-        riser_start = max(0, flash_t0 - 2.5)
-        riser_delay_ms = int(riser_start * 1000)
-        impact_delay_ms = int(flash_t0 * 1000)
-
-        stinger_filters = []
-        stinger_labels = []
-        for si, frac in enumerate(beat_fracs[:2]):
-            t0 = max(0.5, frac * audio_duration)
-            delay_ms = int(t0 * 1000)
-            label = f"stinger{si}"
-            stinger_filters.append(
-                f"sine=frequency=55:duration=0.4,"
-                f"afade=t=out:st=0.03:d=0.37,volume=1.4,"
-                f"adelay={delay_ms}|{delay_ms}[{label}]"
-            )
-            stinger_labels.append(f"[{label}]")
-
-        drone_duration = audio_duration + 1
-        stinger_chain = ";".join(stinger_filters)
-        stinger_inputs = "".join(stinger_labels)
-        n_mix_inputs = 4 + len(stinger_labels)  # original + riser + impact + drone + stingers
-
-        filter_complex = (
-            f"[0:v]{','.join(video_filters)}[graded];"
-            f"color=c=white:size=1280x720:rate=24[whitesrc];"
-            f"[whitesrc]trim=duration={audio_duration:.2f},setpts=PTS-STARTPTS[wht];"
-            f"[graded][wht]blend=all_expr='if(between(T,{flash_t0:.2f},{flash_t1:.2f}),B,A)':shortest=1[out];"
-            f"aevalsrc=0.15*sin(2*PI*t*(80+220*t)):d=2.5:s=44100,"
-            f"afade=t=in:d=0.3,afade=t=out:st=2.0:d=0.5,"
-            f"adelay={riser_delay_ms}|{riser_delay_ms}[riser];"
-            f"sine=frequency=65:duration=0.6,"
-            f"afade=t=out:st=0.05:d=0.55,volume=3,"
-            f"adelay={impact_delay_ms}|{impact_delay_ms}[impact];"
-            f"sine=frequency=45:duration={drone_duration:.2f},"
-            f"volume=0.06[drone];"
-            f"{stinger_chain};"
-            f"[1:a][riser][impact][drone]{stinger_inputs}amix=inputs={n_mix_inputs}:"
-            f"duration=first:dropout_transition=0[mixedaudio]"
-        )
-
-        run_ffmpeg([
-            "ffmpeg", "-y", "-i", video_path, "-i", video_path,
-            "-filter_complex", filter_complex,
-            "-map", "[out]", "-map", "[mixedaudio]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-c:a", "aac", "-ar", "44100", output_path
-        ], label="horror-fx", timeout=600)
-
-        if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
-            log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
-                f"1 jump-scare flash + {len(phrases)} unstable text beats")
-            return output_path
-        else:
-            log("  Horror FX: output invalid — using un-treated video (non-fatal)")
-            return video_path
-    except Exception as e:
-        log(f"  Horror atmosphere FX failed (non-fatal): {e}")
-        return video_path
-
+# FIX (found on final re-audit, wiring real per-stage scores): the video
+# quality score's "pipeline completeness" component needs to know whether
+# optional visual stages (horror-fx, watermark) actually succeeded or
+# silently fell back — assemble_video() already knows this internally
+# (both fallbacks are already logged as "non-fatal"), it just never
+# surfaced it anywhere. Rather than change assemble_video's return type
+# (it's called from 3 different places in this file — a tuple-unpack
+# mistake there would be a real, easy-to-miss risk), it's tracked here at
+# module level and read by the caller immediately after each call.
+_last_video_fallback_flags = {}
 
 def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, chart_data=None, ass_path=None):
     """Assemble final video: background footage + narration + ambient music
-    + kinetic text overlays at key story beats (dark/atmospheric style,
-    matched to niche — mix approach: animation for key beats, stock
-    footage as backdrop)."""
+    + kinetic text overlays at key story beats (clear, credible finance/
+    collapse-documentary style, matched to niche — mix approach: animation
+    for key beats, stock footage as backdrop)."""
     niche       = next(n for n in NICHES if n["name"] == niche_name)
     # FIX: this was calling get_background_video (ONE clip, looped for the
     # entire runtime) even though get_stage_matched_video (55-75 dynamically-
@@ -6130,10 +6119,22 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     composed    = compose_video(audio_path, bg_path, mus_path, ass_path,
                                  audio_duration, label="main", niche_name=niche_name)
 
-    if script:
-        overlaid = str(WORK_DIR / "composed_horror_fx.mp4")
-        composed = add_horror_atmosphere_fx(composed, script, audio_duration,
-                                             niche_name, overlaid)
+    global _last_video_fallback_flags
+    _last_video_fallback_flags = {}
+
+    # FIX (found on direct user request, July 14 2026): this used to call
+    # add_horror_atmosphere_fx() — film grain, chromatic-aberration glitch
+    # bursts, a literal jump-scare white flash, and jittery flickering
+    # text. That's a genuine horror-movie visual language, correctly built
+    # for Ch1 (dark psychology/horror content) and then copy-pasted into
+    # this file unchanged when Ch5 was built from Ch1's template. The Collapse
+    # Index is a finance/AI-collapse documentary channel — applying
+    # jump-scares and horror grain to a video about a startup's funding
+    # collapse or a personal budgeting mistake is a real, wrong content-tone
+    # mismatch, not a stylistic choice. Removed entirely, per explicit
+    # instruction — Ch5 gets no atmosphere-FX post-processing pass at all
+    # for now; the video is the clean composed output from compose_video()
+    # above.
 
     # FIX (warbook v3 retention blueprint): removed the 2-second silent
     # black branded intro card that used to play BEFORE the cold open. That
@@ -6151,9 +6152,12 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
                f"x=w-text_w-20:y=20:borderw=1:bordercolor=black@0.4",
         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
         "-c:a", "copy", composed_watermarked
-    ], label="watermark", timeout=300)
+    ], label="watermark", timeout=900)
     if Path(composed_watermarked).exists() and Path(composed_watermarked).stat().st_size > 1_000_000:
         composed = composed_watermarked
+        _last_video_fallback_flags["watermark_failed"] = False
+    else:
+        _last_video_fallback_flags["watermark_failed"] = True
 
     # FIX: create_outro's episode_num defaults to 1 and was never being
     # passed the real episode — same category of bug as the thumbnail
@@ -6248,17 +6252,41 @@ def generate_thumbnail_text(niche, topic, title=""):
             f"Rules: EXACTLY 3 words. ALL CAPS. Dramatic and specific. Never generic.\n"
             f"Return ONLY 3 words. Example: DOCUMENTED IN EMAILS or SEVENTY TWO HOURS"
         )
+    # FIX (found on final re-audit, direct user request for a real
+    # attention-grabbing score): a real scoring function for exactly this
+    # purpose (rewards a real number, penalizes vague/over-long text,
+    # rewards specificity words) already existed in thumbnail_engine_v2.py
+    # but was never actually called anywhere in the whole repo — this
+    # function generated exactly ONE AI candidate and used it unscored,
+    # unconditionally. Now generates up to 3 real candidates (AI attempts
+    # plus the niche's own fallback bank) and picks the highest-scoring
+    # one, so "short but attention-grabbing" is actually being measured
+    # and chosen for, not just hoped for from a single AI guess.
     try:
-        result = ai_generate(prompt, tokens=15)
-        if result:
-            result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-            words  = result.split()[:3]
-            if len(words) == 3:
-                log(f"  Thumbnail: {' '.join(words)}")
-                return ' '.join(words)
+        from thumbnail_engine_v2 import score_thumbnail_text
+    except Exception:
+        score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
+
+    candidates = []
+    try:
+        for _ in range(3):
+            result = ai_generate(prompt, tokens=15)
+            if result:
+                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                words = result.split()[:3]
+                if len(words) == 3:
+                    candidates.append(' '.join(words))
     except Exception as e:
         log(f"  Thumbnail text (non-fatal): {e}")
-    return random.choice(fallback_bank.get(niche.get("name", "personal_finance_mistakes"), fallback_bank["personal_finance_mistakes"]))
+
+    if not candidates:
+        candidates = [random.choice(fallback_bank.get(niche.get("name", "personal_finance_mistakes"),
+                                                        fallback_bank["personal_finance_mistakes"]))]
+
+    scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
+    best_text, best_score = max(scored, key=lambda pair: pair[1])
+    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10)")
+    return best_text
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
@@ -6360,10 +6388,10 @@ def main():
         niche_name  = pending["niche_name"]
         video_path  = pending["video_path"]
         topic       = pending.get("topic", title)  # FIX: was never extracted at all —
-        # produce_recap_short's "main_topic" parameter needs the actual story
-        # details to write a real recap script from ("pick the most jaw-
-        # dropping reveal from the full story"); a bare title has none of
-        # that. Falls back to title only if topic is somehow missing.
+        # produce_video_topic_short/produce_standalone_short's "main_topic"
+        # parameter needs the actual story details to write a real Shorts
+        # script from; a bare title has none of that. Falls back to title
+        # only if topic is somehow missing.
         thumb_path  = pending.get("thumbnail_path","")
         shorts      = pending.get("shorts_clips", [])
         script_clean= pending.get("script_clean","")
@@ -6702,32 +6730,79 @@ def main():
         # reply. Loops until APPROVE, REJECT, or a timeout auto-approval.
         try:
             from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
-            _stage_names_ch1 = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
-                                 "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
-            _stage_texts_ch1 = script_result.get("stage_texts", [])
+            # FIX (July 14 2026 audit): these two were misnamed with a
+            # "_ch1" suffix left over from this section's origin as a
+            # copy of Channel 1's code -- the actual content (Ch5's own
+            # 7-stage structure) was always correct, only the variable
+            # names wrongly implied Ch1-specific data. Renamed for clarity.
+            _stage_names = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
+                             "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
+            _stage_texts = script_result.get("stage_texts", [])
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
             _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
             _script_was_edited = False
 
             while True:
+                # Real hook-quality sub-score: converts the pipeline's own
+                # existing retention-hook penalty check (30%/60%/80% hook
+                # presence, final CTA, dead-zone detection) to a 0-10 scale
+                # for direct display, rather than only using it internally
+                # to nudge the overall script score.
+                try:
+                    _hook_penalty, _hook_issues = _validate_retention_hooks_ch5(script_clean)
+                    _hook_score = round(min(max(10.0 + _hook_penalty, 0), 10), 1)
+                    _hook_note = _hook_issues[0] if _hook_issues else "all hook checkpoints present"
+                except Exception as e:
+                    log(f"  Hook scoring (non-fatal): {e}")
+                    _hook_score, _hook_note = None, None
+
+                # FIX (July 14 2026 audit, direct user feedback): now passes
+                # stage_texts/stage_names so the script review message is
+                # sent stage-by-stage with clear headers (COLD OPEN, THE
+                # BEFORE, ...) instead of one undifferentiated wall of text.
                 _review = review_script("TheCollapseIndex", title, script_clean, score_val,
                                         niche_name, TG_TOKEN, TG_CHAT,
                                         gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
-                                        timeout_minutes=60)
+                                        timeout_minutes=60,
+                                        stage_texts=_stage_texts, stage_names=_stage_names,
+                                        sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
                 if _review["decision"] == "approve":
                     break
-                if _review["decision"] == "edit" and _stage_texts_ch1:
-                    _targets = identify_target_sections(_review["feedback"], _stage_names_ch1)
+                if _review["decision"] == "edit" and _stage_texts:
+                    _targets = identify_target_sections(_review["feedback"], _stage_names)
+                    # FIX (found on final re-audit): once a prior whole-
+                    # script edit collapses _stage_texts to a single entry,
+                    # it no longer has one entry per stage name — a
+                    # targeted edit in a LATER round would index past the
+                    # end of this list and crash. Force whole-script mode
+                    # again in that case rather than risk that IndexError.
+                    if len(_stage_texts) != len(_stage_names):
+                        _targets = []
                     log(f"  Script EDIT requested: '{_review['feedback']}' -> sections: {_targets or 'WHOLE SCRIPT'}")
                     try:
-                        script_clean = regenerate_script_sections(
-                            script_clean, _stage_texts_ch1, _stage_names_ch1, _targets,
+                        script_clean, _updated_sections = regenerate_script_sections(
+                            script_clean, _stage_texts, _stage_names, _targets,
                             _review["feedback"], niche, topic, ai_generate)
-                        # Refresh stage_texts to the new script so a second
-                        # round of edits still targets the right substrings
-                        _stage_texts_ch1 = [script_clean] if not _targets else _stage_texts_ch1
+                        # FIX (found on final re-audit): this used to keep
+                        # _stage_texts entirely UNCHANGED after a targeted
+                        # edit — the just-edited section's entry stayed on
+                        # its PRE-edit text. A second edit request aimed at
+                        # that same section would then search for text that
+                        # no longer exists anywhere in the script (already
+                        # replaced once), and the substring .replace() in
+                        # regenerate_script_sections would silently do
+                        # nothing — "updated" would come back, but the
+                        # script would be the exact same as before. Now
+                        # refreshes each changed section's entry with its
+                        # real new text so a second round still works.
+                        if not _targets:
+                            _stage_texts = [script_clean]
+                        else:
+                            for _sec_name, _new_text in _updated_sections.items():
+                                _idx = _stage_names.index(_sec_name)
+                                _stage_texts[_idx] = _new_text
                         # FIX (found via a final expert-level re-audit): the
                         # ORIGINAL script_result["stage_texts"] (used later
                         # by the authenticity check's fingerprint) would go
@@ -6783,7 +6858,15 @@ def main():
         # this retry-then-hold behavior.
         _audio_retry_count = 0
         _MAX_AUDIO_RETRIES = 2
-        _AUDIO_RETRY_WAIT_SECONDS = 2 * 60 * 60  # 2 hours
+        # FIX (found on final re-audit): 2 retries x 2h each could
+        # silently consume up to 4 real hours before the audio+video
+        # review checkpoint is ever reached, inside a 6-hour job that
+        # also shares a 4.5h review-time budget across every other
+        # checkpoint. It also didn't achieve its own stated purpose --
+        # provider DAILY quotas reset roughly every 24h, not 2h, so
+        # this was never long enough for that case anyway. Shortened
+        # to a realistic wait for a genuinely transient rate limit.
+        _AUDIO_RETRY_WAIT_SECONDS = 10 * 60  # 10 minutes
         while edge_voice in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
               _audio_retry_count < _MAX_AUDIO_RETRIES:
             _audio_retry_count += 1
@@ -6836,15 +6919,38 @@ def main():
         _remade_av = False
         try:
             from human_review_gate import review_audio_and_video
+            from quality_scoring import score_audio_quality, score_video_quality
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
             _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
             _check_ins_used_av = 0
 
             while True:
+                # FIX (found on final re-audit, direct user request for real
+                # per-stage scores): computed fresh on every loop iteration
+                # so a SWAP VOICE/SWAP VISUALS re-generation gets a genuinely
+                # re-scored result, not a stale score from the first pass.
+                try:
+                    _audio_score, _audio_breakdown = score_audio_quality(
+                        audio_path, audio_duration, len(script_clean.split()), edge_voice)
+                except Exception as e:
+                    log(f"  Audio scoring (non-fatal): {e}")
+                    _audio_score, _audio_breakdown = None, None
+                try:
+                    from quality_scoring import get_media_duration
+                    _real_video_duration = get_media_duration(video_path)
+                    _video_score, _video_breakdown = score_video_quality(
+                        video_path, _real_video_duration, audio_duration, content_type="stock_footage",
+                        fallback_flags=_last_video_fallback_flags)
+                except Exception as e:
+                    log(f"  Video scoring (non-fatal): {e}")
+                    _video_score, _video_breakdown = None, None
+
                 _av_review = review_audio_and_video(
                     "TheCollapseIndex", audio_path, edge_voice, video_path, None,
                     TG_TOKEN, TG_CHAT, _check_ins_used_av,
-                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
+                    audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
+                    video_score=_video_score, video_score_breakdown=_video_breakdown)
                 _check_ins_used_av += 1
 
                 _a_dec = _av_review["audio_decision"]["decision"]
@@ -6882,10 +6988,38 @@ def main():
                 # separately re-generated here (voice/pacing edits are a
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
+                if _a_dec == "swap_voice":
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                                   if v != edge_voice]
+                    _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                    tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
+                    log(f"  SWAP VOICE requested: {edge_voice} -> {_new_voice}")
+                    edge_voice = _new_voice
+                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                        run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+                    edge_voice = voice_used
+                    ass_path = str(WORK_DIR / "main_captions.ass")
+                    if not generate_real_synced_ass(audio_path, ass_path):
+                        ass_path = None
+                    # New audio needs a new video assembly too — the old
+                    # one is matched to the previous audio's timing.
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, chart_data, ass_path)
+                    continue  # send the newly-generated audio/video for another look
                 if _a_dec == "edit":
                     _fb_audio = _av_review["audio_decision"]["feedback"] or ""
-                    tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}")
-                    log(f"  Audio EDIT requested: {_fb_audio} — regenerating.")
+                    # FIX (found on direct user report, July 15 2026): same
+                    # bug as Ch1/2/3/4 -- this used to regenerate with the
+                    # exact same edge_voice, so feedback about the voice
+                    # never actually changed anything. Now genuinely swaps.
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                                   if v != edge_voice]
+                    _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                    tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
+                       f"Voice: {edge_voice} → {_new_voice}")
+                    log(f"  Audio EDIT requested: '{_fb_audio}' — swapping voice {edge_voice} -> {_new_voice}")
+                    edge_voice = _new_voice
                     audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
@@ -6938,6 +7072,11 @@ def main():
             log(f"  Thumbnail style tracking (non-fatal): {e}")
         thumb_text  = generate_thumbnail_text(niche, topic, title)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+        try:
+            from thumbnail_engine_v2 import score_thumbnail_text
+            _thumb_score = score_thumbnail_text(thumb_text)
+        except Exception:
+            _thumb_score = None
 
         # Description generated here now (moved earlier from its old spot
         # right before upload) so it can be reviewed together with title
@@ -6986,7 +7125,8 @@ def main():
                 _ttd_review = review_title_thumbnail_description(
                     "TheCollapseIndex", title, thumb_path, description, _desc_result["score"],
                     TG_TOKEN, TG_CHAT, _check_ins_used_ttd,
-                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
+                    thumbnail_score=_thumb_score)
                 _check_ins_used_ttd += 1
 
                 if _ttd_review["decision"] == "reject":
@@ -7111,7 +7251,7 @@ def main():
             for angle in ("angle_1", "angle_2"):
                 vt = produce_video_topic_short(topic, script_clean, angle, channel="collapse_index")
                 shorts.append({"ok": vt.get("status") == "success",
-                               "path": None, "url": vt.get("url"), "name": f"video_topic_{angle}"})
+                               "path": vt.get("local_path"), "url": vt.get("url"), "name": f"video_topic_{angle}"})
                 log(f"  Video-topic ({angle}): {vt.get('status')}")
                 _post_short_comment_safe(vt.get("url"), f"video_topic_{angle}")
 
@@ -7125,7 +7265,7 @@ def main():
                 # time, even on success, dropping standalone Shorts from
                 # every downstream count.
                 shorts.append({"ok": sa.get("status") == "success",
-                               "path": None, "url": sa.get("yt_url"), "name": mode})
+                               "path": sa.get("local_path"), "url": sa.get("yt_url"), "name": mode})
                 log(f"  Trending ({mode}): {sa.get('status')}")
                 _post_short_comment_safe(sa.get("yt_url"), mode)
 
@@ -7141,7 +7281,19 @@ def main():
                 from human_review_gate import review_shorts
                 _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
                 _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-                _real_shorts = [{"name": s["name"], "url": s["url"]} for s in shorts if s.get("url")]
+                def _score_short_safe(short_path):
+                    if not short_path:
+                        return None
+                    try:
+                        from quality_scoring import score_shorts_quality
+                        if not os.path.exists(short_path):
+                            return None
+                        return score_shorts_quality(short_path)[0]
+                    except Exception as e:
+                        log(f"  Shorts scoring (non-fatal): {e}")
+                        return None
+                _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
+                                for s in shorts if s.get("url")]
                 if _real_shorts:
                     _sh_review = review_shorts("TheCollapseIndex", _real_shorts, TG_TOKEN, TG_CHAT,
                                                check_ins_used=0, gmail_sender=_gmail_sender,
