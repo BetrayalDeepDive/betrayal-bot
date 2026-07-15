@@ -17,5 +17,81 @@
     "status": "pending",
     "created_at": "2026-07-14T16:12:21.355929",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "534b39a71311",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A 9-stage system designed to make targets financially, emotionally, and socially dependent",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-15T16:18:30.633972",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "2030ba512aa1",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "How sustained gaslighting over 18 months made a clinical psychologist unable to trust her own memory",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-15T16:22:41.562523",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "358849f1c809",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The psychological trap that claimed over 4,000 documented victims across 12 countries",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-15T16:25:57.267794",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "569681b2689c",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The social media campaign that systematically dismantled a person's entire sense of identity",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-15T16:28:55.837103",
+    "produced_episode_number": null
   }
 ]
