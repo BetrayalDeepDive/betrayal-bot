@@ -1127,18 +1127,42 @@ def save_pattern_memory(state, episode, niche, topic, score):
     state["episode_history"] = history[-50:]
     return state
 
+_DEAD_PROVIDERS_THIS_RUN = set()
+
+def _strip_reasoning(text):
+    """FIX (July 14 2026 audit): strip reasoning-model chain-of-thought
+    (gpt-oss-120b via Cerebras/Groq) so it never leaks into a script."""
+    if not text:
+        return text
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    if '<|channel|>final<|message|>' in text:
+        text = text.split('<|channel|>final<|message|>')[-1]
+        text = text.split('<|end|>')[0].split('<|return|>')[0].split('<|start|>')[0]
+    text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
+    return text.strip()
+
 def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     """
-    v12: 7-provider chain: Cerebras → SambaNova → Gemini(+backup key) → Groq → OR → Cohere → Mistral
-    10s sleep between failures to avoid cascading rate limits.
+    v12: 7-provider chain: Cerebras -> SambaNova -> Gemini(+backup key) -> Groq -> OR -> Cohere -> Mistral
+    FIX (July 14 2026 audit): providers that fail once are skipped for the
+    rest of this run instead of retried from scratch on every call.
     """
-    providers = [_call_cerebras, _call_sambanova, _call_gemini_with_fallback,
-                 _call_groq, _call_openrouter, _call_cohere, _call_mistral]
-    for i, fn in enumerate(providers):
+    providers = [("cerebras", _call_cerebras), ("sambanova", _call_sambanova),
+                 ("gemini", _call_gemini_with_fallback), ("groq", _call_groq),
+                 ("openrouter", _call_openrouter), ("cohere", _call_cohere),
+                 ("mistral", _call_mistral)]
+    live = [(name, fn) for name, fn in providers if name not in _DEAD_PROVIDERS_THIS_RUN]
+    if not live:
+        live = providers
+        _DEAD_PROVIDERS_THIS_RUN.clear()
+    for i, (name, fn) in enumerate(live):
         result = fn(prompt, tokens)
-        if result: return result
-        if i < len(providers) - 1:
-            log(f"  Waiting 10s before next provider...")
+        if result:
+            return _strip_reasoning(result)
+        _DEAD_PROVIDERS_THIS_RUN.add(name)
+        if i < len(live) - 1:
+            log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
     raise Exception("All 7 AI providers failed")
 
@@ -1454,7 +1478,7 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     """
     v2 script generation for Ch3 (The Control Files):
     1. Research anchors prevent vague AI output
-    2. Forensic documentary prompt with stage-specific structure
+    2. Psychological control-tactics documentary prompt with stage-specific structure
     3. Stage-level scoring + targeted rewrite of 2 worst stages
     4. Scene JSON extracted separately after narration
 
@@ -1482,7 +1506,7 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     anchors = {}
     try:
         anchor_prompt = (
-            f"Generate specific realistic anchors for a forensic documentary about: {topic}\n"
+            f"Generate specific realistic anchors for a psychological manipulation and control-tactics documentary about: {topic}\n"
             f"Return ONLY valid JSON (no backticks):\n"
             f'{{"case_duration":"e.g. 4380 days — twelve years",' 
             f'"people_affected":"e.g. 847 confirmed victims",'
@@ -1566,8 +1590,8 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
 
     power_str = ", ".join(power[:6])
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
-    prompt = f"""Write a forensic investigative documentary narration script.
-Style: precisely documented, evidence-driven, animated forensic format.
+    prompt = f"""Write a psychological control-tactics documentary narration script.
+Style: precisely documented, evidence-driven, case-file format.
 
 CASE: {topic}
 SERIES: {niche['series']} — Episode {episode}
@@ -1808,7 +1832,7 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
                 if stage_scores[idx] >= 7.5:
                     continue
                 rewrite_p = (
-                    f"Rewrite ONLY this forensic documentary stage. Return ONLY the rewritten stage.\n\n"
+                    f"Rewrite ONLY this psychological manipulation documentary stage. Return ONLY the rewritten stage.\n\n"
                     f"STAGE: {stage_names[idx]} (target: {targets_l[idx]} words)\n"
                     f"TOPIC: {topic[:100]}\n"
                     f"SCORE: {stage_scores[idx]}/10 — sentences too long or too vague\n\n"
@@ -4728,47 +4752,13 @@ Return ONLY the topic sentence. Nothing else."""
 
 
 
-def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0):
-    dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
-    prompt = f"""Write a YouTube video description for a dark investigative documentary.
-Title: {title} | Series: {niche["series"]}, Episode {episode}
-Topic: {topic} | Duration: ~{dur_min} minutes
-
-Structure:
-1. Two hook sentences on the core disturbing fact. Creates urgency to watch.
-2. Three sentences on what the investigation reveals. No spoilers.
-3. One line: Watch until the end — the final revelation changes everything.
-4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
-5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
-   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
-6. One line: New investigations every week — subscribe so you never miss one.
-7. Ten relevant hashtags
-
-Total: 280-350 words. Plain text. No markdown."""
-    # Build SEO hook for first 100 chars (shown in YouTube search results)
-    # Format: [SPECIFIC CLAIM]. [EMOTIONAL HOOK]. Full investigation below.
-    seo_hooks = {
-        "dark_horror":        f"DOCUMENTED: {topic[:45]}.",
-        "seduction_dark":     f"EXPOSED: {topic[:45]}.",
-        "psychological_trap": f"CLASSIFIED: {topic[:45]}.",
-        "supernatural_real":  f"EVIDENCE: {topic[:45]}.",
-        "obsession_dark":     f"DOCUMENTED: {topic[:45]}.",
-    }
-    seo_first_line = seo_hooks.get(niche["name"], f"INVESTIGATION: {topic[:55]}.")
-
-    raw = ai(prompt, tokens=1000)
-    # v12: three-channel cross-promo in every description
-    cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
-    if raw:
-        desc  = seo_first_line + "\n\n" + strip_md(raw)
-        desc += cross_promo_txt
-        desc += "\n\n⚠️ This video features AI-assisted narration and editing."
-        return desc
-    return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"Subscribe for new investigations every week.\n\n"
-            f"#{niche['name'].replace('_', '')} #documentary #investigation"
-            f"{cross_promo_txt}\n\n"
-            f"⚠️ This video features AI-assisted narration and editing.")
+# FIX (found on word-by-word re-audit, July 15 2026): generate_seo_description
+# was confirmed DEAD CODE -- zero call sites anywhere in this file. The
+# REAL, live description gets built inline inside _generate_description_variant
+# (search for that name), which had its own independent copy of the same
+# genre-mismatch bug (said "forensic analysis" -- Ch2's niche, not this
+# channel's) already fixed there. Removed this dead duplicate entirely so
+# it can't be mistaken for the live path again.
 
 # ================================================================
 # ELEVENLABS TTS  [NEW #5]
@@ -4788,8 +4778,13 @@ def update_channel_description(token, latest_title, latest_url):
         # sending {"description": ...} alone guarantees a 400 every time.
         # Same bug already fixed in Ch1/Ch2's identical function.
         full_snippet = item.get("snippet", {})
+        # FIX (found on direct user request, July 14 2026): this was
+        # literally Ch1's real channel description ("dark psychology,
+        # true horror") copy-pasted verbatim -- if this ever ran,
+        # Ch3's real, public YouTube "About" page would have
+        # described itself as a horror channel.
         desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
-                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
+                 "Psychological manipulation and control tactics, documented with real cases and real research.\n"
                  "New episodes every weekday. Subscribe for weekly investigations.")
         full_snippet["description"] = desc[:1000]
         r2 = requests.put(f"{YT_DATA_URL}/channels",
@@ -5822,7 +5817,8 @@ def main():
         from human_review_gate import (review_script, review_audio_and_video,
                                         review_title_thumbnail_description,
                                         regenerate_script_sections,
-                                        regenerate_description_until_good)
+                                        regenerate_description_until_good,
+                                        approximate_stage_split)
         import human_review_gate as _hrg_module  # needed to reset its internal review-time clock later
     except ImportError as _rg_err:
         tg(f"🚨 Ch3: the human review-gate system failed to load ({_rg_err}) — this "
@@ -5843,12 +5839,21 @@ def main():
     check_ins_used = 0
 
     # ── SCRIPT checkpoint ──
+    # FIX (July 14 2026 audit): now sent stage-by-stage with clear headers
+    # (this channel's generator doesn't keep real per-stage text, so the
+    # split is reconstructed via the same word-count-proportion method
+    # the pipeline's own quality gate already uses for stage scoring).
+    _script_stage_names = ["CASE OPEN","SUBJECT","ANOMALIES","EVIDENCE",
+                            "CLOSURE","FULL RECORD","IMPLICATIONS"]
+    _script_stage_word_targets = [100, 200, 250, 400, 200, 650, 200]
     _script_attempts = 0
     while True:
         result = review_script(
             "The Control Files", title_str, script_clean, score, niche["name"],
             TG_TOKEN, TG_CHAT, check_ins_used=check_ins_used,
-            gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW)
+            gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW,
+            stage_texts=approximate_stage_split(script_clean, _script_stage_names, _script_stage_word_targets),
+            stage_names=_script_stage_names)
         cin = record_check_in(SCRIPT_DIR, result["decision"], result.get("feedback"))
         check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
 
@@ -5888,7 +5893,7 @@ def main():
             # triggers their own whole-script-rewrite fallback path —
             # not a false claim of section precision Ch3 doesn't have.
             try:
-                script_clean = regenerate_script_sections(
+                script_clean, _ = regenerate_script_sections(
                     full_script=script_clean, stage_texts=[], stage_names=[],
                     target_sections=[], feedback=result["feedback"],
                     niche=niche["name"], topic=topic,
@@ -5915,9 +5920,9 @@ def main():
     while voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT") and _audio_retry_count < 2:
         _audio_retry_count += 1
         tg(f"⚠️ Ch3: TTS fell back to '{voice_used}' (attempt {_audio_retry_count}/2 retries) — "
-           f"waiting 2 hours and retrying the whole audio stage before holding for review.")
-        log(f"  Audio on robotic tier ({voice_used}) — waiting 2h, retry {_audio_retry_count}/2")
-        time.sleep(7200)
+           f"waiting 10 minutes and retrying the whole audio stage before holding for review.")
+        log(f"  Audio on robotic tier ({voice_used}) — waiting 10min, retry {_audio_retry_count}/2")
+        time.sleep(600)  # FIX (final re-audit): shortened from 2h to 10min -- 2 retries x 2h could eat 4h of a 6h job before review is even reached, and didn't match provider daily-quota reset timing anyway (~24h, not 2h)
         audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
             run_stage3_audio, "Audio", script_clean, voice, niche["name"])
 
@@ -6071,11 +6076,11 @@ def main():
                f"{cross_promo}"
                f"{affiliate_block}"
                f"{product_cta}\n\n"
-               f"\u26a0\ufe0f AI-assisted narration and forensic analysis."
+               f"\u26a0\ufe0f AI-assisted narration and behavioral analysis."
                f"{citations_block}\n\n"
                f"{episode_hashtags}")
         if len(desc) > 5000:
-            tail = f"\u26a0\ufe0f AI-assisted narration and forensic analysis.{citations_block}\n\n{episode_hashtags}"
+            tail = f"\u26a0\ufe0f AI-assisted narration and behavioral analysis.{citations_block}\n\n{episode_hashtags}"
             desc = desc[:5000 - len(tail) - 5] + "\n\n" + tail
         return desc
 
@@ -6110,10 +6115,27 @@ def main():
 
     # ── AUDIO + VIDEO checkpoint (combined window, 2 real distinct decisions) ──
     while True:
+        try:
+            from quality_scoring import score_audio_quality, score_video_quality, get_media_duration
+            _audio_score, _audio_breakdown = score_audio_quality(
+                audio_path, duration, len(script_clean.split()), voice_used)
+        except Exception as e:
+            log(f"  Audio scoring (non-fatal): {e}")
+            _audio_score, _audio_breakdown = None, None
+        try:
+            _real_video_duration = get_media_duration(video_path)
+            _video_score, _video_breakdown = score_video_quality(
+                video_path, _real_video_duration, duration, content_type="animated")
+        except Exception as e:
+            log(f"  Video scoring (non-fatal): {e}")
+            _video_score, _video_breakdown = None, None
+
         av_result = review_audio_and_video(
             "The Control Files", audio_path, voice_used, video_path, thumb_path,
             TG_TOKEN, TG_CHAT, check_ins_used=check_ins_used,
-            gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW)
+            gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW,
+            audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
+            video_score=_video_score, video_score_breakdown=_video_breakdown)
         audio_decision = av_result["audio_decision"]
         video_decision = av_result["video_decision"]
 
@@ -6139,10 +6161,28 @@ def main():
         if audio_decision["decision"] == "remake":
             tg("🔄 Ch3: REMAKE requested at audio review — scrapping this episode entirely.")
             clear_queue(SCRIPT_DIR); sys.exit(0)
-        if audio_decision["decision"] == "edit":
-            log(f"  Audio EDIT requested: {audio_decision.get('feedback')} — regenerating audio.")
+        if audio_decision["decision"] == "swap_voice":
+            _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]
+            _new_voice = random.choice(_voice_pool) if _voice_pool else voice_used
+            tg(f"🎙️ Ch3: swapping voice: {voice_used} → {_new_voice} — regenerating audio now, same script.")
+            log(f"  SWAP VOICE requested: {voice_used} -> {_new_voice}")
             audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-                run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+                run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
+            audio_path, duration = _enforce_duration_cap(audio_path, duration)
+            continue
+        if audio_decision["decision"] == "edit":
+            # FIX (found on direct user report, July 15 2026): this used to
+            # regenerate with the exact same `voice` every single time --
+            # feedback like "the voice sounds robotic" produced literally
+            # the same audio back. The only real lever at this checkpoint
+            # is which voice narrates it (script changes belong at the
+            # script checkpoint), so EDIT here now genuinely swaps voices.
+            _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]
+            _new_voice = random.choice(_voice_pool) if _voice_pool else voice_used
+            log(f"  Audio EDIT requested: {audio_decision.get('feedback')} — swapping voice {voice_used} -> {_new_voice}.")
+            tg(f"🎙️ Ch3: regenerating audio per your feedback — voice: {voice_used} → {_new_voice}")
+            audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+                run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
             # FIX (found on deep re-audit): the robotic-voice gate above
             # only ever protected the FIRST audio generation — a human-
             # requested EDIT here could regenerate straight onto a
@@ -6155,8 +6195,10 @@ def main():
                 _edit_retry += 1
                 tg(f"⚠️ Ch3: EDIT-regenerated audio fell back to '{voice_used}' — "
                    f"retrying once more before sending back for review.")
+                _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]
+                _new_voice = random.choice(_voice_pool) if _voice_pool else voice_used
                 audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-                    run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+                    run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
             # Same reason: the duration cap must apply every time audio
             # gets regenerated, not just the original generation.
             audio_path, duration = _enforce_duration_cap(audio_path, duration)
@@ -6328,9 +6370,11 @@ def main():
     # Shorts — generate phase: teaser (tied to this video) + 2 standalone.
     # FIX: previously imported a module called "shorts_engine" (doesn't
     # exist) and called generate_all_six_shorts (doesn't exist either) —
-    # Ch3's Shorts were completely broken. Real file is
-    # shorts_reels_engine.py with produce_teaser_short/produce_recap_short/
+    # this channel's Shorts were completely broken. Real file is
+    # shorts_reels_engine.py with produce_video_topic_short/
     # produce_standalone_short, each generating AND uploading in one call.
+    # (teaser/recap Shorts were removed entirely per explicit instruction
+    # — only these 2 functions are used: 2 today's-topic + 2 trending.)
     log("\n  Producing Shorts (4 total)...")
     log("  2 about this video's real topic (fresh, complete standalone")
     log("  pieces), 2 on genuinely different trending topics (real research")
@@ -6365,7 +6409,21 @@ def main():
     # this block frees the queue immediately, rather than waiting a full
     # day for the upload phase to do it.
     from human_review_gate import review_shorts
-    _shorts_for_review = [{"name": f"Short {i+1}", "url": s.get("url","")}
+
+    def _score_short_safe(short_path):
+        if not short_path:
+            return None
+        try:
+            from quality_scoring import score_shorts_quality
+            if not os.path.exists(short_path):
+                return None
+            return score_shorts_quality(short_path)[0]
+        except Exception as e:
+            log(f"  Shorts scoring (non-fatal): {e}")
+            return None
+
+    _shorts_for_review = [{"name": f"Short {i+1}", "url": s.get("url",""),
+                           "score": _score_short_safe(s.get("local_path"))}
                           for i, s in enumerate(short_clips) if s.get("status") == "success"]
     if _shorts_for_review:
         sh_result = review_shorts(
@@ -6474,14 +6532,14 @@ def main_with_retry():
             if e.code == 0: return
             if attempt < max_retries:
                 tg(f"⚠️ Ch3 attempt {attempt}/{max_retries} failed.\nRetrying in 2h...")
-                time.sleep(7200)
+                time.sleep(600)  # FIX (final re-audit): shortened from 2h to 10min -- 2 retries x 2h could eat 4h of a 6h job before review is even reached, and didn't match provider daily-quota reset timing anyway (~24h, not 2h)
             else:
                 tg(f"❌ Ch3 FAILED after {max_retries} attempts.")
                 sys.exit(1)
         except Exception as e:
             if attempt < max_retries:
                 tg(f"⚠️ Ch3 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 2h...")
-                time.sleep(7200)
+                time.sleep(600)  # FIX (final re-audit): shortened from 2h to 10min -- 2 retries x 2h could eat 4h of a 6h job before review is even reached, and didn't match provider daily-quota reset timing anyway (~24h, not 2h)
             else:
                 tg(f"❌ Ch3 FAILED {max_retries}x: {str(e)[:300]}")
                 sys.exit(1)
