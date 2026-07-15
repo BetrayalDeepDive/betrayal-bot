@@ -993,6 +993,26 @@ CEREBRAS_MODELS = [
 def _strip_reasoning(text):
     if not text:
         return text
+    # FIX (found on direct user report, July 15 2026 — a raw, truncated
+    # <think> block reached a real Telegram message and an email Subject
+    # header, the latter crashing the send entirely): the regex below
+    # only ever matched a CLOSED <think>...</think> pair. A response cut
+    # off mid-reasoning (very common — the same logs show aggressive
+    # Groq rate-limiting, which truncates responses well before a
+    # reasoning model finishes thinking, let alone reaches a real
+    # answer) never emits a closing tag, so the old regex found nothing
+    # to strip and passed the raw, unfinished reasoning straight through
+    # as if it were the actual title/script/text. Checked first, before
+    # the closed-pair regex: if an opening tag exists with no matching
+    # close, there is no real answer anywhere in this response — only
+    # unfinished reasoning — so everything from that point on is
+    # dropped entirely, exactly as if the provider had returned nothing.
+    for _open, _close in (('<think>', '</think>'), ('<thinking>', '</thinking>')):
+        _idx = text.lower().find(_open)
+        if _idx != -1 and _close not in text.lower()[_idx:]:
+            text = text[:_idx].strip()
+            if not text:
+                return ""  # nothing usable survived — caller must treat this as a failed call
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
     if '<|channel|>final<|message|>' in text:
