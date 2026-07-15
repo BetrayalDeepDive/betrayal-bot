@@ -1144,18 +1144,42 @@ def save_pattern_memory(state, episode, niche, topic, score):
     state["episode_history"] = history[-50:]
     return state
 
+_DEAD_PROVIDERS_THIS_RUN = set()
+
+def _strip_reasoning(text):
+    """FIX (July 14 2026 audit): strip reasoning-model chain-of-thought
+    (gpt-oss-120b via Cerebras/Groq) so it never leaks into a script."""
+    if not text:
+        return text
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    if '<|channel|>final<|message|>' in text:
+        text = text.split('<|channel|>final<|message|>')[-1]
+        text = text.split('<|end|>')[0].split('<|return|>')[0].split('<|start|>')[0]
+    text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
+    return text.strip()
+
 def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     """
-    v12: 7-provider chain: Cerebras → SambaNova → Gemini(+backup key) → Groq → OR → Cohere → Mistral
-    10s sleep between failures to avoid cascading rate limits.
+    v12: 7-provider chain: Cerebras -> SambaNova -> Gemini(+backup key) -> Groq -> OR -> Cohere -> Mistral
+    FIX (July 14 2026 audit): providers that fail once are skipped for the
+    rest of this run instead of retried from scratch on every call.
     """
-    providers = [_call_cerebras, _call_sambanova, _call_gemini_with_fallback,
-                 _call_groq, _call_openrouter, _call_cohere, _call_mistral]
-    for i, fn in enumerate(providers):
+    providers = [("cerebras", _call_cerebras), ("sambanova", _call_sambanova),
+                 ("gemini", _call_gemini_with_fallback), ("groq", _call_groq),
+                 ("openrouter", _call_openrouter), ("cohere", _call_cohere),
+                 ("mistral", _call_mistral)]
+    live = [(name, fn) for name, fn in providers if name not in _DEAD_PROVIDERS_THIS_RUN]
+    if not live:
+        live = providers
+        _DEAD_PROVIDERS_THIS_RUN.clear()
+    for i, (name, fn) in enumerate(live):
         result = fn(prompt, tokens)
-        if result: return result
-        if i < len(providers) - 1:
-            log(f"  Waiting 10s before next provider...")
+        if result:
+            return _strip_reasoning(result)
+        _DEAD_PROVIDERS_THIS_RUN.add(name)
+        if i < len(live) - 1:
+            log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
     raise Exception("All 7 AI providers failed")
 
@@ -4779,8 +4803,13 @@ def update_channel_description(token, latest_title, latest_url):
         # YouTube's channels.update requires the FULL snippet (including
         # title) when part=snippet, not just the field being changed.
         existing_snippet = r.json()["items"][0].get("snippet", {})
+        # FIX (found on direct user request, July 14 2026): this was
+        # literally Ch1's real channel description ("dark psychology,
+        # true horror") copy-pasted verbatim -- if this ever ran,
+        # Ch2's real, public YouTube "About" page would have
+        # described itself as a horror channel.
         desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
-                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
+                 "Forensic crime investigations — documented cases, real evidence, cold cases and corporate exposure.\n"
                  "New episodes every weekday. Subscribe for weekly investigations.")
         existing_snippet["description"] = desc[:1000]
         r2 = requests.put(f"{YT_DATA_URL}/channels",
@@ -5427,8 +5456,8 @@ def main():
         niche_name   = pending["niche_name"]
         video_path   = pending["video_path"]
         topic        = pending.get("topic", title)  # FIX: same gap found and fixed in Ch1 —
-        # was never extracted, so produce_recap_short got the title instead
-        # of real story details to write its recap script from.
+        # was never extracted, so the Shorts functions got the title instead
+        # of real story details to write their scripts from.
         thumb_path   = pending.get("thumbnail_path","")
         shorts       = pending.get("shorts_clips", [])
         script_clean = pending.get("script_clean","")
@@ -5735,18 +5764,26 @@ def main():
     # script with that as explicit context, rather than pretending a
     # precise substring-replace is possible when it isn't.
     try:
-        from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
+        from human_review_gate import review_script, identify_target_sections, regenerate_script_sections, approximate_stage_split
         _stage_names_ch2 = ["CASE OPEN","SUBJECT","ANOMALIES","EVIDENCE",
                              "CLOSURE","FULL RECORD","IMPLICATIONS"]
+        _stage_word_targets_ch2 = [100, 200, 250, 400, 200, 650, 200]
         _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
         _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
         _check_ins_used_script = 0
 
         while True:
+            # FIX (July 14 2026 audit): now sends the script stage-by-stage
+            # with clear headers instead of one wall of text. This channel's
+            # generator doesn't keep real per-stage text, so the split is
+            # reconstructed by the same word-count-proportion method the
+            # pipeline's own quality gate already uses for stage scoring.
             _review = review_script("The Evidence Room", title_str, script_clean, score,
                                     niche["name"], TG_TOKEN, TG_CHAT, _check_ins_used_script,
                                     gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
-                                    timeout_minutes=60)
+                                    timeout_minutes=60,
+                                    stage_texts=approximate_stage_split(script_clean, _stage_names_ch2, _stage_word_targets_ch2),
+                                    stage_names=_stage_names_ch2)
             _check_ins_used_script += 1
 
             if _review["decision"] == "reject":
@@ -5768,7 +5805,7 @@ def main():
                     f"(regenerating whole script with this as context — no per-stage text "
                     f"breakdown available in Ch2)")
                 try:
-                    script_clean = regenerate_script_sections(
+                    script_clean, _ = regenerate_script_sections(
                         script_clean, [], _stage_names_ch2, [],  # empty target_sections forces whole-script path
                         f"Focus especially on: {', '.join(_targets) if _targets else 'the whole script'}. "
                         f"{_review['feedback']}", niche, topic, ai)
@@ -5810,7 +5847,15 @@ def main():
     # the two robotic tiers.
     _audio_retry_count = 0
     _MAX_AUDIO_RETRIES = 2
-    _AUDIO_RETRY_WAIT_SECONDS = 2 * 60 * 60  # 2 hours
+    # FIX (found on final re-audit): 2 retries x 2h each could
+    # silently consume up to 4 real hours before the audio+video
+    # review checkpoint is ever reached, inside a 6-hour job that
+    # also shares a 4.5h review-time budget across every other
+    # checkpoint. It also didn't achieve its own stated purpose --
+    # provider DAILY quotas reset roughly every 24h, not 2h, so
+    # this was never long enough for that case anyway. Shortened
+    # to a realistic wait for a genuinely transient rate limit.
+    _AUDIO_RETRY_WAIT_SECONDS = 10 * 60  # 10 minutes
     while voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
           _audio_retry_count < _MAX_AUDIO_RETRIES:
         _audio_retry_count += 1
@@ -5897,10 +5942,27 @@ def main():
         _check_ins_used_av = 0
 
         while True:
+            try:
+                from quality_scoring import score_audio_quality, score_video_quality, get_media_duration
+                _audio_score, _audio_breakdown = score_audio_quality(
+                    audio_path, duration, len(script_clean.split()), voice_used)
+            except Exception as e:
+                log(f"  Audio scoring (non-fatal): {e}")
+                _audio_score, _audio_breakdown = None, None
+            try:
+                _real_video_duration = get_media_duration(video_path)
+                _video_score, _video_breakdown = score_video_quality(
+                    video_path, _real_video_duration, duration, content_type="animated")
+            except Exception as e:
+                log(f"  Video scoring (non-fatal): {e}")
+                _video_score, _video_breakdown = None, None
+
             _av_review = review_audio_and_video(
                 "The Evidence Room", audio_path, voice_used, video_path, None,
                 TG_TOKEN, TG_CHAT, _check_ins_used_av,
-                gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+                gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
+                audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
+                video_score=_video_score, video_score_breakdown=_video_breakdown)
             _check_ins_used_av += 1
 
             _a_dec = _av_review["audio_decision"]["decision"]
@@ -5933,12 +5995,30 @@ def main():
                 continue
             if _v_dec == "approve" and _a_dec == "approve":
                 break
+            if _a_dec == "swap_voice":
+                _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]
+                _new_voice = random.choice(_voice_pool) if _voice_pool else voice_used
+                tg(f"🎙️ Swapping voice: {voice_used} → {_new_voice} — regenerating audio now, same script.")
+                log(f"  SWAP VOICE requested: {voice_used} -> {_new_voice}")
+                audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
+                    run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
+                video_path = run_stage_with_retry(
+                    render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+                continue
             if _a_dec == "edit":
                 _fb_audio = _av_review["audio_decision"]["feedback"] or ""
-                tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}")
-                log(f"  Audio EDIT requested: {_fb_audio} — regenerating.")
+                # FIX (found on direct user report, July 15 2026): this used
+                # to regenerate with the exact same voice every time -- see
+                # Ch1 for the full explanation. Now actually swaps voices.
+                _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]
+                _new_voice = random.choice(_voice_pool) if _voice_pool else voice_used
+                tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
+                   f"Voice: {voice_used} → {_new_voice}")
+                log(f"  Audio EDIT requested: '{_fb_audio}' — swapping voice {voice_used} -> {_new_voice}")
                 audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
-                    run_stage3_audio, "Audio", script_clean, voice, niche["name"])
+                    run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
+                video_path = run_stage_with_retry(
+                    render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
                 continue
     except Exception as e:
         log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
@@ -6108,9 +6188,11 @@ def main():
     # "shorts_engine" that doesn't exist (the real file is
     # "shorts_reels_engine.py"), and called generate_all_six_shorts(), a
     # function that doesn't exist in the real module either. The real API
-    # is produce_teaser_short / produce_standalone_short (each generates
-    # AND uploads internally) — completely different shape. This
-    # guaranteed Shorts always silently failed here too.
+    # is produce_video_topic_short / produce_standalone_short (each
+    # generates AND uploads internally) — completely different shape.
+    # This guaranteed Shorts always silently failed here too.
+    # (teaser/recap Shorts were removed entirely per explicit instruction
+    # — only these 2 functions are used: 2 today's-topic + 2 trending.)
     log("\n  Generating Shorts (4 total)...")
     log("  2 about this video's real topic (fresh, complete standalone")
     log("  pieces), 2 on genuinely different trending topics (real research")
@@ -6138,7 +6220,7 @@ def main():
         for angle in ("angle_1", "angle_2"):
             vt = produce_video_topic_short(topic, script_clean, angle, channel="evidence_room")
             short_clips.append({"ok": vt.get("status") == "success",
-                                 "url": vt.get("url"), "name": f"video_topic_{angle}"})
+                                 "url": vt.get("url"), "path": vt.get("local_path"), "name": f"video_topic_{angle}"})
             log(f"  Video-topic ({angle}): {vt.get('status')}")
             _post_short_comment_safe_ch2(vt.get("url"), f"video_topic_{angle}")
 
@@ -6147,7 +6229,7 @@ def main():
             # FIX: same key mismatch found and fixed in Ch1 — produce_standalone_short
             # returns its URL under "yt_url", not "url" like produce_video_topic_short.
             short_clips.append({"ok": sa.get("status") == "success",
-                                 "url": sa.get("yt_url"), "name": mode})
+                                 "url": sa.get("yt_url"), "path": sa.get("local_path"), "name": mode})
             log(f"  Trending ({mode}): {sa.get('status')}")
             _post_short_comment_safe_ch2(sa.get("yt_url"), mode)
 
@@ -6160,7 +6242,19 @@ def main():
             from human_review_gate import review_shorts
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
             _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-            _real_shorts = [{"name": s["name"], "url": s["url"]} for s in short_clips if s.get("url")]
+            def _score_short_safe(short_path):
+                if not short_path:
+                    return None
+                try:
+                    from quality_scoring import score_shorts_quality
+                    if not os.path.exists(short_path):
+                        return None
+                    return score_shorts_quality(short_path)[0]
+                except Exception as e:
+                    log(f"  Shorts scoring (non-fatal): {e}")
+                    return None
+            _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
+                            for s in short_clips if s.get("url")]
             if _real_shorts:
                 _sh_review = review_shorts("The Evidence Room", _real_shorts, TG_TOKEN, TG_CHAT,
                                            check_ins_used=0, gmail_sender=_gmail_sender,
