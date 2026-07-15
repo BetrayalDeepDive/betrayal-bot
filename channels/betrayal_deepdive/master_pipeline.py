@@ -998,6 +998,16 @@ def _strip_reasoning(text):
     (gpt-oss-120b via Cerebras/Groq) so it never leaks into a script."""
     if not text:
         return text
+    # FIX (found on direct user report, July 15 2026 -- an unclosed
+    # <think> tag from a truncated response, common under rate-limit
+    # pressure, used to pass raw reasoning straight through untouched,
+    # since the old regex below required a closing tag to match at all).
+    for _open, _close in (('<think>', '</think>'), ('<thinking>', '</thinking>')):
+        _idx = text.lower().find(_open)
+        if _idx != -1 and _close not in text.lower()[_idx:]:
+            text = text[:_idx].strip()
+            if not text:
+                return ""
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
     if '<|channel|>final<|message|>' in text:
