@@ -12,5 +12,19 @@
       "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
     ],
     "audited_at": "2026-07-08T21:52:52.392725"
+  },
+  {
+    "episode_number": 66,
+    "title": "The Evidence Room: Cold Cases: The Investigation That Changed Everything",
+    "niche_name": "criminal_investigation",
+    "quality_score": 8.8,
+    "quality_attempt": 9,
+    "authenticity_score": 7.2,
+    "providers_healthy": 3,
+    "verdict": "REVIEW",
+    "reasons": [
+      "Authenticity score 7.2/10 \u2014 one dimension weak, worth a look."
+    ],
+    "audited_at": "2026-07-16T19:01:48.138803"
   }
 ]

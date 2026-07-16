@@ -1,17 +1,18 @@
 {
   "last_style": "dark_minimal",
   "last_niche": "criminal_investigation",
-  "last_voice": "en-GB-RyanNeural",
-  "last_title": "72 Months, 50,000 Scammed: The Crypto Ponzi Exposed",
-  "last_url": "https://www.youtube.com/watch?v=-qE01LRQgiY",
+  "last_voice": "kokoro-local",
+  "last_title": "The Evidence Room: Cold Cases: The Investigation That Changed Everything",
+  "last_url": "https://www.youtube.com/watch?v=A0O3ahZUFWk",
   "thumbnail_ab": {
     "last_style": "B"
   },
   "playlists": {
     "forensic_finance": "PL_Ao7LH9gYd4F1Dgb8CuaXMBzbNRWcHq-",
-    "corporate_exposure": "PL_Ao7LH9gYd6bRGEzA3OyO4kgsxKrPLK7"
+    "corporate_exposure": "PL_Ao7LH9gYd6bRGEzA3OyO4kgsxKrPLK7",
+    "criminal_investigation": "PLMciJoRSlyOs"
   },
-  "total_uploads": 5,
+  "total_uploads": 6,
   "total_shorts": 2,
   "performance": {
     "corporate_exposure": {
@@ -30,6 +31,18 @@
       "scores": [
         8.8
       ]
+    },
+    "criminal_investigation": {
+      "scores": [
+        8.8
+      ],
+      "streak_below": 0,
+      "last_episode": 66
+    },
+    "voice_kokoro-local": {
+      "scores": [
+        8.8
+      ]
     }
   },
   "episode_history": [
@@ -39,6 +52,13 @@
       "topic": "The Rise of Crypto Fraud",
       "score": 10.0,
       "date": "2026-07-08"
+    },
+    {
+      "episode": 66,
+      "niche": "criminal_investigation",
+      "topic": "The 2023 resolution of the 1996 JonBen\u00e9t Ramsey case through advanced DNA testing and public re-exam",
+      "score": 8.8,
+      "date": "2026-07-16"
     }
   ]
 }
