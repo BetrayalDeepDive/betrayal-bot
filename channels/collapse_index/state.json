@@ -50,5 +50,14 @@
   "thumbnail_ab": {
     "last_style": "A",
     "last_episode": 1
-  }
+  },
+  "last_title_register": "sympathy",
+  "performance": {
+    "thumbnail_style_A": {
+      "scores": [
+        9.4
+      ]
+    }
+  },
+  "episode_count": 1
 }
