@@ -112,5 +112,157 @@
     "status": "pending",
     "created_at": "2026-07-14T20:14:02.234545",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "fbf1069f93bd",
+    "channel_id": "evidence_room",
+    "topic_text": "The 1994 cold case where a single unmatched DNA sample sat in an evidence box for 28 years",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:07:24.339961",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "256b254f11e4",
+    "channel_id": "evidence_room",
+    "topic_text": "How investigators reconstructed a complete crime timeline from recovered deleted messages",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is intriguing, it doesn't naturally lend itself to a clear product or resource beyond ad revenue, making it harder to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:10:00.439535",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "094b6b171e61",
+    "channel_id": "evidence_room",
+    "topic_text": "The surveillance timestamp that proved the suspect was 40 miles away \u2014 and who that implicated instead",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear product or resource beyond ads, making it hard to attach a meaningful CTA.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:13:14.585941",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "4d76cbd2e040",
+    "channel_id": "evidence_room",
+    "topic_text": "Phone metadata that placed 4 people at a location they each separately denied visiting",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear CTA or product tie-in beyond ad revenue, making it harder to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:16:48.699450",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "3bc9adcb6db1",
+    "channel_id": "evidence_room",
+    "topic_text": "A witness statement that changed 11 times across 6 interviews \u2014 the analysis that exposed the truth",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear call-to-action or product tie-in beyond ads, making it harder to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:20:35.869983",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "1875b67506bf",
+    "channel_id": "evidence_room",
+    "topic_text": "The Phantom Print: Partial Fingerprint Technology Revives a 1987 Cold Case",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit, as the topic doesn't naturally lend itself to a clear call-to-action or product tie-in beyond ads, making it challenging to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:26:35.495979",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "f89326c0e266",
+    "channel_id": "evidence_room",
+    "topic_text": "The Forgotten Sketch: A Child's Drawing, Rediscovered, Links a Serial Killer to His First Victim",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is compelling, it doesn\u2019t naturally lend itself to a clear call-to-action or product tie-in beyond ad revenue, making it less commercially viable.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:29:28.499391",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "a7d9009fb6b3",
+    "channel_id": "evidence_room",
+    "topic_text": "The 2023 resolution of the 1996 JonBen\u00e9t Ramsey case through advanced DNA testing and public re-examination of evidence",
+    "niche_name": "criminal_investigation",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is monetization_fit, as the topic doesn't naturally lend itself to a clear CTA beyond ad revenue or affiliate links for true crime books/podcasts, making it harder to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-15T20:33:40.555156",
+    "produced_episode_number": null
   }
 ]

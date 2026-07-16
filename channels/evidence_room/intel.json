@@ -83,46 +83,44 @@
   },
   "criminal_investigation": {
     "top_hook_formulas": [
-      "New Evidence Revealed",
-      "Case Reopened: Shocking Twist",
-      "The Investigation Continues..."
+      "The evidence was there the entire time. Nobody looked at it correctly.",
+      "This document changed everything. It had been sitting in a drawer for 11 years.",
+      "The number on page 3 did not match the number on page 3 of a different filing. That was the beginning."
     ],
     "winning_title_patterns": [
-      "The [Case Name] Murder: A [Number]-Year Mystery",
-      "Uncovering the Truth Behind [Case Name]",
-      "Solving [Case Name]: The [Number] Clue That Cracked the Case"
+      "The [DOCUMENT/DATA] That Proved [CRIME] Had Been [DURATION]",
+      "[NUMBER] [DOCUMENTS/ACCOUNTS] \u2014 The Investigation That Changed Everything"
     ],
     "thumbnail_text_examples": [
-      "Cold Case Solved",
-      "DNA Evidence Found",
-      "Killer Caught On Tape",
-      "New Witness Comes Forward",
-      "Justice After [Number] Years"
+      "ONE FIBER",
+      "FALSE ALIBI",
+      "THE PRINT",
+      "CASE REOPENED"
     ],
-    "emotional_arc": "The videos typically follow an emotional arc of shock, intrigue, and ultimately, justice being served, keeping viewers engaged and invested in the case.",
+    "emotional_arc": "Methodical discovery then growing horror then full documented exposure",
     "retention_hooks": [
-      "30%: Introduction to the case and its shocking details",
-      "60%: Revealing new evidence or a surprising twist",
-      "80%: The final revelation and conclusion of the case"
+      "What the next document revealed changed the entire investigation",
+      "The pattern only became visible when all 847 records were laid side by side",
+      "The final piece of evidence was the most ordinary thing imaginable"
     ],
     "niche_specific_power_words": [
-      "Forensic",
-      "Investigation",
-      "Cold Case",
-      "Murder",
-      "Mystery",
-      "Justice"
+      "documented",
+      "evidence",
+      "pattern",
+      "records",
+      "exposed",
+      "concealed",
+      "verified"
     ],
-    "what_makes_videos_viral": "Videos in this niche become viral due to the combination of intriguing true crime stories, shocking twists, and the satisfaction of justice being served, which resonates with a wide audience and encourages sharing.",
+    "what_makes_videos_viral": "Methodical evidence revelation that builds to an undeniable conclusion",
     "fresh_topic_ideas": [
-      "The Use of AI in Cold Case Investigations",
-      "The Psychology of Serial Killers",
-      "Famous Cold Cases That Were Solved Years Later",
-      "The Impact of Social Media on Crime Investigations",
-      "Cold Cases Involving Missing Persons",
-      "Historical Cold Cases and Their Modern Implications"
+      "The 1994 cold case where a single unmatched DNA sample sat in an evidence box for 28 years",
+      "How investigators reconstructed a complete crime timeline from recovered deleted messages",
+      "The surveillance timestamp that proved the suspect was 40 miles away \u2014 and who that implicated instead",
+      "A witness statement that changed 11 times across 6 interviews \u2014 the analysis that exposed the truth",
+      "Phone metadata that placed 4 people at a location they each separately denied visiting"
     ],
-    "last_run": "2026-07-01T22:58:04.950022"
+    "last_run": "2026-07-15T20:06:50.503445"
   },
   "digital_forensics": {
     "top_hook_formulas": [

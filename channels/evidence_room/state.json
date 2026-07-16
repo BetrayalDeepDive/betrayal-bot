@@ -1,6 +1,6 @@
 {
   "last_style": "dark_minimal",
-  "last_niche": "corporate_exposure",
+  "last_niche": "criminal_investigation",
   "last_voice": "en-GB-RyanNeural",
   "last_title": "72 Months, 50,000 Scammed: The Crypto Ponzi Exposed",
   "last_url": "https://www.youtube.com/watch?v=-qE01LRQgiY",
@@ -24,6 +24,11 @@
     "voice_en-GB-RyanNeural": {
       "scores": [
         10.0
+      ]
+    },
+    "thumbnail_style_A": {
+      "scores": [
+        8.8
       ]
     }
   },
