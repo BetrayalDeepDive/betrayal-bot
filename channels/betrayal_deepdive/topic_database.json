@@ -93,5 +93,81 @@
     "status": "pending",
     "created_at": "2026-07-15T16:28:55.837103",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "7b9fa4fd42b6",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A 2019 incident with 14 unconnected witnesses \u2014 classified by three agencies within 72 hours",
+    "niche_name": "supernatural_real",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-16T16:22:06.064672",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "c9c035080fe7",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Every occupant of the building reported the identical auditory experience \u2014 confirmed by instruments",
+    "niche_name": "supernatural_real",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-16T16:22:32.272712",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "18454a7a438f",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A medical case where the patient described events they could not have witnessed from their location",
+    "niche_name": "supernatural_real",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 5.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 5.55,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear call-to-action or product tie-in beyond ad revenue, limiting its commercial potential.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-16T16:24:37.598158",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "01c57a478793",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A location where 11 of 300 tourists reported the exact same vision on the same afternoon",
+    "niche_name": "supernatural_real",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 5.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 5.6,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear product or resource beyond ad revenue, making it challenging to monetize effectively.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-16T16:27:30.643525",
+    "produced_episode_number": null
   }
 ]
