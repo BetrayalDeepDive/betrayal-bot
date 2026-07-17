@@ -26,5 +26,19 @@
       "Authenticity score 7.2/10 \u2014 one dimension weak, worth a look."
     ],
     "audited_at": "2026-07-16T19:01:48.138803"
+  },
+  {
+    "episode_number": 66,
+    "title": "The Evidence Room: Digital Evidence: The Investigation That Changed Everything",
+    "niche_name": "digital_forensics",
+    "quality_score": 8.8,
+    "quality_attempt": 5,
+    "authenticity_score": 8.1,
+    "providers_healthy": 3,
+    "verdict": "PASS",
+    "reasons": [
+      "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
+    ],
+    "audited_at": "2026-07-17T18:57:07.077014"
   }
 ]
