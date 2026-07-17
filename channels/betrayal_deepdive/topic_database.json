@@ -169,5 +169,62 @@
     "status": "pending",
     "created_at": "2026-07-16T16:27:30.643525",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "b6c7718688f3",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "4,380 consecutive days of obsessive behaviour documented in handwritten detail across 47 notebooks",
+    "niche_name": "obsession_dark",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-17T16:20:16.039290",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "110fd6840d5f",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A stalker who embedded as a trusted friend for three years before a single person noticed",
+    "niche_name": "obsession_dark",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-17T16:20:51.762450",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "6dbf7c80c793",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "An obsession that removed every relationship, asset, and ambition the subject built over seven years",
+    "niche_name": "obsession_dark",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is monetization_fit because the topic, while compelling, doesn't naturally lend itself to a clear product or resource beyond ad revenue, making it harder to monetize effectively.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-17T16:22:45.041113",
+    "produced_episode_number": null
   }
 ]
