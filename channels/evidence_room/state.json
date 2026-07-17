@@ -1,6 +1,6 @@
 {
   "last_style": "dark_minimal",
-  "last_niche": "criminal_investigation",
+  "last_niche": "digital_forensics",
   "last_voice": "kokoro-local",
   "last_title": "The Evidence Room: Cold Cases: The Investigation That Changed Everything",
   "last_url": "https://www.youtube.com/watch?v=A0O3ahZUFWk",
@@ -29,6 +29,7 @@
     },
     "thumbnail_style_A": {
       "scores": [
+        8.8,
         8.8
       ]
     },
