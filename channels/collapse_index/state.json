@@ -55,9 +55,10 @@
   "performance": {
     "thumbnail_style_A": {
       "scores": [
-        9.4
+        9.4,
+        8.6
       ]
     }
   },
-  "episode_count": 1
+  "episode_count": 2
 }
