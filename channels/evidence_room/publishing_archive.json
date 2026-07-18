@@ -25,5 +25,14 @@
     "topic": "AI in Digital Forensics",
     "companion_page_url": "evidenceroom/ep66.html",
     "published_at": "2026-07-17T18:57:06.737387"
+  },
+  {
+    "episode_number": 67,
+    "title": "The 375 Documents That Proved Bank Fraud",
+    "video_url": "https://www.youtube.com/watch?v=aI2Wu1ZCT0I",
+    "niche_name": "forensic_finance",
+    "topic": "The offshore account trail that exposed a 12-year bank fraud hidden across 40 shell companies",
+    "companion_page_url": "evidenceroom/ep67.html",
+    "published_at": "2026-07-18T18:53:43.771409"
   }
 ]

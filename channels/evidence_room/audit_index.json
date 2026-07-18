@@ -40,5 +40,19 @@
       "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
     ],
     "audited_at": "2026-07-17T18:57:07.077014"
+  },
+  {
+    "episode_number": 67,
+    "title": "The 375 Documents That Proved Bank Fraud",
+    "niche_name": "forensic_finance",
+    "quality_score": 9.7,
+    "quality_attempt": 1,
+    "authenticity_score": 8.9,
+    "providers_healthy": 3,
+    "verdict": "PASS",
+    "reasons": [
+      "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
+    ],
+    "audited_at": "2026-07-18T18:53:59.461638"
   }
 ]

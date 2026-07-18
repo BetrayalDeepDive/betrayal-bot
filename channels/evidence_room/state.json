@@ -2,8 +2,8 @@
   "last_style": "dark_minimal",
   "last_niche": "forensic_finance",
   "last_voice": "en-US-SteffanNeural",
-  "last_title": "The Evidence Room: Digital Evidence: The Investigation That Changed Everything",
-  "last_url": "https://www.youtube.com/watch?v=cDlPjCkMcO4",
+  "last_title": "The 375 Documents That Proved Bank Fraud",
+  "last_url": "https://www.youtube.com/watch?v=aI2Wu1ZCT0I",
   "thumbnail_ab": {
     "last_style": "B"
   },
@@ -13,7 +13,7 @@
     "criminal_investigation": "PLMciJoRSlyOs",
     "digital_forensics": "PLbOTjJezNAW0"
   },
-  "total_uploads": 7,
+  "total_uploads": 8,
   "total_shorts": 2,
   "performance": {
     "corporate_exposure": {
@@ -56,8 +56,16 @@
     },
     "voice_en-US-SteffanNeural": {
       "scores": [
-        8.8
+        8.8,
+        9.7
       ]
+    },
+    "forensic_finance": {
+      "scores": [
+        9.7
+      ],
+      "streak_below": 0,
+      "last_episode": 67
     }
   },
   "episode_history": [
@@ -81,6 +89,13 @@
       "topic": "AI in Digital Forensics",
       "score": 8.8,
       "date": "2026-07-17"
+    },
+    {
+      "episode": 67,
+      "niche": "forensic_finance",
+      "topic": "The offshore account trail that exposed a 12-year bank fraud hidden across 40 shell companies",
+      "score": 9.7,
+      "date": "2026-07-18"
     }
   ]
 }
