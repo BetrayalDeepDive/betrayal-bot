@@ -48,7 +48,37 @@
         9.2,
         9.2
       ]
+    },
+    "obsession_dark": {
+      "scores": [
+        9.2
+      ],
+      "streak_below": 0,
+      "last_episode": 2
+    },
+    "voice_en-US-AndrewNeural": {
+      "scores": [
+        9.2
+      ]
     }
   },
-  "episode_count": 2
+  "episode_count": 2,
+  "playlists": {
+    "obsession_dark": "PLbqqA3yvFSbI"
+  },
+  "last_title": "Nobody knew the dark truth revealed in this 7-year obsession",
+  "last_url": "https://www.youtube.com/watch?v=UkgFqMh1Tr0",
+  "last_voice": "en-US-AndrewNeural",
+  "total_uploads": 1,
+  "episode_history": [
+    {
+      "episode": 2,
+      "niche": "obsession_dark",
+      "topic": "An obsession that removed every relationship, asset, and ambition the subject built over seven years",
+      "score": 9.2,
+      "hook_type": "",
+      "cold_open_style": "",
+      "date": "2026-07-18"
+    }
+  ]
 }

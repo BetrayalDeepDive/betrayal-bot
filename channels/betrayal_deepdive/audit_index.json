@@ -1,0 +1,16 @@
+[
+  {
+    "episode_number": 2,
+    "title": "Nobody knew the dark truth revealed in this 7-year obsession",
+    "niche_name": "obsession_dark",
+    "quality_score": 9.2,
+    "quality_attempt": 3,
+    "authenticity_score": 8.9,
+    "providers_healthy": 4,
+    "verdict": "PASS",
+    "reasons": [
+      "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
+    ],
+    "audited_at": "2026-07-18T18:00:50.575443"
+  }
+]
