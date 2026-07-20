@@ -41,7 +41,7 @@
       "last_run": "2026-07-15T16:17:56.515411"
     }
   },
-  "last_title_register": "dread",
+  "last_title_register": "sympathy",
   "performance": {
     "thumbnail_style_A": {
       "scores": [
@@ -60,9 +60,14 @@
       "scores": [
         9.2
       ]
+    },
+    "thumbnail_style_B": {
+      "scores": [
+        10.0
+      ]
     }
   },
-  "episode_count": 2,
+  "episode_count": 3,
   "playlists": {
     "obsession_dark": "PLbqqA3yvFSbI"
   },

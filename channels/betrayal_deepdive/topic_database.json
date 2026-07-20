@@ -226,5 +226,81 @@
     "status": "pending",
     "created_at": "2026-07-17T16:22:45.041113",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "1adaea89728b",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A family discovered something had been living inside their walls for three years \u2014 they found out when the child stopped sleeping",
+    "niche_name": "dark_horror",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-20T16:28:44.766490",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "d0d914d58e54",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A night-shift nurse documented 14 incidents nobody believed \u2014 until the third patient died the same way",
+    "niche_name": "dark_horror",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-20T16:30:00.039659",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "2a4eeff8496c",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A hiker survived something in those mountains that three search teams still cannot explain",
+    "niche_name": "dark_horror",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-20T16:30:50.004520",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "66ef6c7637a3",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "A woman received a letter from herself \u2014 postmarked the day after she was reported missing",
+    "niche_name": "dark_horror",
+    "scores": {
+      "viral_pull": 9.0,
+      "evergreen_value": 8.0,
+      "source_depth": 5.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.05,
+    "reasoning": "The weakest dimension is monetization_fit because the topic doesn't naturally lend itself to a clear call-to-action or product tie-in beyond ad revenue, making it hard to monetize effectively.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-20T16:32:47.573830",
+    "produced_episode_number": null
   }
 ]
