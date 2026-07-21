@@ -5736,6 +5736,12 @@ def main():
                 "SPRINT_NICHE":       niche_name,
                 "SPRINT_SHORTS_URLS": ",".join(short_urls),
                 "SPRINT_SCORE":       str(score),
+                # FIX: SPRINT_DURATION_SECS was still missing even after the
+                # SPRINT_SCRIPT_PATH/SPRINT_PLAYLIST_ID fix above — growth_engine.py's
+                # caption-upload + pinned-comment-update gate requires BOTH
+                # script_path AND duration > 0, so it was still silently
+                # disabled here even with a real script_path set.
+                "SPRINT_DURATION_SECS": str(duration),
                 "SPRINT_PLAYLIST_ID": playlist_id or "",
                 "SPRINT_SCRIPT_PATH": sprint_script_path,
             })

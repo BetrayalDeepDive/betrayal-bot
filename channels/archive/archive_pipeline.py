@@ -6092,6 +6092,19 @@ def main():
             log(f"  Product manuscript (non-fatal): {e}")
 
         try:
+            # FIX: SPRINT_PLAYLIST_ID, SPRINT_SCRIPT_PATH, and
+            # SPRINT_DURATION_SECS were never set here — same gap already
+            # found and fixed in Ch1/Ch2/Ch5. growth_engine.py's
+            # run_post_upload_sprint gates its caption-upload + "update
+            # previous episode's pinned comment" features behind
+            # SPRINT_SCRIPT_PATH existing AND SPRINT_DURATION_SECS being
+            # > 0, so both features were silently disabled every run.
+            sprint_script_path = str(WORK_DIR / "sprint_script.txt")
+            try:
+                Path(sprint_script_path).write_text(script_clean)
+            except Exception:
+                sprint_script_path = ""
+
             env_ext = os.environ.copy()
             env_ext.update({
                 "GROWTH_ENGINE_MODE": "sprint",
@@ -6101,6 +6114,9 @@ def main():
                 "SPRINT_NICHE":       niche_name,
                 "SPRINT_SHORTS_URLS": ",".join(short_urls),
                 "SPRINT_SCORE":       str(score),
+                "SPRINT_DURATION_SECS": str(duration),
+                "SPRINT_PLAYLIST_ID": playlist_id or "",
+                "SPRINT_SCRIPT_PATH": sprint_script_path,
             })
             # FIX: pointed at channels/growth_engine/growth_engine.py, which
             # doesn't exist — real file is video_pipeline/growth_engine.py
