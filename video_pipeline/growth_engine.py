@@ -672,21 +672,234 @@ CTA_BANK = {
         "80": ["Subscribe. New case every weekday. You will not regret it.",
                "Subscribe to BetrayalDeepDive if you want to understand what drove this."],
     },
-    "forensic": {
-        "30": ["Subscribe to The Evidence Room. The key document is thirty seconds away.",
-               "Subscribe before the record that proves this is revealed."],
-        "60": ["Subscribe to The Evidence Room. What comes next changes the entire case.",
-               "Subscribe now. This is the evidence the investigation was built around."],
-        "80": ["Subscribe to The Evidence Room. New forensic case every weekday.",
-               "Subscribe if this investigation mattered to you. More are waiting."],
+    # FIX: this bank previously had only 7 keys total — the 5 real
+    # betrayal_deepdive niches above, plus two generic placeholder keys
+    # ("forensic", "clinical") that don't match any real niche name used
+    # by any other channel (evidence_room's real niches are
+    # forensic_finance/criminal_investigation/etc, control_files' are
+    # cult_psychology/propaganda_systems/etc) — so every niche on the
+    # other 4 channels silently fell back to dark_horror's BetrayalDeepDive
+    # CTA text via inject_subscribe_ctas' CTA_BANK.get(niche_name,
+    # CTA_BANK["dark_horror"]) fallback. Rebuilt to cover all 39 real
+    # niches across all 5 channels, reusing the exact real CTA text
+    # already written and live in each channel's own
+    # _inject_ctas_ch1/_inject_ctas_er/_inject_ctas_ch5 functions (the
+    # actual source of truth those channels call directly) rather than
+    # inventing new copy, so this shared bank is correct if it's ever
+    # actually wired into a pipeline.
+    #
+    # The Evidence Room (evidence_room) — 7 niches
+    "forensic_finance": {
+        "30": ["If documented cases like this concern you, subscribe — new files every week."],
+        "60": ["This channel investigates documented financial fraud. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
     },
-    "clinical": {
-        "30": ["Subscribe to The Control Files. The mechanism this is built on is thirty seconds away.",
-               "Subscribe before the technique is fully revealed."],
-        "60": ["Subscribe to The Control Files. What is documented next is the reason this channel was built.",
-               "Subscribe now. This is the section that changes how you see everything before it."],
-        "80": ["Subscribe to The Control Files. New investigation every weekday.",
-               "Subscribe if this investigation changed what you thought you knew."],
+    "criminal_investigation": {
+        "30": ["If this case concerns you, subscribe — documented investigations every week."],
+        "60": ["This channel documents criminal investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    "corporate_exposure": {
+        "30": ["If this pattern concerns you, subscribe — documented exposures every week."],
+        "60": ["This channel investigates documented corporate misconduct. Subscribe to follow the record."],
+        "80": ["More documented findings like this are coming. Subscribe to The Evidence Room."],
+    },
+    "digital_forensics": {
+        "30": ["If this trail concerns you, subscribe — documented digital cases every week."],
+        "60": ["This channel documents digital forensic investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    "body_cam_police": {
+        "30": ["If footage like this concerns you, subscribe — documented body cam cases every week."],
+        "60": ["This channel documents real body cam evidence. Subscribe to follow the record."],
+        "80": ["More documented footage like this is coming. Subscribe to The Evidence Room."],
+    },
+    "courtroom_drama": {
+        "30": ["If this verdict concerns you, subscribe — documented courtroom cases every week."],
+        "60": ["This channel documents real courtroom proceedings. Subscribe to follow the record."],
+        "80": ["More documented trials like this are coming. Subscribe to The Evidence Room."],
+    },
+    "robbery_documentaries": {
+        "30": ["If this heist concerns you, subscribe — documented robbery cases every week."],
+        "60": ["This channel documents real robbery investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    # The Control Files (control_files) — 6 niches
+    "cult_psychology": {
+        "30": ["If documented cases like this concern you, subscribe — new files every week."],
+        "60": ["This channel investigates documented control systems. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "propaganda_systems": {
+        "30": ["If this pattern concerns you, subscribe — more documented systems every week."],
+        "60": ["This channel tracks documented propaganda systems. Subscribe to follow the record."],
+        "80": ["More documented findings like this are coming. Subscribe to The Control Files."],
+    },
+    "social_engineering": {
+        "30": ["If this technique concerns you, subscribe — documented methods every week."],
+        "60": ["This channel documents social engineering systems. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "mass_deception": {
+        "30": ["If this scale concerns you, subscribe — documented findings every week."],
+        "60": ["This channel investigates documented deception at scale. Subscribe to follow the record."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "dark_business_documentaries": {
+        "30": ["If this kind of corporate failure concerns you, subscribe — documented cases every week."],
+        "60": ["This channel investigates documented corporate collapses. Subscribe to follow the record."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "scams_fraud_exposed": {
+        "30": ["If this scam pattern concerns you, subscribe — documented fraud cases every week."],
+        "60": ["This channel documents fraud systems in detail. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    # The Archive (archive) — 8 niches
+    "egyptian_civilization": {
+        "30": ["If this history fascinates you, subscribe — new civilizations documented every week."],
+        "60": ["This channel investigates documented ancient history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "chinese_civilization": {
+        "30": ["If this dynasty's story interests you, subscribe — more documented history every week."],
+        "60": ["This channel documents real dynastic history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "mesopotamian_lost_civilizations": {
+        "30": ["If lost civilizations fascinate you, subscribe — documented history every week."],
+        "60": ["This channel investigates documented lost civilizations. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "islamic_civilization_history": {
+        "30": ["If this history fascinates you, subscribe — documented civilization every week."],
+        "60": ["This channel documents real Islamic civilization history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "fallen_empires_military_overstretch": {
+        "30": ["If this pattern of collapse concerns you, subscribe — documented history every week."],
+        "60": ["This channel investigates documented imperial overstretch. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "elite_betrayal_infighting": {
+        "30": ["If this kind of betrayal fascinates you, subscribe — documented history every week."],
+        "60": ["This channel documents real elite betrayal in detail. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "propaganda_institutional_decline": {
+        "30": ["If this pattern concerns you, subscribe — documented institutional history every week."],
+        "60": ["This channel tracks documented institutional decline. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "modern_parallels": {
+        "30": ["If this parallel struck you, subscribe — documented historical patterns every week."],
+        "60": ["This channel connects documented history to the present. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    # The Collapse Index (collapse_index) — 13 niches
+    "ai_startup_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented evidence gets more specific from here.",
+               "Subscribe. What comes next is the part most coverage left out."],
+        "60": ["Subscribe before the final documented numbers are shown.",
+               "Subscribe to The Collapse Index. The next section changes the whole story."],
+        "80": ["Subscribe. New documented collapse case every weekday.",
+               "Subscribe to The Collapse Index if you want the rest of these breakdowns."],
+    },
+    "tech_company_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented internal decision comes next.",
+               "Subscribe. The real turning point is thirty seconds away."],
+        "60": ["Subscribe before the documented numbers are shown.",
+               "Subscribe to The Collapse Index. What's documented next reframes everything."],
+        "80": ["Subscribe. Every weekday, a new documented business collapse.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "crypto_collapse": {
+        "30": ["Subscribe to The Collapse Index. The real documented timeline comes next.",
+               "Subscribe. The documented numbers are thirty seconds away."],
+        "60": ["Subscribe before the full documented collapse is shown.",
+               "Subscribe to The Collapse Index. The next section has the real numbers."],
+        "80": ["Subscribe. New documented crypto collapse case every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "cybersecurity_disasters": {
+        "30": ["Subscribe to The Collapse Index. The documented timeline comes next.",
+               "Subscribe. The real documented failure point is thirty seconds away."],
+        "60": ["Subscribe before the full documented breach timeline is shown.",
+               "Subscribe to The Collapse Index. What's documented next changes the story."],
+        "80": ["Subscribe. New documented breach case every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "product_flops": {
+        "30": ["Subscribe to The Collapse Index. The documented internal testing comes next.",
+               "Subscribe. The real documented numbers are thirty seconds away."],
+        "60": ["Subscribe before the documented failure is fully shown.",
+               "Subscribe to The Collapse Index. The next part has the real numbers."],
+        "80": ["Subscribe. New documented product failure every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "dotcom_era_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented real numbers come next.",
+               "Subscribe. The real documented collapse timeline is thirty seconds away."],
+        "60": ["Subscribe before the full documented history is shown.",
+               "Subscribe to The Collapse Index. The next part has the real filed numbers."],
+        "80": ["Subscribe. New documented dot-com history every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "personal_finance_mistakes": {
+        "30": ["Subscribe to The Collapse Index. The real numbers behind this come next.",
+               "Subscribe — the specific, real math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real financial breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "investing_fundamentals": {
+        "30": ["Subscribe to The Collapse Index. The real math on this comes next.",
+               "Subscribe — the specific numbers are thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real investing breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "retirement_planning": {
+        "30": ["Subscribe to The Collapse Index. The real retirement math comes next.",
+               "Subscribe — the specific numbers are thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real retirement breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "credit_debt_repair": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific credit math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real credit breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "real_estate_affordability": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific mortgage math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real housing breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "budgeting_saving_strategies": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific budget math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real budgeting breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "stock_market_crashes_history": {
+        "30": ["Subscribe to The Collapse Index. The documented real numbers come next.",
+               "Subscribe. The real documented market data is thirty seconds away."],
+        "60": ["Subscribe before the full documented history is shown.",
+               "Subscribe to The Collapse Index. The next part has the real numbers."],
+        "80": ["Subscribe. New documented market history every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
     },
 }
 

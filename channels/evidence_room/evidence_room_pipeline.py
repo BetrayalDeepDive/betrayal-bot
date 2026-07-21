@@ -4187,6 +4187,27 @@ def _inject_ctas_er(script_clean, niche_name):
             "This channel documents digital forensic investigations. Subscribe to follow the evidence.",
             "More documented cases like this are coming. Subscribe to The Evidence Room.",
         ],
+        # FIX: body_cam_police, courtroom_drama, and robbery_documentaries
+        # are 3 of this channel's 7 real niches (see NICHES below) but had
+        # no entry here at all — every episode in these 3 niches was
+        # silently falling back to forensic_finance's CTA text via the
+        # .get() default below, mismatched against what the video was
+        # actually about.
+        "body_cam_police": [
+            "If footage like this concerns you, subscribe — documented body cam cases every week.",
+            "This channel documents real body cam evidence. Subscribe to follow the record.",
+            "More documented footage like this is coming. Subscribe to The Evidence Room.",
+        ],
+        "courtroom_drama": [
+            "If this verdict concerns you, subscribe — documented courtroom cases every week.",
+            "This channel documents real courtroom proceedings. Subscribe to follow the record.",
+            "More documented trials like this are coming. Subscribe to The Evidence Room.",
+        ],
+        "robbery_documentaries": [
+            "If this heist concerns you, subscribe — documented robbery cases every week.",
+            "This channel documents real robbery investigations. Subscribe to follow the evidence.",
+            "More documented cases like this are coming. Subscribe to The Evidence Room.",
+        ],
     }
     ctas = cta_bank.get(niche_name, cta_bank["forensic_finance"])
 
