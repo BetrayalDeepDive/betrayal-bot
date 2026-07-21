@@ -202,7 +202,12 @@ CHANNEL_CONFIGS = {
     # identity bug class already found and fixed for Ch2/Ch3.
     "archive": {
         "display_name":   "THE ARCHIVE",
-        "watermark":      "@TheArchive",
+        # FIX: The Archive's real handle is @TheArchiveFiles — this
+        # watermark said "@TheArchive" while other channels' cross-promo
+        # text baked into descriptions was split between "@TheArchiveFiles"
+        # and "@TheArchiveDD" (now fixed to @TheArchiveFiles everywhere),
+        # a 3-way mismatch confirmed against the real handle.
+        "watermark":      "@TheArchiveFiles",
         "hashtags_base":  "#thearchive #shorts #history",
         "tagline":        "The Archive — Real documented history, every day.",
         "bg_search_term": "ancient history documentary archive",

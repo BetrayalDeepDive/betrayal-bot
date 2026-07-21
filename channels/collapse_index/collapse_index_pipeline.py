@@ -390,7 +390,7 @@ CROSS_PROMO = {
     "betrayal_deepdive": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
@@ -398,7 +398,7 @@ CROSS_PROMO = {
     "evidence_room": {
         "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
@@ -406,7 +406,7 @@ CROSS_PROMO = {
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
@@ -436,7 +436,7 @@ CROSS_PROMO = {
         "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },

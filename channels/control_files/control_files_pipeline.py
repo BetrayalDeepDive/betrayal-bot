@@ -289,7 +289,7 @@ CROSS_PROMO = {
     "betrayal_deepdive": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
@@ -302,7 +302,7 @@ CROSS_PROMO = {
     "control_files": {
         "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
+                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
