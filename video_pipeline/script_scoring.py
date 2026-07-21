@@ -35,6 +35,14 @@ _STOPWORDS = {"the", "a", "an", "of", "in", "on", "and", "or", "to", "is", "was"
               "this", "for", "with", "at", "by", "from", "as", "it", "its", "his", "her", "their",
               "them", "he", "she", "they", "how", "why", "what", "who", "when", "where"}
 
+_REHOOK_MARKERS = [
+    "stop for a second", "wait.", "listen.", "stay with me", "if you're still",
+    "if you are still", "if you've made it this far", "you need to understand",
+    "notice something", "here's what you", "let that sink in", "sit with that",
+    "you already sense", "ask yourself", "picture this for a second",
+    "still with me", "you're still watching", "you are still watching",
+]
+
 
 def _sentences(text):
     return [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
@@ -193,6 +201,36 @@ def score_topic_clarity(script_text, topic):
         score += 1.5
 
     return round(min(max(score, 0.0), 10.0), 1), issues
+
+
+def validate_rehook_beat(script_text):
+    """
+    Checks for the mid-video "rehook" beat — a direct-address moment that
+    breaks documentary narration to speak to "you" the viewer — placed at
+    the drift point, roughly the 50-72% mark of the script, where
+    retention research shows mid-video attention is most likely to lapse.
+    Real, deterministic check: direct-address marker phrases plus a real
+    density of second-person pronouns in that window, not just one or the
+    other (a stray "you" elsewhere in the narration shouldn't count).
+
+    Returns (bonus_or_penalty, issues) meant to be folded straight into a
+    channel's existing score_result()/score_script_er() total, same as the
+    30/60/80% retention-hook validators already do.
+    """
+    words = script_text.split()
+    total = len(words)
+    if total < 400:
+        return 0.0, []
+
+    drift_zone = " ".join(words[int(total * 0.50):int(total * 0.72)]).lower()
+    has_marker = any(m in drift_zone for m in _REHOOK_MARKERS)
+    you_count = len(re.findall(r'\byou\b', drift_zone))
+
+    if has_marker and you_count >= 2:
+        return 0.5, []
+    elif has_marker or you_count >= 3:
+        return 0.2, []
+    return -0.6, ["Missing mid-video rehook — no direct-address beat near the drift point (50-72%)"]
 
 
 def score_script_rubric(script_text, topic=""):

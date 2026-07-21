@@ -1507,7 +1507,7 @@ def score_result(r, topic=""):
         # deterministic scoring of the actual script text, shared across
         # all 5 channels (video_pipeline/script_scoring.py).
         try:
-            from script_scoring import score_script_rubric
+            from script_scoring import score_script_rubric, validate_rehook_beat
             rubric_bonus, rubric_issues, subscores = score_script_rubric(script, topic or r.get("topic", ""))
             s += rubric_bonus
             if subscores:
@@ -1516,6 +1516,10 @@ def score_result(r, topic=""):
                     f"Clarity {subscores['topic_clarity']}/10")
             if rubric_issues:
                 log(f"  Rubric issues: {' | '.join(rubric_issues[:3])}")
+            rehook_bonus, rehook_issues = validate_rehook_beat(script)
+            s += rehook_bonus
+            if rehook_issues:
+                log(f"  {rehook_issues[0]}")
         except Exception as e:
             log(f"  Script rubric scoring (non-fatal): {e}")
     return min(round(s, 1), 10.0), []
@@ -1989,6 +1993,17 @@ ones, MUST contain a genuine payoff — a surprising fact, a specific
 number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
+
+MID-VIDEO REHOOK (NON-NEGOTIABLE — the drift point): viewer attention
+consistently dips right around the 55-65% mark of a long video — after the
+opening hook has worn off, before the final reveal creates urgency again.
+Exactly once, somewhere in that 55-65% window (right around the start of
+Stage 5), break the documentary narration for ONE short direct-address
+beat: speak straight to the viewer in second person ("you"), acknowledge
+they're still here, and re-raise the stakes. Example shape only, do not
+copy verbatim: "Stop for a second. If you're still watching, you already
+sense something is wrong here." Then return immediately to the narration —
+this is a single beat, not a new tone for the rest of the script.
 
 VERBAL RESOURCE MENTION (natural, brief, once only): most viewers never read
 the description. Within the existing subscribe moment, include ONE brief,

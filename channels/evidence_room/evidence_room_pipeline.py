@@ -1747,6 +1747,17 @@ number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
 
+MID-VIDEO REHOOK (NON-NEGOTIABLE — the drift point): viewer attention
+consistently dips right around the 55-65% mark of a long video — after the
+opening hook has worn off, before the final reveal creates urgency again.
+Exactly once, somewhere in that 55-65% window (right around the start of
+Stage 5), break the documentary narration for ONE short direct-address
+beat: speak straight to the viewer in second person ("you"), acknowledge
+they're still here, and re-raise the stakes. Example shape only, do not
+copy verbatim: "Stop for a second. If you're still watching, you already
+sense something is wrong here." Then return immediately to the narration —
+this is a single beat, not a new tone for the rest of the script.
+
 VERBAL RESOURCE MENTION (natural, brief, once only): most viewers never read
 the description. Within the existing subscribe moment, include ONE brief,
 natural sentence mentioning "{_product_title_for_prompt}" as a related
@@ -4296,7 +4307,7 @@ def score_script_er(script_clean, wc, violations, topic=""):
     # deterministic scoring of the actual script text, shared across all
     # 5 channels (video_pipeline/script_scoring.py).
     try:
-        from script_scoring import score_script_rubric
+        from script_scoring import score_script_rubric, validate_rehook_beat
         rubric_bonus, rubric_issues, subscores = score_script_rubric(script_clean, topic)
         score += rubric_bonus
         if subscores:
@@ -4304,6 +4315,9 @@ def score_script_er(script_clean, wc, violations, topic=""):
                 f"Craft {subscores['narrative_craft']}/10 | "
                 f"Clarity {subscores['topic_clarity']}/10")
         issues.extend(rubric_issues[:3])
+        rehook_bonus, rehook_issues = validate_rehook_beat(script_clean)
+        score += rehook_bonus
+        issues.extend(rehook_issues)
     except Exception as e:
         log(f"  Script rubric scoring (non-fatal): {e}")
 
