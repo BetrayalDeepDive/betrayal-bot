@@ -164,6 +164,14 @@ jobs:
           # duration of that one process. Proved this exact failure mode
           # with a direct simulation before writing this fix.
           git add channels/archive/review_queue.json || true
+          # FIX: thumb_format_history.json / shorts_format_history.json
+          # (real, appended-to learning history for the 11-format
+          # thumbnail library and Shorts format-variety rotation) were
+          # never explicitly added — same "ephemeral runner, nothing
+          # persists unless committed" bug already fixed for every other
+          # state file above.
+          git add channels/archive/thumb_format_history.json || true
+          git add channels/archive/shorts_format_history.json || true
           git diff --staged --quiet || git commit -m "chore: ch4 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing

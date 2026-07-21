@@ -151,6 +151,14 @@ jobs:
           # FIX: same pattern as Ch1 — topic_database.json gets written
           # here too (add_topic_candidate scores fresh candidates during generate)
           git add channels/evidence_room/topic_database.json || true
+          # FIX: thumb_format_history.json / shorts_format_history.json
+          # (real, appended-to learning history for the 11-format
+          # thumbnail library and Shorts format-variety rotation) were
+          # never explicitly added — same "ephemeral runner, nothing
+          # persists unless committed" bug already fixed for every other
+          # state file above.
+          git add channels/evidence_room/thumb_format_history.json || true
+          git add channels/evidence_room/shorts_format_history.json || true
           git diff --staged --quiet || git commit -m "chore: ch2 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing

@@ -132,6 +132,14 @@ jobs:
           # scores fresh candidates during generate) — without committing it,
           # every scored candidate is lost on this ephemeral runner.
           git add channels/betrayal_deepdive/topic_database.json || true
+          # FIX: thumb_format_history.json / shorts_format_history.json
+          # (real, appended-to learning history for the 11-format
+          # thumbnail library and Shorts format-variety rotation) were
+          # never explicitly added — same "ephemeral runner, nothing
+          # persists unless committed" bug already fixed for every other
+          # state file above.
+          git add channels/betrayal_deepdive/thumb_format_history.json || true
+          git add channels/betrayal_deepdive/shorts_format_history.json || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing

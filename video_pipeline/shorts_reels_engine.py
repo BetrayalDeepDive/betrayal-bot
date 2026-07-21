@@ -271,6 +271,18 @@ def get_active_channel_config():
     """Returns the full config dict for whichever channel is currently active."""
     return CHANNEL_CONFIGS.get(_active_channel_id, CHANNEL_CONFIGS["betrayal_deepdive"])
 
+
+def _channel_cache_dir(channel_id):
+    """
+    Persistent per-channel directory for real, appended-to history files
+    (shorts_format_history.json, thumb_format_history.json) — the same
+    real directory each channel's own state.json/pipeline lives in and
+    already survives between ephemeral GitHub Actions runners via each
+    generate workflow's git-add step, not the ephemeral OUTPUT_DIR (/tmp).
+    """
+    from pathlib import Path as _Path
+    return str(_Path(__file__).parent.parent / "channels" / channel_id)
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ── Voice Profiles ─────────────────────────────────────────────────────────────
@@ -562,6 +574,19 @@ def get_trending_short_topic(mode: str) -> dict:
             "\n".join(f"- {t}" for t in trending_titles[:8])
         )
 
+    # Format variety — real, persisted rotation through 5 presentation
+    # formats (video_pipeline/shorts_formats.py) so consecutive Shorts
+    # don't all use the same "direct reveal" shape back-to-back.
+    format_block = ""
+    try:
+        from shorts_formats import select_presentation_format, record_format_used, presentation_format_instruction
+        _cache_dir = _channel_cache_dir(_active_channel_id)
+        _format_name = select_presentation_format(_cache_dir, _active_channel_id)
+        record_format_used(_cache_dir, _active_channel_id, mode, _format_name)
+        format_block = f"\n\nPRESENTATION FORMAT for this Short (use this specific shape): {presentation_format_instruction(_format_name)}"
+    except Exception as e:
+        log.warning("Presentation format selection unavailable (non-fatal): %s", e)
+
     # Use LLM to optimise angle for Shorts virality
     result = llm_json(f"""You are producing a Short for {cfg['display_name']}'s channel, but
 this specific Short is DELIBERATELY a different, trending topic — not the
@@ -570,7 +595,7 @@ daily Shorts cover today's main video topic, and 2 (this one) cover whatever
 is genuinely trending and in-demand right now, to draw in broader attention
 and new viewers who wouldn't otherwise find this channel.
 Topic seed: {topic}
-Mode: {mode}{trending_block}
+Mode: {mode}{trending_block}{format_block}
 
 Create a SHORT (45-55 second) viral concept about this trending topic itself
 — do not connect it back to the channel's usual subject matter.
@@ -634,11 +659,16 @@ def score_short_script(script: str, title: str, hook: str,
     loop_hit = any(p in script.lower() for p in loop_phrases)
     scores["loop"] = 2.0 if loop_hit else 1.0
 
-    # 4. Emotion (0-2 pts)
-    emotion_words = ["outraged","devastated","shocked","horrified","betrayed","furious",
-                     "heartbroken","stunned","unbelievable","disgusting","disgraceful"]
-    emo_count = sum(1 for w in emotion_words if w in script.lower())
-    scores["emotion"] = min(2.0, emo_count * 0.5)
+    # 4. Emotional arc (0-2 pts) — real shape across open/middle/close,
+    # not just a flat word count (video_pipeline/shorts_formats.py).
+    try:
+        from shorts_formats import score_emotional_arc
+        scores["emotion"], _arc_issues = score_emotional_arc(script)
+    except Exception:
+        emotion_words = ["outraged","devastated","shocked","horrified","betrayed","furious",
+                         "heartbroken","stunned","unbelievable","disgusting","disgraceful"]
+        emo_count = sum(1 for w in emotion_words if w in script.lower())
+        scores["emotion"] = min(2.0, emo_count * 0.5)
 
     # 5. Title quality (0-2 pts)
     title_score = 0
@@ -650,9 +680,22 @@ def score_short_script(script: str, title: str, hook: str,
         title_score += 0.5
     scores["title"] = min(2.0, title_score)
 
+    # 6. The 3-second rule (bonus/penalty) — real, timing-based check that
+    # the opening ~3 seconds of narration (video_pipeline/shorts_formats.py,
+    # WORDS_PER_SECOND-derived) actually lands a scroll-stopper instead of
+    # a slow windup.
+    try:
+        from shorts_formats import check_three_second_rule
+        three_sec_bonus, three_sec_issues = check_three_second_rule(hook, script)
+        scores["three_second_rule"] = three_sec_bonus
+    except Exception:
+        three_sec_issues = []
+
     total = round(sum(scores.values()), 1)
     scores["total"] = total
     scores["passed"] = total >= QUALITY_MIN
+    if three_sec_issues:
+        scores["issues"] = three_sec_issues
 
     return scores
 
@@ -1088,6 +1131,21 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
         # Scale and crop to 9:16
         "scale=1080:1920:force_original_aspect_ratio=increase",
         "crop=1080:1920",
+    ]
+
+    # Pattern interrupt — a real periodic zoom-punch (video_pipeline/
+    # shorts_formats.py) that breaks up an otherwise static/looping
+    # background clip every few seconds, the same "cut every few seconds"
+    # technique real Shorts editors use to fight scroll-past. Falls back
+    # to no pattern interrupt (old behavior) if the shared module can't
+    # be imported for any reason — never blocks assembly.
+    try:
+        from shorts_formats import pattern_interrupt_filter
+        vf_parts.append(pattern_interrupt_filter())
+    except Exception as e:
+        log.warning("Pattern interrupt filter unavailable (non-fatal): %s", e)
+
+    vf_parts += [
         # Dramatic vignette
         "vignette=PI/3.5",
         # Hook text - top third, large
@@ -1219,6 +1277,11 @@ def score_final_video(video_path: str, script: str, title: str,
         scores["length"] = 2.5 if 40 <= dur <= 70 else 1.5
     except Exception:
         scores["length"] = 1.5
+
+    # 6. Custom thumbnail (0-1 pt, additive bonus — was accepted as a
+    # parameter but never actually scored before, so has_thumbnail=False
+    # was hardcoded everywhere with zero consequence either way).
+    scores["thumbnail"] = 1.0 if has_thumbnail else 0.0
 
     total = round(sum(scores.values()), 1)
     scores["total"] = total
@@ -1377,6 +1440,44 @@ def upload_instagram_reel(video_path: str, caption: str) -> bool:
     return pr.status_code in (200, 201)
 
 
+# ── CUSTOM SHORTS THUMBNAILS ──────────────────────────────────────────────────
+# FIX: every produce_*_short function hardcoded has_thumbnail=False and never
+# generated or uploaded a thumbnail at all — Shorts always shipped with
+# whatever frame YouTube auto-picks. Reuses the same 3-layer engine already
+# built for main videos (video_pipeline/thumbnail_engine_v2.py) rather than
+# building a separate 9:16 renderer from scratch; YouTube's thumbnails.set
+# endpoint accepts the same 16:9 image for Shorts as for regular videos.
+def generate_short_thumbnail(title, hook_text, niche_name, work_dir):
+    try:
+        from thumbnail_engine_v2 import generate_thumbnail_v2
+        return generate_thumbnail_v2(
+            title=title, thumb_text=(hook_text or title)[:20].upper(),
+            niche_name=niche_name, topic=title,
+            channel_name=CHANNEL, episode=1, work_dir=work_dir, ab_variant="A",
+        )
+    except Exception as e:
+        log.warning("Short thumbnail generation failed (non-fatal): %s", e)
+        return None
+
+
+def set_short_thumbnail(video_id, thumb_path, token):
+    """Uploads a custom thumbnail for an already-uploaded Short via the
+    same thumbnails.set endpoint YouTube uses for regular videos."""
+    if not (video_id and thumb_path and os.path.exists(thumb_path) and token):
+        return False
+    try:
+        with open(thumb_path, "rb") as f:
+            r = requests.post(
+                f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "image/jpeg"},
+                data=f.read(), timeout=60,
+            )
+        return r.status_code == 200
+    except Exception as e:
+        log.warning("Short thumbnail upload failed (non-fatal): %s", e)
+        return False
+
+
 # ── MAIN FUNCTIONS ────────────────────────────────────────────────────────────
 
 def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> dict:
@@ -1432,11 +1533,16 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         if not assemble_short_video(bg_out, audio_out, srt_out, hook, video_out):
             continue
 
+        # 7.5 Custom thumbnail — generated locally now (doesn't need a
+        # video_id yet), uploaded via thumbnails.set after step 9 below.
+        thumb_out = generate_short_thumbnail(title, hook, niche, OUTPUT_DIR)
+        has_thumb = bool(thumb_out and os.path.exists(thumb_out))
+
         # 8. Final quality score
         final_score = score_final_video(
             video_out, script, title,
             has_subtitles=os.path.exists(srt_out),
-            has_thumbnail=False, channel=_active_channel_id
+            has_thumbnail=has_thumb, channel=_active_channel_id
         )
         log.info("Final score: %.1f/10 (need %.1f)", final_score["total"], QUALITY_MIN)
 
@@ -1448,6 +1554,16 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         tags = [t.strip("#") for t in tags_str.split() if t.startswith("#")]
         description = f"{script}\n\n{tags_str}\n\n{cfg['tagline']}"
         yt_url = upload_youtube_short(video_out, title, description, tags)
+
+        # 9.5 Upload the custom thumbnail now that a real video_id exists
+        if yt_url and has_thumb:
+            try:
+                _vid_id = yt_url.rstrip("/").split("/")[-1]
+                _token = get_yt_token()
+                if not set_short_thumbnail(_vid_id, thumb_out, _token):
+                    log.warning("Custom Short thumbnail upload did not succeed")
+            except Exception as e:
+                log.warning("Custom Short thumbnail step failed (non-fatal): %s", e)
 
         # FIX (found on re-audit): this previously returned "status":
         # "success" unconditionally, even when upload_youtube_short
@@ -1474,9 +1590,10 @@ Subtitles: ✅ Synced
 URL: {yt_url}""")
 
         # Cleanup
-        for f in [audio_out, srt_out, bg_out]:
+        for f in [audio_out, srt_out, bg_out, thumb_out]:
             try:
-                os.remove(f)
+                if f:
+                    os.remove(f)
             except Exception:
                 pass
 
@@ -1632,11 +1749,25 @@ def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str
     }
     instruction = angle_instructions.get(angle, angle_instructions["angle_1"])
 
+    # Format variety — same real, persisted rotation used by
+    # get_trending_short_topic (video_pipeline/shorts_formats.py), so
+    # this channel's 4 daily Shorts (2 here + 2 standalone) don't all
+    # collapse into the same presentation shape.
+    format_block = ""
+    try:
+        from shorts_formats import select_presentation_format, record_format_used, presentation_format_instruction
+        _cache_dir = _channel_cache_dir(_active_channel_id)
+        _format_name = select_presentation_format(_cache_dir, _active_channel_id)
+        record_format_used(_cache_dir, _active_channel_id, angle, _format_name)
+        format_block = f"\n\nPRESENTATION FORMAT for this Short (use this specific shape): {presentation_format_instruction(_format_name)}"
+    except Exception as e:
+        log.warning("Presentation format selection unavailable (non-fatal): %s", e)
+
     script_data = llm_json(f"""Create a complete, standalone 45-55 second YouTube Short.
 Real topic: {main_topic}
 Real story details: {main_script[:500]}
 
-{instruction}
+{instruction}{format_block}
 
 Rules:
 - This is a COMPLETE piece on its own — no "part 2", no "full story elsewhere",
@@ -1671,13 +1802,28 @@ Return JSON:
                                  script_data["hook_text"], video_out):
         return {"status": "failed", "reason": "assembly failed"}
 
+    # Custom thumbnail — same engine/flow as produce_standalone_short.
+    thumb_out = generate_short_thumbnail(script_data["title"], script_data["hook_text"],
+                                         cfg["default_niche"], OUTPUT_DIR)
+    has_thumb = bool(thumb_out and os.path.exists(thumb_out))
+
     tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
     url = upload_youtube_short(video_out, script_data["title"],
                                 script_data["script"] + "\n\n#Shorts", tags)
 
-    for f in [audio_out, srt_out, bg_out]:
+    if url and has_thumb:
         try:
-            os.remove(f)
+            _vid_id = url.rstrip("/").split("/")[-1]
+            _token = get_yt_token()
+            if not set_short_thumbnail(_vid_id, thumb_out, _token):
+                log.warning("Custom Short thumbnail upload did not succeed")
+        except Exception as e:
+            log.warning("Custom Short thumbnail step failed (non-fatal): %s", e)
+
+    for f in [audio_out, srt_out, bg_out, thumb_out]:
+        try:
+            if f:
+                os.remove(f)
         except Exception:
             pass
 
