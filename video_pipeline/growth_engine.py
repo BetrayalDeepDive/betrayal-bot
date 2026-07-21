@@ -82,6 +82,37 @@ CHANNELS = {
         "state_file":    Path(__file__).parent.parent / "channels" / "control_files" / "state.json",
         "cta_style":     "clinical",
     },
+    # FIX: archive and collapse_index (Ch4/Ch5) were missing from this dict
+    # entirely — every function keyed off CHANNELS silently no-opped for
+    # these 2 channels (run_weekly_cycle's `for channel_id in CHANNELS`
+    # never even iterates them; run_post_upload_sprint's
+    # CHANNELS.get(channel_id, {}) fell back to an empty dict). Added so
+    # CTR recovery / thumb_format_history video_id attachment (see
+    # video_pipeline/thumbnail_formats.py) work for all 5 channels, not 3.
+    "archive": {
+        "name":          "The Archive",
+        "handle":        "@TheArchiveFiles",
+        "niche_label":   "historical collapse documentary",
+        "client_id":     os.environ.get("CHANNEL4_YT_CLIENT_ID", ""),
+        "client_secret": os.environ.get("CHANNEL4_YT_CLIENT_SECRET", ""),
+        "refresh_token": os.environ.get("CHANNEL4_YT_REFRESH_TOKEN", ""),
+        "state_file":    Path(__file__).parent.parent / "channels" / "archive" / "state.json",
+        "cta_style":     "archive",
+    },
+    "collapse_index": {
+        "name":          "TheCollapseIndex",  # matches the literal channel_name string
+                                               # collapse_index_pipeline.py actually passes
+                                               # to generate_thumbnail_v2 (no spaces) — must
+                                               # match exactly for thumb_format_history's
+                                               # channel-name lookup to find the right entries
+        "handle":        "@TheCollapseIndex",
+        "niche_label":   "societal collapse documentary",
+        "client_id":     os.environ.get("CHANNEL5_YT_CLIENT_ID", ""),
+        "client_secret": os.environ.get("CHANNEL5_YT_CLIENT_SECRET", ""),
+        "refresh_token": os.environ.get("CHANNEL5_YT_REFRESH_TOKEN", ""),
+        "state_file":    Path(__file__).parent.parent / "channels" / "collapse_index" / "state.json",
+        "cta_style":     "collapse_index",
+    },
 }
 
 YT_TOKEN_URL   = "https://oauth2.googleapis.com/token"
@@ -966,6 +997,21 @@ def run_ctr_recovery(channel_id, token, growth_state):
         log(f"  Analytics error: {e}")
         return
 
+    # thumb_format_history real learning signal: feed every video's real
+    # CTR (not just the ones being A/B tested below) into the format
+    # history, so select_thumbnail_format() has as much real performance
+    # data as possible to learn from.
+    try:
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if ch_cfg.get("state_file"):
+            from thumbnail_formats import record_format_ctr
+            cache_dir = str(Path(ch_cfg["state_file"]).parent)
+            for row in data.get("rows", []):
+                if len(row) >= 2:
+                    record_format_ctr(cache_dir, row[0], float(row[1]))
+    except Exception as e:
+        log(f"  thumb_format_history CTR record (non-fatal): {e}")
+
     ctr_tests   = growth_state.get("ctr_ab_tests", {})
     regenerated = 0
 
@@ -1629,6 +1675,19 @@ def run_post_upload_sprint():
     # First-hour sprint + end screen reminder
     send_first_hour_sprint(video_url, video_title, ch_name, niche_name,
                            shorts_urls, score, playlist_id)
+
+    # thumb_format_history: attach this video's real video_id to whichever
+    # thumbnail format was chosen for it at generation time — this is the
+    # sprint (runs for real after every upload, unlike the weekly cycle),
+    # so it's the reliable place to do this, not run_ctr_recovery below.
+    try:
+        m = re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if m and ch_cfg.get("state_file"):
+            from thumbnail_formats import attach_video_id
+            attach_video_id(str(Path(ch_cfg["state_file"]).parent), ch_name, m.group(1))
+    except Exception as e:
+        log(f"  thumb_format_history video_id attach (non-fatal): {e}")
 
     # Hype notification day 0
     send_hype_notification(video_url, video_title, ch_name, growth_state, day=0)

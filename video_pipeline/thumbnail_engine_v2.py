@@ -512,7 +512,7 @@ FALLBACK_PROFILE = {
 # LAYER 1: BACKGROUND — Pollinations.ai
 # ═══════════════════════════════════════════════════════════════════
 
-def fetch_background(topic, niche_name, seed, work_dir):
+def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
     """
     Fetch background image from Pollinations.ai.
     Uses niche-specific visual direction for non-generic results.
@@ -534,6 +534,11 @@ def fetch_background(topic, niche_name, seed, work_dir):
         style = families[_dt.datetime.now().timetuple().tm_yday % len(families)]
     else:
         style = profile["pollinations_style"]
+    # The chosen thumbnail FORMAT (11-format library) adds its own
+    # compositional style hint on top of the niche's own visual direction —
+    # e.g. "candid unposed natural moment" for the Candid Shot format.
+    if bg_style_suffix:
+        style = f"{style} {bg_style_suffix}"
     topic_w = " ".join(topic.replace('"', '').split()[:6])
     prompt  = f"{topic_w} {style}"
     url     = (
@@ -795,6 +800,37 @@ def enforce_number_noun(thumb_text, topic, niche_name):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# HIGHLIGHT ANNOTATION — part of the 11-format thumbnail library
+# (red_circle_highlight / map_diagram_overlay formats)
+# ═══════════════════════════════════════════════════════════════════
+
+def draw_highlight_shape(draw, shape, canvas_w, canvas_h, accent_color):
+    """
+    Draws a real annotation overlay distinct from the text layer:
+      - "circle": a red-ring callout in the upper area of the frame, the
+        classic "look here" highlight used to draw the eye to a detail.
+      - "arrow":  a bold diagonal arrow pointing from a corner toward the
+        frame's center, used for map/diagram-style thumbnails.
+    """
+    if shape == "circle":
+        cx, cy, r = int(canvas_w * 0.74), int(canvas_h * 0.30), 90
+        for w in range(6):
+            draw.ellipse([cx - r - w, cy - r - w, cx + r + w, cy + r + w],
+                         outline=accent_color)
+    elif shape == "arrow":
+        x0, y0 = int(canvas_w * 0.10), int(canvas_h * 0.20)
+        x1, y1 = int(canvas_w * 0.38), int(canvas_h * 0.45)
+        draw.line([(x0, y0), (x1, y1)], fill=accent_color, width=8)
+        import math
+        angle = math.atan2(y1 - y0, x1 - x0)
+        head_len = 26
+        for spread in (0.5, -0.5):
+            hx = x1 - head_len * math.cos(angle - spread * 0.9)
+            hy = y1 - head_len * math.sin(angle - spread * 0.9)
+            draw.line([(x1, y1), (hx, hy)], fill=accent_color, width=8)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # CHANNEL BADGE RENDERER
 # ═══════════════════════════════════════════════════════════════════
 
@@ -825,25 +861,50 @@ def draw_channel_badge(draw, channel_name, episode, badge_color, work_dir):
 
 def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
                            channel_name, episode, work_dir,
-                           ab_variant="A", cache_dir=None):
+                           ab_variant="A", cache_dir=None, format_name=None):
     """
     Generate a three-layer thumbnail.
     Variant A: with silhouette layer (weeks 1, 3, 5...)
     Variant B: without silhouette, stronger text contrast (weeks 2, 4, 6...)
     This is composition A/B testing, not just colour A/B testing.
 
+    On top of the A/B toggle, this also selects one of the 11 named
+    thumbnail formats (video_pipeline/thumbnail_formats.py) — a real,
+    performance-learning selection (see select_thumbnail_format) when
+    cache_dir is provided, or the format passed in explicitly via
+    format_name. The format's silhouette flag takes priority over
+    ab_variant (a format like Candid Shot always wants its avatar layer;
+    Object Evidence Close-up never does), and every choice is appended to
+    thumb_format_history.json in cache_dir — a real, growing history, not
+    a single overwritten value.
+
     Returns: path to generated thumbnail JPEG
     """
     profile     = NICHE_PROFILES.get(niche_name, FALLBACK_PROFILE)
     seed        = abs(hash(f"{title}{niche_name}{episode}")) % 99999
     out_path    = str(Path(work_dir) / "thumbnail.jpg")
-    composition = profile["composition"]
+
+    chosen_format = format_name
+    bg_style_suffix = ""
+    force_silhouette = None
+    highlight = None
+    if cache_dir:
+        try:
+            from thumbnail_formats import select_thumbnail_format, apply_format, record_format_used
+            if not chosen_format:
+                chosen_format = select_thumbnail_format(cache_dir, channel_name, niche_name, episode)
+            composition, bg_style_suffix, force_silhouette, highlight = apply_format(profile, chosen_format)
+            record_format_used(cache_dir, channel_name, niche_name, episode, chosen_format)
+        except Exception:
+            composition = profile["composition"]
+    else:
+        composition = profile["composition"]
 
     # Enforce NUMBER+NOUN
     thumb_text = enforce_number_noun(thumb_text, topic, niche_name)
 
     # ── LAYER 1: Background ────────────────────────────────────────
-    bg_path = fetch_background(topic, niche_name, seed, work_dir)
+    bg_path = fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=bg_style_suffix)
     if bg_path and Path(bg_path).exists():
         try:
             img = Image.open(bg_path).convert("RGB").resize((TW, TH),
@@ -856,8 +917,11 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
     # Darken background to required brightness
     img = ImageEnhance.Brightness(img).enhance(profile["brightness"])
 
-    # ── LAYER 2: Silhouette (A variant only) ──────────────────────
-    if ab_variant == "A":
+    # ── LAYER 2: Silhouette — the chosen format's silhouette flag wins
+    # over ab_variant when a format was selected; otherwise ab_variant
+    # (the older week-based A/B toggle) still controls it. ─────────────
+    show_silhouette = force_silhouette if force_silhouette is not None else (ab_variant == "A")
+    if show_silhouette:
         sil_path = fetch_silhouette(niche_name, seed, work_dir, topic=topic, channel_name=channel_name, cache_dir=cache_dir)
         if sil_path and Path(sil_path).exists():
             try:
@@ -897,6 +961,13 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
     shadow_col = profile["shadow_color"]
     glow_col   = profile["glow_color"]
     badge_col  = profile["badge_color"]
+
+    # Format-driven highlight annotation (red_circle_highlight / map_diagram_overlay)
+    if highlight:
+        try:
+            draw_highlight_shape(draw, highlight, TW, TH, accent)
+        except Exception:
+            pass
 
     # Split thumbnail text into lines
     words = thumb_text.split()
