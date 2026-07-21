@@ -65,16 +65,29 @@
       "scores": [
         10.0
       ]
+    },
+    "dark_horror": {
+      "scores": [
+        10.0
+      ],
+      "streak_below": 0,
+      "last_episode": 3
+    },
+    "voice_en-US-JasonNeural": {
+      "scores": [
+        10.0
+      ]
     }
   },
   "episode_count": 3,
   "playlists": {
-    "obsession_dark": "PLbqqA3yvFSbI"
+    "obsession_dark": "PLbqqA3yvFSbI",
+    "dark_horror": "PLbqqA3yvFSbI"
   },
-  "last_title": "Nobody knew the dark truth revealed in this 7-year obsession",
-  "last_url": "https://www.youtube.com/watch?v=UkgFqMh1Tr0",
-  "last_voice": "en-US-AndrewNeural",
-  "total_uploads": 1,
+  "last_title": "Dark Hours: A woman received a letter from herself \u2014 postmarked the",
+  "last_url": "https://www.youtube.com/watch?v=qnaXIkCmwJA",
+  "last_voice": "en-US-JasonNeural",
+  "total_uploads": 2,
   "episode_history": [
     {
       "episode": 2,
@@ -84,6 +97,15 @@
       "hook_type": "",
       "cold_open_style": "",
       "date": "2026-07-18"
+    },
+    {
+      "episode": 3,
+      "niche": "dark_horror",
+      "topic": "A woman received a letter from herself \u2014 postmarked the day after she was reported missing",
+      "score": 10.0,
+      "hook_type": "",
+      "cold_open_style": "",
+      "date": "2026-07-21"
     }
   ]
 }

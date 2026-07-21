@@ -12,5 +12,19 @@
       "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
     ],
     "audited_at": "2026-07-18T18:00:50.575443"
+  },
+  {
+    "episode_number": 3,
+    "title": "Dark Hours: A woman received a letter from herself \u2014 postmarked the",
+    "niche_name": "dark_horror",
+    "quality_score": 10.0,
+    "quality_attempt": 5,
+    "authenticity_score": 8.9,
+    "providers_healthy": 3,
+    "verdict": "PASS",
+    "reasons": [
+      "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
+    ],
+    "audited_at": "2026-07-21T18:18:28.101192"
   }
 ]
