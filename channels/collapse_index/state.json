@@ -51,7 +51,7 @@
     "last_style": "A",
     "last_episode": 1
   },
-  "last_title_register": "sympathy",
+  "last_title_register": "dread",
   "performance": {
     "thumbnail_style_A": {
       "scores": [
@@ -61,9 +61,10 @@
     },
     "thumbnail_style_B": {
       "scores": [
-        8.6
+        8.6,
+        10.0
       ]
     }
   },
-  "episode_count": 3
+  "episode_count": 4
 }
