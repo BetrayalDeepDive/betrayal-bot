@@ -6877,6 +6877,28 @@ def main():
             log("  Shorts reviewer rejected — noted, but already-published Shorts stay up "
                 "(this checkpoint cannot un-publish); no replacement produced.")
 
+    # ── COMMUNITY TAB checkpoint — YouTube's API has no way to post to
+    # the Community tab, so this drafts the real poll/post and gates on a
+    # human confirming they posted it manually (see review_community_tab's
+    # docstring for the full honest constraint).
+    try:
+        from human_review_gate import draft_community_post, review_community_tab
+        _cp_draft = draft_community_post(topic, niche["name"], title_str,
+                                          lambda p, tokens=200: ai(p, tokens=tokens))
+        cp_result = review_community_tab(
+            "The Archive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+            check_ins_used=check_ins_used, gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW)
+        # Either outcome ("posted" or "skip") advances past this
+        # checkpoint to DONE — skipping the Community post doesn't block
+        # the episode itself from completing, unlike a real content
+        # REJECT elsewhere in this state machine. The actual decision is
+        # still recorded in the queue's history via the feedback field.
+        cin = record_check_in(SCRIPT_DIR, "approve", cp_result["decision"])
+        check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
+        log(f"  Community Tab: {cp_result['decision']}")
+    except Exception as e:
+        log(f"  Community Tab checkpoint (non-fatal): {e}")
+
     # Episode's review is now fully complete — frees the queue for
     # tomorrow's episode immediately.
     try:

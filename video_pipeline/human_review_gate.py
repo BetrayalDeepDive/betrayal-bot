@@ -794,6 +794,143 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
     return {"decision": decision, "feedback": feedback}
 
 
+def _community_tab_keyboard():
+    """
+    Real inline keyboard for the COMMUNITY_TAB checkpoint — deliberately
+    NOT the shared APPROVE/REJECT labels from _button_keyboard, since this
+    checkpoint isn't approving generated content, it's confirming a real-
+    world manual action. Reuses the same callback_data values ("approve"/
+    "reject") _poll_for_decision already recognizes, so no change to that
+    shared polling logic is needed.
+    """
+    return {"inline_keyboard": [[
+        {"text": "✅ POSTED IT", "callback_data": "approve"},
+        {"text": "⏭️ SKIP THIS EPISODE", "callback_data": "reject"},
+    ]]}
+
+
+def draft_community_post(topic, niche_name, title, ai_fn):
+    """
+    Drafts a YouTube Community Tab post/poll for this episode via the
+    channel's own AI provider chain (passed in as ai_fn, same convention
+    as add_topic_candidate elsewhere in this codebase) — a short
+    engagement question plus up to 4 poll options, grounded in the real
+    episode topic rather than generic "what do you think?" filler.
+
+    Returns {"question": str, "options": [str, ...]}. Falls back to a
+    simple templated question (no options — a text-reply-style Community
+    post) if the AI call fails or returns something unusable, so this
+    checkpoint never blocks an episode on an AI provider outage.
+    """
+    fallback = {
+        "question": f"What's your take on \"{title}\"? Drop your theory below.",
+        "options": [],
+    }
+    if not ai_fn:
+        return fallback
+    try:
+        raw = ai_fn(
+            f"""Write ONE short YouTube Community Tab poll for a video titled
+"{title}" (topic: {topic}, niche: {niche_name}).
+
+Format your response EXACTLY as:
+QUESTION: <one short, genuinely curiosity-driving question, under 100 chars>
+OPTION1: <short option, under 30 chars>
+OPTION2: <short option, under 30 chars>
+OPTION3: <short option, under 30 chars — or leave blank if only 2 options make sense>
+OPTION4: <short option, under 30 chars — or leave blank>
+
+No markdown, no extra commentary — just those lines.""",
+        )
+        if not raw:
+            return fallback
+        question = ""
+        options = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if line.upper().startswith("QUESTION:"):
+                question = line.split(":", 1)[1].strip()[:100]
+            elif line.upper().startswith("OPTION"):
+                val = line.split(":", 1)[1].strip()[:30] if ":" in line else ""
+                if val:
+                    options.append(val)
+        if not question:
+            return fallback
+        return {"question": question, "options": options[:4]}
+    except Exception:
+        return fallback
+
+
+def review_community_tab(channel_name, question, options, tg_token, tg_chat,
+                          check_ins_used=0, gmail_sender=None, gmail_app_password=None,
+                          timeout_minutes=60):
+    """
+    THE COMMUNITY TAB CHECKPOINT.
+
+    HONEST CONSTRAINT, stated plainly: YouTube's public Data API v3 has no
+    endpoint to create a Community Tab post or poll, or to read poll
+    responses — verified directly against Google's own API reference,
+    not assumed. There is no way for this pipeline to post it directly.
+
+    Per explicit decision on how to handle that gap: this drafts the real
+    post/poll content and sends it to Telegram with the exact text to
+    post, asking the person to post it to the Community tab themselves
+    and tap POSTED IT once done (or SKIP THIS EPISODE to skip). This is a
+    genuine gate, not a fire-and-forget notification — the pipeline
+    actually waits on the reply, the same way every other checkpoint in
+    this file does.
+
+    Deliberately does NOT auto-"POSTED" on timeout the way content
+    checkpoints auto-approve — posting to the Community tab is a real
+    real-world action nobody can confirm happened just because time ran
+    out, so a timeout here resolves to "skip" instead.
+
+    Returns {"decision": "posted"|"skip", "feedback": None}.
+    """
+    schedule_line = get_schedule_line(check_ins_used)
+    lines = [f"📢 {channel_name} — COMMUNITY TAB POST\n\n{schedule_line}\n",
+             "Post this to the Community tab now:\n",
+             f"<b>{_esc(question)}</b>"]
+    if options:
+        lines.append("Poll options:")
+        lines.extend(f"  {i+1}. {_esc(o)}" for i, o in enumerate(options))
+    else:
+        lines.append("(text post — no poll options, ask people to reply in comments)")
+    lines.append("\nTap POSTED IT once it's live on the Community tab, or SKIP THIS EPISODE to skip.")
+    text = "\n".join(lines)
+
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                          json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
+                                "reply_markup": _community_tab_keyboard()},
+                          timeout=15)
+        if r.status_code != 200:
+            print(f"  Telegram sendMessage (community tab) failed: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"  Telegram sendMessage (community tab) failed: {e}")
+
+    if gmail_app_password:
+        html_body = f"<p>{schedule_line}</p><p>Post this to the Community tab:</p><p><b>{_esc(question)}</b></p>"
+        if options:
+            html_body += "<ul>" + "".join(f"<li>{_esc(o)}</li>" for o in options) + "</ul>"
+        send_email_notification(f"[{channel_name}] Community Tab post ready", html_body,
+                                 gmail_sender, gmail_app_password)
+
+    decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes,
+                                             gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision in ("approve",):
+        decision = "posted"
+    else:
+        # timeout, reject, or anything else this checkpoint doesn't
+        # recognize — all resolve to "skip" rather than assuming success.
+        if decision == "timeout":
+            _tg_send_message(tg_token, tg_chat,
+                              f"⏱️ {timeout_minutes} min expired — treating as skipped "
+                              f"(can't confirm a real-world post happened).")
+        decision = "skip"
+    return {"decision": decision, "feedback": feedback}
+
+
 def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
                       gmail_sender=None, gmail_app_password=None, timeout_minutes=60):
     """

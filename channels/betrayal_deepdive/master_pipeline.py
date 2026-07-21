@@ -6601,6 +6601,21 @@ def main():
                            f"{_sh_review['feedback']}")
                         _replacement = produce_standalone_short("standalone_1", channel="betrayal_deepdive")
                         _post_short_comment_safe(_replacement.get("yt_url"), "replacement_standalone")
+
+                # ── COMMUNITY TAB checkpoint — YouTube's API has no way
+                # to post to the Community tab, so this drafts the real
+                # poll/post and gates on a human confirming they posted
+                # it manually (see review_community_tab's docstring).
+                try:
+                    from human_review_gate import draft_community_post, review_community_tab
+                    _cp_draft = draft_community_post(topic, niche["name"], title,
+                                                      lambda p, tokens=200: ai_generate(p, tokens=tokens))
+                    _cp_result = review_community_tab(
+                        "BetrayalDeepDive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                        check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
+                    log(f"  Community Tab: {_cp_result['decision']}")
+                except Exception as e:
+                    log(f"  Community Tab checkpoint (non-fatal): {e}")
             except Exception as e:
                 log(f"  Shorts review (non-fatal): {e}")
                 tg(f"⚠️ Ch1: the Shorts review system failed to load ({str(e)[:150]}) — "
