@@ -25,5 +25,14 @@
     "thumbnail_pose": "pose_slot_2",
     "word_count": 1,
     "logged_at": "2026-07-18T18:53:43.102038"
+  },
+  {
+    "title": "The Evidence Room: Financial Crimes: The Investigation That Changed Everything",
+    "opening_sentence": "Evidence Builds\n\nThe investigation began on January 12, 2022.",
+    "stage_ratios": [],
+    "thumbnail_family": "crime scene room map diagram overhead dramatic lighting forensic 8k",
+    "thumbnail_pose": "pose_slot_6",
+    "word_count": 1,
+    "logged_at": "2026-07-21T19:08:10.135716"
   }
 ]

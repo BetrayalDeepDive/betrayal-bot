@@ -54,5 +54,19 @@
       "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
     ],
     "audited_at": "2026-07-18T18:53:59.461638"
+  },
+  {
+    "episode_number": 68,
+    "title": "The Evidence Room: Financial Crimes: The Investigation That Changed Everything",
+    "niche_name": "forensic_finance",
+    "quality_score": 10.0,
+    "quality_attempt": 1,
+    "authenticity_score": 8.9,
+    "providers_healthy": 3,
+    "verdict": "PASS",
+    "reasons": [
+      "All checks clean \u2014 real script quality, real authenticity signal, full provider health."
+    ],
+    "audited_at": "2026-07-21T19:08:44.435284"
   }
 ]

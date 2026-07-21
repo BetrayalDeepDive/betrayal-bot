@@ -2,8 +2,8 @@
   "last_style": "dark_minimal",
   "last_niche": "forensic_finance",
   "last_voice": "en-US-SteffanNeural",
-  "last_title": "The 375 Documents That Proved Bank Fraud",
-  "last_url": "https://www.youtube.com/watch?v=aI2Wu1ZCT0I",
+  "last_title": "The Evidence Room: Financial Crimes: The Investigation That Changed Everything",
+  "last_url": "https://www.youtube.com/watch?v=I9He13jXv7o",
   "thumbnail_ab": {
     "last_style": "B"
   },
@@ -13,7 +13,7 @@
     "criminal_investigation": "PLMciJoRSlyOs",
     "digital_forensics": "PLbOTjJezNAW0"
   },
-  "total_uploads": 8,
+  "total_uploads": 9,
   "total_shorts": 2,
   "performance": {
     "corporate_exposure": {
@@ -57,15 +57,17 @@
     "voice_en-US-SteffanNeural": {
       "scores": [
         8.8,
-        9.7
+        9.7,
+        10.0
       ]
     },
     "forensic_finance": {
       "scores": [
-        9.7
+        9.7,
+        10.0
       ],
       "streak_below": 0,
-      "last_episode": 67
+      "last_episode": 68
     },
     "thumbnail_style_B": {
       "scores": [
@@ -101,6 +103,13 @@
       "topic": "The offshore account trail that exposed a 12-year bank fraud hidden across 40 shell companies",
       "score": 9.7,
       "date": "2026-07-18"
+    },
+    {
+      "episode": 68,
+      "niche": "forensic_finance",
+      "topic": "The story of Amy Archer-Gilligan (a female serial killer with a fascinating backstory)",
+      "score": 10.0,
+      "date": "2026-07-21"
     }
   ]
 }

@@ -1,9 +1,10 @@
 # Faceless Documentary Creator Toolkit
 
-_Last updated: 2026-07-18_
+_Last updated: 2026-07-21_
 
 ## Topic Scoring and Ruthless Backlog Building
 
+- Use a quantitative evidence‑scoring matrix that assigns weighted points to each forensic item based on measurable attributes (e.g., size, chemical composition, degree of match to known reference). Rank items by total score to prioritize analysis and allocate limited lab resources, ensuring the most probative evidence is processed first and backlog is managed systematically.
 
 ## Title Systems and Thumbnail Tension Frameworks
 
