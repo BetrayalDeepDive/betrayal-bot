@@ -1149,7 +1149,7 @@ def pick_best_niche(state, scheduled_name):
 # ================================================================
 # SCORE
 # ================================================================
-def score_result(r):
+def score_result(r, topic=""):
     if not r: return 0.0, []
     s = 5.0
     w = r.get("words", 0)
@@ -1165,6 +1165,21 @@ def score_result(r):
     if script:
         penalty, hook_issues = _validate_retention_hooks_ch1(script)
         s += penalty
+        # Killer Hook / Narrative Craft / Topic Clarity rubric — real,
+        # deterministic scoring of the actual script text, shared across
+        # all 5 channels (video_pipeline/script_scoring.py).
+        try:
+            from script_scoring import score_script_rubric
+            rubric_bonus, rubric_issues, subscores = score_script_rubric(script, topic or r.get("topic", ""))
+            s += rubric_bonus
+            if subscores:
+                log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
+                    f"Craft {subscores['narrative_craft']}/10 | "
+                    f"Clarity {subscores['topic_clarity']}/10")
+            if rubric_issues:
+                log(f"  Rubric issues: {' | '.join(rubric_issues[:3])}")
+        except Exception as e:
+            log(f"  Script rubric scoring (non-fatal): {e}")
     return min(round(s, 1), 10.0), []
 
 
@@ -5147,7 +5162,7 @@ def run_stage1(state):
                 log(f"  Research-usage check: {'genuinely reflected' if _research_used else 'NOT clearly used'}")
             result["_research_used"] = _research_used
 
-            score, _ = score_result(result)
+            score, _ = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
 
@@ -5965,7 +5980,7 @@ def main():
             log(f"  Topic ID lookup (non-fatal): {e}")
         script_clean = script_result["script"]
         wc           = script_result["words"]
-        score_val    = score_result(script_result)[0]
+        score_val    = score_result(script_result, topic)[0]
         edge_voice   = pick_voice(niche_name, state)
         # v6 addition — real citation system: the actual sources used
         # during research (if any were found), carried through for the

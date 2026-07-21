@@ -4000,7 +4000,7 @@ def run_stage1(state):
             script_clean, scenes, title, thumb, tags, violations, real_cases = generate_script_and_scenes(
                 niche, topic, style_name, episode, attempt, intel, prev_title)
             wc = len(script_clean.split())
-            score, issues = score_script_er(script_clean, wc, violations)
+            score, issues = score_script_er(script_clean, wc, violations, topic)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
             if issues:
                 iss_str = " | ".join(issues[:3])
@@ -4226,10 +4226,11 @@ def run_ffmpeg(cmd, label="ffmpeg", timeout=300):
         return False
 
 
-def score_script_er(script_clean, wc, violations):
+def score_script_er(script_clean, wc, violations, topic=""):
     """
     Score a generated script 0-10. Used as the quality gate before approval.
-    Checks: word count, markdown violations, retention hooks at 30/60/80%.
+    Checks: word count, markdown violations, retention hooks at 30/60/80%,
+    and the Killer Hook / Narrative Craft / Topic Clarity rubric.
     """
     if not script_clean:
         return 0.0, ["Empty script"]
@@ -4290,6 +4291,21 @@ def score_script_er(script_clean, wc, violations):
         if dead_zones >= 2:
             score -= min(0.3 * dead_zones, 1.2)
             issues.append(f"{dead_zones} retention dead zones (200w+ with no hook or specific detail)")
+
+    # Killer Hook / Narrative Craft / Topic Clarity rubric — real,
+    # deterministic scoring of the actual script text, shared across all
+    # 5 channels (video_pipeline/script_scoring.py).
+    try:
+        from script_scoring import score_script_rubric
+        rubric_bonus, rubric_issues, subscores = score_script_rubric(script_clean, topic)
+        score += rubric_bonus
+        if subscores:
+            log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
+                f"Craft {subscores['narrative_craft']}/10 | "
+                f"Clarity {subscores['topic_clarity']}/10")
+        issues.extend(rubric_issues[:3])
+    except Exception as e:
+        log(f"  Script rubric scoring (non-fatal): {e}")
 
     return min(round(score, 1), 10.0), issues
 
