@@ -1,10 +1,12 @@
 # ============================================================
 # THE ARCHIVE — Ch4 Generation Workflow
 # Phase 1: GENERATE only (no upload)
-# Runs: Mon-Fri 3:30 AM IST = 22:00 UTC (3h after Ch2 generate)
+# Runs: Mon-Fri 6:00 AM IST = 00:30 UTC (2.5h after Ch3 generate)
 # Full token quota recovery — all providers reset between runs
-# Niches: Cult Psychology, Propaganda Systems, Social Engineering,
-#         Mass Deception, Dark Business Docs, Scams & Fraud Exposed
+# Niches: Egyptian Civilization, Chinese Civilization, Mesopotamian Lost
+#         Civilizations, Islamic Civilization History, Fallen Empires
+#         (Military Overstretch), Elite Betrayal & Infighting,
+#         Propaganda & Institutional Decline, Modern Parallels
 # Features: 13-attempt graduated quality gate (8.8/7.0/6.9), whiteboard/
 #           doodle stroke-reveal animation, SSML multi-rate + Kokoro
 #           local TTS, real cold-open scoring, pattern memory, real-case
@@ -32,6 +34,20 @@ env:
   PYTHONUNBUFFERED: "1"
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
   PHASE: "generate"
+
+# FIX (found on deep re-audit): no concurrency guard existed on any
+# of the 10 workflows -- a manual workflow_dispatch/is_makeup re-run
+# while a previous run for this same channel+phase is still polling
+# Telegram for a review decision could run two full pipeline
+# processes in parallel: duplicate script generation burning real AI
+# provider quota, two review conversations landing in the same
+# Telegram chat at once, and a git-push race where whichever process
+# finishes last silently overwrites the other's pending_upload.json.
+# cancel-in-progress: false queues the new run instead of killing a
+# live review in progress.
+concurrency:
+  group: ch4-generate
+  cancel-in-progress: false
 
 jobs:
   generate:
@@ -164,6 +180,14 @@ jobs:
           # duration of that one process. Proved this exact failure mode
           # with a direct simulation before writing this fix.
           git add channels/archive/review_queue.json || true
+          # FIX: thumb_format_history.json / shorts_format_history.json
+          # (real, appended-to learning history for the 11-format
+          # thumbnail library and Shorts format-variety rotation) were
+          # never explicitly added — same "ephemeral runner, nothing
+          # persists unless committed" bug already fixed for every other
+          # state file above.
+          git add channels/archive/thumb_format_history.json || true
+          git add channels/archive/shorts_format_history.json || true
           git diff --staged --quiet || git commit -m "chore: ch4 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
@@ -179,5 +203,6 @@ jobs:
             git pull --rebase origin main || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+              exit 1
             fi
           done

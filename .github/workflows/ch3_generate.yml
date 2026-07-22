@@ -33,6 +33,20 @@ env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
   PHASE: "generate"
 
+# FIX (found on deep re-audit): no concurrency guard existed on any
+# of the 10 workflows -- a manual workflow_dispatch/is_makeup re-run
+# while a previous run for this same channel+phase is still polling
+# Telegram for a review decision could run two full pipeline
+# processes in parallel: duplicate script generation burning real AI
+# provider quota, two review conversations landing in the same
+# Telegram chat at once, and a git-push race where whichever process
+# finishes last silently overwrites the other's pending_upload.json.
+# cancel-in-progress: false queues the new run instead of killing a
+# live review in progress.
+concurrency:
+  group: ch3-generate
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -158,6 +172,14 @@ jobs:
           # duration of that one process. Proved this exact failure mode
           # with a direct simulation before writing this fix.
           git add channels/control_files/review_queue.json || true
+          # FIX: thumb_format_history.json / shorts_format_history.json
+          # (real, appended-to learning history for the 11-format
+          # thumbnail library and Shorts format-variety rotation) were
+          # never explicitly added — same "ephemeral runner, nothing
+          # persists unless committed" bug already fixed for every other
+          # state file above.
+          git add channels/control_files/thumb_format_history.json || true
+          git add channels/control_files/shorts_format_history.json || true
           git diff --staged --quiet || git commit -m "chore: ch3 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
@@ -173,5 +195,6 @@ jobs:
             git pull --rebase origin main || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+              exit 1
             fi
           done

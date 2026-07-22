@@ -171,6 +171,32 @@ def score_title_v2(title):
     return round(min(max(sc, 0), 10), 1), bd
 
 
+def _record_title_history(niche_name, episode, title, score):
+    # FIX (found on deep re-audit): weekly_report.py's
+    # recalibrate_title_model() claimed to compare predicted title-CTR
+    # scores against real performance but never actually recorded either
+    # side of that comparison — this is the real write side, mirroring
+    # thumb_format_history's proven pattern exactly.
+    try:
+        from title_scoring_history import record_title_used
+        record_title_used(str(SCRIPT_DIR), "The Archive", niche_name, episode, title, score)
+    except Exception as e:
+        log(f"  Title history record (non-fatal): {e}")
+
+
+def _record_quality_scores(episode, audio_score, video_score):
+    # FIX (found on deep re-audit): score_audio_quality/score_video_quality
+    # were computed every episode but never persisted anywhere —
+    # weekly_report.py had no real quality data to report on at all.
+    # Recorded here on the actual approved episode, mirroring
+    # thumb_format_history's proven write-side pattern.
+    try:
+        from quality_score_history import record_quality_scores
+        record_quality_scores(str(SCRIPT_DIR), "The Archive", episode, audio_score, video_score)
+    except Exception as e:
+        log(f"  Quality score history record (non-fatal): {e}")
+
+
 def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         series_name, episode, ai_fn, min_ctr=6.5):
     if not title_scores:
@@ -179,6 +205,7 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         key=lambda x: x[1], reverse=True)
     best_title, best_score = v2_scored[0]
     if best_score >= min_ctr:
+        _record_title_history(niche_name, episode, best_title, best_score)
         return best_title, v2_scored
     # Regenerate with targeted fix
     _, bd = score_title_v2(best_title)
@@ -209,12 +236,29 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                 new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
                                      key=lambda x: x[1], reverse=True)
                 if new_scored and new_scored[0][1] > best_score:
+                    _record_title_history(niche_name, episode, new_scored[0][0], new_scored[0][1])
                     return new_scored[0][0], new_scored
     except:
         pass
+    _record_title_history(niche_name, episode, best_title, best_score)
     return best_title, v2_scored
 
 
+# Real business-inquiries contact, per explicit request — every published
+# description was missing this entirely across all 5 channels.
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+
+# HONEST NOTE (found on final audit pass): none of the 4 URLs below are
+# real, trackable affiliate links yet — they're placeholder slugs on each
+# platform's own domain (e.g. betterhelp.com/deepdive isn't BetterHelp's
+# real referral-link format, amzn.to/deepdive-audible isn't a genuine
+# Amazon-issued short code). Getting real tracked links requires actually
+# signing up for each program (BetterHelp/NordVPN/CuriosityStream
+# Affiliates, Amazon Associates) and replacing these with the real URLs
+# each program issues — the same genuine manual step already documented
+# for Gumroad (monetization.py). Until then, these links will 404 or
+# redirect to each platform's homepage with zero affiliate credit, not
+# fail outright.
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["archive","evidence_room"]},
@@ -243,11 +287,18 @@ GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
 
 def build_product_cta(channel_id):
     """Real product CTA for the actual video description."""
+    # FIX (found while wiring Gumroad revenue into the weekly report):
+    # this dict was missing a "collapse_index" entry (present correctly
+    # only in collapse_index_pipeline.py's own copy) — dormant today
+    # since this function is only ever called with each file's own
+    # literal channel_id, but a latent landmine matching the same
+    # CROSS_PROMO gap found and fixed earlier this session.
     product_by_channel = {
         "betrayal_deepdive": ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "evidence_room":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "control_files":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
+        "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
     product_id, product_title = product_by_channel.get(
         channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
@@ -273,10 +324,31 @@ CHAPTER_STRUCTURES = {
     ],
 }
 
-def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id, stage_word_counts=None):
+    """
+    FIX (found on deep re-audit): script_clean was accepted but never
+    referenced — timestamps were a fixed percentage table calibrated once
+    against the ORIGINAL stage-word targets, disconnected from what the
+    script actually turned out to be after generation/edits. When
+    stage_word_counts (real word count of each of the 7 stages in the
+    FINAL, possibly-edited script — e.g. via approximate_stage_split on
+    the current script_clean) is provided, timestamps are computed from
+    the actual cumulative word-count fraction instead. Falls back to the
+    fixed percentage table when real counts aren't available.
+    """
     if total_duration_secs < 120:
         return ""
     structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["betrayal_deepdive"])
+    if stage_word_counts and len(stage_word_counts) == len(structure) and sum(stage_word_counts) > 0:
+        total_words = sum(stage_word_counts)
+        lines = []
+        cumulative = 0
+        for (_, label), wc in zip(structure, stage_word_counts):
+            pct = cumulative / total_words
+            secs = int(total_duration_secs * pct)
+            lines.append(f"{secs//60}:{secs%60:02d} {label}")
+            cumulative += wc
+        return "\n".join(lines)
     lines = []
     for pct, label in structure:
         secs = int(total_duration_secs * pct)
@@ -288,21 +360,47 @@ CROSS_PROMO = {
     "betrayal_deepdive": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveDD\n"
-                 "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
-    # FIX: was previously only a 2-channel entry (self + BetrayalDeepDive/
-    # Evidence Room, duplicated keys meant only the 2nd definition ever
-    # actually applied) despite the empire having 5 channels. Every
-    # channel's CROSS_PROMO should mention all 4 *other* channels, matching
-    # the same real fix already applied to Ch1/Ch2.
+    "evidence_room": {
+        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
+    },
+    "control_files": {
+        "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
+                 "🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
+    },
+    # FIX (found on deep re-audit): this dict only ever had 2 keys (self +
+    # BetrayalDeepDive) despite the empire having 5 channels — archive's
+    # OWN description already resolved correctly since its own key existed,
+    # but any caller looking up "evidence_room"/"control_files"/
+    # "collapse_index" from this file would have silently fallen back to
+    # Ch1's promo block (get_cross_promo's default). Filled out to match
+    # the canonical 5-key dict already correct in evidence_room_pipeline.py.
     "archive": {
         "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+    },
+    "collapse_index": {
+        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
+                 "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
@@ -1708,6 +1806,13 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     }
 
     power_str = ", ".join(power[:6])
+    # FIX (found on deep re-audit): this channel requested only 20 scenes
+    # for a 15-18 minute video — the same fixed 20-scene list then had to
+    # repeat ~7-8 times (render_and_encode's `repeats = int(duration/
+    # total_scene_dur)+2`) to fill runtime, unlike evidence_room which was
+    # already fixed to request a dynamic 55-60 scenes (repeats ~3). Same
+    # dynamic-count fix applied here now, matching evidence_room exactly.
+    n_scenes_target = 55 + (datetime.datetime.now().timetuple().tm_yday % 6)  # 55-60, varies daily
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
     prompt = f"""Write a historical and geopolitical-collapse documentary narration script.
 Style: precisely documented, evidence-driven, case-file format.
@@ -1720,7 +1825,25 @@ POWER WORDS: {power_str}
 
 TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
 
-SEVEN-STAGE CONTROL STRUCTURE — write continuously, no labels:
+SEVEN-STAGE COLLAPSE CHRONICLE — write continuously, no labels:
+
+FACTUAL CARE (non-negotiable, real policy-safety requirement): this channel's
+biggest real risk is historical misinformation and unsupported speculation
+dressed up as fact, not creative weakness. Use careful, evidence-first
+wording — "historians generally agree," "according to surviving records,"
+"the evidence suggests" — rather than stating contested historical claims
+or fringe theories as flat fact. If any detail is dramatized, reconstructed,
+or a plausible inference rather than independently documented, say so
+plainly in the narration.
+
+RETENTION CHECKPOINTS (precise timing, not just word count — this is where
+most viewers actually drop off if nothing happens):
+- At approximately 15-20 seconds into the Case File Open (roughly the 35-45
+  word mark): introduce one SPECIFIC new piece of information not already
+  promised in sentences 1-3. Without this second hook, attention drops here
+  regardless of how strong the opening was.
+- At approximately 40-45 seconds in (end of Stage 1 / start of Stage 2): set
+  up a payoff requiring continued viewing to resolve.
 
 STAGE 1 — CASE FILE OPEN ({stage_targets[1]} words)
 Sentence 1: exact case reference — number, date, or document ID.
@@ -1774,6 +1897,17 @@ number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
 
+MID-VIDEO REHOOK (NON-NEGOTIABLE — the drift point): viewer attention
+consistently dips right around the 55-65% mark of a long video — after the
+opening hook has worn off, before the final reveal creates urgency again.
+Exactly once, somewhere in that 55-65% window (right around the start of
+Stage 5), break the documentary narration for ONE short direct-address
+beat: speak straight to the viewer in second person ("you"), acknowledge
+they're still here, and re-raise the stakes. Example shape only, do not
+copy verbatim: "Stop for a second. If you're still watching, you already
+sense something is wrong here." Then return immediately to the narration —
+this is a single beat, not a new tone for the rest of the script.
+
 VERBAL RESOURCE MENTION (natural, brief, once only): most viewers never read
 the description. Within the existing subscribe moment, include ONE brief,
 natural sentence mentioning "{_product_title_for_prompt}" as a related
@@ -1784,48 +1918,38 @@ the viewer-satisfaction signals that now weigh more than raw watch time.
 
 
 TONE AND STYLE (NON-NEGOTIABLE):
-- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
-- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
-  laugh uncomfortably, then feel disturbed they laughed.
-- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
-- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
-- Each stage should feel darker than the last. Build psychological dread deliberately.
-- Real documentary references make it feel researched. Fake-sounding claims get skipped.
-- Pacing: short sentences hit harder. Use them at revelation moments.
-- The viewer should feel like they discovered something others don't know.
+- This is EPIC HISTORICAL DOCUMENTARY — every sentence should carry the weight
+  of centuries, not the shock-value dread of a true-crime case file.
+- Scale is the engine, not gore or suspicion: millions of lives, generations
+  of consequence, empires that looked permanent to the people living in them.
+- Every paragraph should leave the viewer wanting the next one — driven by
+  "and then what happened to them" curiosity, not manufactured craving.
+- Think: what makes a civilization that felt unshakeable actually fall apart?
+- Each stage should deepen the sense of inevitability in hindsight, even
+  though nobody living through it could have seen it coming.
+- Real historical references, dates, and figures make it feel researched.
+  Fake-sounding or invented claims get skipped entirely.
+- Pacing: short sentences hit harder at the moments of collapse or reveal.
+- The viewer should feel like they now understand a hidden mechanism behind
+  events they'd only ever heard the surface version of.
 
 WHAT MAKES VIEWERS CRAVE THIS CONTENT:
-- The sense that something was hidden — and you're the one showing it.
-- The feeling that the world is slightly more dangerous/dark than they thought.
-- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
-- The satisfaction of understanding a dark system fully, from start to end.
-- Dark humor that signals: we both know this is messed up, and we're in it together.
+- The vertigo of scale — a system that governed millions reduced to a
+  handful of decisions, or one overlooked crack.
+- The eerie modern echo — a structural pattern from centuries ago that
+  looks unsettlingly similar to something happening today.
+- The satisfaction of finally understanding WHY something fell, not just
+  that it did — cause and effect made legible across a long span of time.
+- The reframing of a "famous" event through a detail most retellings skip.
 
 CRAVEABILITY TRIGGERS — use at least 3 per script:
-1. The statistic that sounds impossible but is real.
-2. The name everyone knows, connected to something they didn't know.
-3. The system that's still running right now — not historical.
-4. The thing institutions tried to suppress or deny.
-5. The detail so specific it has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question the script raises but deliberately doesn't fully answer.
-
-TONE AND STYLE — NON-NEGOTIABLE:
-- DARK DOCUMENTARY. Every sentence = psychological weight pressing down.
-- Dark humor that makes viewers laugh then feel disturbed they laughed.
-- Every paragraph: viewers CRAVE the next one. Not curious — addicted.
-- Each stage darker than the last. Build dread deliberately.
-- Viewer should feel they discovered something others do not know.
-- Pacing: short sentences at revelation moments. Hits harder.
-
-CRAVEABILITY TRIGGERS — use minimum 3 per script:
-1. The statistic that sounds impossible but is verifiably real.
-2. The name everyone knows connected to something they never knew.
-3. The system still running right now — not historical, not past tense.
-4. The evidence institutions tried to suppress or deny.
-5. The detail so specific it absolutely has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question raised but deliberately left open.
+1. The statistic that sounds impossible but is historically documented.
+2. The figure everyone's heard of, connected to a decision they never learned about.
+3. The structural echo — a pattern that still shapes institutions today.
+4. The record institutions of the time tried to suppress, rewrite, or destroy.
+5. The detail so specific and well-sourced it has to be true.
+6. The uncomfortable modern implication raised in the final 30 seconds.
+7. The open question historians still argue over — raised but not resolved.
 
 RULES:
 1. Maximum 13 words per sentence. Every sentence.
@@ -1847,11 +1971,12 @@ with no real guidance):
   titles that get clicks but lose viewers fast when the video doesn't match the
   promise — this is worse long-term than a slightly less aggressive honest title.
 
-IMPORTANT: provide 20 scenes, not 5 — this video runs 15-18 minutes, and 5 scenes
-means the same 5 visuals loop roughly 24 times, which looks broken and repetitive.
-Vary content EVERY time a scene type repeats (different real facts, different
-countries highlighted, different documents, different numbers each time — never
-reuse the same labels twice).
+IMPORTANT: provide {n_scenes_target} scenes (55-60, not fewer) — this video runs
+15-18 minutes, and a short scene list means the same handful of visuals loop
+many times over, which looks broken and repetitive. Vary content EVERY time a
+scene type repeats (different real facts, different countries highlighted,
+different documents, different numbers each time — never reuse the same
+labels twice).
 
 VISUALS MUST BE SPECIFIC TO THIS EXACT TOPIC, NEVER GENERIC OR RANDOM:
 - map_highlight: "highlight_countries" MUST be REAL modern country names in
@@ -1864,7 +1989,8 @@ VISUALS MUST BE SPECIFIC TO THIS EXACT TOPIC, NEVER GENERIC OR RANDOM:
   roughly [31.2, 30.0], Rome is roughly [12.5, 41.9], Xi'an is roughly [108.9, 34.3]).
   Use your real geographic knowledge — approximate is fine, invented is not.
 Cycle through the 6 types across the full narrative, roughly in this rhythm
-(repeat the whole 6-type cycle ~3-4 times with fresh content each pass):
+(repeat the whole 6-type cycle enough times with fresh content each pass to
+reach {n_scenes_target} scenes total):
 {{"title":"YouTube title, 40-65 chars, dread OR sympathy register, curiosity gap intact","thumbnail_text":"3 WORDS ALL CAPS with number","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"],"scenes":[
 {{"type":"map_highlight","duration":9,"title":"THE RISE","highlight_countries":["Egypt"],"label":"Real specific label tied to this topic"}},
 {{"type":"map_movement","duration":9,"title":"THE ROUTE","route_countries":["Egypt","Israel","Turkey"],"route_points":[[31.2,30.0],[35.2,31.8],[35.0,38.9]],"label":"Real specific label tied to this topic"}},
@@ -1872,9 +1998,10 @@ Cycle through the 6 types across the full narrative, roughly in this rhythm
 {{"type":"data_reveal","duration":7,"title":"THE NUMBERS","items":["X,XXX YEARS","XXX,XXX PEOPLE","XX DOCUMENTED"],"label":"Real specific label"}},
 {{"type":"timeline","duration":8,"title":"THE TIMELINE","events":["Event 1: real date","Event 2: real date","Event 3: real date","Event 4: real date"],"label":"CHRONOLOGY"}},
 {{"type":"portrait_reveal","duration":8,"title":"THE FIGURE","items":["Real detail 1","Real detail 2","Real detail 3"],"label":"Real specific label"}}
-... continue this pattern for a total of 20 scenes, each with genuinely different,
-topic-specific content — different real countries, different real routes,
-different real documents, different real numbers each time a type repeats ...
+... continue this pattern for a total of {n_scenes_target} scenes, each with
+genuinely different, topic-specific content — different real countries,
+different real routes, different real documents, different real numbers
+each time a type repeats ...
 ]}}
 
 Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON."""
@@ -2903,10 +3030,96 @@ def get_niche_ambient_music(niche_name, duration):
     return _synthesize_mood_track(mood, duration)
 
 
+def _apply_map_scene_timestamp_sync(scenes, scene_durs, play_order, audio_path):
+    """
+    Real map/geography timestamp sync (built per explicit request): uses
+    actual Whisper word-level transcription of the narration (the same
+    real data generate_real_synced_ass turns into captions, via
+    transcribe_audio_words) to find the moment a map_highlight/
+    map_movement scene's real country is genuinely SPOKEN in the audio,
+    then swaps that scene into whichever play_order slot's cumulative
+    start time lands closest to that real moment.
+
+    Previously, map scenes only ever appeared at fixed, arbitrary
+    positions from the AI-generated scene order cycling to fill runtime
+    — completely disconnected from when that location was actually
+    being narrated. This makes the map genuinely track the story.
+
+    Returns an adjusted play_order of the SAME length — only WHICH
+    scene plays at a given slot changes, never how many slots or the
+    total video duration. Returns the untouched play_order unchanged if
+    no real match is found for any scene (Whisper unavailable, no
+    country recognized in the transcript, etc.) — an honest no-op,
+    never a fabricated sync.
+    """
+    map_scene_indices = [i for i, s in enumerate(scenes)
+                         if s.get("type") in ("map_highlight", "map_movement")]
+    if not map_scene_indices:
+        return play_order
+
+    words_data = transcribe_audio_words(audio_path)
+    if not words_data:
+        return play_order
+
+    word_stream = [(w["word"].strip(".,!?;:\"'").lower(), w["start"])
+                   for w in words_data if w.get("word")]
+
+    def _find_mention_time(names):
+        # Country names in this dataset are single words ("Egypt",
+        # "China", "Turkey") — a direct case-insensitive token match
+        # against the real transcript, first occurrence wins.
+        for name in names:
+            first_tok = name.strip().lower().split()[0] if name and name.strip() else ""
+            if not first_tok:
+                continue
+            for word, start in word_stream:
+                if word == first_tok:
+                    return start
+        return None
+
+    matches = {}
+    for i in map_scene_indices:
+        scene = scenes[i]
+        names = scene.get("highlight_countries") or scene.get("route_countries") or []
+        if isinstance(names, str):
+            names = [names]
+        t = _find_mention_time(names)
+        if t is not None:
+            matches[i] = t
+
+    if not matches:
+        return play_order
+
+    cumulative = []
+    running = 0.0
+    for idx in play_order:
+        cumulative.append(running)
+        running += scene_durs[idx]
+
+    new_play_order = list(play_order)
+    used_slots = set()
+    for scene_idx, target_time in matches.items():
+        best_slot, best_diff = None, None
+        for slot_i, start_t in enumerate(cumulative):
+            if slot_i in used_slots:
+                continue
+            diff = abs(start_t - target_time)
+            if best_diff is None or diff < best_diff:
+                best_slot, best_diff = slot_i, diff
+        if best_slot is not None:
+            new_play_order[best_slot] = scene_idx
+            used_slots.add(best_slot)
+            log(f"  Map sync: scene {scene_idx} ('{scenes[scene_idx].get('title','')}') "
+                f"placed at ~{cumulative[best_slot]:.0f}s (real mention at {target_time:.0f}s)")
+
+    return new_play_order
+
+
 def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, episode=1, real_cases=None, ass_path=None):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
     concat_parts = []
+    encoded_scene_indices = []  # scenes[encoded_scene_indices[i]] <-> concat_parts[i]
     for si, scene in enumerate(scenes):
         dur_s = scene.get("duration",8); total_f = dur_s*FPS
         fd = frames_base/f"scene_{si:03d}"; fd.mkdir(exist_ok=True)
@@ -2934,6 +3147,7 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
             # regress reliability.
             sm4_kb = apply_ken_burns(sm4, str(fd)+"_kb.mp4", scene.get("type","timeline"), fps=FPS)
             concat_parts.append(f"file '{sm4_kb}'")
+            encoded_scene_indices.append(si)
             log(f"    Scene {si+1} encoded: {Path(sm4_kb).stat().st_size//1024}KB")
         else:
             # Fallback: create a solid-colour scene as replacement
@@ -2947,13 +3161,32 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
                 capture_output=True, timeout=60)
             if Path(_fb).exists():
                 concat_parts.append(f"file '{_fb}'")
+                encoded_scene_indices.append(si)
                 log(f"    Scene {si+1} fallback created")
 
     concat_file = str(WORK_DIR/"concat.txt")
-    total_scene_dur = sum(s.get("duration",8) for s in scenes)
+    scene_durs = [scenes[i].get("duration", 8) for i in encoded_scene_indices]
+    total_scene_dur = sum(scene_durs)
     repeats = max(1, int(duration/total_scene_dur)+2)
+    # play_order holds indices INTO concat_parts/encoded_scene_indices
+    # (not directly into `scenes`) — this is the explicit, real play
+    # sequence that used to be a blind string-repeat of the whole list.
+    play_order = list(range(len(concat_parts))) * repeats
+
+    # NEW FEATURE (map/geography timestamp sync, per explicit request):
+    # real Whisper transcription of the actual narration finds when each
+    # map scene's real country is genuinely spoken, and swaps that scene
+    # into the closest-matching real-time slot. Falls back to the
+    # untouched play_order (identical to prior behavior) on any failure.
+    try:
+        _sync_scenes = [scenes[i] for i in encoded_scene_indices]
+        play_order = _apply_map_scene_timestamp_sync(_sync_scenes, scene_durs, play_order, audio_path)
+    except Exception as e:
+        log(f"  Map timestamp sync (non-fatal, using standard scene cycling): {e}")
+
     with open(concat_file,"w") as f:
-        for _ in range(repeats): f.write("\n".join(concat_parts)+"\n")
+        for idx in play_order:
+            f.write(concat_parts[idx]+"\n")
 
     raw = str(WORK_DIR/"raw.mp4")
     if not concat_parts:
@@ -2997,7 +3230,16 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
     ffmpeg_cmd += ["-c:v","libx264","-preset","medium","-crf","19",
                     "-c:a","aac","-b:a","192k","-t",str(duration),
                     "-pix_fmt","yuv420p","-movflags","+faststart","-shortest",final]
-    subprocess.run(ffmpeg_cmd, capture_output=True, timeout=2400)
+    # FIX (found on deep re-audit): this was the one ffmpeg call in this
+    # function with no returncode check at all — the step that actually
+    # bakes narration audio and burned captions into the frames. WORK_DIR
+    # is a fixed, non-per-run path, so a failed mux here could silently
+    # leave a stale final.mp4 from an earlier call in the same run (e.g.
+    # a swap_voice/edit re-render) looking like a successful new one.
+    _mux_result = subprocess.run(ffmpeg_cmd, capture_output=True, timeout=2400)
+    if _mux_result.returncode != 0 or not Path(final).exists() or Path(final).stat().st_size < 500000:
+        err = _mux_result.stderr.decode("utf-8", "ignore")[-300:]
+        raise RuntimeError(f"FFmpeg audio+caption mux failed: {err}")
     log(f"  Video: {Path(final).stat().st_size/1024/1024:.0f}MB | 1080p | "
         f"{'Real synced captions' if ass_path else 'No captions (real sync unavailable this episode)'}")
 
@@ -3135,30 +3377,104 @@ def generate_short_srt(script_clean, start, short_dur):
     srt.write_text("\n".join(entries),encoding="utf-8")
     return str(srt)
 
+# FIX (found on deep re-audit): niche_name was accepted here but never
+# referenced in the function body — every niche (egyptian_civilization,
+# chinese_civilization, mesopotamian_lost_civilizations,
+# islamic_civilization_history, fallen_empires_military_overstretch,
+# elite_betrayal_infighting, propaganda_institutional_decline,
+# modern_parallels) got the identical fixed EQ chain, unlike
+# betrayal_deepdive/collapse_index which already have real per-niche
+# NICHE_AUDIO_PROFILES. Also the old docstring claimed "reverb adds room
+# depth" — no aecho/reverb filter exists anywhere in this chain or Ch1's,
+# so that was never accurate; removed rather than propagated.
+NICHE_AUDIO_PROFILES = {
+    "egyptian_civilization": (
+        # Epic and warm — deep resonant bass, ancient weight
+        "equalizer=f=70:width_type=o:width=2:g=4,"
+        "equalizer=f=2000:width_type=o:width=2:g=2,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-19dB:ratio=3:attack=5:release=100:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "chinese_civilization": (
+        # Epic and formal — balanced depth, imperial gravitas
+        "equalizer=f=80:width_type=o:width=2:g=3,"
+        "equalizer=f=2200:width_type=o:width=2:g=2,"
+        "equalizer=f=8500:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-19dB:ratio=3:attack=5:release=95:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "mesopotamian_lost_civilizations": (
+        # Ancient and deep — heavy warm bass, mysterious distance
+        "equalizer=f=65:width_type=o:width=2:g=5,"
+        "equalizer=f=1800:width_type=o:width=2:g=2,"
+        "equalizer=f=10000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-20dB:ratio=3:attack=6:release=110:makeup=2dB,"
+        "loudnorm=I=-16:LRA=12:TP=-1.5"
+    ),
+    "islamic_civilization_history": (
+        # Warm and resonant — balanced, dignified
+        "equalizer=f=75:width_type=o:width=2:g=3,"
+        "equalizer=f=2200:width_type=o:width=2:g=2,"
+        "equalizer=f=8500:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-18dB:ratio=3:attack=5:release=95:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "fallen_empires_military_overstretch": (
+        # Heavy and somber — deep bass, weighty decline
+        "equalizer=f=60:width_type=o:width=2:g=5,"
+        "equalizer=f=2000:width_type=o:width=2:g=1,"
+        "equalizer=f=9000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-19dB:ratio=4:attack=4:release=100:makeup=3dB,"
+        "loudnorm=I=-16:LRA=10:TP=-1.5"
+    ),
+    "elite_betrayal_infighting": (
+        # Tense and intimate — close presence, no escape
+        "equalizer=f=200:width_type=o:width=2:g=4,"
+        "equalizer=f=400:width_type=o:width=2:g=2,"
+        "equalizer=f=8000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-14dB:ratio=4:attack=3:release=50:makeup=3dB,"
+        "loudnorm=I=-17:LRA=8:TP=-1.5"
+    ),
+    "propaganda_institutional_decline": (
+        # Declarative and decaying — bold mids, fading edges
+        "equalizer=f=100:width_type=o:width=2:g=3,"
+        "equalizer=f=2800:width_type=o:width=2:g=3,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-16dB:ratio=4:attack=3:release=70:makeup=3dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+    "modern_parallels": (
+        # Contemporary and clear — bright, clean, analytical
+        "equalizer=f=250:width_type=o:width=2:g=-1,"
+        "equalizer=f=3200:width_type=o:width=2:g=3,"
+        "equalizer=f=9000:width_type=o:width=2:g=-1,"
+        "acompressor=threshold=-16dB:ratio=3:attack=4:release=70:makeup=2dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+}
+DEFAULT_AUDIO_PROFILE = NICHE_AUDIO_PROFILES["egyptian_civilization"]
+
+
 def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     """
-    Transform edge-tts flat TTS into cinematic investigative narrator quality.
-    EQ boosts presence, reverb adds room depth, compression smooths dynamics.
+    Transform edge-tts flat TTS into cinematic investigative narrator
+    quality. EQ boosts presence, compression smooths dynamics. Uses
+    NICHE_AUDIO_PROFILES to select the real per-niche EQ chain, falling
+    back to the default if niche_name is unknown.
     """
     try:
         if output_path is None:
             output_path = input_path.replace(".mp3", "_eq.mp3").replace(".wav", "_eq.wav")
         if output_path == input_path:
             output_path = input_path + ".eq.mp3"
-        af = (
-            "equalizer=f=60:width_type=o:width=2:g=4,"
-            "equalizer=f=250:width_type=o:width=2:g=2,"
-            "equalizer=f=3000:width_type=o:width=2:g=-1,"
-            "equalizer=f=8000:width_type=o:width=2:g=-2,"
-                        "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
-            "loudnorm=I=-16:LRA=11:TP=-1.5"
-        )
+        af = NICHE_AUDIO_PROFILES.get(niche_name, DEFAULT_AUDIO_PROFILE)
         subprocess.run([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
         ], capture_output=True, timeout=300, check=True)
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
-            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
         log(f"  Audio processing (non-fatal): {e}")
@@ -3323,7 +3639,7 @@ def _try_ssml_multirate_audio(script_clean, voice_id, niche_name):
         if not out or not Path(out).exists():
             return None
         wc = len(script_clean.split())
-        dur_expected = min((wc / 125.0) * 60.0, 900.0)
+        dur_expected = min((wc / 125.0) * 60.0, 1080.0)  # FIX: was 900 (15 min) -- real hard cap is 18 min, matches evidence_room
         if duration < dur_expected * 0.75:
             log(f"  SSML audio ({duration:.0f}s) looks short vs {dur_expected:.0f}s "
                 f"expected — likely partial segment failure, falling back to flat-rate")
@@ -3333,7 +3649,24 @@ def _try_ssml_multirate_audio(script_clean, voice_id, niche_name):
             log(f"  SSML audio file too small ({sz}b) — falling back to flat-rate")
             return None
         log(f"  ACCEPTED: SSML multi-rate | {sz/1024/1024:.1f}MB | {duration:.0f}s")
-        return out, duration, sz, f"ssml-multirate-{voice_id}"
+        # FIX (found on deep re-audit): apply_audio_post_processing (the
+        # real per-niche NICHE_AUDIO_PROFILES EQ chain) was only ever
+        # called on the flat-rate edge-tts fallback tier below — since
+        # SSML multi-rate is tried FIRST and succeeds most of the time,
+        # the documentary-grade EQ was silently never reaching most real
+        # published episodes. Applied here too now, on whichever tier
+        # actually wins.
+        out_eq = apply_audio_post_processing(out, str(WORK_DIR / "ssml_narration_eq.mp3"), niche_name)
+        wav = str(WORK_DIR / "ssml_narration.wav")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", out_eq, "-acodec", "pcm_s16le",
+                            "-ar", "24000", "-ac", "1", wav],
+                           capture_output=True, timeout=300)
+            if Path(wav).exists() and Path(wav).stat().st_size > 100000:
+                return wav, duration, sz, f"ssml-multirate-{voice_id}"
+        except Exception:
+            pass
+        return out_eq, duration, sz, f"ssml-multirate-{voice_id}"
     except Exception as e:
         log(f"  SSML multi-rate audio (non-fatal, falling back to flat-rate): {e}")
         return None
@@ -3361,7 +3694,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         return ssml_result
 
     wc           = len(script_clean.split())
-    dur_expected = min((wc / 125.0) * 60.0, 900.0)  # cap at 15 min
+    dur_expected = min((wc / 125.0) * 60.0, 1080.0)  # FIX: was 900 (15 min) -- real hard cap is 18 min, matches evidence_room
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])
     # v1 addition — real learning-loop closure: track_episode has been
     # recording per-voice average scores into state["performance"] this
@@ -4397,6 +4730,28 @@ def run_stage1(state):
     except Exception:
         _early_yt_token = None
     intel      = run_viral_intelligence(niche, yt_token=_early_yt_token)
+
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # run_viral_intelligence above is still fundamentally an AI-imagined
+    # analysis (grounded in a handful of real titles as context, but the
+    # "patterns" themselves are AI-invented, and it's cached for 7 days,
+    # not daily). This is a genuinely real, DAILY refresh: real view/like
+    # counts and real title-word-frequency patterns from actual current
+    # top-performing videos in this niche, computed deterministically —
+    # not an AI guess. Enriches intel's winning_title_patterns with
+    # today's real top titles (used directly by both title generation
+    # and, via daily_research_block below, script generation).
+    daily_research_block = ""
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_intel = fetch_daily_competitor_research(niche, _early_yt_token, str(SCRIPT_DIR))
+        daily_research_block = _daily_intel.get("research_block", "")
+        if _daily_intel.get("videos"):
+            intel["winning_title_patterns"] = (
+                [v["title"] for v in _daily_intel["videos"][:3]] + intel.get("winning_title_patterns", []))
+    except Exception as e:
+        log(f"  Daily competitor research (non-fatal): {e}")
+
     used_topics = []
     best_score = 0.0
     best_script = best_scenes = best_title_str = best_thumbnail = best_tags = best_title_scores = None
@@ -4431,9 +4786,9 @@ def run_stage1(state):
         try:
             script_clean, scenes, title, thumb, tags, violations, real_cases = generate_script_and_scenes(
                 niche, topic, style_name, episode, attempt, intel, prev_title,
-                (pattern_hint + "\n\n" + weekly_strategy) if weekly_strategy else pattern_hint)
+                "\n\n".join(filter(None, [pattern_hint, weekly_strategy, daily_research_block])))
             wc = len(script_clean.split())
-            score, issues = score_script_er(script_clean, wc, violations)
+            score, issues = score_script_er(script_clean, wc, violations, topic)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
             if issues:
                 iss_str = " | ".join(issues[:3])
@@ -4694,10 +5049,11 @@ def run_ffmpeg(cmd, label="ffmpeg", timeout=300):
         return False
 
 
-def score_script_er(script_clean, wc, violations):
+def score_script_er(script_clean, wc, violations, topic=""):
     """
     Score a generated script 0-10. Used as the quality gate before approval.
-    Checks: word count, markdown violations, retention hooks at 30/60/80%.
+    Checks: word count, markdown violations, retention hooks at 30/60/80%,
+    and the Killer Hook / Narrative Craft / Topic Clarity rubric.
     """
     if not script_clean:
         return 0.0, ["Empty script"]
@@ -4758,6 +5114,24 @@ def score_script_er(script_clean, wc, violations):
         if dead_zones >= 2:
             score -= min(0.3 * dead_zones, 1.2)
             issues.append(f"{dead_zones} retention dead zones (200w+ with no hook or specific detail)")
+
+    # Killer Hook / Narrative Craft / Topic Clarity rubric — real,
+    # deterministic scoring of the actual script text, shared across all
+    # 5 channels (video_pipeline/script_scoring.py).
+    try:
+        from script_scoring import score_script_rubric, validate_rehook_beat
+        rubric_bonus, rubric_issues, subscores = score_script_rubric(script_clean, topic)
+        score += rubric_bonus
+        if subscores:
+            log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
+                f"Craft {subscores['narrative_craft']}/10 | "
+                f"Clarity {subscores['topic_clarity']}/10")
+        issues.extend(rubric_issues[:3])
+        rehook_bonus, rehook_issues = validate_rehook_beat(script_clean)
+        score += rehook_bonus
+        issues.extend(rehook_issues)
+    except Exception as e:
+        log(f"  Script rubric scoring (non-fatal): {e}")
 
     return min(round(score, 1), 10.0), issues
 
@@ -5689,17 +6063,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return False
 
 
-def generate_real_synced_ass(audio_path, ass_path):
+def transcribe_audio_words(audio_path):
     """
-    v1 addition — real, word-level accurate captions for the main video,
-    per explicit request: captions must genuinely match the audio.
-    Uses Groq's real Whisper transcription directly on the FINAL,
-    ACCEPTED narration audio file — works identically regardless of
-    which TTS tier produced it. Returns False (no captions) rather than
-    a potentially-desynced fallback.
+    Real, word-level Whisper transcription via Groq — the raw per-word
+    (word, start, end) data. Factored out of generate_real_synced_ass so
+    other real-timing features can reuse the same genuine transcription
+    instead of inventing an approximation or paying for a second API
+    call. Returns [] on any failure — callers must treat an empty list
+    as "no real timing data available," never fabricate one.
     """
     if not GROQ_KEY or not Path(audio_path).exists():
-        return False
+        return []
     try:
         with open(audio_path, "rb") as f:
             r = requests.post(
@@ -5712,13 +6086,28 @@ def generate_real_synced_ass(audio_path, ass_path):
                       "language": "en"},
                 timeout=180)
         if r.status_code != 200:
-            log(f"  Real caption sync: Whisper request failed ({r.status_code}) — no captions this episode")
-            return False
-        words_data = r.json().get("words", [])
-        if not words_data:
-            log("  Real caption sync: no word-level data returned — no captions this episode")
-            return False
+            log(f"  Whisper transcription failed ({r.status_code})")
+            return []
+        return r.json().get("words", [])
+    except Exception as e:
+        log(f"  Whisper transcription failed (non-fatal): {e}")
+        return []
 
+
+def generate_real_synced_ass(audio_path, ass_path):
+    """
+    v1 addition — real, word-level accurate captions for the main video,
+    per explicit request: captions must genuinely match the audio.
+    Uses Groq's real Whisper transcription directly on the FINAL,
+    ACCEPTED narration audio file — works identically regardless of
+    which TTS tier produced it. Returns False (no captions) rather than
+    a potentially-desynced fallback.
+    """
+    words_data = transcribe_audio_words(audio_path)
+    if not words_data:
+        log("  Real caption sync: no word-level data returned — no captions this episode")
+        return False
+    try:
         def s2t(s):
             h = int(s) // 3600; m = (int(s) % 3600) // 60
             sc = int(s) % 60;   cs = int((s - int(s)) * 100)
@@ -6062,6 +6451,19 @@ def main():
             log(f"  Product manuscript (non-fatal): {e}")
 
         try:
+            # FIX: SPRINT_PLAYLIST_ID, SPRINT_SCRIPT_PATH, and
+            # SPRINT_DURATION_SECS were never set here — same gap already
+            # found and fixed in Ch1/Ch2/Ch5. growth_engine.py's
+            # run_post_upload_sprint gates its caption-upload + "update
+            # previous episode's pinned comment" features behind
+            # SPRINT_SCRIPT_PATH existing AND SPRINT_DURATION_SECS being
+            # > 0, so both features were silently disabled every run.
+            sprint_script_path = str(WORK_DIR / "sprint_script.txt")
+            try:
+                Path(sprint_script_path).write_text(script_clean)
+            except Exception:
+                sprint_script_path = ""
+
             env_ext = os.environ.copy()
             env_ext.update({
                 "GROWTH_ENGINE_MODE": "sprint",
@@ -6071,6 +6473,9 @@ def main():
                 "SPRINT_NICHE":       niche_name,
                 "SPRINT_SHORTS_URLS": ",".join(short_urls),
                 "SPRINT_SCORE":       str(score),
+                "SPRINT_DURATION_SECS": str(duration),
+                "SPRINT_PLAYLIST_ID": playlist_id or "",
+                "SPRINT_SCRIPT_PATH": sprint_script_path,
             })
             # FIX: pointed at channels/growth_engine/growth_engine.py, which
             # doesn't exist — real file is video_pipeline/growth_engine.py
@@ -6401,7 +6806,9 @@ def main():
     audio_path, duration = _enforce_duration_cap(audio_path, duration)
 
     # Build description now that duration is known
-    chapters_block = _gen_chapters(script_clean, duration, "archive")
+    _stage_word_counts = [len(t.split()) for t in
+                          approximate_stage_split(script_clean, _script_stage_names, _script_stage_word_targets)]
+    chapters_block = _gen_chapters(script_clean, duration, "archive", stage_word_counts=_stage_word_counts)
 
     # v5 addition: real description quality scoring with a genuine
     # regeneration loop. The template's structural parts (chapters,
@@ -6482,10 +6889,12 @@ def main():
                f"{affiliate_block}"
                f"{product_cta}\n\n"
                f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+               f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                f"{citations_block}\n\n"
                f"{episode_hashtags}")
         if len(desc) > 5000:
-            tail = f"\u26a0\ufe0f AI-assisted narration and historical analysis.{citations_block}\n\n{episode_hashtags}"
+            tail = (f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+                    f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}{citations_block}\n\n{episode_hashtags}")
             desc = desc[:5000 - len(tail) - 5] + "\n\n" + tail
         return desc
 
@@ -6529,8 +6938,14 @@ def main():
             _audio_score, _audio_breakdown = None, None
         try:
             _real_video_duration = get_media_duration(video_path)
+            # FIX (found on deep re-audit): score_video_quality defaults
+            # to expected_width=1280/height=720, but this channel renders
+            # at W,H=1920,1080 — every episode was silently docked ~25%
+            # weight of its video score for a "resolution mismatch" that
+            # wasn't real, since nothing here ever overrode the default.
             _video_score, _video_breakdown = score_video_quality(
-                video_path, _real_video_duration, duration, content_type="animated")
+                video_path, _real_video_duration, duration, content_type="animated",
+                expected_width=W, expected_height=H)
         except Exception as e:
             log(f"  Video scoring (non-fatal): {e}")
             _video_score, _video_breakdown = None, None
@@ -6558,6 +6973,7 @@ def main():
         if cin and cin["forced"]:
             tg("⏱️ Ch4: total review time budget reached during audio review — "
                "auto-approving audio and video as generated.")
+            _record_quality_scores(episode, _audio_score, _video_score)
             break
 
         if audio_decision["decision"] == "reject":
@@ -6574,6 +6990,21 @@ def main():
             audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
                 run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
             audio_path, duration = _enforce_duration_cap(audio_path, duration)
+            # FIX (found on deep re-audit): this used to just regenerate
+            # audio_path/duration and loop back — video_path was NEVER
+            # re-rendered, so the video that eventually publishes still
+            # has the OLD, discarded narration muxed in, and the human
+            # approving what they hear here has no effect on what actually
+            # ships. Captions were stale for the same reason (still
+            # transcribed from the old audio). Both are regenerated now,
+            # exactly like the video-checkpoint's own edit/swap_visuals
+            # branches already re-render on every change.
+            ass_path = str(WORK_DIR / "main_captions.ass")
+            if not generate_real_synced_ass(audio_path, ass_path):
+                ass_path = None
+            video_path = run_stage_with_retry(
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration,
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
             continue
         if audio_decision["decision"] == "edit":
             # FIX (found on direct user report, July 15 2026): this used to
@@ -6606,6 +7037,16 @@ def main():
             # Same reason: the duration cap must apply every time audio
             # gets regenerated, not just the original generation.
             audio_path, duration = _enforce_duration_cap(audio_path, duration)
+            # FIX (found on deep re-audit): same gap as SWAP VOICE above —
+            # video_path was never re-rendered with the new audio, so an
+            # EDIT here had zero actual effect on what gets published.
+            # Captions regenerated for the same reason.
+            ass_path = str(WORK_DIR / "main_captions.ass")
+            if not generate_real_synced_ass(audio_path, ass_path):
+                ass_path = None
+            video_path = run_stage_with_retry(
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration,
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
             continue  # re-send the combined checkpoint with the new audio
 
         # Audio approved — now handle the video decision (skipped entirely if
@@ -6616,6 +7057,7 @@ def main():
         check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
 
         if video_decision["decision"] == "approve" or (cin and cin["forced"]):
+            _record_quality_scores(episode, _audio_score, _video_score)
             break
         if video_decision["decision"] == "reject":
             tg("❌ Ch4: video rejected — episode stopped, nothing published.")
@@ -6658,7 +7100,9 @@ def main():
     # reviewing Title+Thumbnail+Description next sees something that
     # actually matches what will publish, without relying on them to
     # notice and manually request a description edit.
-    _new_chapters_block = _gen_chapters(script_clean, duration, "archive")
+    _new_stage_word_counts = [len(t.split()) for t in
+                              approximate_stage_split(script_clean, _script_stage_names, _script_stage_word_targets)]
+    _new_chapters_block = _gen_chapters(script_clean, duration, "archive", stage_word_counts=_new_stage_word_counts)
     if _new_chapters_block != chapters_block:
         log("  Audio duration changed during review — rebuilding chapters + description to match.")
         chapters_block = _new_chapters_block
@@ -6846,6 +7290,28 @@ def main():
         elif sh_result["decision"] == "reject":
             log("  Shorts reviewer rejected — noted, but already-published Shorts stay up "
                 "(this checkpoint cannot un-publish); no replacement produced.")
+
+    # ── COMMUNITY TAB checkpoint — YouTube's API has no way to post to
+    # the Community tab, so this drafts the real poll/post and gates on a
+    # human confirming they posted it manually (see review_community_tab's
+    # docstring for the full honest constraint).
+    try:
+        from human_review_gate import draft_community_post, review_community_tab
+        _cp_draft = draft_community_post(topic, niche["name"], title_str,
+                                          lambda p, tokens=200: ai(p, tokens=tokens))
+        cp_result = review_community_tab(
+            "The Archive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+            check_ins_used=check_ins_used, gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW)
+        # Either outcome ("posted" or "skip") advances past this
+        # checkpoint to DONE — skipping the Community post doesn't block
+        # the episode itself from completing, unlike a real content
+        # REJECT elsewhere in this state machine. The actual decision is
+        # still recorded in the queue's history via the feedback field.
+        cin = record_check_in(SCRIPT_DIR, "approve", cp_result["decision"])
+        check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
+        log(f"  Community Tab: {cp_result['decision']}")
+    except Exception as e:
+        log(f"  Community Tab checkpoint (non-fatal): {e}")
 
     # Episode's review is now fully complete — frees the queue for
     # tomorrow's episode immediately.

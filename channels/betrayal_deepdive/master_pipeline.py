@@ -157,6 +157,19 @@ def score_title_v2(title):
     return round(min(max(sc, 0), 10), 1), bd
 
 
+def _record_title_history(niche_name, episode, title, score):
+    # FIX (found on deep re-audit): weekly_report.py's
+    # recalibrate_title_model() claimed to compare predicted title-CTR
+    # scores against real performance but never actually recorded either
+    # side of that comparison — this is the real write side, mirroring
+    # thumb_format_history's proven pattern exactly.
+    try:
+        from title_scoring_history import record_title_used
+        record_title_used(str(SCRIPT_DIR), "BetrayalDeepDive", niche_name, episode, title, score)
+    except Exception as e:
+        log(f"  Title history record (non-fatal): {e}")
+
+
 def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         series_name, episode, ai_fn, min_ctr=6.5):
     if not title_scores:
@@ -165,6 +178,7 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         key=lambda x: x[1], reverse=True)
     best_title, best_score = v2_scored[0]
     if best_score >= min_ctr:
+        _record_title_history(niche_name, episode, best_title, best_score)
         return best_title, v2_scored
     # Regenerate with targeted fix
     _, bd = score_title_v2(best_title)
@@ -195,12 +209,29 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                 new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
                                      key=lambda x: x[1], reverse=True)
                 if new_scored and new_scored[0][1] > best_score:
+                    _record_title_history(niche_name, episode, new_scored[0][0], new_scored[0][1])
                     return new_scored[0][0], new_scored
     except:
         pass
+    _record_title_history(niche_name, episode, best_title, best_score)
     return best_title, v2_scored
 
 
+# Real business-inquiries contact, per explicit request — every published
+# description was missing this entirely across all 5 channels.
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+
+# HONEST NOTE (found on final audit pass): none of the 4 URLs below are
+# real, trackable affiliate links yet — they're placeholder slugs on each
+# platform's own domain (e.g. betterhelp.com/deepdive isn't BetterHelp's
+# real referral-link format, amzn.to/deepdive-audible isn't a genuine
+# Amazon-issued short code). Getting real tracked links requires actually
+# signing up for each program (BetterHelp/NordVPN/CuriosityStream
+# Affiliates, Amazon Associates) and replacing these with the real URLs
+# each program issues — the same genuine manual step already documented
+# for Gumroad (monetization.py) and collapse_index's finance affiliates
+# below. Until then, these links will 404 or redirect to each platform's
+# homepage with zero affiliate credit, not fail outright.
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["evidence_room","control_files"]},
@@ -233,11 +264,18 @@ def build_product_cta(channel_id):
     monetization.py's real get_product_cta_url, converted to a genuine
     absolute URL since a relative path would be a dead link inside a
     YouTube description."""
+    # FIX (found while wiring Gumroad revenue into the weekly report):
+    # this dict was missing a "collapse_index" entry (present correctly
+    # only in collapse_index_pipeline.py's own copy) — dormant today
+    # since this function is only ever called with each file's own
+    # literal channel_id, but a latent landmine matching the same
+    # CROSS_PROMO gap found and fixed earlier this session.
     product_by_channel = {
         "betrayal_deepdive": ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "evidence_room":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "control_files":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
+        "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
     product_id, product_title = product_by_channel.get(
         channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
@@ -267,10 +305,36 @@ CHAPTER_STRUCTURES = {
     ],
 }
 
-def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id, stage_word_counts=None):
+    """
+    FIX (found on deep re-audit): script_clean was accepted but never
+    referenced — timestamps were a fixed percentage table calibrated once
+    against the ORIGINAL stage-word targets, with no connection to what
+    the script actually turned out to be after generation/edits. Real
+    scripts don't hit exact per-stage word targets every attempt, and a
+    script-review EDIT can change a stage's length outright, so the fixed
+    table can silently drift from the real audio.
+
+    When stage_word_counts (the real word count of each of the 7 stages
+    in the FINAL, possibly-edited script) is provided, timestamps are now
+    computed from the actual cumulative word-count fraction of that real
+    script instead — genuinely tied to what was produced, not a guess.
+    Falls back to the fixed percentage table when the real counts aren't
+    available (e.g. a caller that hasn't been updated to pass them).
+    """
     if total_duration_secs < 120:
         return ""
     structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["betrayal_deepdive"])
+    if stage_word_counts and len(stage_word_counts) == len(structure) and sum(stage_word_counts) > 0:
+        total_words = sum(stage_word_counts)
+        lines = []
+        cumulative = 0
+        for (_, label), wc in zip(structure, stage_word_counts):
+            pct = cumulative / total_words
+            secs = int(total_duration_secs * pct)
+            lines.append(f"{secs//60}:{secs%60:02d} {label}")
+            cumulative += wc
+        return "\n".join(lines)
     lines = []
     for pct, label in structure:
         secs = int(total_duration_secs * pct)
@@ -431,7 +495,10 @@ CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner resta
 # ================================================================
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
-MIN_GATE   = 8.5   # attempts 1-8 — the real standard, per explicit graduated-gate spec
+MIN_GATE   = 8.8   # FIX (found on deep re-audit): was 8.5 — archive/control_files
+                    # were already raised to 8.8 per the explicit "8.8-8.9 minimum,
+                    # every time" empire-wide directive; this channel was never
+                    # updated to match. attempts 1-8.
 FINAL_GATE = 6.9   # absolute last-resort floor, attempt 13 only, never crossed below
 
 # Word targets per stage (sum = MIN_WORDS baseline)
@@ -1149,7 +1216,7 @@ def pick_best_niche(state, scheduled_name):
 # ================================================================
 # SCORE
 # ================================================================
-def score_result(r):
+def score_result(r, topic=""):
     if not r: return 0.0, []
     s = 5.0
     w = r.get("words", 0)
@@ -1165,6 +1232,25 @@ def score_result(r):
     if script:
         penalty, hook_issues = _validate_retention_hooks_ch1(script)
         s += penalty
+        # Killer Hook / Narrative Craft / Topic Clarity rubric — real,
+        # deterministic scoring of the actual script text, shared across
+        # all 5 channels (video_pipeline/script_scoring.py).
+        try:
+            from script_scoring import score_script_rubric, validate_rehook_beat
+            rubric_bonus, rubric_issues, subscores = score_script_rubric(script, topic or r.get("topic", ""))
+            s += rubric_bonus
+            if subscores:
+                log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
+                    f"Craft {subscores['narrative_craft']}/10 | "
+                    f"Clarity {subscores['topic_clarity']}/10")
+            if rubric_issues:
+                log(f"  Rubric issues: {' | '.join(rubric_issues[:3])}")
+            rehook_bonus, rehook_issues = validate_rehook_beat(script)
+            s += rehook_bonus
+            if rehook_issues:
+                log(f"  {rehook_issues[0]}")
+        except Exception as e:
+            log(f"  Script rubric scoring (non-fatal): {e}")
     return min(round(s, 1), 10.0), []
 
 
@@ -1593,6 +1679,17 @@ number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
 
+MID-VIDEO REHOOK (NON-NEGOTIABLE — the drift point): viewer attention
+consistently dips right around the 55-65% mark of a long video — after the
+opening hook has worn off, before the final reveal creates urgency again.
+Exactly once, somewhere in that 55-65% window (right around the start of
+Stage 5), break the documentary narration for ONE short direct-address
+beat: speak straight to the viewer in second person ("you"), acknowledge
+they're still here, and re-raise the stakes. Example shape only, do not
+copy verbatim: "Stop for a second. If you're still watching, you already
+sense something is wrong here." Then return immediately to the narration —
+this is a single beat, not a new tone for the rest of the script.
+
 VERBAL RESOURCE MENTION (natural, brief, once only): most viewers never read
 the description. Within the existing subscribe moment, include ONE brief,
 natural sentence mentioning "{_product_title_for_prompt}" as a related
@@ -1678,6 +1775,24 @@ def generate_script_content(niche, topic, episode, attempt,
     if anchors:
         anchor_lines = "\n".join(f"  {k}: {v}" for k, v in anchors.items() if v)
         research_context = f"USE THESE SPECIFIC DETAILS:\n{anchor_lines}\n{research_context}"
+
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # real view/like counts and real title-word-frequency patterns from
+    # actual current top-performing videos in this niche, computed
+    # deterministically — not an AI guess. Cached per calendar day, so
+    # repeated attempts the same day reuse the same fetch rather than
+    # re-hitting the API every time. This function doesn't otherwise
+    # know which niche it's scoring for beyond `niche`/`topic`, so the
+    # fetch happens here, self-contained, same as generate_best_cold_open
+    # right above.
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_token = get_yt_token()
+        _daily_intel = fetch_daily_competitor_research(niche, _daily_token, str(SCRIPT_DIR))
+        if _daily_intel.get("research_block"):
+            research_context = f"{_daily_intel['research_block']}\n\n{research_context}"
+    except Exception as e:
+        log(f"  Daily competitor research (non-fatal): {e}")
 
     # FIX: generate_best_cold_open existed fully built — generates 3 real
     # variants and scores each on hook strength (specificity, sentence
@@ -2263,13 +2378,21 @@ those are added separately afterward."""
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        desc += f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
         desc += citations_block
         desc += f"\n\n{hashtags}"
         return desc
+    # FIX (found on deep re-audit): this fallback (used when ai_generate
+    # fails entirely) dropped chapters_text completely — a video with
+    # real, working timestamp chapters would still publish with NO
+    # chapters section in its description on an AI outage. Now included,
+    # same as the primary path.
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"Subscribe for new investigations every week."
+            f"Subscribe for new investigations every week.\n\n"
+            f"{chapters_text or '0:00 Introduction'}"
             f"{cross_promo_txt}\n\n"
             f"⚠️ This video features AI-assisted narration and editing."
+            f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
             f"{citations_block}\n\n"
             f"{hashtags}")
 
@@ -2800,7 +2923,25 @@ def run_audio_stage(script, niche_name, edge_voice):
                 log("  SSML: skipping self-copy")
             duration = ssml_dur
             log(f"  SSML audio OK: {duration:.1f}s")
-            return audio_path, duration, None, edge_voice
+            # FIX (found on deep re-audit): this used to return here
+            # directly — skipping the 18-min hard cap, the real per-niche
+            # EQ chain (apply_audio_post_processing), and caption
+            # generation entirely below. SSML multi-rate is the primary,
+            # best-quality tier, so it was silently publishing with no
+            # captions and no documentary-grade EQ most of the time. Now
+            # runs through the same tail processing every other tier does.
+            if duration > 18 * 60:
+                log(f"  ⚠️ SSML audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+                trimmed = str(WORK_DIR / "narration_trimmed.mp3")
+                run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(18 * 60),
+                            "-c", "copy", trimmed], label="hard-duration-cap-ssml", timeout=120)
+                if Path(trimmed).exists() and Path(trimmed).stat().st_size > 50000:
+                    audio_path = trimmed
+                    duration = get_media_duration(audio_path)
+            processed_path = str(WORK_DIR / "narration_processed.mp3")
+            audio_path = apply_audio_post_processing(audio_path, processed_path, niche_name=niche_name)
+            generate_fallback_ass(script, duration, ass_path)
+            return audio_path, duration, ass_path, edge_voice
 
     if not el_ok:
         _fallback_candidates = [v for v in
@@ -3370,6 +3511,24 @@ def get_stage_matched_video(niche, script, audio_duration):
         from collections import Counter
         top_nouns  = [w for w, _ in Counter(stage_words).most_common(6)
                       if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
+        # FIX (found on deep re-audit): bucket_words is often only ~25-35
+        # words (total script / 55-75 buckets) — plenty of real segments
+        # have ZERO words that are both >4 chars and not a stopword/bright-
+        # mundane term, which silently dropped this segment's search term
+        # to the fully generic mood phrase (base_kw alone) with no
+        # content-specific signal at all. Before giving up, widen the
+        # window to the surrounding ~3 buckets (still the same moment in
+        # the narration, not a different scene) so a real topical word
+        # from just before/after this exact slice is used instead of going
+        # fully generic.
+        if not top_nouns:
+            wide_start = max(0, start - bucket_words)
+            wide_end   = min(total, end + bucket_words)
+            wide_text  = " ".join(words[wide_start:wide_end]).lower()
+            wide_words = [w.strip(".,!?;:") for w in wide_text.split()
+                          if len(w) > 4 and w not in stopwords]
+            top_nouns  = [w for w, _ in Counter(wide_words).most_common(6)
+                          if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
         # Dark mood word (base_kw) now leads the query instead of trailing
         # it, so relevance ranking favors the niche's actual visual
         # language even when a content noun is also present.
@@ -5057,6 +5216,19 @@ def run_stage1(state):
     except Exception as e:
         log(f"  Trending titles fetch (non-fatal): {e}")
         trending = []
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # fetch_trending_titles above is title-only; daily_competitor_research
+    # also has real view/like counts, cached per calendar day. Merged in
+    # here so title generation sees the same real, richer signal (real
+    # titles first, deduplicated).
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_intel_titles = fetch_daily_competitor_research(niche, _yt_token_for_trends, str(SCRIPT_DIR))
+        for _v in _daily_intel_titles.get("videos", []):
+            if _v["title"] and _v["title"] not in trending:
+                trending.append(_v["title"])
+    except Exception as e:
+        log(f"  Daily competitor research for titles (non-fatal): {e}")
     used_topics    = []
     gate           = MIN_GATE
     best_score     = 0.0
@@ -5147,7 +5319,7 @@ def run_stage1(state):
                 log(f"  Research-usage check: {'genuinely reflected' if _research_used else 'NOT clearly used'}")
             result["_research_used"] = _research_used
 
-            score, _ = score_result(result)
+            score, _ = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
 
@@ -5903,19 +6075,34 @@ def main():
                 "SPRINT_PLAYLIST_ID":  playlist_id or "",
                 "SPRINT_SCRIPT_PATH":  sprint_script_path,
             })
-            # FIX: this pointed at channels/growth_engine/growth_engine.py,
-            # a path that doesn't exist — the real file lives right next to
-            # master_pipeline.py. Because this uses Popen (fire-and-forget,
-            # doesn't wait for or check the subprocess), the wrong path
-            # failed silently INSIDE that separate process every single
-            # time — python3 printed "can't open file" to its own stderr,
-            # which nothing here ever captured or reported. This is very
-            # likely the actual reason growth-engine features (hype
-            # notifications, comment engine, CTR recovery) never visibly
-            # ran, with zero error anywhere to point at.
-            subprocess.Popen(
-                ["python3", str(Path(__file__).parent / "growth_engine.py")],
-                env=env_ext)
+            # FIX (found on deep re-audit): this pointed at
+            # channels/betrayal_deepdive/growth_engine.py — a path that
+            # doesn't exist (an earlier "fix" comment here claimed the
+            # real file "lives right next to master_pipeline.py," but the
+            # real file is video_pipeline/growth_engine.py, a SIBLING of
+            # channels/, not inside it — verified via Path.exists()).
+            # Because this used Popen (fire-and-forget, never checked),
+            # the wrong path failed silently INSIDE that separate process
+            # every single time — this is very likely the actual reason
+            # growth-engine features (hype notifications, comment engine,
+            # CTR recovery, caption/pinned-comment update) never visibly
+            # ran for this channel, with zero error anywhere to point at.
+            #
+            # Also switched from Popen to a blocking subprocess.run with a
+            # real timeout, matching the fix already applied to Ch3/Ch4:
+            # run_post_upload_sprint sleeps 30 minutes before its comment-
+            # reply engine runs, and GitHub Actions tears down the entire
+            # process tree within seconds of the job's last step — a
+            # detached Popen child would almost certainly be killed
+            # mid-sleep every time, regardless of the path being correct.
+            _ge_path = Path(__file__).parent.parent.parent / "video_pipeline" / "growth_engine.py"
+            if not _ge_path.exists():
+                log(f"  Growth engine NOT FOUND at {_ge_path} — skipping sprint")
+            else:
+                try:
+                    subprocess.run(["python3", str(_ge_path)], env=env_ext, timeout=2400)
+                except subprocess.TimeoutExpired:
+                    log("  Growth engine sprint exceeded 40min budget — moving on")
         except Exception as ge:
             log(f"  Growth engine sprint (non-fatal): {ge}")
 
@@ -5965,7 +6152,7 @@ def main():
             log(f"  Topic ID lookup (non-fatal): {e}")
         script_clean = script_result["script"]
         wc           = script_result["words"]
-        score_val    = score_result(script_result)[0]
+        score_val    = score_result(script_result, topic)[0]
         edge_voice   = pick_voice(niche_name, state)
         # v6 addition — real citation system: the actual sources used
         # during research (if any were found), carried through for the
@@ -6036,6 +6223,17 @@ def main():
                                         sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
+                # FIX (found on deep re-audit): REMAKE was never handled
+                # here at all — it fell through every branch and the loop
+                # just re-sent the identical unedited script for review
+                # again, silently ignoring a human's explicit "scrap this
+                # episode" request. Ch2/Ch3/Ch4 all already treat REMAKE
+                # at the script checkpoint as ending the episode.
+                if _review["decision"] == "remake":
+                    tg("🔄 Ch1: REMAKE requested at script review — scrapping this episode entirely.")
+                    log("  REMAKE requested during script review — clearing pending, exiting.")
+                    clear_pending(SCRIPT_DIR)
+                    sys.exit(0)
                 if _review["decision"] == "approve":
                     break
                 if _review["decision"] == "edit" and _stage_texts_ch1:
@@ -6242,6 +6440,17 @@ def main():
                         topic, script_clean, episode, real_cases, ass_path)
                     continue  # send the newly-assembled video for another look
                 if _v_dec == "approve" and _a_dec == "approve":
+                    # FIX (found on deep re-audit): score_audio_quality/
+                    # score_video_quality were computed every episode but
+                    # never persisted anywhere — weekly_report.py had no
+                    # real quality data to report on at all. Recorded
+                    # here on the actual approved episode, mirroring
+                    # thumb_format_history's proven write-side pattern.
+                    try:
+                        from quality_score_history import record_quality_scores
+                        record_quality_scores(str(SCRIPT_DIR), "BetrayalDeepDive", episode, _audio_score, _video_score)
+                    except Exception as e:
+                        log(f"  Quality score history record (non-fatal): {e}")
                     break
                 # edit on either audio or video: audio edit isn't
                 # separately re-generated here (voice/pacing edits are a
@@ -6295,7 +6504,15 @@ def main():
                     ass_path = str(WORK_DIR / "main_captions.ass")
                     if not generate_real_synced_ass(audio_path, ass_path):
                         ass_path = None
-                    continue  # send the newly-generated audio for another look
+                    # FIX (found on deep re-audit): unlike SWAP VOICE right
+                    # above, this branch regenerated audio+captions but
+                    # never re-assembled video_path — the published video
+                    # would have kept the OLD, discarded narration muxed
+                    # in regardless of what the human approved here.
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path)
+                    continue  # send the newly-generated audio/video for another look
         except Exception as e:
             log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
             tg(f"⚠️ Ch1: the audio+video review system failed to load ({str(e)[:150]}) — "
@@ -6354,7 +6571,9 @@ def main():
         def _desc_gen(n, t, ti, ep, ch, dur):
             return generate_seo_description(n, t, ti, ep, ch, dur,
                                              citations_block=format_citations_block(real_cases))
-        _chapters = generate_chapter_timestamps(script_clean, audio_duration, "betrayal_deepdive")
+        _stage_word_counts = [len(t.split()) for t in _stage_texts_ch1] if _stage_texts_ch1 else None
+        _chapters = generate_chapter_timestamps(script_clean, audio_duration, "betrayal_deepdive",
+                                                 stage_word_counts=_stage_word_counts)
         _desc_result = regenerate_description_until_good(
             niche, topic, title, episode, _chapters, audio_duration, niche_name, _desc_gen,
             min_score=9.0, max_attempts=4)
@@ -6571,6 +6790,21 @@ def main():
                            f"{_sh_review['feedback']}")
                         _replacement = produce_standalone_short("standalone_1", channel="betrayal_deepdive")
                         _post_short_comment_safe(_replacement.get("yt_url"), "replacement_standalone")
+
+                # ── COMMUNITY TAB checkpoint — YouTube's API has no way
+                # to post to the Community tab, so this drafts the real
+                # poll/post and gates on a human confirming they posted
+                # it manually (see review_community_tab's docstring).
+                try:
+                    from human_review_gate import draft_community_post, review_community_tab
+                    _cp_draft = draft_community_post(topic, niche["name"], title,
+                                                      lambda p, tokens=200: ai_generate(p, tokens=tokens))
+                    _cp_result = review_community_tab(
+                        "BetrayalDeepDive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                        check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
+                    log(f"  Community Tab: {_cp_result['decision']}")
+                except Exception as e:
+                    log(f"  Community Tab checkpoint (non-fatal): {e}")
             except Exception as e:
                 log(f"  Shorts review (non-fatal): {e}")
                 tg(f"⚠️ Ch1: the Shorts review system failed to load ({str(e)[:150]}) — "
@@ -6666,5 +6900,40 @@ def main():
         raise
 
 
+def main_with_retry():
+    """
+    FIX (found on deep re-audit): Ch1 had no outer crash-retry wrapper at
+    all, unlike Ch2/Ch3/Ch4 (each has a main_with_retry() wrapping the
+    ENTIRE main() call in a 3-attempt retry loop with Telegram alerts).
+    Worse, the UPLOAD phase branch inside main() (phase == "upload") runs
+    entirely outside the generate-phase-only try/except a few lines
+    above — a single transient failure there (e.g. get_yt_token()'s OAuth
+    refresh) crashed the whole process uncaught: no retry, no Telegram
+    alert, just a silent-to-a-human GitHub Actions failure. Wrapping the
+    entire main() call here, matching Ch2/3/4's proven pattern exactly,
+    fixes both the upload-phase blind spot and the missing retry/alerts
+    without touching main()'s internal phase logic at all.
+    """
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            main(); return
+        except SystemExit as e:
+            if e.code == 0: return
+            if attempt < max_retries:
+                tg(f"⚠️ Ch1 attempt {attempt}/{max_retries} failed.\nRetrying in 10 minutes...")
+                time.sleep(600)
+            else:
+                tg(f"❌ Ch1 FAILED after {max_retries} attempts.")
+                sys.exit(1)
+        except Exception as e:
+            if attempt < max_retries:
+                tg(f"⚠️ Ch1 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 10 minutes...")
+                time.sleep(600)
+            else:
+                tg(f"❌ Ch1 FAILED {max_retries}x: {str(e)[:300]}")
+                sys.exit(1)
+
+
 if __name__ == "__main__":
-    main()
+    main_with_retry()

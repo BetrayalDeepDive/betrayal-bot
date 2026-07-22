@@ -28,6 +28,42 @@ from pathlib import Path
 # ── CREDENTIALS ────────────────────────────────────────────────────────────────
 TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# FIX (found on deep re-audit): tg() only ever read the plain, generic
+# TELEGRAM_TOKEN/TELEGRAM_CHAT_ID globals above — no per-channel
+# awareness at all, unlike shorts_reels_engine.py's own
+# TG_CREDENTIAL_ENV_BY_CHANNEL/set_active_channel pattern. Since this
+# module is spawned via subprocess with env=os.environ.copy() from each
+# channel's own post-upload sprint, and ch3/ch4/ch5's workflows
+# deliberately leave the generic TELEGRAM_TOKEN/CHAT_ID as the shared/Ch1
+# bot (their real per-channel bot lives in TELEGRAM_TOKEN_CH3/4/5 instead,
+# used correctly by each pipeline's own tg() calls), every growth-engine
+# sprint notification (first-hour sprint, hype push, CTR-recovery alerts,
+# comment-engine issues) for Ch3/Ch4/Ch5 was silently going to the
+# shared/Ch1 bot instead of each channel's own. Ch2's workflow instead
+# aliases the generic name directly, so this lookup harmlessly returns
+# the same value there. run_post_upload_sprint() re-points the TG_TOKEN/
+# TG_CHAT globals to the right bot before sending anything, the same way
+# shorts_reels_engine.py's set_active_channel() does for its own globals.
+TG_CREDENTIAL_ENV_BY_CHANNEL = {
+    "betrayal_deepdive": ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"),
+    "evidence_room":     ("TELEGRAM_TOKEN_CH2", "TELEGRAM_CHAT_ID_CH2"),
+    "control_files":     ("TELEGRAM_TOKEN_CH3", "TELEGRAM_CHAT_ID_CH3"),
+    "archive":           ("TELEGRAM_TOKEN_CH4", "TELEGRAM_CHAT_ID_CH4"),
+    "collapse_index":    ("TELEGRAM_TOKEN_CH5", "TELEGRAM_CHAT_ID_CH5"),
+}
+
+
+def set_active_channel_telegram(channel_id):
+    """Re-points the module-level TG_TOKEN/TG_CHAT globals at this
+    channel's own bot, falling back to the generic shared bot if the
+    per-channel secret isn't actually set — same safety net
+    shorts_reels_engine.py already uses."""
+    global TG_TOKEN, TG_CHAT
+    token_env, chat_env = TG_CREDENTIAL_ENV_BY_CHANNEL.get(
+        channel_id, ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"))
+    TG_TOKEN = os.environ.get(token_env) or os.environ.get("TELEGRAM_TOKEN", "")
+    TG_CHAT  = os.environ.get(chat_env) or os.environ.get("TELEGRAM_CHAT_ID", "")
 CEREBRAS_KEY   = os.environ.get("CEREBRAS_API_KEY", "")
 SAMBANOVA_KEY  = os.environ.get("SAMBANOVA_API_KEY", "")
 GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
@@ -46,12 +82,17 @@ CHANNELS = {
         "client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
         "refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
-        # FIX: this had 3 .parent calls, resolving to a path OUTSIDE the
-        # repo entirely (growth_engine.py already lives IN video_pipeline/,
-        # so its own state.json needs just 1 .parent, not 3) — verified
-        # against the real repo structure via actual path computation,
-        # not assumed.
-        "state_file":    Path(__file__).parent / "state.json",
+        # FIX (found on deep re-audit): the previous "1 .parent, not 3"
+        # fix was itself wrong — it resolves to video_pipeline/state.json,
+        # which doesn't exist. betrayal_deepdive's real state.json lives
+        # at channels/betrayal_deepdive/state.json, same as every other
+        # channel below. Verified directly: Path(...).exists() was False
+        # before this fix. This broke update_previous_episode_pinned_comment
+        # (always returned early) and made attach_video_id/record_format_ctr
+        # write thumb_format_history.json to video_pipeline/ instead of
+        # channels/betrayal_deepdive/, where thumbnail_engine_v2.py
+        # actually looks for it.
+        "state_file":    Path(__file__).parent.parent / "channels" / "betrayal_deepdive" / "state.json",
         "cta_style":     "dark_horror",
     },
     "evidence_room": {
@@ -81,6 +122,37 @@ CHANNELS = {
         # Ch3 isn't active yet, matching the confirmed real repo pattern.
         "state_file":    Path(__file__).parent.parent / "channels" / "control_files" / "state.json",
         "cta_style":     "clinical",
+    },
+    # FIX: archive and collapse_index (Ch4/Ch5) were missing from this dict
+    # entirely — every function keyed off CHANNELS silently no-opped for
+    # these 2 channels (run_weekly_cycle's `for channel_id in CHANNELS`
+    # never even iterates them; run_post_upload_sprint's
+    # CHANNELS.get(channel_id, {}) fell back to an empty dict). Added so
+    # CTR recovery / thumb_format_history video_id attachment (see
+    # video_pipeline/thumbnail_formats.py) work for all 5 channels, not 3.
+    "archive": {
+        "name":          "The Archive",
+        "handle":        "@TheArchiveFiles",
+        "niche_label":   "historical collapse documentary",
+        "client_id":     os.environ.get("CHANNEL4_YT_CLIENT_ID", ""),
+        "client_secret": os.environ.get("CHANNEL4_YT_CLIENT_SECRET", ""),
+        "refresh_token": os.environ.get("CHANNEL4_YT_REFRESH_TOKEN", ""),
+        "state_file":    Path(__file__).parent.parent / "channels" / "archive" / "state.json",
+        "cta_style":     "archive",
+    },
+    "collapse_index": {
+        "name":          "TheCollapseIndex",  # matches the literal channel_name string
+                                               # collapse_index_pipeline.py actually passes
+                                               # to generate_thumbnail_v2 (no spaces) — must
+                                               # match exactly for thumb_format_history's
+                                               # channel-name lookup to find the right entries
+        "handle":        "@TheCollapseIndex",
+        "niche_label":   "societal collapse documentary",
+        "client_id":     os.environ.get("CHANNEL5_YT_CLIENT_ID", ""),
+        "client_secret": os.environ.get("CHANNEL5_YT_CLIENT_SECRET", ""),
+        "refresh_token": os.environ.get("CHANNEL5_YT_REFRESH_TOKEN", ""),
+        "state_file":    Path(__file__).parent.parent / "channels" / "collapse_index" / "state.json",
+        "cta_style":     "collapse_index",
     },
 }
 
@@ -641,21 +713,234 @@ CTA_BANK = {
         "80": ["Subscribe. New case every weekday. You will not regret it.",
                "Subscribe to BetrayalDeepDive if you want to understand what drove this."],
     },
-    "forensic": {
-        "30": ["Subscribe to The Evidence Room. The key document is thirty seconds away.",
-               "Subscribe before the record that proves this is revealed."],
-        "60": ["Subscribe to The Evidence Room. What comes next changes the entire case.",
-               "Subscribe now. This is the evidence the investigation was built around."],
-        "80": ["Subscribe to The Evidence Room. New forensic case every weekday.",
-               "Subscribe if this investigation mattered to you. More are waiting."],
+    # FIX: this bank previously had only 7 keys total — the 5 real
+    # betrayal_deepdive niches above, plus two generic placeholder keys
+    # ("forensic", "clinical") that don't match any real niche name used
+    # by any other channel (evidence_room's real niches are
+    # forensic_finance/criminal_investigation/etc, control_files' are
+    # cult_psychology/propaganda_systems/etc) — so every niche on the
+    # other 4 channels silently fell back to dark_horror's BetrayalDeepDive
+    # CTA text via inject_subscribe_ctas' CTA_BANK.get(niche_name,
+    # CTA_BANK["dark_horror"]) fallback. Rebuilt to cover all 39 real
+    # niches across all 5 channels, reusing the exact real CTA text
+    # already written and live in each channel's own
+    # _inject_ctas_ch1/_inject_ctas_er/_inject_ctas_ch5 functions (the
+    # actual source of truth those channels call directly) rather than
+    # inventing new copy, so this shared bank is correct if it's ever
+    # actually wired into a pipeline.
+    #
+    # The Evidence Room (evidence_room) — 7 niches
+    "forensic_finance": {
+        "30": ["If documented cases like this concern you, subscribe — new files every week."],
+        "60": ["This channel investigates documented financial fraud. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
     },
-    "clinical": {
-        "30": ["Subscribe to The Control Files. The mechanism this is built on is thirty seconds away.",
-               "Subscribe before the technique is fully revealed."],
-        "60": ["Subscribe to The Control Files. What is documented next is the reason this channel was built.",
-               "Subscribe now. This is the section that changes how you see everything before it."],
-        "80": ["Subscribe to The Control Files. New investigation every weekday.",
-               "Subscribe if this investigation changed what you thought you knew."],
+    "criminal_investigation": {
+        "30": ["If this case concerns you, subscribe — documented investigations every week."],
+        "60": ["This channel documents criminal investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    "corporate_exposure": {
+        "30": ["If this pattern concerns you, subscribe — documented exposures every week."],
+        "60": ["This channel investigates documented corporate misconduct. Subscribe to follow the record."],
+        "80": ["More documented findings like this are coming. Subscribe to The Evidence Room."],
+    },
+    "digital_forensics": {
+        "30": ["If this trail concerns you, subscribe — documented digital cases every week."],
+        "60": ["This channel documents digital forensic investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    "body_cam_police": {
+        "30": ["If footage like this concerns you, subscribe — documented body cam cases every week."],
+        "60": ["This channel documents real body cam evidence. Subscribe to follow the record."],
+        "80": ["More documented footage like this is coming. Subscribe to The Evidence Room."],
+    },
+    "courtroom_drama": {
+        "30": ["If this verdict concerns you, subscribe — documented courtroom cases every week."],
+        "60": ["This channel documents real courtroom proceedings. Subscribe to follow the record."],
+        "80": ["More documented trials like this are coming. Subscribe to The Evidence Room."],
+    },
+    "robbery_documentaries": {
+        "30": ["If this heist concerns you, subscribe — documented robbery cases every week."],
+        "60": ["This channel documents real robbery investigations. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Evidence Room."],
+    },
+    # The Control Files (control_files) — 6 niches
+    "cult_psychology": {
+        "30": ["If documented cases like this concern you, subscribe — new files every week."],
+        "60": ["This channel investigates documented control systems. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "propaganda_systems": {
+        "30": ["If this pattern concerns you, subscribe — more documented systems every week."],
+        "60": ["This channel tracks documented propaganda systems. Subscribe to follow the record."],
+        "80": ["More documented findings like this are coming. Subscribe to The Control Files."],
+    },
+    "social_engineering": {
+        "30": ["If this technique concerns you, subscribe — documented methods every week."],
+        "60": ["This channel documents social engineering systems. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "mass_deception": {
+        "30": ["If this scale concerns you, subscribe — documented findings every week."],
+        "60": ["This channel investigates documented deception at scale. Subscribe to follow the record."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "dark_business_documentaries": {
+        "30": ["If this kind of corporate failure concerns you, subscribe — documented cases every week."],
+        "60": ["This channel investigates documented corporate collapses. Subscribe to follow the record."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    "scams_fraud_exposed": {
+        "30": ["If this scam pattern concerns you, subscribe — documented fraud cases every week."],
+        "60": ["This channel documents fraud systems in detail. Subscribe to follow the evidence."],
+        "80": ["More documented cases like this are coming. Subscribe to The Control Files."],
+    },
+    # The Archive (archive) — 8 niches
+    "egyptian_civilization": {
+        "30": ["If this history fascinates you, subscribe — new civilizations documented every week."],
+        "60": ["This channel investigates documented ancient history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "chinese_civilization": {
+        "30": ["If this dynasty's story interests you, subscribe — more documented history every week."],
+        "60": ["This channel documents real dynastic history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "mesopotamian_lost_civilizations": {
+        "30": ["If lost civilizations fascinate you, subscribe — documented history every week."],
+        "60": ["This channel investigates documented lost civilizations. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "islamic_civilization_history": {
+        "30": ["If this history fascinates you, subscribe — documented civilization every week."],
+        "60": ["This channel documents real Islamic civilization history. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "fallen_empires_military_overstretch": {
+        "30": ["If this pattern of collapse concerns you, subscribe — documented history every week."],
+        "60": ["This channel investigates documented imperial overstretch. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "elite_betrayal_infighting": {
+        "30": ["If this kind of betrayal fascinates you, subscribe — documented history every week."],
+        "60": ["This channel documents real elite betrayal in detail. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "propaganda_institutional_decline": {
+        "30": ["If this pattern concerns you, subscribe — documented institutional history every week."],
+        "60": ["This channel tracks documented institutional decline. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    "modern_parallels": {
+        "30": ["If this parallel struck you, subscribe — documented historical patterns every week."],
+        "60": ["This channel connects documented history to the present. Subscribe to follow the record."],
+        "80": ["More documented history like this is coming. Subscribe to The Archive."],
+    },
+    # The Collapse Index (collapse_index) — 13 niches
+    "ai_startup_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented evidence gets more specific from here.",
+               "Subscribe. What comes next is the part most coverage left out."],
+        "60": ["Subscribe before the final documented numbers are shown.",
+               "Subscribe to The Collapse Index. The next section changes the whole story."],
+        "80": ["Subscribe. New documented collapse case every weekday.",
+               "Subscribe to The Collapse Index if you want the rest of these breakdowns."],
+    },
+    "tech_company_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented internal decision comes next.",
+               "Subscribe. The real turning point is thirty seconds away."],
+        "60": ["Subscribe before the documented numbers are shown.",
+               "Subscribe to The Collapse Index. What's documented next reframes everything."],
+        "80": ["Subscribe. Every weekday, a new documented business collapse.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "crypto_collapse": {
+        "30": ["Subscribe to The Collapse Index. The real documented timeline comes next.",
+               "Subscribe. The documented numbers are thirty seconds away."],
+        "60": ["Subscribe before the full documented collapse is shown.",
+               "Subscribe to The Collapse Index. The next section has the real numbers."],
+        "80": ["Subscribe. New documented crypto collapse case every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "cybersecurity_disasters": {
+        "30": ["Subscribe to The Collapse Index. The documented timeline comes next.",
+               "Subscribe. The real documented failure point is thirty seconds away."],
+        "60": ["Subscribe before the full documented breach timeline is shown.",
+               "Subscribe to The Collapse Index. What's documented next changes the story."],
+        "80": ["Subscribe. New documented breach case every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "product_flops": {
+        "30": ["Subscribe to The Collapse Index. The documented internal testing comes next.",
+               "Subscribe. The real documented numbers are thirty seconds away."],
+        "60": ["Subscribe before the documented failure is fully shown.",
+               "Subscribe to The Collapse Index. The next part has the real numbers."],
+        "80": ["Subscribe. New documented product failure every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "dotcom_era_collapse": {
+        "30": ["Subscribe to The Collapse Index. The documented real numbers come next.",
+               "Subscribe. The real documented collapse timeline is thirty seconds away."],
+        "60": ["Subscribe before the full documented history is shown.",
+               "Subscribe to The Collapse Index. The next part has the real filed numbers."],
+        "80": ["Subscribe. New documented dot-com history every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
+    },
+    "personal_finance_mistakes": {
+        "30": ["Subscribe to The Collapse Index. The real numbers behind this come next.",
+               "Subscribe — the specific, real math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real financial breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "investing_fundamentals": {
+        "30": ["Subscribe to The Collapse Index. The real math on this comes next.",
+               "Subscribe — the specific numbers are thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real investing breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "retirement_planning": {
+        "30": ["Subscribe to The Collapse Index. The real retirement math comes next.",
+               "Subscribe — the specific numbers are thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real retirement breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "credit_debt_repair": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific credit math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real credit breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "real_estate_affordability": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific mortgage math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real housing breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "budgeting_saving_strategies": {
+        "30": ["Subscribe to The Collapse Index. The real numbers on this come next.",
+               "Subscribe — the specific budget math is thirty seconds away."],
+        "60": ["Subscribe before the full real breakdown.",
+               "Subscribe to The Collapse Index for the complete real numbers."],
+        "80": ["Subscribe. New real budgeting breakdown every weekday.",
+               "Subscribe to The Collapse Index for more real, specific breakdowns."],
+    },
+    "stock_market_crashes_history": {
+        "30": ["Subscribe to The Collapse Index. The documented real numbers come next.",
+               "Subscribe. The real documented market data is thirty seconds away."],
+        "60": ["Subscribe before the full documented history is shown.",
+               "Subscribe to The Collapse Index. The next part has the real numbers."],
+        "80": ["Subscribe. New documented market history every weekday.",
+               "Subscribe to The Collapse Index for the rest of these breakdowns."],
     },
 }
 
@@ -965,6 +1250,36 @@ def run_ctr_recovery(channel_id, token, growth_state):
     except Exception as e:
         log(f"  Analytics error: {e}")
         return
+
+    # thumb_format_history real learning signal: feed every video's real
+    # CTR (not just the ones being A/B tested below) into the format
+    # history, so select_thumbnail_format() has as much real performance
+    # data as possible to learn from.
+    try:
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if ch_cfg.get("state_file"):
+            from thumbnail_formats import record_format_ctr
+            cache_dir = str(Path(ch_cfg["state_file"]).parent)
+            for row in data.get("rows", []):
+                if len(row) >= 2:
+                    record_format_ctr(cache_dir, row[0], float(row[1]))
+    except Exception as e:
+        log(f"  thumb_format_history CTR record (non-fatal): {e}")
+
+    # FIX (found on deep re-audit): title_score_history real learning
+    # signal — same real CTR pull, feeding title_scoring_history so
+    # get_title_calibration_notes() has real data to compare against
+    # score_title_v2's predictions, mirroring thumb_format_history exactly.
+    try:
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if ch_cfg.get("state_file"):
+            from title_scoring_history import record_title_ctr
+            cache_dir = str(Path(ch_cfg["state_file"]).parent)
+            for row in data.get("rows", []):
+                if len(row) >= 2:
+                    record_title_ctr(cache_dir, row[0], float(row[1]))
+    except Exception as e:
+        log(f"  title_score_history CTR record (non-fatal): {e}")
 
     ctr_tests   = growth_state.get("ctr_ab_tests", {})
     regenerated = 0
@@ -1615,6 +1930,8 @@ def run_post_upload_sprint():
     duration    = float(os.environ.get("SPRINT_DURATION_SECS", "0"))
     shorts_urls = [s.strip() for s in shorts_raw.split(",") if s.strip()]
 
+    set_active_channel_telegram(channel_id)
+
     if not video_url:
         log("Sprint: no video URL"); return
 
@@ -1629,6 +1946,32 @@ def run_post_upload_sprint():
     # First-hour sprint + end screen reminder
     send_first_hour_sprint(video_url, video_title, ch_name, niche_name,
                            shorts_urls, score, playlist_id)
+
+    # thumb_format_history: attach this video's real video_id to whichever
+    # thumbnail format was chosen for it at generation time — this is the
+    # sprint (runs for real after every upload, unlike the weekly cycle),
+    # so it's the reliable place to do this, not run_ctr_recovery below.
+    try:
+        m = re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if m and ch_cfg.get("state_file"):
+            from thumbnail_formats import attach_video_id
+            attach_video_id(str(Path(ch_cfg["state_file"]).parent), ch_name, m.group(1))
+    except Exception as e:
+        log(f"  thumb_format_history video_id attach (non-fatal): {e}")
+
+    # title_score_history: same real video_id attach, for the title-CTR
+    # learning loop (title_scoring_history.py) — mirrors the thumbnail
+    # attach above exactly, using the same ch_name so the "most recent
+    # unattached entry for this channel" match resolves correctly.
+    try:
+        m = re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if m and ch_cfg.get("state_file"):
+            from title_scoring_history import attach_title_video_id
+            attach_title_video_id(str(Path(ch_cfg["state_file"]).parent), ch_name, m.group(1))
+    except Exception as e:
+        log(f"  title_score_history video_id attach (non-fatal): {e}")
 
     # Hype notification day 0
     send_hype_notification(video_url, video_title, ch_name, growth_state, day=0)
@@ -1686,6 +2029,7 @@ def run_weekly_cycle():
             continue
 
         log(f"\n  Channel: {ch['name']}")
+        set_active_channel_telegram(channel_id)
         try:
             token = get_yt_token(channel_id)
             if not token:

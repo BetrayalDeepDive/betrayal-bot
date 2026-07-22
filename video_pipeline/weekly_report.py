@@ -176,6 +176,24 @@ CHANNELS = [
     },
 ]
 
+# Real per-channel product mapping for Gumroad revenue attribution — the
+# same canonical mapping each channel's own build_product_cta() uses
+# (control_files_pipeline.py/archive_pipeline.py/etc.), duplicated here
+# rather than imported since weekly_report.py doesn't otherwise import
+# any single channel's pipeline module. Several channels intentionally
+# share the same product (e.g. the Dark Manipulation Tactics Handbook),
+# so revenue attributed to a shared product will appear in more than one
+# channel's own report — this is real, not double-counted against a
+# single channel's own distinct earnings, and is called out in the
+# report text itself.
+PRODUCT_TITLE_BY_CHANNEL = {
+    "betrayal_deepdive": "Dark Manipulation Tactics Handbook",
+    "evidence_room":     "Dark Manipulation Tactics Handbook",
+    "control_files":     "Dark Manipulation Tactics Handbook",
+    "archive":            "The Empire Collapse Atlas",
+    "collapse_index":     "The Financial Red Flags Field Guide",
+}
+
 
 def log(m): print(m, flush=True)
 
@@ -362,10 +380,31 @@ def recalibrate_title_model(state, competitor_patterns, channel_dir=None):
 
     intel["last_updated"]          = datetime.datetime.now().isoformat()
     intel["competitor_patterns"]   = competitor_patterns
-    intel["calibration_note"]      = (
+
+    # FIX (found on deep re-audit): this used to always write a canned
+    # sentence built from competitor title TEXT — it never actually
+    # compared score_title_v2's predictions against real CTR outcomes,
+    # despite this function's own name/docstring. Now genuinely checks:
+    # if enough real title-score-vs-real-CTR history exists (via
+    # title_scoring_history.py, wired into record_title_used/
+    # attach_title_video_id/record_title_ctr in growth_engine.py and
+    # each channel's run_title_ctr_gate), use that real comparison
+    # instead — falling back to the original competitor-pattern note
+    # only when there isn't enough real data yet, same as
+    # topic_scoring.get_scoring_calibration_notes's proven pattern.
+    real_calibration_note = ""
+    if channel_dir:
+        try:
+            from title_scoring_history import get_title_calibration_notes
+            real_calibration_note = get_title_calibration_notes(channel_dir)
+        except Exception as e:
+            log(f"  Real title calibration (non-fatal): {e}")
+
+    intel["calibration_note"] = real_calibration_note or (
         "Title scoring recalibrated based on this week's competitor data. "
         "Next week's scripts will prioritize: " + competitor_patterns[:150]
     )
+    intel["calibration_is_real_performance_based"] = bool(real_calibration_note)
 
     try:
         intel_path.parent.mkdir(parents=True, exist_ok=True)
@@ -631,6 +670,32 @@ def run_weekly_report_for_channel(channel_cfg):
     own_performance = "\n".join(own_perf_lines) if own_perf_lines else "No data yet (channel new)"
     log(f"  Found {len(details)} videos with analytics")
 
+    # FIX (found on deep re-audit): CTR and subscriber growth were both
+    # real values already pulled from this exact `rows` response
+    # (get_own_analytics, metrics order: views, estimatedMinutesWatched,
+    # averageViewDuration, subscribersGained, likes, impressions,
+    # impressionsClickThroughRate) — CTR was only ever fed into the
+    # topic-scoring feedback loop above, subscribersGained was fetched
+    # and never read at all. Neither ever reached the actual delivered
+    # per-channel report text. Computed here from real data, not
+    # invented — "no data yet" when the 7-day window has none.
+    _ctr_values = [r[7] * 100 for r in rows if len(r) >= 8 and r[7] is not None]
+    avg_ctr_str = f"{sum(_ctr_values) / len(_ctr_values):.1f}%" if _ctr_values else "no data yet"
+    _subs_values = [r[4] for r in rows if len(r) >= 5 and r[4] is not None]
+    subs_gained_str = str(sum(_subs_values)) if _subs_values else "no data yet"
+
+    # FIX (found on deep re-audit): score_audio_quality/score_video_quality
+    # (quality_scoring.py) were computed for every episode but never
+    # persisted or reported anywhere — added quality_score_history.py
+    # this session as the write side (recorded on approval in all 5
+    # channels); this is the real read side.
+    try:
+        from quality_score_history import get_recent_quality_summary
+        quality_summary = get_recent_quality_summary(str(output_dir))
+    except Exception as e:
+        log(f"  Quality score summary (non-fatal): {e}")
+        quality_summary = "No data yet."
+
     # Competitor analysis — uses THIS channel's own niches, not always Ch1's
     log("\n[2] Scanning competitor channels...")
     all_competitor_data = {}
@@ -678,6 +743,52 @@ def run_weekly_report_for_channel(channel_cfg):
         for name, fix in stage_fixes.items()
     ) or "Not enough view data yet (need 100+ views per video)"
 
+    # FIX (found on deep re-audit): CTR, subscriber growth, and the real
+    # title-CTR calibration note (title_scoring_history.py, wired in
+    # earlier this session) were all real data already computed above but
+    # never actually reached this delivered report text — CTR/subs sat
+    # unread in `rows`, and calibration_note was written only to
+    # weekly_intel.json. Surfaced here now.
+    calibration_note = intel.get("calibration_note", "")
+
+    # FIX (found on explicit follow-up request): real Gumroad revenue
+    # existed (ceo_dashboard.get_gumroad_sales) but only ever appeared in
+    # the combined Empire Dashboard message, which goes out through Ch1's
+    # Telegram bot only (no per-channel token/chat override) — a channel
+    # owner reading their OWN weekly report never saw their own product's
+    # real revenue at all. Wired in here as a real per-channel section,
+    # filtered to the last 7 days (Gumroad's own real after/before Sales
+    # API filters, not an all-time total) so it's genuinely "this week's"
+    # revenue, matching the rest of the report's cadence. Wrapped in its
+    # own try/except so a Gumroad API hiccup can never block the rest of
+    # this report from sending — "published every week without fail"
+    # means a revenue-fetch failure must degrade to an honest "no data"
+    # line, not skip the whole report.
+    revenue_line = "Gumroad not yet connected (GUMROAD_ACCESS_TOKEN not set)."
+    try:
+        from ceo_dashboard import get_gumroad_sales
+        gumroad_token = os.environ.get("GUMROAD_ACCESS_TOKEN", "")
+        if gumroad_token:
+            week_start = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+            week_end = datetime.date.today().isoformat()
+            sales_data = get_gumroad_sales([], gumroad_token, after_date=week_start, before_date=week_end)
+            if sales_data.get("connected"):
+                product_title = PRODUCT_TITLE_BY_CHANNEL.get(channel_id, "")
+                entry = sales_data.get("by_product", {}).get(product_title)
+                if entry:
+                    revenue = entry["revenue_cents"] / 100
+                    shared_note = (" (shared product — also sold via other channels)"
+                                   if list(PRODUCT_TITLE_BY_CHANNEL.values()).count(product_title) > 1 else "")
+                    revenue_line = (f"{product_title}: {entry['count']} sale(s), "
+                                    f"${revenue:.2f} this week{shared_note}.")
+                else:
+                    revenue_line = f"{product_title}: no sales this week (real data, genuinely zero)."
+            else:
+                revenue_line = f"Gumroad fetch failed (non-fatal): {sales_data.get('reason', 'unknown')}"
+    except Exception as e:
+        log(f"  Gumroad revenue fetch (non-fatal): {e}")
+        revenue_line = f"Gumroad revenue unavailable this week (non-fatal): {e}"
+
     report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report ({display_name})</b>
 Week ending {datetime.date.today().strftime('%B %d, %Y')}
 
@@ -687,7 +798,12 @@ Latest: {last_title[:55]}
 {last_url}
 
 <b>YOUR PERFORMANCE</b>
+Avg CTR (last 7 days): {avg_ctr_str} | Subscribers gained: {subs_gained_str}
+{quality_summary}
 {own_performance or "Building audience — data available after first monetised week"}
+
+<b>REVENUE (Gumroad, last 7 days)</b>
+{revenue_line}
 
 <b>WHAT COMPETITORS PUBLISHED THIS WEEK</b>
 {top_titles_str}
@@ -700,6 +816,9 @@ Latest: {last_title[:55]}
 
 <b>RETENTION ANALYSIS</b>
 {stage_fix_str}
+
+<b>TITLE SCORING CALIBRATION</b>
+{calibration_note or "Not enough real title-CTR history yet to calibrate against (needs 5+ published titles with recorded real CTR)."}
 
 <b>SYSTEM STATUS</b>
 ✅ Intel recalibrated for next week

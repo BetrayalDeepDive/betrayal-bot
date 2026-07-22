@@ -150,6 +150,33 @@ def score_audio_quality(audio_path, audio_duration, script_word_count, voice_use
     return round(min(max(final, 0), 10), 1), breakdown
 
 
+def _detect_cut_frequency(path, duration, scene_threshold=0.28):
+    """
+    Real cut/scene-change count via ffmpeg's own scene-detection filter,
+    measured on the ASSEMBLED VIDEO FILE ITSELF — not a design-time
+    assumption and not a pre-render script-text check. Every existing
+    "pacing" signal in this codebase (validate_rehook_beat, sentence-
+    length variance in script_scoring.py) only ever checked whether the
+    SCRIPT said the right words; nothing verified the final rendered
+    video actually delivers cuts at a reasonable cadence, or doesn't have
+    a long static/stagnant stretch. Returns (num_cuts, longest_gap_secs).
+    """
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", path, "-filter:v",
+             f"select='gt(scene,{scene_threshold})',showinfo",
+             "-f", "null", "-"],
+            capture_output=True, timeout=120, text=True)
+        times = sorted(float(m) for m in re.findall(r"pts_time:([\d.]+)", r.stderr))
+        if not duration or duration <= 0:
+            return len(times), 0.0
+        bounds = [0.0] + times + [duration]
+        gaps = [b - a for a, b in zip(bounds, bounds[1:])]
+        return len(times), max(gaps)
+    except Exception:
+        return 0, 0.0
+
+
 def score_video_quality(video_path, video_duration, audio_duration,
                          expected_width=1280, expected_height=720,
                          fallback_flags=None, content_type="stock_footage"):
@@ -245,8 +272,33 @@ def score_video_quality(video_path, video_duration, audio_duration,
     completeness_score = max(0.0, completeness_score)
     breakdown["pipeline_completeness"] = {"failed_stages": failed_stages, "score": completeness_score}
 
-    final = (duration_score * 0.30 + stream_score * 0.25 +
-             size_score * 0.20 + completeness_score * 0.25)
+    # 5. Pacing/cut frequency (10%) — real, measured off the rendered file
+    # (see _detect_cut_frequency). Stock-footage channels hard-cut every
+    # ~10-15s by design; animated channels cut on each scene boundary
+    # (~7-10s). Both should show multiple cuts per minute with no long
+    # static stretch. Kept at a modest weight rather than the other four
+    # checks' share, since ffmpeg's scene-change filter is well-proven on
+    # real footage but less battle-tested on flat/vector animated content
+    # in this codebase — a real signal worth surfacing and factoring in,
+    # not yet trusted enough to swing the gate on its own.
+    num_cuts, longest_gap = _detect_cut_frequency(video_path, video_duration)
+    cuts_per_min = (num_cuts / (video_duration / 60)) if video_duration > 0 else 0.0
+    pacing_score = 10.0
+    if longest_gap > 30:
+        pacing_score -= 4.0
+    elif longest_gap > 20:
+        pacing_score -= 2.0
+    if cuts_per_min < 1.5:
+        pacing_score -= 3.0
+    elif cuts_per_min < 2.5:
+        pacing_score -= 1.0
+    pacing_score = max(0.0, pacing_score)
+    breakdown["pacing"] = {"num_cuts": num_cuts, "cuts_per_min": round(cuts_per_min, 1),
+                            "longest_gap_s": round(longest_gap, 1), "score": pacing_score}
+
+    final = (duration_score * 0.28 + stream_score * 0.22 +
+             size_score * 0.18 + completeness_score * 0.22 +
+             pacing_score * 0.10)
     return round(min(max(final, 0), 10), 1), breakdown
 
 

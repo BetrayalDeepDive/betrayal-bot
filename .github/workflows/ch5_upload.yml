@@ -1,8 +1,8 @@
 # ============================================================
-# THE ARCHIVE — Ch5 Upload Workflow
+# THE COLLAPSE INDEX — Ch5 Upload Workflow
 # Phase 2: UPLOAD only (reads pending_upload.json from repo)
-# Runs: Tue-Sat 12:30 AM IST = 19:00 UTC (1h after Ch2 upload)
-# US: 3 PM ET | UK: 8 PM BST — prime UK evening + US afternoon
+# Runs: Tue-Sat 2:30 AM IST = 21:00 UTC (1h after Ch4 upload)
+# US: 5 PM ET | UK: 10 PM BST — prime UK evening + US late-afternoon
 # ============================================================
 name: Ch5 The Collapse Index — Upload
 
@@ -15,6 +15,20 @@ env:
   PYTHONUNBUFFERED: "1"
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
   PHASE: "upload"
+
+# FIX (found on deep re-audit): no concurrency guard existed on any
+# of the 10 workflows -- a manual workflow_dispatch/is_makeup re-run
+# while a previous run for this same channel+phase is still polling
+# Telegram for a review decision could run two full pipeline
+# processes in parallel: duplicate script generation burning real AI
+# provider quota, two review conversations landing in the same
+# Telegram chat at once, and a git-push race where whichever process
+# finishes last silently overwrites the other's pending_upload.json.
+# cancel-in-progress: false queues the new run instead of killing a
+# live review in progress.
+concurrency:
+  group: ch5-upload
+  cancel-in-progress: false
 
 jobs:
   upload:
@@ -50,7 +64,14 @@ jobs:
       - name: Download video artifact from latest Generate run
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: ch3_generate.yml
+          # FIX (found on deep re-audit — critical, total outage): this
+          # was pointing at ch3_generate.yml, a copy-paste leftover from
+          # Ch3's own upload workflow. ch3_generate.yml's runs only ever
+          # produce an artifact named ch3-pending-video, never
+          # ch5-pending-video, so this lookup could never find anything —
+          # meaning Ch5 (The Collapse Index) could never successfully
+          # publish a single video, every run, unconditionally.
+          workflow: ch5_generate.yml
           name: ch5-pending-video
           path: /tmp/deepdive
           # FIX (found on direct user report, July 15 2026): 'success'
@@ -148,6 +169,13 @@ jobs:
           # so the queue genuinely frees up for the next episode instead
           # of silently never having existed from git's perspective.
           git add channels/collapse_index/review_queue.json || true
+          # FIX (found on deep re-audit): attach_video_id/record_format_ctr
+          # (video_pipeline/thumbnail_formats.py) both run during the
+          # UPLOAD phase, updating thumb_format_history.json — but only
+          # generate.yml git-added it. Any update made here, on a
+          # separate runner, was never actually committed.
+          git add channels/collapse_index/thumb_format_history.json || true
+          git add channels/collapse_index/shorts_format_history.json || true
           # CRITICAL FIX: render_companion_page() writes a new page to
           # docs/controlfiles/ep{N}.html during this same confirmed-publish
           # step — without committing docs/ here, every companion page
@@ -176,5 +204,6 @@ jobs:
             git pull --rebase origin main || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+              exit 1
             fi
           done

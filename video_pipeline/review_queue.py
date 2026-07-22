@@ -14,12 +14,17 @@ correctly against this file, since they only ever depend on the
 documented interface below.
 
 Purpose: a simple, file-based state machine ensuring only ONE episode is
-ever "in human review" per channel at a time, tracked across the 4 real
+ever "in human review" per channel at a time, tracked across the 5 real
 checkpoints every channel's pipeline waits on:
-  SCRIPT -> AUDIO_VIDEO -> TITLE_THUMB_DESC -> SHORTS -> DONE
+  SCRIPT -> AUDIO_VIDEO -> TITLE_THUMB_DESC -> SHORTS -> COMMUNITY_TAB -> DONE
 plus the terminal "REJECTED" state (reachable only via an explicit
 reject decision, and deliberately NOT part of the normal checkpoint
 order, since a reject ends the review rather than advancing it).
+
+COMMUNITY_TAB (added alongside human_review_gate.py's
+review_community_tab): YouTube's API has no way to post to the Community
+tab, so this checkpoint gates on a real human confirming they posted the
+drafted poll/post manually — see review_community_tab's docstring.
 
 State lives in a single JSON file per channel: <script_dir>/review_queue.json
 """
@@ -28,7 +33,7 @@ import json
 import datetime
 from pathlib import Path
 
-CHECKPOINT_ORDER = ["SCRIPT", "AUDIO_VIDEO", "TITLE_THUMB_DESC", "SHORTS", "DONE"]
+CHECKPOINT_ORDER = ["SCRIPT", "AUDIO_VIDEO", "TITLE_THUMB_DESC", "SHORTS", "COMMUNITY_TAB", "DONE"]
 
 # Real, confirmed 2-day maximum review window (6 check-ins at up to
 # 3/day) — matches the check_ins_used / get_schedule_line pattern
