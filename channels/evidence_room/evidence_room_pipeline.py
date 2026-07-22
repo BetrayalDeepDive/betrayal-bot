@@ -248,6 +248,10 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     return best_title, v2_scored
 
 
+# Real business-inquiries contact, per explicit request — every published
+# description was missing this entirely across all 5 channels.
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["evidence_room","control_files"]},
@@ -6187,14 +6191,33 @@ def main():
     # Ch2 description. Fixed here, alongside the new citations block.
     hashtags = generate_episode_hashtags(niche, topic)
     citations_block = format_citations_block(real_cases)
+    # FIX (found on deep re-audit): this description had no real per-
+    # episode summary anywhere — seo_first is just a truncated topic
+    # fragment, and the line after it was fixed boilerplate reused
+    # every single episode ("Every case. Every document...."). Every
+    # other channel generates a real, topic-specific 2-sentence hook
+    # for this exact spot (control_files/archive's hook_prompt pattern);
+    # Ch2 never did. Added here, with the same generic-fallback safety
+    # net those channels already use if the AI call fails.
+    try:
+        _hook_prompt = (f"Write ONE compelling 2-sentence hook for a YouTube description, "
+                        f"for a forensic investigative documentary about: {topic[:200]}. "
+                        f"Specific, evidence-focused, no clickbait, no markdown. "
+                        f"Return ONLY the 2 sentences.")
+        episode_hook = ai(_hook_prompt, tokens=120, prefer="groq")
+        episode_hook = strip_md(episode_hook).strip() if episode_hook else \
+            "Every case. Every document. Every piece of evidence — animated."
+    except Exception:
+        episode_hook = "Every case. Every document. Every piece of evidence — animated."
     description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
-                   f"Every case. Every document. Every piece of evidence — animated.\n\n"
+                   f"{episode_hook}\n\n"
                    f"{chapters_block}\n\n"
                    f"Subscribe to The Evidence Room."
                    f"{cross_promo}"
                    f"{affiliate_block}"
                    f"{product_cta}\n\n"
                    f"\u26a0\ufe0f AI-assisted narration and forensic analysis."
+                   f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                    f"{citations_block}\n\n"
                    f"{hashtags}")
 
@@ -6334,13 +6357,14 @@ def main():
         log("  Audio duration changed during review — rebuilding chapters + description to match.")
         chapters_block = _new_chapters_block
         description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
-                       f"Every case. Every document. Every piece of evidence — animated.\n\n"
+                       f"{episode_hook}\n\n"
                        f"{chapters_block}\n\n"
                        f"Subscribe to The Evidence Room."
                        f"{cross_promo}"
                        f"{affiliate_block}"
                        f"{product_cta}\n\n"
                        f"⚠️ AI-assisted narration and forensic analysis."
+                       f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                        f"{citations_block}\n\n"
                        f"{hashtags}")
 

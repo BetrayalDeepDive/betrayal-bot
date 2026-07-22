@@ -231,6 +231,10 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     return best_title, v2_scored
 
 
+# Real business-inquiries contact, per explicit request — every published
+# description was missing this entirely across all 5 channels.
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["archive","evidence_room"]},
@@ -6685,10 +6689,12 @@ def main():
                f"{affiliate_block}"
                f"{product_cta}\n\n"
                f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+               f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                f"{citations_block}\n\n"
                f"{episode_hashtags}")
         if len(desc) > 5000:
-            tail = f"\u26a0\ufe0f AI-assisted narration and historical analysis.{citations_block}\n\n{episode_hashtags}"
+            tail = (f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+                    f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}{citations_block}\n\n{episode_hashtags}")
             desc = desc[:5000 - len(tail) - 5] + "\n\n" + tail
         return desc
 

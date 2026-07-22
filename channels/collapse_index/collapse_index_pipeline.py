@@ -315,6 +315,10 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     return best_title, v2_scored
 
 
+# Real business-inquiries contact, per explicit request — every published
+# description was missing this entirely across all 5 channels.
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["evidence_room","control_files"]},
@@ -2852,6 +2856,7 @@ those are added separately afterward."""
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
         desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        desc += f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
         desc += citations_block
         desc += f"\n\n{hashtags}"
         return desc
@@ -2859,6 +2864,7 @@ those are added separately afterward."""
             f"Subscribe for new investigations every week."
             f"{cross_promo_txt}\n\n"
             f"⚠️ This video features AI-assisted narration and editing."
+            f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
             f"{citations_block}\n\n"
             f"{hashtags}")
 
