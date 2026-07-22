@@ -2860,8 +2860,14 @@ those are added separately afterward."""
         desc += citations_block
         desc += f"\n\n{hashtags}"
         return desc
+    # FIX (found on deep re-audit): this fallback (used when ai_generate
+    # fails entirely) dropped chapters_text completely — a video with
+    # real, working timestamp chapters would still publish with NO
+    # chapters section in its description on an AI outage. Now included,
+    # same as the primary path.
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"Subscribe for new investigations every week."
+            f"Subscribe for new investigations every week.\n\n"
+            f"{chapters_text or '0:00 Introduction'}"
             f"{cross_promo_txt}\n\n"
             f"⚠️ This video features AI-assisted narration and editing."
             f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
