@@ -329,21 +329,47 @@ CROSS_PROMO = {
     "betrayal_deepdive": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
-                 "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
-    # FIX: was previously only a 2-channel entry (self + BetrayalDeepDive/
-    # Evidence Room, duplicated keys meant only the 2nd definition ever
-    # actually applied) despite the empire having 5 channels. Every
-    # channel's CROSS_PROMO should mention all 4 *other* channels, matching
-    # the same real fix already applied to Ch1/Ch2.
+    "evidence_room": {
+        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
+    },
+    "control_files": {
+        "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
+                 "🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
+    },
+    # FIX (found on deep re-audit): this dict only ever had 2 keys (self +
+    # BetrayalDeepDive) despite the empire having 5 channels — archive's
+    # OWN description already resolved correctly since its own key existed,
+    # but any caller looking up "evidence_room"/"control_files"/
+    # "collapse_index" from this file would have silently fallen back to
+    # Ch1's promo block (get_cross_promo's default). Filled out to match
+    # the canonical 5-key dict already correct in evidence_room_pipeline.py.
     "archive": {
         "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
-                 "🤖 AI/tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
+                 "📺 New investigation every weekday.",
+        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+    },
+    "collapse_index": {
+        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
+                 "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
+                 "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
         "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
