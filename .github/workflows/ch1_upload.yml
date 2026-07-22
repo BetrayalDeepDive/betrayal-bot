@@ -20,7 +20,12 @@ env:
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # FIX (found on deep re-audit): the post-upload sprint's growth-engine
+    # call is now a blocking subprocess.run (up to 40 min) on top of its
+    # own internal 30-min sleep before the comment-reply engine — 60 min
+    # total job budget was too tight, matching the 90-min bump already
+    # applied to ch3/ch4/ch5_upload.yml for the same reason.
+    timeout-minutes: 90
     permissions:
       contents: write
 
@@ -128,6 +133,13 @@ jobs:
           # The unified audit search engine writes its index here, after
           # confirmed success — same persistence discipline as everything else.
           git add channels/betrayal_deepdive/audit_index.json || true
+          # FIX (found on deep re-audit): attach_video_id/record_format_ctr
+          # (video_pipeline/thumbnail_formats.py) both run during the
+          # UPLOAD phase, updating thumb_format_history.json — but only
+          # generate.yml git-added it. Any update made here, on a
+          # separate runner, was never actually committed.
+          git add channels/betrayal_deepdive/thumb_format_history.json || true
+          git add channels/betrayal_deepdive/shorts_format_history.json || true
           # Companion pages only get generated here (need the real published
           # URL, which doesn't exist until upload succeeds) — this is the
           # ONLY workflow that ever writes to docs/.

@@ -5751,10 +5751,23 @@ def main():
             # Same category of bug found and fixed in master_pipeline.py
             # earlier — Popen doesn't wait for or check the subprocess, so
             # this failed silently every single run with zero trace.
-            subprocess.Popen(
-                ["python3", str(Path(__file__).parent.parent.parent /
-                               "video_pipeline" / "growth_engine.py")],
-                env=env_ext)
+            #
+            # FIX (found on deep re-audit): the path was already correct
+            # here, but this was still fire-and-forget Popen — Ch3/Ch4
+            # were already upgraded to a blocking subprocess.run because
+            # run_post_upload_sprint sleeps 30 minutes before its comment-
+            # reply engine runs, and GitHub Actions tears down the entire
+            # process tree within seconds of the job's last step. A
+            # detached Popen child here would almost certainly be killed
+            # mid-sleep every time too, regardless of the correct path.
+            _ge_path = Path(__file__).parent.parent.parent / "video_pipeline" / "growth_engine.py"
+            if not _ge_path.exists():
+                log(f"  Growth engine NOT FOUND at {_ge_path} — skipping sprint")
+            else:
+                try:
+                    subprocess.run(["python3", str(_ge_path)], env=env_ext, timeout=2400)
+                except subprocess.TimeoutExpired:
+                    log("  Growth engine sprint exceeded 40min budget — moving on")
         except Exception as ge: log(f"  Growth engine (non-fatal): {ge}")
 
         # v15: Hype notification — free Explore leaderboard push

@@ -5933,19 +5933,34 @@ def main():
                 "SPRINT_PLAYLIST_ID":  playlist_id or "",
                 "SPRINT_SCRIPT_PATH":  sprint_script_path,
             })
-            # FIX: this pointed at channels/growth_engine/growth_engine.py,
-            # a path that doesn't exist — the real file lives right next to
-            # master_pipeline.py. Because this uses Popen (fire-and-forget,
-            # doesn't wait for or check the subprocess), the wrong path
-            # failed silently INSIDE that separate process every single
-            # time — python3 printed "can't open file" to its own stderr,
-            # which nothing here ever captured or reported. This is very
-            # likely the actual reason growth-engine features (hype
-            # notifications, comment engine, CTR recovery) never visibly
-            # ran, with zero error anywhere to point at.
-            subprocess.Popen(
-                ["python3", str(Path(__file__).parent / "growth_engine.py")],
-                env=env_ext)
+            # FIX (found on deep re-audit): this pointed at
+            # channels/betrayal_deepdive/growth_engine.py — a path that
+            # doesn't exist (an earlier "fix" comment here claimed the
+            # real file "lives right next to master_pipeline.py," but the
+            # real file is video_pipeline/growth_engine.py, a SIBLING of
+            # channels/, not inside it — verified via Path.exists()).
+            # Because this used Popen (fire-and-forget, never checked),
+            # the wrong path failed silently INSIDE that separate process
+            # every single time — this is very likely the actual reason
+            # growth-engine features (hype notifications, comment engine,
+            # CTR recovery, caption/pinned-comment update) never visibly
+            # ran for this channel, with zero error anywhere to point at.
+            #
+            # Also switched from Popen to a blocking subprocess.run with a
+            # real timeout, matching the fix already applied to Ch3/Ch4:
+            # run_post_upload_sprint sleeps 30 minutes before its comment-
+            # reply engine runs, and GitHub Actions tears down the entire
+            # process tree within seconds of the job's last step — a
+            # detached Popen child would almost certainly be killed
+            # mid-sleep every time, regardless of the path being correct.
+            _ge_path = Path(__file__).parent.parent.parent / "video_pipeline" / "growth_engine.py"
+            if not _ge_path.exists():
+                log(f"  Growth engine NOT FOUND at {_ge_path} — skipping sprint")
+            else:
+                try:
+                    subprocess.run(["python3", str(_ge_path)], env=env_ext, timeout=2400)
+                except subprocess.TimeoutExpired:
+                    log("  Growth engine sprint exceeded 40min budget — moving on")
         except Exception as ge:
             log(f"  Growth engine sprint (non-fatal): {ge}")
 

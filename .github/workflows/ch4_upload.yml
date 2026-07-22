@@ -160,6 +160,13 @@ jobs:
           # so the queue genuinely frees up for the next episode instead
           # of silently never having existed from git's perspective.
           git add channels/archive/review_queue.json || true
+          # FIX (found on deep re-audit): attach_video_id/record_format_ctr
+          # (video_pipeline/thumbnail_formats.py) both run during the
+          # UPLOAD phase, updating thumb_format_history.json — but only
+          # generate.yml git-added it. Any update made here, on a
+          # separate runner, was never actually committed.
+          git add channels/archive/thumb_format_history.json || true
+          git add channels/archive/shorts_format_history.json || true
           # CRITICAL FIX: render_companion_page() writes a new page to
           # docs/controlfiles/ep{N}.html during this same confirmed-publish
           # step — without committing docs/ here, every companion page

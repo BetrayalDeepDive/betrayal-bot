@@ -46,12 +46,17 @@ CHANNELS = {
         "client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
         "refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
-        # FIX: this had 3 .parent calls, resolving to a path OUTSIDE the
-        # repo entirely (growth_engine.py already lives IN video_pipeline/,
-        # so its own state.json needs just 1 .parent, not 3) — verified
-        # against the real repo structure via actual path computation,
-        # not assumed.
-        "state_file":    Path(__file__).parent / "state.json",
+        # FIX (found on deep re-audit): the previous "1 .parent, not 3"
+        # fix was itself wrong — it resolves to video_pipeline/state.json,
+        # which doesn't exist. betrayal_deepdive's real state.json lives
+        # at channels/betrayal_deepdive/state.json, same as every other
+        # channel below. Verified directly: Path(...).exists() was False
+        # before this fix. This broke update_previous_episode_pinned_comment
+        # (always returned early) and made attach_video_id/record_format_ctr
+        # write thumb_format_history.json to video_pipeline/ instead of
+        # channels/betrayal_deepdive/, where thumbnail_engine_v2.py
+        # actually looks for it.
+        "state_file":    Path(__file__).parent.parent / "channels" / "betrayal_deepdive" / "state.json",
         "cta_style":     "dark_horror",
     },
     "evidence_room": {

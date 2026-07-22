@@ -1453,12 +1453,30 @@ def upload_instagram_reel(video_path: str, caption: str) -> bool:
 # building a separate 9:16 renderer from scratch; YouTube's thumbnails.set
 # endpoint accepts the same 16:9 image for Shorts as for regular videos.
 def generate_short_thumbnail(title, hook_text, niche_name, work_dir):
+    """
+    FIX (found on deep re-audit): this never passed cache_dir, so every
+    Shorts thumbnail skipped the 11-format learning loop and avatar
+    caching entirely (both gated on cache_dir inside generate_thumbnail_v2)
+    despite _channel_cache_dir already being used elsewhere in this same
+    file for the script presentation-format variety. Also hardcoded
+    episode=1 always, so every Shorts thumbnail's badge showed "EP.1" —
+    now uses the real, ever-growing thumb_format_history length as a
+    genuine incrementing counter (Shorts don't have a natural episode
+    number the way main videos do).
+    """
     try:
         from thumbnail_engine_v2 import generate_thumbnail_v2
+        from thumbnail_formats import load_format_history
+        cache_dir = _channel_cache_dir(_active_channel_id)
+        try:
+            pseudo_episode = len(load_format_history(cache_dir)) + 1
+        except Exception:
+            pseudo_episode = 1
         return generate_thumbnail_v2(
             title=title, thumb_text=(hook_text or title)[:20].upper(),
             niche_name=niche_name, topic=title,
-            channel_name=CHANNEL, episode=1, work_dir=work_dir, ab_variant="A",
+            channel_name=CHANNEL, episode=pseudo_episode, work_dir=work_dir, ab_variant="A",
+            cache_dir=cache_dir,
         )
     except Exception as e:
         log.warning("Short thumbnail generation failed (non-fatal): %s", e)
