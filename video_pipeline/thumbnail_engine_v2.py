@@ -390,6 +390,15 @@ NICHE_PROFILES = {
             "purple backlight no faces atmospheric cinematic"
         ),
         "composition":     "text_center",
+        # FIX (found on deep re-audit): Control Files' 6 niches had
+        # profiles but none had thumbnail_families — every thumbnail here
+        # fell through to old open-ended generation instead of the "3
+        # fixed families, brand consistency" system Ch1/Ch2 already have.
+        "thumbnail_families": [
+            "single ritual object extreme closeup dramatic shadow ominous 8k",
+            "empty meeting hall rows of chairs dramatic purple lighting 8k",
+            "hooded figures circle overhead view dramatic shadow 8k",
+        ],
     },
     "propaganda_systems": {
         "bg_color":        (8, 2, 2),
@@ -409,6 +418,11 @@ NICHE_PROFILES = {
             "no faces atmospheric cinematic"
         ),
         "composition":     "text_upper_third",
+        "thumbnail_families": [
+            "faded propaganda poster torn edge extreme closeup dramatic 8k",
+            "empty broadcast studio single microphone dramatic red lighting 8k",
+            "crowd of shadows marching overhead dramatic red backlight 8k",
+        ],
     },
     "social_engineering": {
         "bg_color":        (2, 4, 8),
@@ -428,6 +442,11 @@ NICHE_PROFILES = {
             "blue lighting no face cinematic atmospheric"
         ),
         "composition":     "text_center",
+        "thumbnail_families": [
+            "single phone screen glowing fake message extreme closeup dramatic 8k",
+            "network web of connected nodes dramatic blue lighting 8k",
+            "hand reaching through screen dramatic blue backlight 8k",
+        ],
     },
     "mass_deception": {
         "bg_color":        (4, 2, 6),
@@ -447,6 +466,11 @@ NICHE_PROFILES = {
             "purple light no faces atmospheric cinematic"
         ),
         "composition":     "text_center",
+        "thumbnail_families": [
+            "cracked mirror fractured reflection extreme closeup dramatic 8k",
+            "television static wall of screens dramatic purple lighting 8k",
+            "crowd facing giant screen overhead dramatic purple light 8k",
+        ],
     },
     # FIX: added — these 2 niches existed in control_files_pipeline.py with
     # full seed topics and RPM data but had no thumbnail profile at all;
@@ -470,6 +494,11 @@ NICHE_PROFILES = {
             "gold backlight no face atmospheric cinematic"
         ),
         "composition":     "text_center",
+        "thumbnail_families": [
+            "shredded financial documents extreme closeup dramatic gold lighting 8k",
+            "empty corporate boardroom long table dramatic gold lighting 8k",
+            "executive silhouette signing document dramatic gold backlight 8k",
+        ],
     },
     "scams_fraud_exposed": {
         "bg_color":        (6, 2, 2),
@@ -489,6 +518,11 @@ NICHE_PROFILES = {
             "backlight no face atmospheric cinematic"
         ),
         "composition":     "text_upper_third",
+        "thumbnail_families": [
+            "single phone with scam call alert extreme closeup dramatic orange 8k",
+            "empty call center rows of headsets dramatic orange lighting 8k",
+            "silhouette on phone late night dramatic orange backlight 8k",
+        ],
     },
     # FIX (found on deep re-audit): body_cam_police, courtroom_drama, and
     # robbery_documentaries are 3 of Evidence Room's 7 real niches but had
