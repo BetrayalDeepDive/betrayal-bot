@@ -2801,7 +2801,16 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
     ffmpeg_cmd += ["-c:v","libx264","-preset","medium","-crf","19",
                     "-c:a","aac","-b:a","192k","-t",str(duration),
                     "-pix_fmt","yuv420p","-movflags","+faststart","-shortest",final]
-    subprocess.run(ffmpeg_cmd, capture_output=True, timeout=2400)
+    # FIX (found on deep re-audit): this was the one ffmpeg call in this
+    # function with no returncode check at all — the step that actually
+    # bakes narration audio and burned captions into the frames. WORK_DIR
+    # is a fixed, non-per-run path, so a failed mux here could silently
+    # leave a stale final.mp4 from an earlier call in the same run (e.g.
+    # a swap_voice/edit re-render) looking like a successful new one.
+    _mux_result = subprocess.run(ffmpeg_cmd, capture_output=True, timeout=2400)
+    if _mux_result.returncode != 0 or not Path(final).exists() or Path(final).stat().st_size < 500000:
+        err = _mux_result.stderr.decode("utf-8", "ignore")[-300:]
+        raise RuntimeError(f"FFmpeg audio+caption mux failed: {err}")
     log(f"  Video: {Path(final).stat().st_size/1024/1024:.0f}MB | 1080p | "
         f"{'Real synced captions' if ass_path else 'No captions (real sync unavailable this episode)'}")
 
@@ -6044,8 +6053,14 @@ def main():
                 _audio_score, _audio_breakdown = None, None
             try:
                 _real_video_duration = get_media_duration(video_path)
+                # FIX (found on deep re-audit): score_video_quality defaults
+                # to expected_width=1280/height=720, but this channel renders
+                # at W,H=1920,1080 — every episode was silently docked ~25%
+                # weight of its video score for a "resolution mismatch" that
+                # wasn't real, since nothing here ever overrode the default.
                 _video_score, _video_breakdown = score_video_quality(
-                    video_path, _real_video_duration, duration, content_type="animated")
+                    video_path, _real_video_duration, duration, content_type="animated",
+                    expected_width=W, expected_height=H)
             except Exception as e:
                 log(f"  Video scoring (non-fatal): {e}")
                 _video_score, _video_breakdown = None, None
