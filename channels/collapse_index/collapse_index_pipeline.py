@@ -361,9 +361,14 @@ def build_product_cta(channel_id):
 
 
 CHAPTER_STRUCTURES = {
+    # FIX (found on deep re-audit): this was a verbatim copy of
+    # betrayal_deepdive's true-crime/betrayal chapter labels ("The Case
+    # Begins," "The Revelation," "The Aftermath") — wrong framing for a
+    # channel about AI/tech/business collapses and financial breakdowns.
+    # Replaced with labels that actually fit this channel's real content.
     "collapse_index": [
-        (0.00,"The Case Begins"),(0.10,"Before It Happened"),(0.28,"First Warning Signs"),
-        (0.45,"Escalation"),(0.60,"The Revelation"),(0.78,"The Aftermath"),(0.90,"What This Means"),
+        (0.00,"The Setup"),(0.10,"How It Was Built"),(0.28,"Warning Signs Ignored"),
+        (0.45,"The Trigger Point"),(0.60,"The Collapse"),(0.78,"The Real Numbers"),(0.90,"What This Means For You"),
     ],
     "evidence_room": [
         (0.00,"Case File Opened"),(0.10,"The Subject"),(0.28,"First Anomalies"),
@@ -545,7 +550,10 @@ CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner resta
 # ================================================================
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
-MIN_GATE   = 8.5   # attempts 1-8 — the real standard, per explicit graduated-gate spec
+MIN_GATE   = 8.8   # FIX (found on deep re-audit): was 8.5 — archive/control_files
+                    # were already raised to 8.8 per the explicit "8.8-8.9 minimum,
+                    # every time" empire-wide directive; this channel was never
+                    # updated to match. attempts 1-8.
 FINAL_GATE = 6.9   # absolute last-resort floor, attempt 13 only, never crossed below
 
 # Word targets per stage (sum = MIN_WORDS baseline)
@@ -6829,6 +6837,17 @@ def main():
                                         sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
+                # FIX (found on deep re-audit): REMAKE was never handled
+                # here at all — it fell through every branch and the loop
+                # just re-sent the identical unedited script for review
+                # again, silently ignoring a human's explicit "scrap this
+                # episode" request. Ch2/Ch3/Ch4 all already treat REMAKE
+                # at the script checkpoint as ending the episode.
+                if _review["decision"] == "remake":
+                    tg("🔄 Ch5: REMAKE requested at script review — scrapping this episode entirely.")
+                    log("  REMAKE requested during script review — clearing pending, exiting.")
+                    clear_pending(SCRIPT_DIR)
+                    sys.exit(0)
                 if _review["decision"] == "approve":
                     break
                 if _review["decision"] == "edit" and _stage_texts:

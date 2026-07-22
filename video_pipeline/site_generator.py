@@ -70,6 +70,21 @@ PRODUCT_ROUTES = {
         "headline": "Want the full control-systems pattern library?",
         "cta_button": "Get the Dark Manipulation Tactics Handbook",
     },
+    # FIX (found on deep re-audit): archive and collapse_index were both
+    # missing here too — their companion static-site pages rendered with
+    # no product CTA at all, even though each channel already has a real,
+    # dedicated product (monetization.py's GUMROAD_CONFIG) promoted in
+    # their own video descriptions via build_product_cta().
+    "archive": {
+        "product_id": "empire-collapse-atlas",
+        "headline": "Want the full pattern history behind this collapse?",
+        "cta_button": "Get the Empire Collapse Atlas",
+    },
+    "collapse_index": {
+        "product_id": "financial-red-flags-field-guide",
+        "headline": "Want to spot these red flags before they cost you?",
+        "cta_button": "Get the Financial Red Flags Field Guide",
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════

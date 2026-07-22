@@ -470,7 +470,10 @@ CEREBRAS_MODELS = ["llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-7
 W, H, FPS   = 1920, 1080, 24
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
-MIN_GATE    = 8.5   # attempts 1-8 — matches Ch1's graduated-gate spec exactly
+MIN_GATE    = 8.8   # FIX (found on deep re-audit): was 8.5 — archive/control_files
+                     # were already raised to 8.8 per the explicit "8.8-8.9 minimum,
+                     # every time" empire-wide directive; this channel was never
+                     # updated to match. attempts 1-8.
 FINAL_GATE  = 6.9   # absolute last-resort floor, attempt 13 only
 
 # ════════════════════════════════════════════════════════════
@@ -4962,6 +4965,16 @@ def search_real_cases(niche_name, topic_hint):
         "criminal_investigation": f"criminal investigation evidence documented case {topic_hint.split()[0] if topic_hint else ''}",
         "corporate_exposure":     f"corporate fraud scandal documented case {topic_hint.split()[0] if topic_hint else ''}",
         "digital_forensics":      f"cybercrime digital forensics documented case {topic_hint.split()[0] if topic_hint else ''}",
+        # FIX (found on deep re-audit): body_cam_police, courtroom_drama,
+        # and robbery_documentaries are 3 of this channel's 7 real niches
+        # (see NICHES below) but had no entry here — every research call
+        # for these 3 niches fell through to the generic fallback query,
+        # weakening the real-case grounding fed into the script prompt.
+        # Same "3 niches missing" bug class already fixed this session
+        # for this channel's CTA_BANK.
+        "body_cam_police":        f"police body camera footage documented case {topic_hint.split()[0] if topic_hint else ''}",
+        "courtroom_drama":        f"courtroom trial verdict documented case {topic_hint.split()[0] if topic_hint else ''}",
+        "robbery_documentaries":  f"robbery heist investigation documented case {topic_hint.split()[0] if topic_hint else ''}",
     }
     query = niche_queries.get(niche_name,
                                (topic_hint.split()[0] if topic_hint else "case") + " documented case")

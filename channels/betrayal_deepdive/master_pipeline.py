@@ -431,7 +431,10 @@ CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner resta
 # ================================================================
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
-MIN_GATE   = 8.5   # attempts 1-8 — the real standard, per explicit graduated-gate spec
+MIN_GATE   = 8.8   # FIX (found on deep re-audit): was 8.5 — archive/control_files
+                    # were already raised to 8.8 per the explicit "8.8-8.9 minimum,
+                    # every time" empire-wide directive; this channel was never
+                    # updated to match. attempts 1-8.
 FINAL_GATE = 6.9   # absolute last-resort floor, attempt 13 only, never crossed below
 
 # Word targets per stage (sum = MIN_WORDS baseline)
@@ -6081,6 +6084,17 @@ def main():
                                         sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
+                # FIX (found on deep re-audit): REMAKE was never handled
+                # here at all — it fell through every branch and the loop
+                # just re-sent the identical unedited script for review
+                # again, silently ignoring a human's explicit "scrap this
+                # episode" request. Ch2/Ch3/Ch4 all already treat REMAKE
+                # at the script checkpoint as ending the episode.
+                if _review["decision"] == "remake":
+                    tg("🔄 Ch1: REMAKE requested at script review — scrapping this episode entirely.")
+                    log("  REMAKE requested during script review — clearing pending, exiting.")
+                    clear_pending(SCRIPT_DIR)
+                    sys.exit(0)
                 if _review["decision"] == "approve":
                     break
                 if _review["decision"] == "edit" and _stage_texts_ch1:

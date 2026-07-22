@@ -28,6 +28,42 @@ from pathlib import Path
 # ── CREDENTIALS ────────────────────────────────────────────────────────────────
 TG_TOKEN       = os.environ.get("TELEGRAM_TOKEN", "")
 TG_CHAT        = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# FIX (found on deep re-audit): tg() only ever read the plain, generic
+# TELEGRAM_TOKEN/TELEGRAM_CHAT_ID globals above — no per-channel
+# awareness at all, unlike shorts_reels_engine.py's own
+# TG_CREDENTIAL_ENV_BY_CHANNEL/set_active_channel pattern. Since this
+# module is spawned via subprocess with env=os.environ.copy() from each
+# channel's own post-upload sprint, and ch3/ch4/ch5's workflows
+# deliberately leave the generic TELEGRAM_TOKEN/CHAT_ID as the shared/Ch1
+# bot (their real per-channel bot lives in TELEGRAM_TOKEN_CH3/4/5 instead,
+# used correctly by each pipeline's own tg() calls), every growth-engine
+# sprint notification (first-hour sprint, hype push, CTR-recovery alerts,
+# comment-engine issues) for Ch3/Ch4/Ch5 was silently going to the
+# shared/Ch1 bot instead of each channel's own. Ch2's workflow instead
+# aliases the generic name directly, so this lookup harmlessly returns
+# the same value there. run_post_upload_sprint() re-points the TG_TOKEN/
+# TG_CHAT globals to the right bot before sending anything, the same way
+# shorts_reels_engine.py's set_active_channel() does for its own globals.
+TG_CREDENTIAL_ENV_BY_CHANNEL = {
+    "betrayal_deepdive": ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"),
+    "evidence_room":     ("TELEGRAM_TOKEN_CH2", "TELEGRAM_CHAT_ID_CH2"),
+    "control_files":     ("TELEGRAM_TOKEN_CH3", "TELEGRAM_CHAT_ID_CH3"),
+    "archive":           ("TELEGRAM_TOKEN_CH4", "TELEGRAM_CHAT_ID_CH4"),
+    "collapse_index":    ("TELEGRAM_TOKEN_CH5", "TELEGRAM_CHAT_ID_CH5"),
+}
+
+
+def set_active_channel_telegram(channel_id):
+    """Re-points the module-level TG_TOKEN/TG_CHAT globals at this
+    channel's own bot, falling back to the generic shared bot if the
+    per-channel secret isn't actually set — same safety net
+    shorts_reels_engine.py already uses."""
+    global TG_TOKEN, TG_CHAT
+    token_env, chat_env = TG_CREDENTIAL_ENV_BY_CHANNEL.get(
+        channel_id, ("TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"))
+    TG_TOKEN = os.environ.get(token_env) or os.environ.get("TELEGRAM_TOKEN", "")
+    TG_CHAT  = os.environ.get(chat_env) or os.environ.get("TELEGRAM_CHAT_ID", "")
 CEREBRAS_KEY   = os.environ.get("CEREBRAS_API_KEY", "")
 SAMBANOVA_KEY  = os.environ.get("SAMBANOVA_API_KEY", "")
 GEMINI_KEY     = os.environ.get("GEMINI_API_KEY", "")
@@ -1879,6 +1915,8 @@ def run_post_upload_sprint():
     duration    = float(os.environ.get("SPRINT_DURATION_SECS", "0"))
     shorts_urls = [s.strip() for s in shorts_raw.split(",") if s.strip()]
 
+    set_active_channel_telegram(channel_id)
+
     if not video_url:
         log("Sprint: no video URL"); return
 
@@ -1963,6 +2001,7 @@ def run_weekly_cycle():
             continue
 
         log(f"\n  Channel: {ch['name']}")
+        set_active_channel_telegram(channel_id)
         try:
             token = get_yt_token(channel_id)
             if not token:

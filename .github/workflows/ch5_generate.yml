@@ -91,6 +91,12 @@ jobs:
           NEWS_API_KEY:              ${{ secrets.NEWS_API_KEY }}
           TELEGRAM_TOKEN:            ${{ secrets.TELEGRAM_TOKEN }}
           FISH_AUDIO_API_KEY:    ${{ secrets.FISH_AUDIO_API_KEY }}  # optional TTS backup — leave secret empty/unset if not using it
+          # FIX (found on deep re-audit): collapse_index_pipeline.py reads
+          # ELEVENLABS_API_KEY and uses it as a real premium TTS tier,
+          # identically to Ch1 — this was the only channel besides Ch1 to
+          # reference it in code, but the only one of the two missing it
+          # from its workflow, so it silently never had this path.
+          ELEVENLABS_API_KEY:    ${{ secrets.ELEVENLABS_API_KEY }}
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID }}
           # v5 addition: Ch5's own dedicated bot (The Collapse Index Bot,
           # already created per the project owner) — matches the exact

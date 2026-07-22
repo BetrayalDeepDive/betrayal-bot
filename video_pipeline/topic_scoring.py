@@ -44,6 +44,14 @@ PRODUCT_ROUTES = {
     # entry silently got product_route="" instead of the correct handbook
     # mapping, even though nothing crashed.
     "control_files":     "dark-manipulation-tactics-handbook",
+    # FIX (found on deep re-audit): archive and collapse_index were both
+    # missing here too — every one of their topic-backlog entries
+    # silently got product_route="" despite each channel having a real,
+    # dedicated product (monetization.py's GUMROAD_CONFIG, and each
+    # channel's own build_product_cta() already promotes these in video
+    # descriptions).
+    "archive":           "empire-collapse-atlas",
+    "collapse_index":    "financial-red-flags-field-guide",
 }
 
 
