@@ -1,10 +1,13 @@
 # ============================================================
-# THE ARCHIVE — Ch5 Generation Workflow
+# THE COLLAPSE INDEX — Ch5 Generation Workflow
 # Phase 1: GENERATE only (no upload)
-# Runs: Mon-Fri 3:30 AM IST = 22:00 UTC (3h after Ch2 generate)
+# Runs: Mon-Fri 8:30 AM IST = 03:00 UTC (2.5h after Ch4 generate)
 # Full token quota recovery — all providers reset between runs
-# Niches: Cult Psychology, Propaganda Systems, Social Engineering,
-#         Mass Deception, Dark Business Docs, Scams & Fraud Exposed
+# Niches: AI Startup Collapse, Tech Company Collapse, Crypto Collapse,
+#         Cybersecurity Disasters, Product Flops, Dot-Com Era Collapse,
+#         Personal Finance Mistakes, Investing Fundamentals, Retirement
+#         Planning, Credit & Debt Repair, Real Estate Affordability,
+#         Stock Market Crashes History, Budgeting & Saving Strategies
 # Features: 13-attempt graduated quality gate (8.8/7.0/6.9), whiteboard/
 #           doodle stroke-reveal animation, SSML multi-rate + Kokoro
 #           local TTS, real cold-open scoring, pattern memory, real-case

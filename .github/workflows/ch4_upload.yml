@@ -1,8 +1,8 @@
 # ============================================================
 # THE ARCHIVE — Ch4 Upload Workflow
 # Phase 2: UPLOAD only (reads pending_upload.json from repo)
-# Runs: Tue-Sat 12:30 AM IST = 19:00 UTC (1h after Ch2 upload)
-# US: 3 PM ET | UK: 8 PM BST — prime UK evening + US afternoon
+# Runs: Tue-Sat 1:30 AM IST = 20:00 UTC (1h after Ch3 upload)
+# US: 4 PM ET | UK: 9 PM BST — prime UK evening + US afternoon
 # ============================================================
 name: Ch4 The Archive — Upload
 
