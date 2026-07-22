@@ -1661,6 +1661,24 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     except Exception as e:
         log(f"  Pattern memory / weekly strategy (non-fatal): {e}")
 
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # the above is weekly (weekly_report.py) or AI-imagined (run_viral_
+    # intelligence). This is a genuinely real, DAILY refresh: real
+    # view/like counts and real title-word-frequency patterns from
+    # actual current top-performing videos in this niche, computed
+    # deterministically — not an AI guess. Cached per calendar day, so
+    # repeated attempts the same day (this function runs once per
+    # attempt, up to 13x) reuse the same fetch rather than re-hitting
+    # the API every time.
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_token = get_yt_token()
+        _daily_intel = fetch_daily_competitor_research(niche, _daily_token, str(SCRIPT_DIR))
+        if _daily_intel.get("research_block"):
+            anchor_block += f"\n\n{_daily_intel['research_block']}\n"
+    except Exception as e:
+        log(f"  Daily competitor research (non-fatal): {e}")
+
     # FIX: get_research_context (and the real search_real_cases /
     # extract_real_case_facts chain underneath it) existed fully built —
     # searches Google News RSS and Reddit for REAL documented cases
@@ -4156,12 +4174,27 @@ def run_stage1(state):
             # hiccup), fall back to no real-trend data rather than break
             # generation. This is genuinely real data, unlike the AI-imagined
             # "intel" system below.
+            real_trend_token = None
             try:
                 real_trend_token = get_yt_token()
                 real_trending_titles = fetch_real_trending_titles(niche, real_trend_token)
             except Exception as e:
                 log(f"  Real trend fetch skipped (non-fatal): {e}")
                 real_trending_titles = []
+            # NEW FEATURE (per explicit request — daily competitive
+            # research): fetch_real_trending_titles above is title-only;
+            # daily_competitor_research also has real view/like counts,
+            # cached per calendar day. Merged in here so title generation
+            # sees the same real, richer signal script generation now
+            # gets (deduplicated, real titles first).
+            try:
+                from daily_competitor_research import fetch_daily_competitor_research
+                _daily_intel_titles = fetch_daily_competitor_research(niche, real_trend_token, str(SCRIPT_DIR))
+                for _v in _daily_intel_titles.get("videos", []):
+                    if _v["title"] and _v["title"] not in real_trending_titles:
+                        real_trending_titles.append(_v["title"])
+            except Exception as e:
+                log(f"  Daily competitor research for titles (non-fatal): {e}")
             thumbnail_text     = generate_thumbnail_text(niche, topic, intel, register=shared_register)
             # FIX: enforce_number_noun existed fully built (ensures the
             # punchy NUMBER+NOUN thumbnail format — "$2.4M GONE", "47

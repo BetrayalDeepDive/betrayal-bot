@@ -1758,6 +1758,24 @@ def generate_script_content(niche, topic, episode, attempt,
         anchor_lines = "\n".join(f"  {k}: {v}" for k, v in anchors.items() if v)
         research_context = f"USE THESE SPECIFIC DETAILS:\n{anchor_lines}\n{research_context}"
 
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # real view/like counts and real title-word-frequency patterns from
+    # actual current top-performing videos in this niche, computed
+    # deterministically — not an AI guess. Cached per calendar day, so
+    # repeated attempts the same day reuse the same fetch rather than
+    # re-hitting the API every time. This function doesn't otherwise
+    # know which niche it's scoring for beyond `niche`/`topic`, so the
+    # fetch happens here, self-contained, same as generate_best_cold_open
+    # right above.
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_token = get_yt_token()
+        _daily_intel = fetch_daily_competitor_research(niche, _daily_token, str(SCRIPT_DIR))
+        if _daily_intel.get("research_block"):
+            research_context = f"{_daily_intel['research_block']}\n\n{research_context}"
+    except Exception as e:
+        log(f"  Daily competitor research (non-fatal): {e}")
+
     # FIX: generate_best_cold_open existed fully built — generates 3 real
     # variants and scores each on hook strength (specificity, sentence
     # length, dread keywords, avoiding weak openers) — but was never
@@ -5180,6 +5198,19 @@ def run_stage1(state):
     except Exception as e:
         log(f"  Trending titles fetch (non-fatal): {e}")
         trending = []
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # fetch_trending_titles above is title-only; daily_competitor_research
+    # also has real view/like counts, cached per calendar day. Merged in
+    # here so title generation sees the same real, richer signal (real
+    # titles first, deduplicated).
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_intel_titles = fetch_daily_competitor_research(niche, _yt_token_for_trends, str(SCRIPT_DIR))
+        for _v in _daily_intel_titles.get("videos", []):
+            if _v["title"] and _v["title"] not in trending:
+                trending.append(_v["title"])
+    except Exception as e:
+        log(f"  Daily competitor research for titles (non-fatal): {e}")
     used_topics    = []
     gate           = MIN_GATE
     best_score     = 0.0

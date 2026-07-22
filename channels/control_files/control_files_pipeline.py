@@ -4154,6 +4154,28 @@ def run_stage1(state):
     except Exception:
         _early_yt_token = None
     intel      = run_viral_intelligence(niche, yt_token=_early_yt_token)
+
+    # NEW FEATURE (per explicit request — daily competitive research):
+    # run_viral_intelligence above is still fundamentally an AI-imagined
+    # analysis (grounded in a handful of real titles as context, but the
+    # "patterns" themselves are AI-invented, and it's cached for 7 days,
+    # not daily). This is a genuinely real, DAILY refresh: real view/like
+    # counts and real title-word-frequency patterns from actual current
+    # top-performing videos in this niche, computed deterministically —
+    # not an AI guess. Enriches intel's winning_title_patterns with
+    # today's real top titles (used directly by both title generation
+    # and, via daily_research_block below, script generation).
+    daily_research_block = ""
+    try:
+        from daily_competitor_research import fetch_daily_competitor_research
+        _daily_intel = fetch_daily_competitor_research(niche, _early_yt_token, str(SCRIPT_DIR))
+        daily_research_block = _daily_intel.get("research_block", "")
+        if _daily_intel.get("videos"):
+            intel["winning_title_patterns"] = (
+                [v["title"] for v in _daily_intel["videos"][:3]] + intel.get("winning_title_patterns", []))
+    except Exception as e:
+        log(f"  Daily competitor research (non-fatal): {e}")
+
     used_topics = []
     best_score = 0.0
     best_script = best_scenes = best_title_str = best_thumbnail = best_tags = best_title_scores = None
@@ -4188,7 +4210,7 @@ def run_stage1(state):
         try:
             script_clean, scenes, title, thumb, tags, violations, real_cases = generate_script_and_scenes(
                 niche, topic, style_name, episode, attempt, intel, prev_title,
-                (pattern_hint + "\n\n" + weekly_strategy) if weekly_strategy else pattern_hint)
+                "\n\n".join(filter(None, [pattern_hint, weekly_strategy, daily_research_block])))
             wc = len(script_clean.split())
             score, issues = score_script_er(script_clean, wc, violations, topic)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w | MD:{violations}")
