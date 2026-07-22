@@ -359,5 +359,138 @@
     "status": "pending",
     "created_at": "2026-07-20T20:20:00.360037",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "e5845b232986",
+    "channel_id": "evidence_room",
+    "topic_text": "How a startup faked 340 million in due diligence with documents that took 8 minutes to produce",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The weakest dimension is product_fit, as the topic feels more like a one-off expos\u00e9 rather than a framework that can be easily reused or adapted into a broader product or resource.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:25:33.825663",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "2f46a2ccb246",
+    "channel_id": "evidence_room",
+    "topic_text": "The email thread \u2014 847 messages \u2014 that dismantled a decade of fraud in one discovery process",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is product_fit, as the topic feels more like a one-off story rather than a framework that can be universally applied or reused across different contexts.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:29:09.385356",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "fbba8d643387",
+    "channel_id": "evidence_room",
+    "topic_text": "A board of directors that approved 23 fraudulent invoices because nobody read past the summary page",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is product_fit because the topic feels like a one-off story rather than a reusable framework, limiting its long-term utility beyond a single narrative.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:32:39.789397",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "2b37d1a2acd4",
+    "channel_id": "evidence_room",
+    "topic_text": "Document trail showing a pharmaceutical company buried its own clinical trial data for 6 years",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 9.0,
+      "source_depth": 7.0,
+      "monetization_fit": 5.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 7.1,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is compelling, it doesn't naturally lend itself to a clear, actionable CTA beyond awareness or ad revenue, making it harder to monetize directly.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:35:21.949520",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "5eef30d1dac3",
+    "channel_id": "evidence_room",
+    "topic_text": "The Boardroom Betrayal: How a Family Business Was Sold Out for Profit",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is product_fit because the topic feels like a one-off story rather than a reusable framework, limiting its long-term utility beyond a single documentary.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:38:42.208470",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "8394bd7e5e7a",
+    "channel_id": "evidence_room",
+    "topic_text": "The Phantom Employees: Uncovering a Payroll Fraud Scheme That Cost Shareholders Millions",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is product_fit, as the topic feels more like a one-off expos\u00e9 than a reusable framework, limiting its utility beyond a single narrative.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:42:06.894992",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "cbd22daf04ba",
+    "channel_id": "evidence_room",
+    "topic_text": "The 2023 Boeing internal emails revealing 737 MAX production issues and regulatory concerns",
+    "niche_name": "corporate_exposure",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 6.0,
+      "source_depth": 8.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is compelling, it doesn't naturally lend itself to a clear product or resource beyond ad revenue, making it harder to monetize effectively.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-21T20:44:58.000784",
+    "produced_episode_number": null
   }
 ]
