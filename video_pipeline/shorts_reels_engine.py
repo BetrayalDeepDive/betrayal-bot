@@ -1786,7 +1786,17 @@ def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str
     except Exception as e:
         log.warning("Presentation format selection unavailable (non-fatal): %s", e)
 
-    script_data = llm_json(f"""Create a complete, standalone 45-55 second YouTube Short.
+    # FIX (found on deep re-audit): this function never called
+    # score_short_script()/check_three_second_rule() at all, and had no
+    # retry loop — unlike produce_standalone_short (the OTHER half of
+    # every channel's 4 daily Shorts), which pre-scores each script
+    # attempt and retries up to 3 times below a 7.0 bar. That meant the
+    # 3-second-hook check genuinely ran for only 2 of every channel's 4
+    # daily Shorts. Wired in the same pre-score-and-retry pattern here.
+    for attempt in range(3):
+        log.info("produce_video_topic_short attempt %d/3", attempt + 1)
+
+        script_data = llm_json(f"""Create a complete, standalone 45-55 second YouTube Short.
 Real topic: {main_topic}
 Real story details: {main_script[:500]}
 
@@ -1805,58 +1815,66 @@ Return JSON:
   "hook_text": "5-7 words overlay text",
   "hashtags": "{cfg['hashtags_base']} #shorts"}}""")
 
-    if not script_data:
-        return {"status": "failed", "reason": "script generation failed"}
+        if not script_data:
+            continue
 
-    voice = pick_voice(for_reels=False)
-    run_id = uuid.uuid4().hex[:8]
-    audio_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}.mp3")
-    srt_out   = audio_out.replace(".mp3", ".srt")
-    bg_out    = os.path.join(OUTPUT_DIR, f"bg_vtopic_{run_id}.mp4")
-    video_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}_final.mp4")
+        pre_score = score_short_script(script_data["script"], script_data["title"], script_data["hook_text"])
+        log.info("Pre-score: %.1f/10", pre_score["total"])
+        if pre_score["total"] < 7.0:
+            log.info("Pre-score too low, retrying topic")
+            continue
 
-    if not generate_audio(script_data["script"], voice, audio_out):
-        return {"status": "failed", "reason": "audio failed"}
+        voice = pick_voice(for_reels=False)
+        run_id = uuid.uuid4().hex[:8]
+        audio_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}.mp3")
+        srt_out   = audio_out.replace(".mp3", ".srt")
+        bg_out    = os.path.join(OUTPUT_DIR, f"bg_vtopic_{run_id}.mp4")
+        video_out = os.path.join(OUTPUT_DIR, f"vtopic_{run_id}_final.mp4")
 
-    generate_synced_subtitles(script_data["script"], audio_out, srt_out)
-    download_background_clip(cfg["bg_search_term"], bg_out)
+        if not generate_audio(script_data["script"], voice, audio_out):
+            continue
 
-    if not assemble_short_video(bg_out, audio_out, srt_out,
-                                 script_data["hook_text"], video_out):
-        return {"status": "failed", "reason": "assembly failed"}
+        generate_synced_subtitles(script_data["script"], audio_out, srt_out)
+        download_background_clip(cfg["bg_search_term"], bg_out)
 
-    # Custom thumbnail — same engine/flow as produce_standalone_short.
-    thumb_out = generate_short_thumbnail(script_data["title"], script_data["hook_text"],
-                                         cfg["default_niche"], OUTPUT_DIR)
-    has_thumb = bool(thumb_out and os.path.exists(thumb_out))
+        if not assemble_short_video(bg_out, audio_out, srt_out,
+                                     script_data["hook_text"], video_out):
+            continue
 
-    tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
-    url = upload_youtube_short(video_out, script_data["title"],
-                                script_data["script"] + "\n\n#Shorts", tags)
+        # Custom thumbnail — same engine/flow as produce_standalone_short.
+        thumb_out = generate_short_thumbnail(script_data["title"], script_data["hook_text"],
+                                             cfg["default_niche"], OUTPUT_DIR)
+        has_thumb = bool(thumb_out and os.path.exists(thumb_out))
 
-    if url and has_thumb:
-        try:
-            _vid_id = url.rstrip("/").split("/")[-1]
-            _token = get_yt_token()
-            if not set_short_thumbnail(_vid_id, thumb_out, _token):
-                log.warning("Custom Short thumbnail upload did not succeed")
-        except Exception as e:
-            log.warning("Custom Short thumbnail step failed (non-fatal): %s", e)
+        tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
+        url = upload_youtube_short(video_out, script_data["title"],
+                                    script_data["script"] + "\n\n#Shorts", tags)
 
-    for f in [audio_out, srt_out, bg_out, thumb_out]:
-        try:
-            if f:
-                os.remove(f)
-        except Exception:
-            pass
+        if url and has_thumb:
+            try:
+                _vid_id = url.rstrip("/").split("/")[-1]
+                _token = get_yt_token()
+                if not set_short_thumbnail(_vid_id, thumb_out, _token):
+                    log.warning("Custom Short thumbnail upload did not succeed")
+            except Exception as e:
+                log.warning("Custom Short thumbnail step failed (non-fatal): %s", e)
 
-    if not url:
-        tg(f"⚠️ *VIDEO-TOPIC SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
-           f"Video was assembled but the actual YouTube upload failed.")
-        return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
+        for f in [audio_out, srt_out, bg_out, thumb_out]:
+            try:
+                if f:
+                    os.remove(f)
+            except Exception:
+                pass
 
-    tg(f"⚡ *VIDEO-TOPIC SHORT UPLOADED*\n{script_data['title']}\n{url}")
-    return {"status": "success", "url": url, "local_path": video_out}
+        if not url:
+            tg(f"⚠️ *VIDEO-TOPIC SHORT FAILED TO UPLOAD*\n{script_data['title']}\n"
+               f"Video was assembled but the actual YouTube upload failed.")
+            return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
+
+        tg(f"⚡ *VIDEO-TOPIC SHORT UPLOADED*\n{script_data['title']}\n{url}")
+        return {"status": "success", "url": url, "local_path": video_out}
+
+    return {"status": "failed", "reason": "all attempts failed pre-score or assembly"}
 
 
 # FIX (found on direct user request, July 14 2026): produce_teaser_short
