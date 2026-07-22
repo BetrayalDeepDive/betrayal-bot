@@ -221,6 +221,17 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
 # description was missing this entirely across all 5 channels.
 BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
 
+# HONEST NOTE (found on final audit pass): none of the 4 URLs below are
+# real, trackable affiliate links yet — they're placeholder slugs on each
+# platform's own domain (e.g. betterhelp.com/deepdive isn't BetterHelp's
+# real referral-link format, amzn.to/deepdive-audible isn't a genuine
+# Amazon-issued short code). Getting real tracked links requires actually
+# signing up for each program (BetterHelp/NordVPN/CuriosityStream
+# Affiliates, Amazon Associates) and replacing these with the real URLs
+# each program issues — the same genuine manual step already documented
+# for Gumroad (monetization.py) and collapse_index's finance affiliates
+# below. Until then, these links will 404 or redirect to each platform's
+# homepage with zero affiliate credit, not fail outright.
 AFFILIATE_REGISTRY = {
     "betterhelp":   {"url": "https://betterhelp.com/deepdive",      "label": "BetterHelp therapy",       "channels": ["all"]},
     "nordvpn":      {"url": "https://nordvpn.com/deepdive",          "label": "NordVPN privacy",          "channels": ["evidence_room","control_files"]},
