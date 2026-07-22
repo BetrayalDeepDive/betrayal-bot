@@ -2957,31 +2957,96 @@ def generate_short_srt(script_clean, start, short_dur):
     srt.write_text("\n".join(entries),encoding="utf-8")
     return str(srt)
 
+# FIX (found on deep re-audit): niche_name was accepted here but never
+# referenced in the function body — every niche (forensic_finance,
+# criminal_investigation, corporate_exposure, digital_forensics,
+# body_cam_police, courtroom_drama, robbery_documentaries) got the
+# identical fixed EQ chain, unlike betrayal_deepdive/collapse_index which
+# already have real per-niche NICHE_AUDIO_PROFILES. Also the old
+# docstring claimed "reverb adds room depth" — no aecho/reverb filter
+# exists anywhere in this chain or Ch1's, so that was never accurate;
+# removed rather than propagated.
+NICHE_AUDIO_PROFILES = {
+    "forensic_finance": (
+        # Dry and clinical — precise, analytical, no warmth
+        "equalizer=f=300:width_type=o:width=2:g=-2,"
+        "equalizer=f=3000:width_type=o:width=2:g=3,"
+        "equalizer=f=8000:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-15dB:ratio=4:attack=3:release=40:makeup=3dB,"
+        "loudnorm=I=-16:LRA=8:TP=-1.5"
+    ),
+    "criminal_investigation": (
+        # Tense and present — bass forward, urgent
+        "equalizer=f=80:width_type=o:width=2:g=4,"
+        "equalizer=f=2500:width_type=o:width=2:g=2,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-18dB:ratio=4:attack=3:release=90:makeup=3dB,"
+        "loudnorm=I=-16:LRA=10:TP=-1.5"
+    ),
+    "corporate_exposure": (
+        # Cold and clean — bright, corporate, controlled
+        "equalizer=f=200:width_type=o:width=2:g=-1,"
+        "equalizer=f=3500:width_type=o:width=2:g=3,"
+        "equalizer=f=9000:width_type=o:width=2:g=-1,"
+        "acompressor=threshold=-16dB:ratio=3:attack=5:release=80:makeup=2dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+    "digital_forensics": (
+        # Cold and digital — tight, bright highs, minimal warmth
+        "equalizer=f=250:width_type=o:width=2:g=-2,"
+        "equalizer=f=4000:width_type=o:width=2:g=3,"
+        "equalizer=f=10000:width_type=o:width=2:g=0,"
+        "acompressor=threshold=-15dB:ratio=4:attack=2:release=50:makeup=3dB,"
+        "loudnorm=I=-16:LRA=8:TP=-1.5"
+    ),
+    "body_cam_police": (
+        # Raw and urgent — present mids, tighter dynamics
+        "equalizer=f=100:width_type=o:width=2:g=3,"
+        "equalizer=f=2000:width_type=o:width=2:g=3,"
+        "equalizer=f=8000:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-17dB:ratio=4:attack=2:release=60:makeup=3dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+    "courtroom_drama": (
+        # Formal and resonant — balanced, weighted authority
+        "equalizer=f=90:width_type=o:width=2:g=3,"
+        "equalizer=f=2500:width_type=o:width=2:g=2,"
+        "equalizer=f=7000:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-19dB:ratio=3:attack=5:release=100:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "robbery_documentaries": (
+        # Tense and urgent — bass forward, dynamic
+        "equalizer=f=70:width_type=o:width=2:g=4,"
+        "equalizer=f=2500:width_type=o:width=2:g=2,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-18dB:ratio=4:attack=3:release=90:makeup=3dB,"
+        "loudnorm=I=-16:LRA=10:TP=-1.5"
+    ),
+}
+DEFAULT_AUDIO_PROFILE = NICHE_AUDIO_PROFILES["forensic_finance"]
+
+
 def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     """
-    Transform edge-tts flat TTS into cinematic investigative narrator quality.
-    EQ boosts presence, reverb adds room depth, compression smooths dynamics.
+    Transform edge-tts flat TTS into cinematic investigative narrator
+    quality. EQ boosts presence, compression smooths dynamics. Uses
+    NICHE_AUDIO_PROFILES to select the real per-niche EQ chain, falling
+    back to the default if niche_name is unknown.
     """
     try:
         if output_path is None:
             output_path = input_path.replace(".mp3", "_eq.mp3").replace(".wav", "_eq.wav")
         if output_path == input_path:
             output_path = input_path + ".eq.mp3"
-        af = (
-            "equalizer=f=60:width_type=o:width=2:g=4,"
-            "equalizer=f=250:width_type=o:width=2:g=2,"
-            "equalizer=f=3000:width_type=o:width=2:g=-1,"
-            "equalizer=f=8000:width_type=o:width=2:g=-2,"
-                        "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
-            "loudnorm=I=-16:LRA=11:TP=-1.5"
-        )
+        af = NICHE_AUDIO_PROFILES.get(niche_name, DEFAULT_AUDIO_PROFILE)
 
         subprocess.run([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
         ], capture_output=True, timeout=300, check=True)
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
-            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
         log(f"  Audio processing (non-fatal): {e}")
@@ -3097,6 +3162,39 @@ def check_audio_quality(mp3_path, dur_expected):
         log(f"  Quality check error: {e}"); return False, None
 
 
+def _try_ssml_multirate_audio(script_clean, voice_id, niche_name):
+    """
+    FIX (found on deep re-audit): run_audio_with_ssml (multi-rate
+    narration — delivery pace varies by section, reads as a real
+    documentary narrator) was fully built here but never actually called
+    anywhere in this file — control_files/archive both already wired this
+    exact same function in via this exact wrapper. Falls back to None
+    (triggering the existing flat-rate chain) on any doubt, including
+    partial segment failure — a non-None return doesn't necessarily mean
+    every segment succeeded, so duration is checked against expectation
+    rather than trusted at face value.
+    """
+    try:
+        out, duration = run_audio_with_ssml(script_clean, niche_name, voice_id)
+        if not out or not Path(out).exists():
+            return None
+        wc = len(script_clean.split())
+        dur_expected = min((wc / 125.0) * 60.0, 1080.0)
+        if duration < dur_expected * 0.75:
+            log(f"  SSML audio ({duration:.0f}s) looks short vs {dur_expected:.0f}s "
+                f"expected — likely partial segment failure, falling back to flat-rate")
+            return None
+        sz = Path(out).stat().st_size
+        if sz < 200000:
+            log(f"  SSML audio file too small ({sz}b) — falling back to flat-rate")
+            return None
+        log(f"  ACCEPTED: SSML multi-rate | {sz/1024/1024:.1f}MB | {duration:.0f}s")
+        return out, duration, sz, f"ssml-multirate-{voice_id}"
+    except Exception as e:
+        log(f"  SSML multi-rate audio (non-fatal, falling back to flat-rate): {e}")
+        return None
+
+
 def run_stage3_audio(script_clean, voice_id, niche_name):
     log("\n"+"="*65)
     log(f"  STAGE 3: Human Voice Audio — {voice_id}")
@@ -3106,6 +3204,15 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     if len(_words) > MAX_WORDS:
         script_clean = " ".join(_words[:MAX_WORDS])
         log(f"  Script truncated to MAX_WORDS ({MAX_WORDS}w) for TTS reliability")
+
+    # FIX (found on deep re-audit): tried first now, matching Ch3/Ch4 —
+    # any failure or doubt falls straight through to the existing,
+    # thoroughly-tested flat-rate chain below, so this can only improve
+    # narration quality, never regress reliability.
+    ssml_result = _try_ssml_multirate_audio(script_clean, voice_id, niche_name)
+    if ssml_result:
+        return ssml_result
+
     wc           = len(script_clean.split())
     dur_expected = min((wc / 125.0) * 60.0, 1080.0)  # matches the real 18-min hard cap, not 15
     preferred    = NICHE_VOICES.get(niche_name, GB_VOICES[:4])

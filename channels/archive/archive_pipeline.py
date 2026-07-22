@@ -3155,30 +3155,104 @@ def generate_short_srt(script_clean, start, short_dur):
     srt.write_text("\n".join(entries),encoding="utf-8")
     return str(srt)
 
+# FIX (found on deep re-audit): niche_name was accepted here but never
+# referenced in the function body — every niche (egyptian_civilization,
+# chinese_civilization, mesopotamian_lost_civilizations,
+# islamic_civilization_history, fallen_empires_military_overstretch,
+# elite_betrayal_infighting, propaganda_institutional_decline,
+# modern_parallels) got the identical fixed EQ chain, unlike
+# betrayal_deepdive/collapse_index which already have real per-niche
+# NICHE_AUDIO_PROFILES. Also the old docstring claimed "reverb adds room
+# depth" — no aecho/reverb filter exists anywhere in this chain or Ch1's,
+# so that was never accurate; removed rather than propagated.
+NICHE_AUDIO_PROFILES = {
+    "egyptian_civilization": (
+        # Epic and warm — deep resonant bass, ancient weight
+        "equalizer=f=70:width_type=o:width=2:g=4,"
+        "equalizer=f=2000:width_type=o:width=2:g=2,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-19dB:ratio=3:attack=5:release=100:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "chinese_civilization": (
+        # Epic and formal — balanced depth, imperial gravitas
+        "equalizer=f=80:width_type=o:width=2:g=3,"
+        "equalizer=f=2200:width_type=o:width=2:g=2,"
+        "equalizer=f=8500:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-19dB:ratio=3:attack=5:release=95:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "mesopotamian_lost_civilizations": (
+        # Ancient and deep — heavy warm bass, mysterious distance
+        "equalizer=f=65:width_type=o:width=2:g=5,"
+        "equalizer=f=1800:width_type=o:width=2:g=2,"
+        "equalizer=f=10000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-20dB:ratio=3:attack=6:release=110:makeup=2dB,"
+        "loudnorm=I=-16:LRA=12:TP=-1.5"
+    ),
+    "islamic_civilization_history": (
+        # Warm and resonant — balanced, dignified
+        "equalizer=f=75:width_type=o:width=2:g=3,"
+        "equalizer=f=2200:width_type=o:width=2:g=2,"
+        "equalizer=f=8500:width_type=o:width=2:g=-2,"
+        "acompressor=threshold=-18dB:ratio=3:attack=5:release=95:makeup=2dB,"
+        "loudnorm=I=-16:LRA=11:TP=-1.5"
+    ),
+    "fallen_empires_military_overstretch": (
+        # Heavy and somber — deep bass, weighty decline
+        "equalizer=f=60:width_type=o:width=2:g=5,"
+        "equalizer=f=2000:width_type=o:width=2:g=1,"
+        "equalizer=f=9000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-19dB:ratio=4:attack=4:release=100:makeup=3dB,"
+        "loudnorm=I=-16:LRA=10:TP=-1.5"
+    ),
+    "elite_betrayal_infighting": (
+        # Tense and intimate — close presence, no escape
+        "equalizer=f=200:width_type=o:width=2:g=4,"
+        "equalizer=f=400:width_type=o:width=2:g=2,"
+        "equalizer=f=8000:width_type=o:width=2:g=-4,"
+        "acompressor=threshold=-14dB:ratio=4:attack=3:release=50:makeup=3dB,"
+        "loudnorm=I=-17:LRA=8:TP=-1.5"
+    ),
+    "propaganda_institutional_decline": (
+        # Declarative and decaying — bold mids, fading edges
+        "equalizer=f=100:width_type=o:width=2:g=3,"
+        "equalizer=f=2800:width_type=o:width=2:g=3,"
+        "equalizer=f=9000:width_type=o:width=2:g=-3,"
+        "acompressor=threshold=-16dB:ratio=4:attack=3:release=70:makeup=3dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+    "modern_parallels": (
+        # Contemporary and clear — bright, clean, analytical
+        "equalizer=f=250:width_type=o:width=2:g=-1,"
+        "equalizer=f=3200:width_type=o:width=2:g=3,"
+        "equalizer=f=9000:width_type=o:width=2:g=-1,"
+        "acompressor=threshold=-16dB:ratio=3:attack=4:release=70:makeup=2dB,"
+        "loudnorm=I=-16:LRA=9:TP=-1.5"
+    ),
+}
+DEFAULT_AUDIO_PROFILE = NICHE_AUDIO_PROFILES["egyptian_civilization"]
+
+
 def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     """
-    Transform edge-tts flat TTS into cinematic investigative narrator quality.
-    EQ boosts presence, reverb adds room depth, compression smooths dynamics.
+    Transform edge-tts flat TTS into cinematic investigative narrator
+    quality. EQ boosts presence, compression smooths dynamics. Uses
+    NICHE_AUDIO_PROFILES to select the real per-niche EQ chain, falling
+    back to the default if niche_name is unknown.
     """
     try:
         if output_path is None:
             output_path = input_path.replace(".mp3", "_eq.mp3").replace(".wav", "_eq.wav")
         if output_path == input_path:
             output_path = input_path + ".eq.mp3"
-        af = (
-            "equalizer=f=60:width_type=o:width=2:g=4,"
-            "equalizer=f=250:width_type=o:width=2:g=2,"
-            "equalizer=f=3000:width_type=o:width=2:g=-1,"
-            "equalizer=f=8000:width_type=o:width=2:g=-2,"
-                        "acompressor=threshold=-20dB:ratio=3:attack=3:release=100:makeup=3dB,"
-            "loudnorm=I=-16:LRA=11:TP=-1.5"
-        )
+        af = NICHE_AUDIO_PROFILES.get(niche_name, DEFAULT_AUDIO_PROFILE)
         subprocess.run([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
         ], capture_output=True, timeout=300, check=True)
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
-            log(f"  Audio post-processed: {Path(output_path).stat().st_size//(1024*1024)}MB")
+            log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
         log(f"  Audio processing (non-fatal): {e}")
