@@ -3456,7 +3456,24 @@ def _try_ssml_multirate_audio(script_clean, voice_id, niche_name):
             log(f"  SSML audio file too small ({sz}b) — falling back to flat-rate")
             return None
         log(f"  ACCEPTED: SSML multi-rate | {sz/1024/1024:.1f}MB | {duration:.0f}s")
-        return out, duration, sz, f"ssml-multirate-{voice_id}"
+        # FIX (found on deep re-audit): apply_audio_post_processing (the
+        # real per-niche NICHE_AUDIO_PROFILES EQ chain) was only ever
+        # called on the flat-rate edge-tts fallback tier below — since
+        # SSML multi-rate is tried FIRST and succeeds most of the time,
+        # the documentary-grade EQ was silently never reaching most real
+        # published episodes. Applied here too now, on whichever tier
+        # actually wins.
+        out_eq = apply_audio_post_processing(out, str(WORK_DIR / "ssml_narration_eq.mp3"), niche_name)
+        wav = str(WORK_DIR / "ssml_narration.wav")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", out_eq, "-acodec", "pcm_s16le",
+                            "-ar", "24000", "-ac", "1", wav],
+                           capture_output=True, timeout=300)
+            if Path(wav).exists() and Path(wav).stat().st_size > 100000:
+                return wav, duration, sz, f"ssml-multirate-{voice_id}"
+        except Exception:
+            pass
+        return out_eq, duration, sz, f"ssml-multirate-{voice_id}"
     except Exception as e:
         log(f"  SSML multi-rate audio (non-fatal, falling back to flat-rate): {e}")
         return None

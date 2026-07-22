@@ -3370,7 +3370,25 @@ def run_audio_stage(script, niche_name, edge_voice):
                 log("  SSML: skipping self-copy")
             duration = ssml_dur
             log(f"  SSML audio OK: {duration:.1f}s")
-            return audio_path, duration, None, edge_voice
+            # FIX (found on deep re-audit): this used to return here
+            # directly — skipping the 18-min hard cap, the real per-niche
+            # EQ chain (apply_audio_post_processing), and caption
+            # generation entirely below. SSML multi-rate is the primary,
+            # best-quality tier, so it was silently publishing with no
+            # captions and no documentary-grade EQ most of the time. Now
+            # runs through the same tail processing every other tier does.
+            if duration > 18 * 60:
+                log(f"  ⚠️ SSML audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+                trimmed = str(WORK_DIR / "narration_trimmed.mp3")
+                run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(18 * 60),
+                            "-c", "copy", trimmed], label="hard-duration-cap-ssml", timeout=120)
+                if Path(trimmed).exists() and Path(trimmed).stat().st_size > 50000:
+                    audio_path = trimmed
+                    duration = get_media_duration(audio_path)
+            processed_path = str(WORK_DIR / "narration_processed.mp3")
+            audio_path = apply_audio_post_processing(audio_path, processed_path, niche_name=niche_name)
+            generate_fallback_ass(script, duration, ass_path)
+            return audio_path, duration, ass_path, edge_voice
 
     if not el_ok:
         _fallback_candidates = [v for v in
