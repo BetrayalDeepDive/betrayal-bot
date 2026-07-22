@@ -184,6 +184,19 @@ def _record_title_history(niche_name, episode, title, score):
         log(f"  Title history record (non-fatal): {e}")
 
 
+def _record_quality_scores(episode, audio_score, video_score):
+    # FIX (found on deep re-audit): score_audio_quality/score_video_quality
+    # were computed every episode but never persisted anywhere —
+    # weekly_report.py had no real quality data to report on at all.
+    # Recorded here on the actual approved episode, mirroring
+    # thumb_format_history's proven write-side pattern.
+    try:
+        from quality_score_history import record_quality_scores
+        record_quality_scores(str(SCRIPT_DIR), "The Archive", episode, audio_score, video_score)
+    except Exception as e:
+        log(f"  Quality score history record (non-fatal): {e}")
+
+
 def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         series_name, episode, ai_fn, min_ctr=6.5):
     if not title_scores:
@@ -6799,6 +6812,7 @@ def main():
         if cin and cin["forced"]:
             tg("⏱️ Ch4: total review time budget reached during audio review — "
                "auto-approving audio and video as generated.")
+            _record_quality_scores(episode, _audio_score, _video_score)
             break
 
         if audio_decision["decision"] == "reject":
@@ -6882,6 +6896,7 @@ def main():
         check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
 
         if video_decision["decision"] == "approve" or (cin and cin["forced"]):
+            _record_quality_scores(episode, _audio_score, _video_score)
             break
         if video_decision["decision"] == "reject":
             tg("❌ Ch4: video rejected — episode stopped, nothing published.")

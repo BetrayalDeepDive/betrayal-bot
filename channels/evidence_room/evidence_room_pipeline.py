@@ -6292,6 +6292,17 @@ def main():
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
                 continue
             if _v_dec == "approve" and _a_dec == "approve":
+                # FIX (found on deep re-audit): score_audio_quality/
+                # score_video_quality were computed every episode but
+                # never persisted anywhere — weekly_report.py had no
+                # real quality data to report on at all. Recorded here
+                # on the actual approved episode, mirroring
+                # thumb_format_history's proven write-side pattern.
+                try:
+                    from quality_score_history import record_quality_scores
+                    record_quality_scores(str(SCRIPT_DIR), "The Evidence Room", episode, _audio_score, _video_score)
+                except Exception as e:
+                    log(f"  Quality score history record (non-fatal): {e}")
                 break
             if _a_dec == "swap_voice":
                 _voice_pool = [v for v in NICHE_VOICES.get(niche["name"], ALL_VOICES) if v != voice_used]

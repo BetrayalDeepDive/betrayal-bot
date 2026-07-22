@@ -7174,6 +7174,17 @@ def main():
                         topic, script_clean, episode, real_cases, chart_data, ass_path)
                     continue  # send the newly-assembled video for another look
                 if _v_dec == "approve" and _a_dec == "approve":
+                    # FIX (found on deep re-audit): score_audio_quality/
+                    # score_video_quality were computed every episode but
+                    # never persisted anywhere — weekly_report.py had no
+                    # real quality data to report on at all. Recorded
+                    # here on the actual approved episode, mirroring
+                    # thumb_format_history's proven write-side pattern.
+                    try:
+                        from quality_score_history import record_quality_scores
+                        record_quality_scores(str(SCRIPT_DIR), "TheCollapseIndex", episode, _audio_score, _video_score)
+                    except Exception as e:
+                        log(f"  Quality score history record (non-fatal): {e}")
                     break
                 # edit on either audio or video: audio edit isn't
                 # separately re-generated here (voice/pacing edits are a

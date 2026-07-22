@@ -6471,6 +6471,17 @@ def main():
         check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
 
         if video_decision["decision"] == "approve" or (cin and cin["forced"]):
+            # FIX (found on deep re-audit): score_audio_quality/
+            # score_video_quality were computed every episode but never
+            # persisted anywhere — weekly_report.py had no real quality
+            # data to report on at all. Recorded here on the actual
+            # approved episode, mirroring thumb_format_history's proven
+            # write-side pattern.
+            try:
+                from quality_score_history import record_quality_scores
+                record_quality_scores(str(SCRIPT_DIR), "The Control Files", episode, _audio_score, _video_score)
+            except Exception as e:
+                log(f"  Quality score history record (non-fatal): {e}")
             break
         if video_decision["decision"] == "reject":
             tg("❌ Ch3: video rejected — episode stopped, nothing published.")

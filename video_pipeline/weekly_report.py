@@ -652,6 +652,32 @@ def run_weekly_report_for_channel(channel_cfg):
     own_performance = "\n".join(own_perf_lines) if own_perf_lines else "No data yet (channel new)"
     log(f"  Found {len(details)} videos with analytics")
 
+    # FIX (found on deep re-audit): CTR and subscriber growth were both
+    # real values already pulled from this exact `rows` response
+    # (get_own_analytics, metrics order: views, estimatedMinutesWatched,
+    # averageViewDuration, subscribersGained, likes, impressions,
+    # impressionsClickThroughRate) — CTR was only ever fed into the
+    # topic-scoring feedback loop above, subscribersGained was fetched
+    # and never read at all. Neither ever reached the actual delivered
+    # per-channel report text. Computed here from real data, not
+    # invented — "no data yet" when the 7-day window has none.
+    _ctr_values = [r[7] * 100 for r in rows if len(r) >= 8 and r[7] is not None]
+    avg_ctr_str = f"{sum(_ctr_values) / len(_ctr_values):.1f}%" if _ctr_values else "no data yet"
+    _subs_values = [r[4] for r in rows if len(r) >= 5 and r[4] is not None]
+    subs_gained_str = str(sum(_subs_values)) if _subs_values else "no data yet"
+
+    # FIX (found on deep re-audit): score_audio_quality/score_video_quality
+    # (quality_scoring.py) were computed for every episode but never
+    # persisted or reported anywhere — added quality_score_history.py
+    # this session as the write side (recorded on approval in all 5
+    # channels); this is the real read side.
+    try:
+        from quality_score_history import get_recent_quality_summary
+        quality_summary = get_recent_quality_summary(str(output_dir))
+    except Exception as e:
+        log(f"  Quality score summary (non-fatal): {e}")
+        quality_summary = "No data yet."
+
     # Competitor analysis — uses THIS channel's own niches, not always Ch1's
     log("\n[2] Scanning competitor channels...")
     all_competitor_data = {}
@@ -699,6 +725,14 @@ def run_weekly_report_for_channel(channel_cfg):
         for name, fix in stage_fixes.items()
     ) or "Not enough view data yet (need 100+ views per video)"
 
+    # FIX (found on deep re-audit): CTR, subscriber growth, and the real
+    # title-CTR calibration note (title_scoring_history.py, wired in
+    # earlier this session) were all real data already computed above but
+    # never actually reached this delivered report text — CTR/subs sat
+    # unread in `rows`, and calibration_note was written only to
+    # weekly_intel.json. Surfaced here now.
+    calibration_note = intel.get("calibration_note", "")
+
     report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report ({display_name})</b>
 Week ending {datetime.date.today().strftime('%B %d, %Y')}
 
@@ -708,6 +742,8 @@ Latest: {last_title[:55]}
 {last_url}
 
 <b>YOUR PERFORMANCE</b>
+Avg CTR (last 7 days): {avg_ctr_str} | Subscribers gained: {subs_gained_str}
+{quality_summary}
 {own_performance or "Building audience — data available after first monetised week"}
 
 <b>WHAT COMPETITORS PUBLISHED THIS WEEK</b>
@@ -721,6 +757,9 @@ Latest: {last_title[:55]}
 
 <b>RETENTION ANALYSIS</b>
 {stage_fix_str}
+
+<b>TITLE SCORING CALIBRATION</b>
+{calibration_note or "Not enough real title-CTR history yet to calibrate against (needs 5+ published titles with recorded real CTR)."}
 
 <b>SYSTEM STATUS</b>
 ✅ Intel recalibrated for next week
