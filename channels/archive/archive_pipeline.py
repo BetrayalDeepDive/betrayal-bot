@@ -3012,10 +3012,96 @@ def get_niche_ambient_music(niche_name, duration):
     return _synthesize_mood_track(mood, duration)
 
 
+def _apply_map_scene_timestamp_sync(scenes, scene_durs, play_order, audio_path):
+    """
+    Real map/geography timestamp sync (built per explicit request): uses
+    actual Whisper word-level transcription of the narration (the same
+    real data generate_real_synced_ass turns into captions, via
+    transcribe_audio_words) to find the moment a map_highlight/
+    map_movement scene's real country is genuinely SPOKEN in the audio,
+    then swaps that scene into whichever play_order slot's cumulative
+    start time lands closest to that real moment.
+
+    Previously, map scenes only ever appeared at fixed, arbitrary
+    positions from the AI-generated scene order cycling to fill runtime
+    — completely disconnected from when that location was actually
+    being narrated. This makes the map genuinely track the story.
+
+    Returns an adjusted play_order of the SAME length — only WHICH
+    scene plays at a given slot changes, never how many slots or the
+    total video duration. Returns the untouched play_order unchanged if
+    no real match is found for any scene (Whisper unavailable, no
+    country recognized in the transcript, etc.) — an honest no-op,
+    never a fabricated sync.
+    """
+    map_scene_indices = [i for i, s in enumerate(scenes)
+                         if s.get("type") in ("map_highlight", "map_movement")]
+    if not map_scene_indices:
+        return play_order
+
+    words_data = transcribe_audio_words(audio_path)
+    if not words_data:
+        return play_order
+
+    word_stream = [(w["word"].strip(".,!?;:\"'").lower(), w["start"])
+                   for w in words_data if w.get("word")]
+
+    def _find_mention_time(names):
+        # Country names in this dataset are single words ("Egypt",
+        # "China", "Turkey") — a direct case-insensitive token match
+        # against the real transcript, first occurrence wins.
+        for name in names:
+            first_tok = name.strip().lower().split()[0] if name and name.strip() else ""
+            if not first_tok:
+                continue
+            for word, start in word_stream:
+                if word == first_tok:
+                    return start
+        return None
+
+    matches = {}
+    for i in map_scene_indices:
+        scene = scenes[i]
+        names = scene.get("highlight_countries") or scene.get("route_countries") or []
+        if isinstance(names, str):
+            names = [names]
+        t = _find_mention_time(names)
+        if t is not None:
+            matches[i] = t
+
+    if not matches:
+        return play_order
+
+    cumulative = []
+    running = 0.0
+    for idx in play_order:
+        cumulative.append(running)
+        running += scene_durs[idx]
+
+    new_play_order = list(play_order)
+    used_slots = set()
+    for scene_idx, target_time in matches.items():
+        best_slot, best_diff = None, None
+        for slot_i, start_t in enumerate(cumulative):
+            if slot_i in used_slots:
+                continue
+            diff = abs(start_t - target_time)
+            if best_diff is None or diff < best_diff:
+                best_slot, best_diff = slot_i, diff
+        if best_slot is not None:
+            new_play_order[best_slot] = scene_idx
+            used_slots.add(best_slot)
+            log(f"  Map sync: scene {scene_idx} ('{scenes[scene_idx].get('title','')}') "
+                f"placed at ~{cumulative[best_slot]:.0f}s (real mention at {target_time:.0f}s)")
+
+    return new_play_order
+
+
 def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, episode=1, real_cases=None, ass_path=None):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
     concat_parts = []
+    encoded_scene_indices = []  # scenes[encoded_scene_indices[i]] <-> concat_parts[i]
     for si, scene in enumerate(scenes):
         dur_s = scene.get("duration",8); total_f = dur_s*FPS
         fd = frames_base/f"scene_{si:03d}"; fd.mkdir(exist_ok=True)
@@ -3043,6 +3129,7 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
             # regress reliability.
             sm4_kb = apply_ken_burns(sm4, str(fd)+"_kb.mp4", scene.get("type","timeline"), fps=FPS)
             concat_parts.append(f"file '{sm4_kb}'")
+            encoded_scene_indices.append(si)
             log(f"    Scene {si+1} encoded: {Path(sm4_kb).stat().st_size//1024}KB")
         else:
             # Fallback: create a solid-colour scene as replacement
@@ -3056,13 +3143,32 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
                 capture_output=True, timeout=60)
             if Path(_fb).exists():
                 concat_parts.append(f"file '{_fb}'")
+                encoded_scene_indices.append(si)
                 log(f"    Scene {si+1} fallback created")
 
     concat_file = str(WORK_DIR/"concat.txt")
-    total_scene_dur = sum(s.get("duration",8) for s in scenes)
+    scene_durs = [scenes[i].get("duration", 8) for i in encoded_scene_indices]
+    total_scene_dur = sum(scene_durs)
     repeats = max(1, int(duration/total_scene_dur)+2)
+    # play_order holds indices INTO concat_parts/encoded_scene_indices
+    # (not directly into `scenes`) — this is the explicit, real play
+    # sequence that used to be a blind string-repeat of the whole list.
+    play_order = list(range(len(concat_parts))) * repeats
+
+    # NEW FEATURE (map/geography timestamp sync, per explicit request):
+    # real Whisper transcription of the actual narration finds when each
+    # map scene's real country is genuinely spoken, and swaps that scene
+    # into the closest-matching real-time slot. Falls back to the
+    # untouched play_order (identical to prior behavior) on any failure.
+    try:
+        _sync_scenes = [scenes[i] for i in encoded_scene_indices]
+        play_order = _apply_map_scene_timestamp_sync(_sync_scenes, scene_durs, play_order, audio_path)
+    except Exception as e:
+        log(f"  Map timestamp sync (non-fatal, using standard scene cycling): {e}")
+
     with open(concat_file,"w") as f:
-        for _ in range(repeats): f.write("\n".join(concat_parts)+"\n")
+        for idx in play_order:
+            f.write(concat_parts[idx]+"\n")
 
     raw = str(WORK_DIR/"raw.mp4")
     if not concat_parts:
@@ -5939,17 +6045,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return False
 
 
-def generate_real_synced_ass(audio_path, ass_path):
+def transcribe_audio_words(audio_path):
     """
-    v1 addition — real, word-level accurate captions for the main video,
-    per explicit request: captions must genuinely match the audio.
-    Uses Groq's real Whisper transcription directly on the FINAL,
-    ACCEPTED narration audio file — works identically regardless of
-    which TTS tier produced it. Returns False (no captions) rather than
-    a potentially-desynced fallback.
+    Real, word-level Whisper transcription via Groq — the raw per-word
+    (word, start, end) data. Factored out of generate_real_synced_ass so
+    other real-timing features can reuse the same genuine transcription
+    instead of inventing an approximation or paying for a second API
+    call. Returns [] on any failure — callers must treat an empty list
+    as "no real timing data available," never fabricate one.
     """
     if not GROQ_KEY or not Path(audio_path).exists():
-        return False
+        return []
     try:
         with open(audio_path, "rb") as f:
             r = requests.post(
@@ -5962,13 +6068,28 @@ def generate_real_synced_ass(audio_path, ass_path):
                       "language": "en"},
                 timeout=180)
         if r.status_code != 200:
-            log(f"  Real caption sync: Whisper request failed ({r.status_code}) — no captions this episode")
-            return False
-        words_data = r.json().get("words", [])
-        if not words_data:
-            log("  Real caption sync: no word-level data returned — no captions this episode")
-            return False
+            log(f"  Whisper transcription failed ({r.status_code})")
+            return []
+        return r.json().get("words", [])
+    except Exception as e:
+        log(f"  Whisper transcription failed (non-fatal): {e}")
+        return []
 
+
+def generate_real_synced_ass(audio_path, ass_path):
+    """
+    v1 addition — real, word-level accurate captions for the main video,
+    per explicit request: captions must genuinely match the audio.
+    Uses Groq's real Whisper transcription directly on the FINAL,
+    ACCEPTED narration audio file — works identically regardless of
+    which TTS tier produced it. Returns False (no captions) rather than
+    a potentially-desynced fallback.
+    """
+    words_data = transcribe_audio_words(audio_path)
+    if not words_data:
+        log("  Real caption sync: no word-level data returned — no captions this episode")
+        return False
+    try:
         def s2t(s):
             h = int(s) // 3600; m = (int(s) % 3600) // 60
             sc = int(s) % 60;   cs = int((s - int(s)) * 100)
