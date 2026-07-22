@@ -6225,6 +6225,21 @@ def main():
             audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
                 run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
             audio_path, duration = _enforce_duration_cap(audio_path, duration)
+            # FIX (found on deep re-audit): this used to just regenerate
+            # audio_path/duration and loop back — video_path was NEVER
+            # re-rendered, so the video that eventually publishes still
+            # has the OLD, discarded narration muxed in, and the human
+            # approving what they hear here has no effect on what actually
+            # ships. Captions were stale for the same reason (still
+            # transcribed from the old audio). Both are regenerated now,
+            # exactly like the video-checkpoint's own edit/swap_visuals
+            # branches already re-render on every change.
+            ass_path = str(WORK_DIR / "main_captions.ass")
+            if not generate_real_synced_ass(audio_path, ass_path):
+                ass_path = None
+            video_path = run_stage_with_retry(
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration,
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
             continue
         if audio_decision["decision"] == "edit":
             # FIX (found on direct user report, July 15 2026): this used to
@@ -6258,6 +6273,16 @@ def main():
             # Same reason: the duration cap must apply every time audio
             # gets regenerated, not just the original generation.
             audio_path, duration = _enforce_duration_cap(audio_path, duration)
+            # FIX (found on deep re-audit): same gap as SWAP VOICE above —
+            # video_path was never re-rendered with the new audio, so an
+            # EDIT here had zero actual effect on what gets published.
+            # Captions regenerated for the same reason.
+            ass_path = str(WORK_DIR / "main_captions.ass")
+            if not generate_real_synced_ass(audio_path, ass_path):
+                ass_path = None
+            video_path = run_stage_with_retry(
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration,
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
             continue  # re-send the combined checkpoint with the new audio
 
         # Audio approved — now handle the video decision (skipped entirely if

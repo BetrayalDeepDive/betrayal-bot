@@ -6069,6 +6069,13 @@ def main():
                 log(f"  SWAP VOICE requested: {voice_used} -> {_new_voice}")
                 audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
                     run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
+                # FIX (found on deep re-audit): ass_path was still the
+                # transcription of the OLD audio here — the video got
+                # correctly re-rendered with the new narration, but its
+                # burned-in captions would go out of sync with it.
+                ass_path = str(WORK_DIR / "main_captions.ass")
+                if not generate_real_synced_ass(audio_path, ass_path):
+                    ass_path = None
                 video_path = run_stage_with_retry(
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
                 continue
@@ -6084,6 +6091,11 @@ def main():
                 log(f"  Audio EDIT requested: '{_fb_audio}' — swapping voice {voice_used} -> {_new_voice}")
                 audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
                     run_stage3_audio, "Audio", script_clean, _new_voice, niche["name"])
+                # FIX (found on deep re-audit): same stale-captions gap as
+                # SWAP VOICE above.
+                ass_path = str(WORK_DIR / "main_captions.ass")
+                if not generate_real_synced_ass(audio_path, ass_path):
+                    ass_path = None
                 video_path = run_stage_with_retry(
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
                 continue

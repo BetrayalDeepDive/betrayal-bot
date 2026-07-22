@@ -6325,7 +6325,15 @@ def main():
                     ass_path = str(WORK_DIR / "main_captions.ass")
                     if not generate_real_synced_ass(audio_path, ass_path):
                         ass_path = None
-                    continue  # send the newly-generated audio for another look
+                    # FIX (found on deep re-audit): unlike SWAP VOICE right
+                    # above, this branch regenerated audio+captions but
+                    # never re-assembled video_path — the published video
+                    # would have kept the OLD, discarded narration muxed
+                    # in regardless of what the human approved here.
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path)
+                    continue  # send the newly-generated audio/video for another look
         except Exception as e:
             log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
             tg(f"⚠️ Ch1: the audio+video review system failed to load ({str(e)[:150]}) — "
