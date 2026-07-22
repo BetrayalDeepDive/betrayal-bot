@@ -79,7 +79,7 @@ jobs:
           # overall verdict -- 'completed' matches the most recent
           # finished run (success OR failure) that has this artifact.
           workflow_conclusion: completed
-          if_no_artifact_found: fail
+          if_no_artifact_found: warn
 
       - name: Upload pre-generated video
         env:

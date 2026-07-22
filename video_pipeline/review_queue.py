@@ -40,6 +40,20 @@ CHECKPOINT_ORDER = ["SCRIPT", "AUDIO_VIDEO", "TITLE_THUMB_DESC", "SHORTS", "COMM
 # already used throughout human_review_gate.py.
 MAX_CHECK_INS = 6
 
+# FIX (found live, July 22 2026 — Ch3's generate had silently skipped
+# every single day since July 14 with zero video produced, always
+# reporting job "success"): MAX_CHECK_INS only advances the checkpoint
+# when record_check_in() actually runs — but if the runner that owns a
+# review dies before that (job timeout, manual cancellation, a crash
+# mid-poll), review_queue.json is left sitting on a non-terminal
+# checkpoint FOREVER, since nothing ever calls record_check_in() or
+# clear_queue() again. is_channel_review_busy() then returns True
+# forever, permanently wedging that channel's generation with no error,
+# no alert, nothing — just silent, indefinite no-ops. A real time-based
+# ceiling closes this: an open review older than the documented 2-day
+# review maximum is genuinely abandoned, not "still being reviewed."
+MAX_REVIEW_AGE_HOURS = 54  # ~2.25 days — small buffer over the 2-day maximum
+
 
 def _queue_path(script_dir):
     return Path(script_dir) / "review_queue.json"
@@ -78,11 +92,29 @@ def is_channel_review_busy(script_dir):
     last-started episode hasn't reached a terminal checkpoint yet).
     Used at the very start of the generate phase to avoid burning a full
     script-generation run only to discover the queue was already busy.
+
+    FIX (found live, July 22 2026 — see MAX_REVIEW_AGE_HOURS above): an
+    open review older than the real 2-day review maximum is genuinely
+    abandoned (its owning runner died before ever recording a terminal
+    decision), not "still being reviewed" — auto-clears it here so a
+    single dead runner can't wedge this channel's generation forever.
     """
     state = load_queue_state(script_dir)
     if not state:
         return False
-    return state.get("checkpoint") not in ("DONE", "REJECTED")
+    if state.get("checkpoint") in ("DONE", "REJECTED"):
+        return False
+
+    last_updated = state.get("last_updated") or state.get("started_at")
+    if last_updated:
+        try:
+            age_hours = (datetime.datetime.now() - datetime.datetime.fromisoformat(last_updated)).total_seconds() / 3600
+            if age_hours >= MAX_REVIEW_AGE_HOURS:
+                clear_queue(script_dir)
+                return False
+        except Exception:
+            pass  # unparseable timestamp — fall through to the normal busy check
+    return True
 
 
 def start_review(script_dir, episode, title, artifacts=None):
