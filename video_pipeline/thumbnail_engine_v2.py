@@ -490,6 +490,477 @@ NICHE_PROFILES = {
         ),
         "composition":     "text_upper_third",
     },
+    # FIX (found on deep re-audit): body_cam_police, courtroom_drama, and
+    # robbery_documentaries are 3 of Evidence Room's 7 real niches but had
+    # no profile at all here — every thumbnail for these 3 niches fell
+    # back to FALLBACK_PROFILE's generic dark-horror-red styling instead
+    # of anything forensic-appropriate.
+    "body_cam_police": {
+        "bg_color":        (2, 3, 6),
+        "primary_text":    (220, 235, 255),
+        "accent_text":     (40, 140, 230),
+        "shadow_color":    (0, 25, 70),
+        "badge_color":     (20, 90, 170),
+        "glow_color":      (70, 170, 240),
+        "vignette_strength": 0.82,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark police body camera footage grain night atmospheric "
+            "blue dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette police officer figure dramatic blue "
+            "lighting no face cinematic atmospheric"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "courtroom_drama": {
+        "bg_color":        (5, 4, 2),
+        "primary_text":    (250, 240, 220),
+        "accent_text":     (200, 160, 60),
+        "shadow_color":    (60, 45, 0),
+        "badge_color":     (160, 120, 30),
+        "glow_color":      (230, 190, 90),
+        "vignette_strength": 0.83,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark courtroom wood paneling empty bench atmospheric gold "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure at witness stand dramatic gold "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "robbery_documentaries": {
+        "bg_color":        (5, 2, 2),
+        "primary_text":    (255, 240, 230),
+        "accent_text":     (210, 30, 30),
+        "shadow_color":    (70, 0, 0),
+        "badge_color":     (170, 20, 20),
+        "glow_color":      (240, 60, 60),
+        "vignette_strength": 0.87,
+        "brightness":      0.16,
+        "pollinations_style": (
+            "dark bank vault heist scene atmospheric red dramatic "
+            "no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure fleeing dramatic red backlight "
+            "no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    # FIX (found on deep re-audit): Archive's 8 real niches had ZERO
+    # thumbnail profiles at all — every single thumbnail on this channel
+    # fell back to FALLBACK_PROFILE's generic dark-horror-red styling
+    # regardless of whether the episode was about Egypt, China,
+    # Mesopotamia, or modern parallels.
+    "egyptian_civilization": {
+        "bg_color":        (6, 4, 1),
+        "primary_text":    (250, 235, 200),
+        "accent_text":     (220, 170, 40),
+        "shadow_color":    (70, 45, 0),
+        "badge_color":     (180, 130, 20),
+        "glow_color":      (250, 200, 80),
+        "vignette_strength": 0.85,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark ancient egyptian temple ruins sand dust atmospheric "
+            "gold dramatic lighting no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure among temple columns dramatic gold "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "chinese_civilization": {
+        "bg_color":        (5, 1, 1),
+        "primary_text":    (255, 235, 215),
+        "accent_text":     (220, 30, 30),
+        "shadow_color":    (60, 0, 0),
+        "badge_color":     (180, 140, 30),
+        "glow_color":      (255, 80, 60),
+        "vignette_strength": 0.85,
+        "brightness":      0.18,
+        "pollinations_style": (
+            "dark ancient chinese imperial palace architecture atmospheric "
+            "red and gold dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure before palace gate dramatic red "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "mesopotamian_lost_civilizations": {
+        "bg_color":        (5, 3, 1),
+        "primary_text":    (245, 225, 190),
+        "accent_text":     (200, 140, 60),
+        "shadow_color":    (60, 35, 0),
+        "badge_color":     (160, 100, 30),
+        "glow_color":      (230, 170, 90),
+        "vignette_strength": 0.87,
+        "brightness":      0.17,
+        "pollinations_style": (
+            "dark ancient mesopotamian ziggurat ruins clay tablets "
+            "atmospheric amber dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure among ruins dramatic amber "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "islamic_civilization_history": {
+        "bg_color":        (1, 4, 4),
+        "primary_text":    (230, 250, 245),
+        "accent_text":     (40, 190, 170),
+        "shadow_color":    (0, 55, 50),
+        "badge_color":     (20, 140, 120),
+        "glow_color":      (80, 220, 200),
+        "vignette_strength": 0.84,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark islamic architecture geometric tilework courtyard "
+            "atmospheric teal and gold dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure beneath archway dramatic teal "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "fallen_empires_military_overstretch": {
+        "bg_color":        (3, 3, 3),
+        "primary_text":    (235, 235, 230),
+        "accent_text":     (150, 90, 50),
+        "shadow_color":    (40, 25, 15),
+        "badge_color":     (110, 65, 35),
+        "glow_color":      (190, 130, 80),
+        "vignette_strength": 0.88,
+        "brightness":      0.16,
+        "pollinations_style": (
+            "dark abandoned military fortification rusted armor "
+            "atmospheric dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette soldier figure alone dramatic rust-toned "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "elite_betrayal_infighting": {
+        "bg_color":        (4, 1, 4),
+        "primary_text":    (245, 225, 250),
+        "accent_text":     (190, 50, 210),
+        "shadow_color":    (55, 0, 65),
+        "badge_color":     (140, 30, 160),
+        "glow_color":      (220, 100, 240),
+        "vignette_strength": 0.87,
+        "brightness":      0.17,
+        "pollinations_style": (
+            "dark royal court throne room shadows atmospheric purple "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette two figures facing each other dramatic "
+            "purple backlight no faces atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "propaganda_institutional_decline": {
+        "bg_color":        (5, 5, 5),
+        "primary_text":    (240, 240, 235),
+        "accent_text":     (200, 50, 50),
+        "shadow_color":    (55, 0, 0),
+        "badge_color":     (150, 30, 30),
+        "glow_color":      (230, 90, 90),
+        "vignette_strength": 0.88,
+        "brightness":      0.16,
+        "pollinations_style": (
+            "dark faded propaganda poster crumbling institutional building "
+            "atmospheric dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette crowd dispersing dramatic red backlight "
+            "no faces atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "modern_parallels": {
+        "bg_color":        (2, 3, 5),
+        "primary_text":    (225, 235, 250),
+        "accent_text":     (70, 150, 230),
+        "shadow_color":    (0, 30, 65),
+        "badge_color":     (30, 100, 180),
+        "glow_color":      (100, 180, 250),
+        "vignette_strength": 0.82,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark modern city skyline overlaid with ancient ruins "
+            "atmospheric blue dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure between eras dramatic blue "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    # FIX (found on deep re-audit): Collapse Index's 13 real niches had
+    # ZERO thumbnail profiles at all — every single thumbnail on this
+    # channel fell back to FALLBACK_PROFILE's generic dark-horror-red
+    # styling regardless of whether the episode was about AI startups,
+    # crypto, or personal finance.
+    "ai_startup_collapse": {
+        "bg_color":        (1, 2, 6),
+        "primary_text":    (225, 235, 255),
+        "accent_text":     (60, 170, 255),
+        "shadow_color":    (0, 30, 90),
+        "badge_color":     (20, 110, 210),
+        "glow_color":      (90, 200, 255),
+        "vignette_strength": 0.82,
+        "brightness":      0.20,
+        "pollinations_style": (
+            "dark empty tech office abandoned desks glowing monitors "
+            "atmospheric blue dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure at empty desk dramatic blue "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "tech_company_collapse": {
+        "bg_color":        (2, 3, 5),
+        "primary_text":    (225, 235, 250),
+        "accent_text":     (90, 140, 220),
+        "shadow_color":    (0, 25, 70),
+        "badge_color":     (40, 90, 170),
+        "glow_color":      (130, 180, 240),
+        "vignette_strength": 0.80,
+        "brightness":      0.21,
+        "pollinations_style": (
+            "dark corporate skyscraper office empty boardroom atmospheric "
+            "blue dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette executive figure at window dramatic blue "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "crypto_collapse": {
+        "bg_color":        (4, 1, 5),
+        "primary_text":    (240, 220, 255),
+        "accent_text":     (230, 140, 30),
+        "shadow_color":    (55, 0, 70),
+        "badge_color":     (150, 30, 170),
+        "glow_color":      (255, 170, 60),
+        "vignette_strength": 0.85,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark crypto trading chart crashing screens glowing purple "
+            "and orange atmospheric dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure before falling chart dramatic "
+            "purple backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "cybersecurity_disasters": {
+        "bg_color":        (0, 4, 1),
+        "primary_text":    (210, 255, 220),
+        "accent_text":     (30, 220, 100),
+        "shadow_color":    (0, 50, 15),
+        "badge_color":     (15, 150, 60),
+        "glow_color":      (80, 255, 140),
+        "vignette_strength": 0.86,
+        "brightness":      0.18,
+        "pollinations_style": (
+            "dark server room breach warning glowing green code screens "
+            "atmospheric dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette hacker figure at terminal dramatic green "
+            "glow no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "product_flops": {
+        "bg_color":        (5, 2, 1),
+        "primary_text":    (250, 230, 215),
+        "accent_text":     (230, 100, 30),
+        "shadow_color":    (60, 20, 0),
+        "badge_color":     (180, 70, 15),
+        "glow_color":      (250, 140, 60),
+        "vignette_strength": 0.84,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark discontinued product on warehouse shelf dust atmospheric "
+            "orange dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure walking away from shelf dramatic "
+            "orange backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "dotcom_era_collapse": {
+        "bg_color":        (2, 1, 4),
+        "primary_text":    (230, 225, 255),
+        "accent_text":     (220, 60, 200),
+        "shadow_color":    (45, 0, 60),
+        "badge_color":     (150, 30, 140),
+        "glow_color":      (240, 110, 220),
+        "vignette_strength": 0.83,
+        "brightness":      0.20,
+        "pollinations_style": (
+            "dark retro nineties computer monitor glowing magenta teal "
+            "atmospheric dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure at old computer dramatic magenta "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "personal_finance_mistakes": {
+        "bg_color":        (5, 1, 1),
+        "primary_text":    (250, 225, 215),
+        "accent_text":     (220, 40, 40),
+        "shadow_color":    (60, 0, 0),
+        "badge_color":     (170, 20, 20),
+        "glow_color":      (240, 80, 80),
+        "vignette_strength": 0.85,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark overdue bills scattered desk red ink atmospheric "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure at desk with bills dramatic red "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "investing_fundamentals": {
+        "bg_color":        (1, 4, 2),
+        "primary_text":    (220, 250, 225),
+        "accent_text":     (60, 210, 110),
+        "shadow_color":    (0, 50, 20),
+        "badge_color":     (20, 150, 70),
+        "glow_color":      (100, 235, 150),
+        "vignette_strength": 0.80,
+        "brightness":      0.21,
+        "pollinations_style": (
+            "dark rising stock chart glowing green gold atmospheric "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure before rising chart dramatic green "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "retirement_planning": {
+        "bg_color":        (2, 3, 5),
+        "primary_text":    (230, 235, 250),
+        "accent_text":     (200, 170, 70),
+        "shadow_color":    (0, 25, 65),
+        "badge_color":     (140, 110, 30),
+        "glow_color":      (230, 200, 110),
+        "vignette_strength": 0.79,
+        "brightness":      0.21,
+        "pollinations_style": (
+            "dark calendar and savings ledger warm gold light atmospheric "
+            "blue dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure looking at horizon dramatic gold "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "credit_debt_repair": {
+        "bg_color":        (5, 2, 1),
+        "primary_text":    (250, 230, 210),
+        "accent_text":     (230, 110, 30),
+        "shadow_color":    (60, 25, 0),
+        "badge_color":     (180, 80, 15),
+        "glow_color":      (250, 150, 60),
+        "vignette_strength": 0.84,
+        "brightness":      0.19,
+        "pollinations_style": (
+            "dark cut up credit card scattered statements atmospheric "
+            "orange dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure holding statement dramatic orange "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "real_estate_affordability": {
+        "bg_color":        (3, 2, 1),
+        "primary_text":    (245, 232, 215),
+        "accent_text":     (170, 120, 60),
+        "shadow_color":    (40, 25, 0),
+        "badge_color":     (130, 90, 30),
+        "glow_color":      (210, 165, 100),
+        "vignette_strength": 0.81,
+        "brightness":      0.20,
+        "pollinations_style": (
+            "dark empty house for sale sign dusk atmospheric brown "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure before house dramatic brown "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_center",
+    },
+    "budgeting_saving_strategies": {
+        "bg_color":        (0, 4, 3),
+        "primary_text":    (215, 250, 240),
+        "accent_text":     (40, 200, 170),
+        "shadow_color":    (0, 50, 40),
+        "badge_color":     (15, 140, 115),
+        "glow_color":      (90, 230, 200),
+        "vignette_strength": 0.79,
+        "brightness":      0.21,
+        "pollinations_style": (
+            "dark savings jar coins stacking warm teal light atmospheric "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure counting coins dramatic teal "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_upper_third",
+    },
+    "stock_market_crashes_history": {
+        "bg_color":        (5, 1, 1),
+        "primary_text":    (250, 225, 215),
+        "accent_text":     (220, 30, 30),
+        "shadow_color":    (60, 0, 0),
+        "badge_color":     (170, 20, 20),
+        "glow_color":      (240, 70, 70),
+        "vignette_strength": 0.88,
+        "brightness":      0.16,
+        "pollinations_style": (
+            "dark trading floor crashing red numbers screens atmospheric "
+            "dramatic no people no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette figure before falling numbers dramatic red "
+            "backlight no face atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
 }
 
 # Fallback profile for unknown niches
