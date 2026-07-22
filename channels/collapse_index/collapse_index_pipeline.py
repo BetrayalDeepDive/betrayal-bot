@@ -1879,6 +1879,45 @@ WHAT MAKES VIEWERS CRAVE THIS CONTENT:
 - Respecting the viewer's intelligence — real analysis, not manufactured outrage."""
 
 
+def _central_fracture_for_niche(niche_obj):
+    if niche_obj["name"] in FINANCE_NICHE_NAMES:
+        return """CENTRAL QUESTION (channel strength, not optional): every script must
+revolve around ONE specific, common financial decision or misconception
+that costs real people real money — not a vague "money is hard" framing.
+Name the specific mechanism explicitly (a specific fee structure, a
+specific compounding error, a specific timing mistake, a specific rule
+most people get wrong) and keep the entire narrative anchored to resolving
+that one question with real numbers, rather than drifting into generic
+money advice."""
+    return """CENTRAL FRACTURE (channel strength, not optional): every script must
+revolve around ONE specific decision, systemic failure, or ignored warning
+that caused the collapse — not a vague "things went wrong" framing. Name
+the specific failure point explicitly (a specific decision, a specific
+technical or financial mechanism, a specific ignored warning) and keep the
+entire narrative anchored to that one fracture rather than drifting into a
+vague atmosphere piece."""
+
+
+def _engagement_triggers_for_niche(niche_obj):
+    if niche_obj["name"] in FINANCE_NICHE_NAMES:
+        return """CLARITY TRIGGERS — use at least 3 per script:
+1. The specific number that's more extreme than most people assume.
+2. The common assumption that's actually mathematically wrong.
+3. The rule or fee structure still affecting people who don't know about it.
+4. The specific, checkable comparison ("$1M vs $5M", "62 vs 70").
+5. The detail so specific it has to be real math, not a rounded estimate.
+6. The one actionable takeaway stated plainly in the final 30 seconds.
+7. The follow-up question the video deliberately leaves for the viewer to work out."""
+    return """CRAVEABILITY TRIGGERS — use at least 3 per script:
+1. The statistic that sounds impossible but is real.
+2. The name everyone knows, connected to something they didn't know.
+3. The mistake still being repeated at other companies right now.
+4. The internal warning that was raised and ignored.
+5. The detail so specific it has to be true.
+6. The uncomfortable implication in the final 30 seconds.
+7. The question the script raises but deliberately doesn't fully answer."""
+
+
 def build_script_prompt(niche, topic, episode, attempt,
                         trending_titles=None, research_context=""):
     """
@@ -1935,7 +1974,7 @@ SIGNATURE OPENING (brand consistency — real successful channels have this,
 generic AI content doesn't): begin the cold open with a recognizable rhythm
 specific to this series — the exact words can vary per episode, but the
 STRUCTURE should feel unmistakably like {niche["series"]} within the first
-sentence, not interchangeable with any other true-crime channel.
+sentence, not interchangeable with any other finance or business-collapse channel.
 
 CASE SELECTION: prefer a genuinely underreported or lesser-known angle over
 the most famous/oversaturated version of this story, if the topic allows it.
@@ -1943,12 +1982,7 @@ This is both a differentiation advantage (viewers haven't seen this take
 everywhere already) and a real protection against looking like mass-produced
 generic content — original research reads as authored, not templated.
 
-CENTRAL FRACTURE (channel strength, not optional): every script must revolve
-around ONE central relationship fracture — a specific betrayal between two
-specific people — not a generic "something creepy happened." Name the
-relationship explicitly (sister/sister, patient/doctor, mother/son) and keep
-the entire narrative anchored to that one fracture rather than drifting into
-a vague atmosphere piece.
+{_central_fracture_for_niche(niche)}
 
 FICTION LABELING (non-negotiable, real policy-safety requirement): if any
 part of this story is dramatized, composited from multiple cases, or not
@@ -2043,14 +2077,7 @@ the viewer-satisfaction signals that now weigh more than raw watch time.
 
 {_tone_block_for_niche(niche)}
 
-CRAVEABILITY TRIGGERS — use at least 3 per script:
-1. The statistic that sounds impossible but is real.
-2. The name everyone knows, connected to something they didn't know.
-3. The system that's still running right now — not historical.
-4. The thing institutions tried to suppress or deny.
-5. The detail so specific it has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question the script raises but deliberately doesn't fully answer.
+{_engagement_triggers_for_niche(niche)}
 
 RULES:
 1. Maximum 13 words per sentence. Count them.
