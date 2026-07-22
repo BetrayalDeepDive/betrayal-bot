@@ -1634,6 +1634,15 @@ TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
 
 SEVEN-STAGE CONTROL STRUCTURE — write continuously, no labels:
 
+RETENTION CHECKPOINTS (precise timing, not just word count — this is where
+most viewers actually drop off if nothing happens):
+- At approximately 15-20 seconds into the Case File Open (roughly the 35-45
+  word mark): introduce one SPECIFIC new piece of information not already
+  promised in sentences 1-3. Without this second hook, attention drops here
+  regardless of how strong the opening was.
+- At approximately 40-45 seconds in (end of Stage 1 / start of Stage 2): set
+  up a payoff requiring continued viewing to resolve.
+
 STAGE 1 — CASE FILE OPEN ({stage_targets[1]} words)
 Sentence 1: exact case reference — number, date, or document ID.
 Sentence 2: specific location of the discovery.
