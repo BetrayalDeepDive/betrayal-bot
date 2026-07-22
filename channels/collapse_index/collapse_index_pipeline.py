@@ -380,10 +380,30 @@ CHAPTER_STRUCTURES = {
     ],
 }
 
-def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id, stage_word_counts=None):
+    """
+    FIX (found on deep re-audit): script_clean was accepted but never
+    referenced — timestamps were a fixed percentage table calibrated once
+    against the ORIGINAL stage-word targets, disconnected from what the
+    script actually turned out to be after generation/edits. When
+    stage_word_counts (real word count of each of the 7 stages in the
+    FINAL, possibly-edited script) is provided, timestamps are computed
+    from the actual cumulative word-count fraction instead. Falls back to
+    the fixed percentage table when real counts aren't available.
+    """
     if total_duration_secs < 120:
         return ""
     structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["collapse_index"])
+    if stage_word_counts and len(stage_word_counts) == len(structure) and sum(stage_word_counts) > 0:
+        total_words = sum(stage_word_counts)
+        lines = []
+        cumulative = 0
+        for (_, label), wc in zip(structure, stage_word_counts):
+            pct = cumulative / total_words
+            secs = int(total_duration_secs * pct)
+            lines.append(f"{secs//60}:{secs%60:02d} {label}")
+            cumulative += wc
+        return "\n".join(lines)
     lines = []
     for pct, label in structure:
         secs = int(total_duration_secs * pct)
@@ -7167,7 +7187,9 @@ def main():
         def _desc_gen(n, t, ti, ep, ch, dur):
             return generate_seo_description(n, t, ti, ep, ch, dur,
                                              citations_block=format_citations_block(real_cases))
-        _chapters = generate_chapter_timestamps(script_clean, audio_duration, "collapse_index")
+        _stage_word_counts = [len(t.split()) for t in _stage_texts] if _stage_texts else None
+        _chapters = generate_chapter_timestamps(script_clean, audio_duration, "collapse_index",
+                                                 stage_word_counts=_stage_word_counts)
         _desc_result = regenerate_description_until_good(
             niche, topic, title, episode, _chapters, audio_duration, niche_name, _desc_gen,
             min_score=9.0, max_attempts=4)

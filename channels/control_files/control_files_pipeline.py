@@ -274,10 +274,31 @@ CHAPTER_STRUCTURES = {
     ],
 }
 
-def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id, stage_word_counts=None):
+    """
+    FIX (found on deep re-audit): script_clean was accepted but never
+    referenced — timestamps were a fixed percentage table calibrated once
+    against the ORIGINAL stage-word targets, disconnected from what the
+    script actually turned out to be after generation/edits. When
+    stage_word_counts (real word count of each of the 7 stages in the
+    FINAL, possibly-edited script — e.g. via approximate_stage_split on
+    the current script_clean) is provided, timestamps are computed from
+    the actual cumulative word-count fraction instead. Falls back to the
+    fixed percentage table when real counts aren't available.
+    """
     if total_duration_secs < 120:
         return ""
     structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["betrayal_deepdive"])
+    if stage_word_counts and len(stage_word_counts) == len(structure) and sum(stage_word_counts) > 0:
+        total_words = sum(stage_word_counts)
+        lines = []
+        cumulative = 0
+        for (_, label), wc in zip(structure, stage_word_counts):
+            pct = cumulative / total_words
+            secs = int(total_duration_secs * pct)
+            lines.append(f"{secs//60}:{secs%60:02d} {label}")
+            cumulative += wc
+        return "\n".join(lines)
     lines = []
     for pct, label in structure:
         secs = int(total_duration_secs * pct)
@@ -6120,7 +6141,9 @@ def main():
     audio_path, duration = _enforce_duration_cap(audio_path, duration)
 
     # Build description now that duration is known
-    chapters_block = _gen_chapters(script_clean, duration, "control_files")
+    _stage_word_counts = [len(t.split()) for t in
+                          approximate_stage_split(script_clean, _script_stage_names, _script_stage_word_targets)]
+    chapters_block = _gen_chapters(script_clean, duration, "control_files", stage_word_counts=_stage_word_counts)
 
     # v5 addition: real description quality scoring with a genuine
     # regeneration loop. The template's structural parts (chapters,
@@ -6407,7 +6430,9 @@ def main():
     # reviewing Title+Thumbnail+Description next sees something that
     # actually matches what will publish, without relying on them to
     # notice and manually request a description edit.
-    _new_chapters_block = _gen_chapters(script_clean, duration, "control_files")
+    _new_stage_word_counts = [len(t.split()) for t in
+                              approximate_stage_split(script_clean, _script_stage_names, _script_stage_word_targets)]
+    _new_chapters_block = _gen_chapters(script_clean, duration, "control_files", stage_word_counts=_new_stage_word_counts)
     if _new_chapters_block != chapters_block:
         log("  Audio duration changed during review — rebuilding chapters + description to match.")
         chapters_block = _new_chapters_block

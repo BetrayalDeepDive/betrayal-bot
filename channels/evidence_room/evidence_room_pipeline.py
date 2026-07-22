@@ -292,10 +292,31 @@ CHAPTER_STRUCTURES = {
     ],
 }
 
-def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id):
+def generate_chapter_timestamps(script_clean, total_duration_secs, channel_id, stage_word_counts=None):
+    """
+    FIX (found on deep re-audit): script_clean was accepted but never
+    referenced — timestamps were a fixed percentage table calibrated once
+    against the ORIGINAL stage-word targets, disconnected from what the
+    script actually turned out to be after generation/edits. When
+    stage_word_counts (real word count of each of the 7 stages in the
+    FINAL, possibly-edited script — e.g. via approximate_stage_split on
+    the current script_clean) is provided, timestamps are computed from
+    the actual cumulative word-count fraction instead. Falls back to the
+    fixed percentage table when real counts aren't available.
+    """
     if total_duration_secs < 120:
         return ""
     structure = CHAPTER_STRUCTURES.get(channel_id, CHAPTER_STRUCTURES["betrayal_deepdive"])
+    if stage_word_counts and len(stage_word_counts) == len(structure) and sum(stage_word_counts) > 0:
+        total_words = sum(stage_word_counts)
+        lines = []
+        cumulative = 0
+        for (_, label), wc in zip(structure, stage_word_counts):
+            pct = cumulative / total_words
+            secs = int(total_duration_secs * pct)
+            lines.append(f"{secs//60}:{secs%60:02d} {label}")
+            cumulative += wc
+        return "\n".join(lines)
     lines = []
     for pct, label in structure:
         secs = int(total_duration_secs * pct)
@@ -6116,7 +6137,10 @@ def main():
                f"The generation itself needs checking — this trim is a safety net, not a fix.")
 
     # Build description now that duration is known
-    chapters_block = _gen_chapters(script_clean, duration, "evidence_room")
+    _stage_word_counts_ch2 = [len(t.split()) for t in
+                              approximate_stage_split(script_clean, _stage_names_ch2, _stage_word_targets_ch2)]
+    chapters_block = _gen_chapters(script_clean, duration, "evidence_room",
+                                    stage_word_counts=_stage_word_counts_ch2)
     # FIX (found while wiring in citations — a real, honest correction of
     # my own earlier work): generate_episode_hashtags was only ever
     # called from inside generate_seo_description, which is ITSELF never
@@ -6257,6 +6281,32 @@ def main():
     if _remade_av_ch2:
         clear_pending(SCRIPT_DIR)
         sys.exit(0)
+
+    # FIX (found on deep re-audit): SWAP VOICE and audio EDIT above both
+    # reassign `duration` to the real re-recorded audio's length and
+    # correctly re-render video + captions to match — but chapters_block
+    # and the description built from it (above, before this review loop
+    # even started) were never rebuilt. Any duration change during review
+    # left the published timestamps silently wrong. Rebuilt here from the
+    # real final duration, mirroring the same fix already in place for
+    # control_files/archive.
+    _new_stage_word_counts_ch2 = [len(t.split()) for t in
+                                  approximate_stage_split(script_clean, _stage_names_ch2, _stage_word_targets_ch2)]
+    _new_chapters_block = _gen_chapters(script_clean, duration, "evidence_room",
+                                         stage_word_counts=_new_stage_word_counts_ch2)
+    if _new_chapters_block != chapters_block:
+        log("  Audio duration changed during review — rebuilding chapters + description to match.")
+        chapters_block = _new_chapters_block
+        description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
+                       f"Every case. Every document. Every piece of evidence — animated.\n\n"
+                       f"{chapters_block}\n\n"
+                       f"Subscribe to The Evidence Room."
+                       f"{cross_promo}"
+                       f"{affiliate_block}"
+                       f"{product_cta}\n\n"
+                       f"⚠️ AI-assisted narration and forensic analysis."
+                       f"{citations_block}\n\n"
+                       f"{hashtags}")
 
     # Thumbnail
     thumb_path = generate_thumbnail_with_ai_bg(
