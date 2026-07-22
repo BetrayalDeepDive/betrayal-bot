@@ -7658,5 +7658,40 @@ def main():
         raise
 
 
+def main_with_retry():
+    """
+    FIX (found on deep re-audit): Ch5 had no outer crash-retry wrapper at
+    all, unlike Ch2/Ch3/Ch4 (each has a main_with_retry() wrapping the
+    ENTIRE main() call in a 3-attempt retry loop with Telegram alerts).
+    Worse, the UPLOAD phase branch inside main() (phase == "upload") runs
+    entirely outside the generate-phase-only try/except a few lines
+    above — a single transient failure there (e.g. get_yt_token()'s OAuth
+    refresh) crashed the whole process uncaught: no retry, no Telegram
+    alert, just a silent-to-a-human GitHub Actions failure. Wrapping the
+    entire main() call here, matching Ch2/3/4's proven pattern exactly,
+    fixes both the upload-phase blind spot and the missing retry/alerts
+    without touching main()'s internal phase logic at all.
+    """
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            main(); return
+        except SystemExit as e:
+            if e.code == 0: return
+            if attempt < max_retries:
+                tg(f"⚠️ Ch5 attempt {attempt}/{max_retries} failed.\nRetrying in 10 minutes...")
+                time.sleep(600)
+            else:
+                tg(f"❌ Ch5 FAILED after {max_retries} attempts.")
+                sys.exit(1)
+        except Exception as e:
+            if attempt < max_retries:
+                tg(f"⚠️ Ch5 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 10 minutes...")
+                time.sleep(600)
+            else:
+                tg(f"❌ Ch5 FAILED {max_retries}x: {str(e)[:300]}")
+                sys.exit(1)
+
+
 if __name__ == "__main__":
-    main()
+    main_with_retry()
