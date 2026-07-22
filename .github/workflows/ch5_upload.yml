@@ -204,5 +204,6 @@ jobs:
             git pull --rebase origin main || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
+              exit 1
             fi
           done

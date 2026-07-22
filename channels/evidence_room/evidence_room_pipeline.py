@@ -6742,15 +6742,24 @@ def main_with_retry():
         except SystemExit as e:
             if e.code == 0: return
             if attempt < max_retries:
-                tg(f"⚠️ Ch2 attempt {attempt}/{max_retries} failed.\nRetrying in 2h...")
-                time.sleep(7200)
+                tg(f"⚠️ Ch2 attempt {attempt}/{max_retries} failed.\nRetrying in 10 minutes...")
+                # FIX (found on deep re-audit): this was 2h (7200s), but
+                # ch2_upload.yml's job timeout is 90 minutes — a 2-hour
+                # sleep can never complete inside that window, so this
+                # retry could never actually execute; it would just get
+                # hard-killed by GitHub Actions mid-sleep. Ch3/Ch4 already
+                # got this exact fix (2h -> 10min) on an earlier pass;
+                # Ch2 was missed. 10min also doesn't pretend to wait out a
+                # provider daily-quota reset (~24h, not 2h) the way the
+                # old value implied.
+                time.sleep(600)
             else:
                 tg(f"❌ Ch2 FAILED after {max_retries} attempts.")
                 sys.exit(1)
         except Exception as e:
             if attempt < max_retries:
-                tg(f"⚠️ Ch2 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 2h...")
-                time.sleep(7200)
+                tg(f"⚠️ Ch2 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 10 minutes...")
+                time.sleep(600)
             else:
                 tg(f"❌ Ch2 FAILED {max_retries}x: {str(e)[:300]}")
                 sys.exit(1)
