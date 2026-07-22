@@ -176,6 +176,24 @@ CHANNELS = [
     },
 ]
 
+# Real per-channel product mapping for Gumroad revenue attribution — the
+# same canonical mapping each channel's own build_product_cta() uses
+# (control_files_pipeline.py/archive_pipeline.py/etc.), duplicated here
+# rather than imported since weekly_report.py doesn't otherwise import
+# any single channel's pipeline module. Several channels intentionally
+# share the same product (e.g. the Dark Manipulation Tactics Handbook),
+# so revenue attributed to a shared product will appear in more than one
+# channel's own report — this is real, not double-counted against a
+# single channel's own distinct earnings, and is called out in the
+# report text itself.
+PRODUCT_TITLE_BY_CHANNEL = {
+    "betrayal_deepdive": "Dark Manipulation Tactics Handbook",
+    "evidence_room":     "Dark Manipulation Tactics Handbook",
+    "control_files":     "Dark Manipulation Tactics Handbook",
+    "archive":            "The Empire Collapse Atlas",
+    "collapse_index":     "The Financial Red Flags Field Guide",
+}
+
 
 def log(m): print(m, flush=True)
 
@@ -733,6 +751,44 @@ def run_weekly_report_for_channel(channel_cfg):
     # weekly_intel.json. Surfaced here now.
     calibration_note = intel.get("calibration_note", "")
 
+    # FIX (found on explicit follow-up request): real Gumroad revenue
+    # existed (ceo_dashboard.get_gumroad_sales) but only ever appeared in
+    # the combined Empire Dashboard message, which goes out through Ch1's
+    # Telegram bot only (no per-channel token/chat override) — a channel
+    # owner reading their OWN weekly report never saw their own product's
+    # real revenue at all. Wired in here as a real per-channel section,
+    # filtered to the last 7 days (Gumroad's own real after/before Sales
+    # API filters, not an all-time total) so it's genuinely "this week's"
+    # revenue, matching the rest of the report's cadence. Wrapped in its
+    # own try/except so a Gumroad API hiccup can never block the rest of
+    # this report from sending — "published every week without fail"
+    # means a revenue-fetch failure must degrade to an honest "no data"
+    # line, not skip the whole report.
+    revenue_line = "Gumroad not yet connected (GUMROAD_ACCESS_TOKEN not set)."
+    try:
+        from ceo_dashboard import get_gumroad_sales
+        gumroad_token = os.environ.get("GUMROAD_ACCESS_TOKEN", "")
+        if gumroad_token:
+            week_start = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+            week_end = datetime.date.today().isoformat()
+            sales_data = get_gumroad_sales([], gumroad_token, after_date=week_start, before_date=week_end)
+            if sales_data.get("connected"):
+                product_title = PRODUCT_TITLE_BY_CHANNEL.get(channel_id, "")
+                entry = sales_data.get("by_product", {}).get(product_title)
+                if entry:
+                    revenue = entry["revenue_cents"] / 100
+                    shared_note = (" (shared product — also sold via other channels)"
+                                   if list(PRODUCT_TITLE_BY_CHANNEL.values()).count(product_title) > 1 else "")
+                    revenue_line = (f"{product_title}: {entry['count']} sale(s), "
+                                    f"${revenue:.2f} this week{shared_note}.")
+                else:
+                    revenue_line = f"{product_title}: no sales this week (real data, genuinely zero)."
+            else:
+                revenue_line = f"Gumroad fetch failed (non-fatal): {sales_data.get('reason', 'unknown')}"
+    except Exception as e:
+        log(f"  Gumroad revenue fetch (non-fatal): {e}")
+        revenue_line = f"Gumroad revenue unavailable this week (non-fatal): {e}"
+
     report = f"""📊 <b>DeepDive Empire — Weekly Intelligence Report ({display_name})</b>
 Week ending {datetime.date.today().strftime('%B %d, %Y')}
 
@@ -745,6 +801,9 @@ Latest: {last_title[:55]}
 Avg CTR (last 7 days): {avg_ctr_str} | Subscribers gained: {subs_gained_str}
 {quality_summary}
 {own_performance or "Building audience — data available after first monetised week"}
+
+<b>REVENUE (Gumroad, last 7 days)</b>
+{revenue_line}
 
 <b>WHAT COMPETITORS PUBLISHED THIS WEEK</b>
 {top_titles_str}

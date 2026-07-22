@@ -253,11 +253,18 @@ def build_product_cta(channel_id):
     monetization.py's real get_product_cta_url, converted to a genuine
     absolute URL since a relative path would be a dead link inside a
     YouTube description."""
+    # FIX (found while wiring Gumroad revenue into the weekly report):
+    # this dict was missing a "collapse_index" entry (present correctly
+    # only in collapse_index_pipeline.py's own copy) — dormant today
+    # since this function is only ever called with each file's own
+    # literal channel_id, but a latent landmine matching the same
+    # CROSS_PROMO gap found and fixed earlier this session.
     product_by_channel = {
         "betrayal_deepdive": ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "evidence_room":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "control_files":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
+        "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
     product_id, product_title = product_by_channel.get(
         channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))

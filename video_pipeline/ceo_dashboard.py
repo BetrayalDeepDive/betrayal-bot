@@ -55,7 +55,7 @@ def get_github_traffic(repo_owner, repo_name, github_token):
         return {"available": False, "reason": str(e)}
 
 
-def get_gumroad_sales(product_gumroad_ids, gumroad_access_token):
+def get_gumroad_sales(product_gumroad_ids, gumroad_access_token, after_date=None, before_date=None):
     """
     Real sales data via Gumroad's API, once you have a real access token
     (Settings -> Advanced -> Generate access token, on gumroad.com — a
@@ -75,14 +75,26 @@ def get_gumroad_sales(product_gumroad_ids, gumroad_access_token):
     separate ID-mapping system. The product_gumroad_ids parameter is
     kept for future use (e.g. if a stricter cross-check against known
     listings is ever wanted) but currently only product_name is needed.
+
+    after_date/before_date: optional "YYYY-MM-DD" strings, passed
+    straight through to Gumroad's own real `after`/`before` Sales API
+    filters — added so a weekly report can ask for genuinely this-week's
+    sales instead of all-time totals, without changing the default
+    all-time behavior existing callers (the combined Empire Dashboard)
+    already rely on.
     """
     if not gumroad_access_token:
         return {"connected": False, "reason": "GUMROAD_ACCESS_TOKEN not set yet"}
 
     results = {}
     try:
+        params = {"access_token": gumroad_access_token}
+        if after_date:
+            params["after"] = after_date
+        if before_date:
+            params["before"] = before_date
         resp = requests.get("https://api.gumroad.com/v2/sales",
-                             params={"access_token": gumroad_access_token}, timeout=20)
+                             params=params, timeout=20)
         if resp.status_code != 200:
             return {"connected": False, "reason": f"API returned {resp.status_code}"}
         sales = resp.json().get("sales", [])

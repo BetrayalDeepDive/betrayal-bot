@@ -278,11 +278,18 @@ GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
 
 def build_product_cta(channel_id):
     """Real product CTA for the actual video description."""
+    # FIX (found while wiring Gumroad revenue into the weekly report):
+    # this dict was missing a "collapse_index" entry (present correctly
+    # only in collapse_index_pipeline.py's own copy) — dormant today
+    # since this function is only ever called with each file's own
+    # literal channel_id, but a latent landmine matching the same
+    # CROSS_PROMO gap found and fixed earlier this session.
     product_by_channel = {
         "betrayal_deepdive": ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "evidence_room":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "control_files":     ("dark-manipulation-tactics-handbook", "Dark Manipulation Tactics Handbook"),
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
+        "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
     product_id, product_title = product_by_channel.get(
         channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
