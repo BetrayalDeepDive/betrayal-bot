@@ -1791,32 +1791,35 @@ in naturally, skip it entirely — a forced-sounding mention actively hurts
 the viewer-satisfaction signals that now weigh more than raw watch time.
 
 
-TONE AND STYLE (NON-NEGOTIABLE):
-- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
-- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
-  laugh uncomfortably, then feel disturbed they laughed.
-- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
-- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
-- Each stage should feel darker than the last. Build psychological dread deliberately.
-- Real documentary references make it feel researched. Fake-sounding claims get skipped.
-- Pacing: short sentences hit harder. Use them at revelation moments.
-- The viewer should feel like they discovered something others don't know.
+TONE AND STYLE (NON-NEGOTIABLE): matches the CENTRAL CONTRADICTION rule
+above — this is a FORENSIC PUZZLE, not a shock-value true-crime retelling.
+- Every sentence should feel like one more piece of evidence being placed
+  on the table — precise, procedural, building toward a lock-tight case.
+- The satisfaction comes from watching contradictory evidence resolve into
+  certainty, not from dark humor or dread. Skip jokes entirely — this
+  channel's craft is the click of pieces fitting together.
+- Each stage should narrow the contradiction further. Build toward the
+  moment the puzzle locks into place, not toward maximum darkness.
+- Real documentary references and case-file language make it feel
+  researched. Fake-sounding or invented claims get skipped.
+- Pacing: short sentences at the moment a piece of evidence lands.
+- The viewer should feel like they solved something alongside the
+  investigators, not like they witnessed something shocking.
 
-WHAT MAKES VIEWERS CRAVE THIS CONTENT:
-- The sense that something was hidden — and you're the one showing it.
-- The feeling that the world is slightly more dangerous/dark than they thought.
-- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
-- The satisfaction of understanding a dark system fully, from start to end.
-- Dark humor that signals: we both know this is messed up, and we're in it together.
+WHAT MAKES VIEWERS STAY FOR THE WHOLE CASE:
+- The moment a contradiction viewers didn't notice gets pointed out.
+- The specific piece of evidence that reframes everything before it.
+- The satisfaction of the full evidence trail resolving into one conclusion.
+- Respect for the viewer's intelligence — let them almost solve it first.
 
-CRAVEABILITY TRIGGERS — use at least 3 per script:
-1. The statistic that sounds impossible but is real.
-2. The name everyone knows, connected to something they didn't know.
-3. The system that's still running right now — not historical.
-4. The thing institutions tried to suppress or deny.
-5. The detail so specific it has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question the script raises but deliberately doesn't fully answer.
+EVIDENCE TRIGGERS — use at least 3 per script:
+1. The specific detail in the record that contradicts the official story.
+2. The piece of evidence investigators almost missed.
+3. The document or record that's still on file and checkable today.
+4. The procedural step institutions got wrong or skipped.
+5. The exact detail so specific it has to come from a real record.
+6. The final piece of evidence that resolves the contradiction, in the last 30 seconds.
+7. The one detail the case file leaves formally unresolved.
 
 RULES:
 1. Maximum 13 words per sentence. Every sentence.
