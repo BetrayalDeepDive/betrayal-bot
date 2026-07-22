@@ -50,7 +50,14 @@ jobs:
       - name: Download video artifact from latest Generate run
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: ch3_generate.yml
+          # FIX (found on deep re-audit — critical, total outage): this
+          # was pointing at ch3_generate.yml, a copy-paste leftover from
+          # Ch3's own upload workflow. ch3_generate.yml's runs only ever
+          # produce an artifact named ch3-pending-video, never
+          # ch4-pending-video, so this lookup could never find anything —
+          # meaning Ch4 (The Archive) could never successfully publish a
+          # single video, every run, unconditionally.
+          workflow: ch4_generate.yml
           name: ch4-pending-video
           path: /tmp/archive
           # FIX (found on direct user report, July 15 2026): 'success'
