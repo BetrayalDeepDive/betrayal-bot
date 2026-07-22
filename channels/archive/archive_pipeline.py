@@ -1741,7 +1741,16 @@ POWER WORDS: {power_str}
 
 TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
 
-SEVEN-STAGE CONTROL STRUCTURE — write continuously, no labels:
+SEVEN-STAGE COLLAPSE CHRONICLE — write continuously, no labels:
+
+FACTUAL CARE (non-negotiable, real policy-safety requirement): this channel's
+biggest real risk is historical misinformation and unsupported speculation
+dressed up as fact, not creative weakness. Use careful, evidence-first
+wording — "historians generally agree," "according to surviving records,"
+"the evidence suggests" — rather than stating contested historical claims
+or fringe theories as flat fact. If any detail is dramatized, reconstructed,
+or a plausible inference rather than independently documented, say so
+plainly in the narration.
 
 RETENTION CHECKPOINTS (precise timing, not just word count — this is where
 most viewers actually drop off if nothing happens):
@@ -1825,48 +1834,38 @@ the viewer-satisfaction signals that now weigh more than raw watch time.
 
 
 TONE AND STYLE (NON-NEGOTIABLE):
-- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
-- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
-  laugh uncomfortably, then feel disturbed they laughed.
-- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
-- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
-- Each stage should feel darker than the last. Build psychological dread deliberately.
-- Real documentary references make it feel researched. Fake-sounding claims get skipped.
-- Pacing: short sentences hit harder. Use them at revelation moments.
-- The viewer should feel like they discovered something others don't know.
+- This is EPIC HISTORICAL DOCUMENTARY — every sentence should carry the weight
+  of centuries, not the shock-value dread of a true-crime case file.
+- Scale is the engine, not gore or suspicion: millions of lives, generations
+  of consequence, empires that looked permanent to the people living in them.
+- Every paragraph should leave the viewer wanting the next one — driven by
+  "and then what happened to them" curiosity, not manufactured craving.
+- Think: what makes a civilization that felt unshakeable actually fall apart?
+- Each stage should deepen the sense of inevitability in hindsight, even
+  though nobody living through it could have seen it coming.
+- Real historical references, dates, and figures make it feel researched.
+  Fake-sounding or invented claims get skipped entirely.
+- Pacing: short sentences hit harder at the moments of collapse or reveal.
+- The viewer should feel like they now understand a hidden mechanism behind
+  events they'd only ever heard the surface version of.
 
 WHAT MAKES VIEWERS CRAVE THIS CONTENT:
-- The sense that something was hidden — and you're the one showing it.
-- The feeling that the world is slightly more dangerous/dark than they thought.
-- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
-- The satisfaction of understanding a dark system fully, from start to end.
-- Dark humor that signals: we both know this is messed up, and we're in it together.
+- The vertigo of scale — a system that governed millions reduced to a
+  handful of decisions, or one overlooked crack.
+- The eerie modern echo — a structural pattern from centuries ago that
+  looks unsettlingly similar to something happening today.
+- The satisfaction of finally understanding WHY something fell, not just
+  that it did — cause and effect made legible across a long span of time.
+- The reframing of a "famous" event through a detail most retellings skip.
 
 CRAVEABILITY TRIGGERS — use at least 3 per script:
-1. The statistic that sounds impossible but is real.
-2. The name everyone knows, connected to something they didn't know.
-3. The system that's still running right now — not historical.
-4. The thing institutions tried to suppress or deny.
-5. The detail so specific it has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question the script raises but deliberately doesn't fully answer.
-
-TONE AND STYLE — NON-NEGOTIABLE:
-- DARK DOCUMENTARY. Every sentence = psychological weight pressing down.
-- Dark humor that makes viewers laugh then feel disturbed they laughed.
-- Every paragraph: viewers CRAVE the next one. Not curious — addicted.
-- Each stage darker than the last. Build dread deliberately.
-- Viewer should feel they discovered something others do not know.
-- Pacing: short sentences at revelation moments. Hits harder.
-
-CRAVEABILITY TRIGGERS — use minimum 3 per script:
-1. The statistic that sounds impossible but is verifiably real.
-2. The name everyone knows connected to something they never knew.
-3. The system still running right now — not historical, not past tense.
-4. The evidence institutions tried to suppress or deny.
-5. The detail so specific it absolutely has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question raised but deliberately left open.
+1. The statistic that sounds impossible but is historically documented.
+2. The figure everyone's heard of, connected to a decision they never learned about.
+3. The structural echo — a pattern that still shapes institutions today.
+4. The record institutions of the time tried to suppress, rewrite, or destroy.
+5. The detail so specific and well-sourced it has to be true.
+6. The uncomfortable modern implication raised in the final 30 seconds.
+7. The open question historians still argue over — raised but not resolved.
 
 RULES:
 1. Maximum 13 words per sentence. Every sentence.

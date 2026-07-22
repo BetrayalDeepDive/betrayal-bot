@@ -1746,22 +1746,15 @@ CRAVEABILITY TRIGGERS — use at least 3 per script:
 6. The uncomfortable implication in the final 30 seconds.
 7. The question the script raises but deliberately doesn't fully answer.
 
-TONE AND STYLE — NON-NEGOTIABLE:
-- DARK DOCUMENTARY. Every sentence = psychological weight pressing down.
-- Dark humor that makes viewers laugh then feel disturbed they laughed.
-- Every paragraph: viewers CRAVE the next one. Not curious — addicted.
-- Each stage darker than the last. Build dread deliberately.
-- Viewer should feel they discovered something others do not know.
-- Pacing: short sentences at revelation moments. Hits harder.
-
-CRAVEABILITY TRIGGERS — use minimum 3 per script:
-1. The statistic that sounds impossible but is verifiably real.
-2. The name everyone knows connected to something they never knew.
-3. The system still running right now — not historical, not past tense.
-4. The evidence institutions tried to suppress or deny.
-5. The detail so specific it absolutely has to be true.
-6. The uncomfortable implication in the final 30 seconds.
-7. The question raised but deliberately left open.
+FACTUAL CARE (non-negotiable, real policy-safety requirement): this
+channel's biggest real risk is defamation and conspiracy-drift, not
+creative weakness — a control-tactics documentary reads dark by design,
+but every specific claim about a real person, group, or organization must
+stay attributable. Use careful, evidence-first wording — "according to
+court records," "former members allege," "reportedly" — rather than
+stating contested claims as flat fact. If any detail is dramatized or
+reconstructed rather than independently verifiable, say so plainly in
+the narration.
 
 RULES:
 1. Maximum 13 words per sentence. Every sentence.
