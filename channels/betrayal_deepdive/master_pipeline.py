@@ -4716,6 +4716,43 @@ def upload_yt(path, title, desc, tags, token=None, privacy="public"):
                 time.sleep(5)
     raise Exception("Upload ended without completion")
 
+def set_video_privacy(video_id, privacy, token=None):
+    """
+    Real, metadata-only YouTube API call — flips an already-uploaded
+    video's privacyStatus without re-uploading the file. Used by the
+    final pre-publish gate: the video is uploaded unlisted first, then
+    this flips it to public once a human has actually approved it.
+    """
+    token = token or get_yt_token()
+    try:
+        r = requests.put(
+            f"{YT_DATA_URL}/videos?part=status",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"id": video_id, "status": {"privacyStatus": privacy}},
+            timeout=20)
+        if r.status_code == 200:
+            return True
+        log(f"  Set privacy to {privacy} FAILED: {r.status_code} — {r.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"  Set privacy (non-fatal): {e}")
+        return False
+
+def delete_yt_video(video_id, token=None):
+    """Real deletion of an unlisted upload rejected at the final pre-publish gate."""
+    token = token or get_yt_token()
+    try:
+        r = requests.delete(f"{YT_DATA_URL}/videos",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"id": video_id}, timeout=20)
+        if r.status_code in (200, 204):
+            return True
+        log(f"  Delete rejected video FAILED: {r.status_code} — {r.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"  Delete rejected video (non-fatal): {e}")
+        return False
+
 def upload_thumbnail(video_id, thumb_path, token):
     # NOTE: this function is not currently called anywhere — the actual
     # active thumbnail upload is inline in the main upload flow (already
@@ -5876,10 +5913,33 @@ def main():
 
         token = get_yt_token()
 
-        # Upload main video
+        # Upload main video — UNLISTED first, not public yet. The final
+        # pre-publish gate below sends the real, full, unlisted link
+        # (no Telegram size limit, unlike the 60s preview clip reviewed
+        # during generate) so the whole thing can be watched/downloaded
+        # and judged before it ever goes public, even if the reviewer
+        # was away and missed every earlier check-in.
         yt_url, vid_id = run_stage_with_retry(
             upload_yt, "Upload",
-            video_path, title, description, tags, token=token)
+            video_path, title, description, tags, token=token, privacy="unlisted")
+
+        from human_review_gate import review_final_video_before_publish
+        _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+        _final_gate = review_final_video_before_publish(
+            "Ch1 BetrayalDeepDive", yt_url, thumb_path,
+            TG_TOKEN, TG_CHAT, check_ins_used=0,
+            gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
+        if _final_gate["decision"] != "approve":
+            delete_yt_video(vid_id, token=token)
+            clear_pending(SCRIPT_DIR)
+            tg(f"🔄 Ch1: final video rejected — unlisted upload removed, "
+               f"nothing published. Feedback: {_final_gate.get('feedback') or '(none given)'}. "
+               f"A fresh episode will be generated on the next cycle.")
+            log("Final pre-publish gate: rejected — stopping before publish steps.")
+            sys.exit(0)
+        set_video_privacy(vid_id, "public", token=token)
+        log(f"  Final gate approved — video is now public: {yt_url}")
 
         # FIX: ensure_niche_playlist existed fully built but was never
         # called anywhere — playlist_id was always empty string (state

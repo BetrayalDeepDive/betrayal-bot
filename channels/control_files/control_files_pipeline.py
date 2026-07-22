@@ -3567,7 +3567,7 @@ def get_yt_token():
     _tok_cache["expires_at"] = now + d.get("expires_in", 3600)
     return d["access_token"]
 
-def upload_yt(path, title, description, tags, is_short=False, token=None):
+def upload_yt(path, title, description, tags, is_short=False, token=None, privacy="public"):
     """Chunked resumable upload with retry — same as Channel 1."""
     token = token or get_yt_token()
     if is_short: title = f"{title[:55]} #Shorts"
@@ -3581,7 +3581,7 @@ def upload_yt(path, title, description, tags, is_short=False, token=None):
         json={"snippet": {"title": title[:100], "description": description,
                           "tags": tags[:15], "categoryId": "22"},
               "status": {
-                  "privacyStatus": "public",
+                  "privacyStatus": privacy,
                   "selfDeclaredMadeForKids": False,
                   "madeForKids": False,
                   "containsSyntheticMedia": True   # mandatory AI disclosure since Mar 2024
@@ -3625,6 +3625,45 @@ def upload_yt(path, title, description, tags, is_short=False, token=None):
                 if retries > 5: raise Exception("Repeated timeouts")
                 time.sleep(5)
     raise Exception("Upload ended without completion")
+
+
+def set_video_privacy(video_id, privacy, token=None):
+    """
+    Real, metadata-only YouTube API call — flips an already-uploaded
+    video's privacyStatus without re-uploading the file. Used by the
+    final pre-publish gate: the video is uploaded unlisted first, then
+    this flips it to public once a human has actually approved it.
+    """
+    token = token or get_yt_token()
+    try:
+        r = requests.put(
+            f"{YT_DATA_URL}/videos?part=status",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"id": video_id, "status": {"privacyStatus": privacy}},
+            timeout=20)
+        if r.status_code == 200:
+            return True
+        log(f"  Set privacy to {privacy} FAILED: {r.status_code} — {r.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"  Set privacy (non-fatal): {e}")
+        return False
+
+
+def delete_yt_video(video_id, token=None):
+    """Real deletion of an unlisted upload rejected at the final pre-publish gate."""
+    token = token or get_yt_token()
+    try:
+        r = requests.delete(f"{YT_DATA_URL}/videos",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"id": video_id}, timeout=20)
+        if r.status_code in (200, 204):
+            return True
+        log(f"  Delete rejected video FAILED: {r.status_code} — {r.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"  Delete rejected video (non-fatal): {e}")
+        return False
 
 
 def post_creator_comment(token, video_id, niche_name, title, episode):
@@ -5728,7 +5767,25 @@ def main():
                     state["playlists"] = pl; save_state(state)
         yt_url, vid_id = run_stage_with_retry(
             upload_yt, "Upload", video_path, title, description, tags,
-            is_short=False, token=token_yt)
+            is_short=False, token=token_yt, privacy="unlisted")
+
+        from human_review_gate import review_final_video_before_publish
+        _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+        _final_gate = review_final_video_before_publish(
+            "Ch3 Control Files", yt_url, thumb_path,
+            TG_TOKEN, TG_CHAT, check_ins_used=0,
+            gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
+        if _final_gate["decision"] != "approve":
+            delete_yt_video(vid_id, token=token_yt)
+            clear_pending(SCRIPT_DIR)
+            tg(f"🔄 Ch3: final video rejected — unlisted upload removed, "
+               f"nothing published. Feedback: {_final_gate.get('feedback') or '(none given)'}. "
+               f"A fresh episode will be generated on the next cycle.")
+            log("Final pre-publish gate: rejected — stopping before publish steps.")
+            sys.exit(0)
+        set_video_privacy(vid_id, "public", token=token_yt)
+        log(f"  Final gate approved — video is now public: {yt_url}")
 
         if playlist_id: add_to_playlist(token_yt, playlist_id, vid_id)
 

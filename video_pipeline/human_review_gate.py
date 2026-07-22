@@ -1309,6 +1309,71 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
 
     return {"audio_decision": audio_decision, "video_decision": video_decision}
 
+
+def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
+                                       tg_token, tg_chat, check_ins_used=0,
+                                       gmail_sender=None, gmail_app_password=None,
+                                       timeout_minutes=60):
+    """
+    THE REAL FINAL GATE — built in direct response to the explicit request
+    that nothing goes public without a chance to actually watch the whole
+    thing first, even when the reviewer is away and never checks in time.
+
+    HONEST DESIGN NOTE: the earlier review_audio_and_video() checkpoint
+    only ever sent a 60-second preview clip, because Telegram's bot API
+    has a real ~50MB upload cap — the full 15-18 minute video routinely
+    exceeds that. There is no way to send the actual video FILE through
+    Telegram at full length. The real fix: the caller uploads the
+    finished video to YouTube as UNLISTED first (viewable/downloadable
+    by anyone with the exact link, not searchable, not public yet) —
+    this sends that real link so the whole thing can be watched or
+    downloaded and judged in full, with zero size limit, before it ever
+    goes public. Approving here does not re-upload anything — the
+    caller flips the same already-uploaded video's privacyStatus to
+    "public" via a metadata-only YouTube API call.
+
+    Real decision handling:
+      APPROVE (or the {timeout_minutes}-min timeout) -> caller flips the
+        video to public, exactly as-is.
+      REJECT / REMAKE / EDIT -> all treated the same at this final
+        stage (there's no more text left to "edit", the video is fully
+        rendered) -- the caller deletes the unlisted upload and produces
+        a genuinely fresh episode on the next cycle instead, carrying
+        forward any real feedback text given.
+
+    Returns {"decision": "approve"|"regenerate", "feedback": str or None}.
+    """
+    schedule_line = get_schedule_line(check_ins_used)
+    caption = (f"🎬 {channel_name} — FINAL VIDEO, READY TO GO PUBLIC\n\n{schedule_line}\n\n"
+               f"Full video (unlisted — not public yet, viewable/downloadable "
+               f"by anyone with this exact link):\n{yt_url}\n\n"
+               f"Watch or download the whole thing, then decide:\n"
+               f"Tap a button below — auto-approves and goes PUBLIC in "
+               f"{timeout_minutes} min if untouched")
+    _tg_send_message_with_buttons(tg_token, tg_chat, caption)
+    if thumbnail_path and Path(thumbnail_path).exists():
+        _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption="Final thumbnail")
+
+    if gmail_app_password:
+        html_body = (f"<p>{schedule_line}</p>"
+                     f"<p>Full unlisted video, ready to review before it goes public:<br>"
+                     f"<a href='{yt_url}'>{yt_url}</a></p>")
+        send_email_notification(f"[{channel_name}] Final video ready — approve to publish",
+                                 html_body, gmail_sender, gmail_app_password)
+
+    decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes,
+                                             gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "timeout":
+        _tg_send_message(tg_token, tg_chat,
+                         f"⏱️ {timeout_minutes} min expired — auto-approved, going public now.")
+        return {"decision": "approve", "feedback": None}
+    if decision == "approve":
+        return {"decision": "approve", "feedback": None}
+    _tg_send_message(tg_token, tg_chat,
+                     "🔄 Not approved — this unlisted upload is being removed. "
+                     "A fresh episode will be generated on the next cycle instead.")
+    return {"decision": "regenerate", "feedback": feedback}
+
 # FIX (found on re-audit, before building anything on top of this file):
 # the lines that used to follow here were dead, unreachable code —
 # leftover from a copy-paste, sitting after the real `return` above.
