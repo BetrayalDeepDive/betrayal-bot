@@ -1217,7 +1217,18 @@ def pick_best_niche(state, scheduled_name):
 # SCORE
 # ================================================================
 def score_result(r, topic=""):
-    if not r: return 0.0, []
+    # FIX (found on live Ch1 test run — real bug): this computed real
+    # rubric subscores and issues (Craft, Clarity, rehook, retention
+    # dead-zones) and logged them, but the return statement was
+    # hardcoded `return min(round(s, 1), 10.0), []` — every issue it
+    # found was calculated, printed to the log, then thrown away. A
+    # script scoring 10.0/10 with real flagged problems (weak narrative
+    # craft, a repeated filler phrase, a missing mid-video rehook) sent
+    # to the human reviewer showed only the bare number and one older,
+    # separate "Hook strength" metric — none of the newer rubric
+    # findings a reviewer would actually want to see before approving.
+    # Now genuinely returned so callers can surface them.
+    if not r: return 0.0, [], {}
     s = 5.0
     w = r.get("words", 0)
     if w >= MIN_WORDS: s += 2.8
@@ -1229,29 +1240,35 @@ def score_result(r, topic=""):
     else:        s -= 1.5
     # v12: retention hook validation
     script = r.get("script", "")
+    issues = []
+    subscores = {}
     if script:
         penalty, hook_issues = _validate_retention_hooks_ch1(script)
         s += penalty
+        issues.extend(hook_issues)
         # Killer Hook / Narrative Craft / Topic Clarity rubric — real,
         # deterministic scoring of the actual script text, shared across
         # all 5 channels (video_pipeline/script_scoring.py).
         try:
             from script_scoring import score_script_rubric, validate_rehook_beat
-            rubric_bonus, rubric_issues, subscores = score_script_rubric(script, topic or r.get("topic", ""))
+            rubric_bonus, rubric_issues, rubric_subscores = score_script_rubric(script, topic or r.get("topic", ""))
             s += rubric_bonus
-            if subscores:
-                log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
-                    f"Craft {subscores['narrative_craft']}/10 | "
-                    f"Clarity {subscores['topic_clarity']}/10")
+            if rubric_subscores:
+                subscores.update(rubric_subscores)
+                log(f"  Rubric: Hook {rubric_subscores['killer_hook']}/10 | "
+                    f"Craft {rubric_subscores['narrative_craft']}/10 | "
+                    f"Clarity {rubric_subscores['topic_clarity']}/10")
             if rubric_issues:
+                issues.extend(rubric_issues)
                 log(f"  Rubric issues: {' | '.join(rubric_issues[:3])}")
             rehook_bonus, rehook_issues = validate_rehook_beat(script)
             s += rehook_bonus
             if rehook_issues:
+                issues.extend(rehook_issues)
                 log(f"  {rehook_issues[0]}")
         except Exception as e:
             log(f"  Script rubric scoring (non-fatal): {e}")
-    return min(round(s, 1), 10.0), []
+    return min(round(s, 1), 10.0), issues, subscores
 
 
 def _validate_retention_hooks_ch1(script_clean):
@@ -5319,7 +5336,7 @@ def run_stage1(state):
                 log(f"  Research-usage check: {'genuinely reflected' if _research_used else 'NOT clearly used'}")
             result["_research_used"] = _research_used
 
-            score, _ = score_result(result, topic)
+            score, _, _ = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
 
@@ -6152,7 +6169,7 @@ def main():
             log(f"  Topic ID lookup (non-fatal): {e}")
         script_clean = script_result["script"]
         wc           = script_result["words"]
-        score_val    = score_result(script_result, topic)[0]
+        score_val, _score_issues, _score_subscores = score_result(script_result, topic)
         edge_voice   = pick_voice(niche_name, state)
         # v6 addition — real citation system: the actual sources used
         # during research (if any were found), carried through for the
@@ -6212,6 +6229,23 @@ def main():
                     log(f"  Hook scoring (non-fatal): {e}")
                     _hook_score, _hook_note = None, None
 
+                # FIX (found on live Ch1 test run — real bug): score_result()
+                # was computing real rubric subscores (Craft, Clarity) and
+                # real issues (repeated phrases, missing rehook, weak
+                # escalation) and then discarding them — a reviewer only
+                # ever saw the bare number plus this older "Hook strength"
+                # metric, never why a 10.0/10 script might still have a
+                # real narrative-craft problem worth reading before
+                # approving. Merged in now that score_result() actually
+                # returns them.
+                _review_sub_scores = {"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else {}
+                if _score_subscores:
+                    _craft_note = next((i for i in _score_issues if any(
+                        k in i.lower() for k in ("escalation", "resolution", "rhythm", "repeats", "rehook"))), None)
+                    _clarity_note = next((i for i in _score_issues if "topic" in i.lower() or "keyword" in i.lower()), None)
+                    _review_sub_scores["Narrative craft"] = (_score_subscores.get("narrative_craft"), _craft_note or "no issues found")
+                    _review_sub_scores["Topic clarity"] = (_score_subscores.get("topic_clarity"), _clarity_note or "no issues found")
+
                 # FIX (July 14 2026 audit): now passes stage_texts/stage_names
                 # so the script review is sent stage-by-stage with clear
                 # headers instead of one undifferentiated wall of text.
@@ -6220,7 +6254,7 @@ def main():
                                         gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
                                         timeout_minutes=60,
                                         stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
-                                        sub_scores={"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else None)
+                                        sub_scores=_review_sub_scores or None)
                 if _review["decision"] == "reject":
                     log("Rejected during full script review."); sys.exit(0)
                 # FIX (found on deep re-audit): REMAKE was never handled

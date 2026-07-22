@@ -23,11 +23,16 @@ GitHub Pages itself, not just the language around it.
 import json
 import requests
 from pathlib import Path
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib import colors
+# FIX (found on live Ch1 test run — real bug, not a design choice): reportlab
+# was imported at module level, so importing THIS WHOLE MODULE failed with
+# "No module named 'reportlab'" on every single generate run across all 5
+# channels whenever reportlab wasn't installed (it wasn't — only the upload/
+# weekly-report workflows install it, generate workflows never do, and never
+# needed to). That broke get_product_cta_url() too, even though it doesn't
+# use reportlab at all — only export_manuscript_to_pdf() below does. Moved
+# the import into that one function so the common, lightweight path
+# (get_product_cta_url, used in every video description) never depends on a
+# PDF-export-only dependency the generate workflows don't install.
 
 # ══════════════════════════════════════════════════════════════════
 # GUMROAD CONFIG — fill in the real product URLs here once you've
@@ -90,6 +95,12 @@ def export_manuscript_to_pdf(product_title, chapters_with_notes, output_path):
     PDF export failure should never break the weekly report run).
     """
     try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+
         doc = SimpleDocTemplate(str(output_path), pagesize=letter,
                                  topMargin=0.9*inch, bottomMargin=0.9*inch,
                                  leftMargin=0.9*inch, rightMargin=0.9*inch)
