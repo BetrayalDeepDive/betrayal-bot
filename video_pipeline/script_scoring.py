@@ -94,6 +94,51 @@ def score_killer_hook(script_text):
     return round(min(max(score, 0.0), 10.0), 1), issues
 
 
+def validate_first_15_seconds(script_text, wpm=150):
+    """
+    Scores the true first ~15 seconds of spoken narration — distinct from
+    score_killer_hook's ~10%-of-script "cold open" zone, which for a
+    typical 2000-word/13-minute episode is ~80 seconds in, far past the
+    moment viewers actually decide whether to keep watching. At a typical
+    ~150wpm narration pace, 15 seconds is ~37-38 words. Checks the same
+    real signals as the hook score, but strictly within that opening
+    handful of seconds: no weak/generic opener, an explicit unresolved
+    question or concrete detail to hook on, and a first sentence short
+    enough to land fast rather than wind up into a scene-setter.
+    """
+    words = script_text.split()
+    if len(words) < 20:
+        return 0.0, ["Script too short to score first 15 seconds"]
+
+    zone_wc = max(20, int(wpm * 15 / 60))
+    zone = " ".join(words[:zone_wc])
+    zone_lower = zone.lower()
+
+    score = 3.0
+    issues = []
+
+    if any(w in zone_lower for w in _WEAK_OPENERS):
+        score -= 2.5
+        issues.append("First 15 seconds opens with a weak/generic opener")
+    else:
+        score += 1.5
+
+    if re.search(r'\d', zone) or any(w in zone_lower for w in _QUESTION_CUES) or "?" in zone:
+        score += 2.5
+    else:
+        issues.append("First 15 seconds has no concrete detail or open question — nothing to hook on")
+
+    zone_sentences = _sentences(zone)
+    first_sentence = zone_sentences[0] if zone_sentences else zone
+    if len(first_sentence.split()) > 18:
+        score -= 1.0
+        issues.append("Opening sentence runs too long for a fast cold open")
+    else:
+        score += 1.0
+
+    return round(min(max(score, 0.0), 10.0), 1), issues
+
+
 def score_narrative_craft(script_text):
     """
     Scores overall script craft: does it actually escalate and resolve
@@ -249,17 +294,19 @@ def score_script_rubric(script_text, topic=""):
         return 0.0, ["Empty script"], {}
 
     hook_score, hook_issues = score_killer_hook(script_text)
+    open15_score, open15_issues = validate_first_15_seconds(script_text)
     craft_score, craft_issues = score_narrative_craft(script_text)
     clarity_score, clarity_issues = score_topic_clarity(script_text, topic)
 
     subscores = {
         "killer_hook": hook_score,
+        "first_15_seconds": open15_score,
         "narrative_craft": craft_score,
         "topic_clarity": clarity_score,
     }
-    issues = hook_issues + craft_issues + clarity_issues
+    issues = hook_issues + open15_issues + craft_issues + clarity_issues
 
-    avg = (hook_score + craft_score + clarity_score) / 3.0
+    avg = (hook_score + open15_score + craft_score + clarity_score) / 4.0
     bonus = round((avg - 5.0) * 0.3, 2)
     bonus = max(-1.5, min(1.5, bonus))
 
