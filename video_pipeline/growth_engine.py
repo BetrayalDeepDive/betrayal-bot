@@ -1266,6 +1266,21 @@ def run_ctr_recovery(channel_id, token, growth_state):
     except Exception as e:
         log(f"  thumb_format_history CTR record (non-fatal): {e}")
 
+    # FIX (found on deep re-audit): title_score_history real learning
+    # signal — same real CTR pull, feeding title_scoring_history so
+    # get_title_calibration_notes() has real data to compare against
+    # score_title_v2's predictions, mirroring thumb_format_history exactly.
+    try:
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if ch_cfg.get("state_file"):
+            from title_scoring_history import record_title_ctr
+            cache_dir = str(Path(ch_cfg["state_file"]).parent)
+            for row in data.get("rows", []):
+                if len(row) >= 2:
+                    record_title_ctr(cache_dir, row[0], float(row[1]))
+    except Exception as e:
+        log(f"  title_score_history CTR record (non-fatal): {e}")
+
     ctr_tests   = growth_state.get("ctr_ab_tests", {})
     regenerated = 0
 
@@ -1944,6 +1959,19 @@ def run_post_upload_sprint():
             attach_video_id(str(Path(ch_cfg["state_file"]).parent), ch_name, m.group(1))
     except Exception as e:
         log(f"  thumb_format_history video_id attach (non-fatal): {e}")
+
+    # title_score_history: same real video_id attach, for the title-CTR
+    # learning loop (title_scoring_history.py) — mirrors the thumbnail
+    # attach above exactly, using the same ch_name so the "most recent
+    # unattached entry for this channel" match resolves correctly.
+    try:
+        m = re.search(r'[?&]v=([A-Za-z0-9_-]{11})', video_url)
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if m and ch_cfg.get("state_file"):
+            from title_scoring_history import attach_title_video_id
+            attach_title_video_id(str(Path(ch_cfg["state_file"]).parent), ch_name, m.group(1))
+    except Exception as e:
+        log(f"  title_score_history video_id attach (non-fatal): {e}")
 
     # Hype notification day 0
     send_hype_notification(video_url, video_title, ch_name, growth_state, day=0)

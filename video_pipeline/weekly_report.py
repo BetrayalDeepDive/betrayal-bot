@@ -362,10 +362,31 @@ def recalibrate_title_model(state, competitor_patterns, channel_dir=None):
 
     intel["last_updated"]          = datetime.datetime.now().isoformat()
     intel["competitor_patterns"]   = competitor_patterns
-    intel["calibration_note"]      = (
+
+    # FIX (found on deep re-audit): this used to always write a canned
+    # sentence built from competitor title TEXT — it never actually
+    # compared score_title_v2's predictions against real CTR outcomes,
+    # despite this function's own name/docstring. Now genuinely checks:
+    # if enough real title-score-vs-real-CTR history exists (via
+    # title_scoring_history.py, wired into record_title_used/
+    # attach_title_video_id/record_title_ctr in growth_engine.py and
+    # each channel's run_title_ctr_gate), use that real comparison
+    # instead — falling back to the original competitor-pattern note
+    # only when there isn't enough real data yet, same as
+    # topic_scoring.get_scoring_calibration_notes's proven pattern.
+    real_calibration_note = ""
+    if channel_dir:
+        try:
+            from title_scoring_history import get_title_calibration_notes
+            real_calibration_note = get_title_calibration_notes(channel_dir)
+        except Exception as e:
+            log(f"  Real title calibration (non-fatal): {e}")
+
+    intel["calibration_note"] = real_calibration_note or (
         "Title scoring recalibrated based on this week's competitor data. "
         "Next week's scripts will prioritize: " + competitor_patterns[:150]
     )
+    intel["calibration_is_real_performance_based"] = bool(real_calibration_note)
 
     try:
         intel_path.parent.mkdir(parents=True, exist_ok=True)

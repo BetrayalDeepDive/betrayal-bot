@@ -157,6 +157,19 @@ def score_title_v2(title):
     return round(min(max(sc, 0), 10), 1), bd
 
 
+def _record_title_history(niche_name, episode, title, score):
+    # FIX (found on deep re-audit): weekly_report.py's
+    # recalibrate_title_model() claimed to compare predicted title-CTR
+    # scores against real performance but never actually recorded either
+    # side of that comparison — this is the real write side, mirroring
+    # thumb_format_history's proven pattern exactly.
+    try:
+        from title_scoring_history import record_title_used
+        record_title_used(str(SCRIPT_DIR), "BetrayalDeepDive", niche_name, episode, title, score)
+    except Exception as e:
+        log(f"  Title history record (non-fatal): {e}")
+
+
 def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         series_name, episode, ai_fn, min_ctr=6.5):
     if not title_scores:
@@ -165,6 +178,7 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                         key=lambda x: x[1], reverse=True)
     best_title, best_score = v2_scored[0]
     if best_score >= min_ctr:
+        _record_title_history(niche_name, episode, best_title, best_score)
         return best_title, v2_scored
     # Regenerate with targeted fix
     _, bd = score_title_v2(best_title)
@@ -195,9 +209,11 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                 new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
                                      key=lambda x: x[1], reverse=True)
                 if new_scored and new_scored[0][1] > best_score:
+                    _record_title_history(niche_name, episode, new_scored[0][0], new_scored[0][1])
                     return new_scored[0][0], new_scored
     except:
         pass
+    _record_title_history(niche_name, episode, best_title, best_score)
     return best_title, v2_scored
 
 
