@@ -1729,6 +1729,13 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     }
 
     power_str = ", ".join(power[:6])
+    # FIX (found on deep re-audit): this channel requested only 20 scenes
+    # for a 15-18 minute video — the same fixed 20-scene list then had to
+    # repeat ~7-8 times (render_and_encode's `repeats = int(duration/
+    # total_scene_dur)+2`) to fill runtime, unlike evidence_room which was
+    # already fixed to request a dynamic 55-60 scenes (repeats ~3). Same
+    # dynamic-count fix applied here now, matching evidence_room exactly.
+    n_scenes_target = 55 + (datetime.datetime.now().timetuple().tm_yday % 6)  # 55-60, varies daily
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
     prompt = f"""Write a historical and geopolitical-collapse documentary narration script.
 Style: precisely documented, evidence-driven, case-file format.
@@ -1887,11 +1894,12 @@ with no real guidance):
   titles that get clicks but lose viewers fast when the video doesn't match the
   promise — this is worse long-term than a slightly less aggressive honest title.
 
-IMPORTANT: provide 20 scenes, not 5 — this video runs 15-18 minutes, and 5 scenes
-means the same 5 visuals loop roughly 24 times, which looks broken and repetitive.
-Vary content EVERY time a scene type repeats (different real facts, different
-countries highlighted, different documents, different numbers each time — never
-reuse the same labels twice).
+IMPORTANT: provide {n_scenes_target} scenes (55-60, not fewer) — this video runs
+15-18 minutes, and a short scene list means the same handful of visuals loop
+many times over, which looks broken and repetitive. Vary content EVERY time a
+scene type repeats (different real facts, different countries highlighted,
+different documents, different numbers each time — never reuse the same
+labels twice).
 
 VISUALS MUST BE SPECIFIC TO THIS EXACT TOPIC, NEVER GENERIC OR RANDOM:
 - map_highlight: "highlight_countries" MUST be REAL modern country names in
@@ -1904,7 +1912,8 @@ VISUALS MUST BE SPECIFIC TO THIS EXACT TOPIC, NEVER GENERIC OR RANDOM:
   roughly [31.2, 30.0], Rome is roughly [12.5, 41.9], Xi'an is roughly [108.9, 34.3]).
   Use your real geographic knowledge — approximate is fine, invented is not.
 Cycle through the 6 types across the full narrative, roughly in this rhythm
-(repeat the whole 6-type cycle ~3-4 times with fresh content each pass):
+(repeat the whole 6-type cycle enough times with fresh content each pass to
+reach {n_scenes_target} scenes total):
 {{"title":"YouTube title, 40-65 chars, dread OR sympathy register, curiosity gap intact","thumbnail_text":"3 WORDS ALL CAPS with number","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"],"scenes":[
 {{"type":"map_highlight","duration":9,"title":"THE RISE","highlight_countries":["Egypt"],"label":"Real specific label tied to this topic"}},
 {{"type":"map_movement","duration":9,"title":"THE ROUTE","route_countries":["Egypt","Israel","Turkey"],"route_points":[[31.2,30.0],[35.2,31.8],[35.0,38.9]],"label":"Real specific label tied to this topic"}},
@@ -1912,9 +1921,10 @@ Cycle through the 6 types across the full narrative, roughly in this rhythm
 {{"type":"data_reveal","duration":7,"title":"THE NUMBERS","items":["X,XXX YEARS","XXX,XXX PEOPLE","XX DOCUMENTED"],"label":"Real specific label"}},
 {{"type":"timeline","duration":8,"title":"THE TIMELINE","events":["Event 1: real date","Event 2: real date","Event 3: real date","Event 4: real date"],"label":"CHRONOLOGY"}},
 {{"type":"portrait_reveal","duration":8,"title":"THE FIGURE","items":["Real detail 1","Real detail 2","Real detail 3"],"label":"Real specific label"}}
-... continue this pattern for a total of 20 scenes, each with genuinely different,
-topic-specific content — different real countries, different real routes,
-different real documents, different real numbers each time a type repeats ...
+... continue this pattern for a total of {n_scenes_target} scenes, each with
+genuinely different, topic-specific content — different real countries,
+different real routes, different real documents, different real numbers
+each time a type repeats ...
 ]}}
 
 Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON."""

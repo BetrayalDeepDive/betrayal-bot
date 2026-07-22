@@ -3966,6 +3966,24 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None):
         from collections import Counter
         top_nouns  = [w for w, _ in Counter(stage_words).most_common(6)
                       if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
+        # FIX (found on deep re-audit, same bug as Ch1): bucket_words is
+        # often only ~25-35 words (total script / 55-75 buckets) — plenty
+        # of real segments have ZERO words that are both >4 chars and not
+        # a stopword/bright-mundane term, which silently dropped this
+        # segment's search term to the fully generic mood phrase (base_kw
+        # alone) with no content-specific signal at all. Before giving up,
+        # widen the window to the surrounding ~3 buckets (still the same
+        # moment in the narration, not a different scene) so a real
+        # topical word from just before/after this exact slice is used
+        # instead of going fully generic.
+        if not top_nouns:
+            wide_start = max(0, start - bucket_words)
+            wide_end   = min(total, end + bucket_words)
+            wide_text  = " ".join(words[wide_start:wide_end]).lower()
+            wide_words = [w.strip(".,!?;:") for w in wide_text.split()
+                          if len(w) > 4 and w not in stopwords]
+            top_nouns  = [w for w, _ in Counter(wide_words).most_common(6)
+                          if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
         kw = f"{base_kw} {top_nouns[0]}" if top_nouns else base_kw
 
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")

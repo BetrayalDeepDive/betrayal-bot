@@ -1620,6 +1620,13 @@ def generate_script_and_scenes(niche, topic, style_name, episode, attempt, intel
     }
 
     power_str = ", ".join(power[:6])
+    # FIX (found on deep re-audit): this channel requested only 20 scenes
+    # for a 15-18 minute video — the same fixed 20-scene list then had to
+    # repeat ~7-8 times (render_and_encode's `repeats = int(duration/
+    # total_scene_dur)+2`) to fill runtime, unlike evidence_room which was
+    # already fixed to request a dynamic 55-60 scenes (repeats ~3). Same
+    # dynamic-count fix applied here now, matching evidence_room exactly.
+    n_scenes_target = 55 + (datetime.datetime.now().timetuple().tm_yday % 6)  # 55-60, varies daily
     viral_hooks_str = "\n".join(f"  '{h}'" for h in hooks[:3])
     prompt = f"""Write a psychological control-tactics documentary narration script.
 Style: precisely documented, evidence-driven, case-file format.
@@ -1776,21 +1783,24 @@ with no real guidance):
   titles that get clicks but lose viewers fast when the video doesn't match the
   promise — this is worse long-term than a slightly less aggressive honest title.
 
-IMPORTANT: provide 20 scenes, not 5 — this video runs 15-18 minutes, and 5 scenes
-means the same 5 visuals loop roughly 24 times, which looks broken and repetitive.
-Vary content EVERY time a scene type repeats (different case details, different
-numbers, different network nodes each time — never reuse the same labels twice).
-Cycle through the 5 types across the full narrative, roughly in this rhythm
-(repeat the whole 5-type cycle ~4 times with fresh content each pass):
+IMPORTANT: provide {n_scenes_target} scenes (55-60, not fewer) — this video runs
+15-18 minutes, and a short scene list means the same handful of visuals loop
+many times over, which looks broken and repetitive. Vary content EVERY time a
+scene type repeats (different case details, different numbers, different
+network nodes each time — never reuse the same labels twice). Cycle through
+the 5 types across the full narrative, roughly in this rhythm (repeat the
+whole 5-type cycle enough times with fresh content each pass to reach
+{n_scenes_target} scenes total):
 {{"title":"YouTube title, 40-65 chars, dread OR sympathy register, curiosity gap intact","thumbnail_text":"3 WORDS ALL CAPS with number","tags":["tag1","tag2","tag3","tag4","tag5","tag6","tag7","tag8","tag9","tag10"],"scenes":[
 {{"type":"sketch_timeline","duration":8,"title":"CASE TIMELINE","events":["Event 1: date","Event 2: date","Event 3: date","Event 4: date"],"label":"CHRONOLOGY"}},
 {{"type":"sketch_document","duration":7,"title":"THE KEY DOCUMENT","lines":["CASE FILE — RESTRICTED","Reference: [case number]","Finding: [key finding]","Status: [outcome]"],"stamp":"CLASSIFIED"}},
 {{"type":"sketch_crowd","duration":7,"title":"THE NUMBERS","items":["$X.XM","XX YEARS","XXX VICTIMS","XX REPORTS"],"label":"CASE STATISTICS"}},
 {{"type":"sketch_mechanism","duration":8,"title":"THE NETWORK","nodes":["ORIGIN","ENABLER","SYSTEM","OUTCOME"],"label":"HOW IT CONNECTED"}},
 {{"type":"sketch_findings","duration":10,"title":"EVIDENCE SUMMARY","items":["Finding 1","Finding 2","Finding 3","Finding 4"],"label":"CASE EVIDENCE"}}
-... continue this pattern for a total of 20 scenes, each with genuinely different
-case-specific content — different timeline events, different documents, different
-numbers, different network nodes, different evidence each time a type repeats ...
+... continue this pattern for a total of {n_scenes_target} scenes, each with
+genuinely different case-specific content — different timeline events,
+different documents, different numbers, different network nodes, different
+evidence each time a type repeats ...
 ]}}
 
 Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON."""
@@ -2046,7 +2056,13 @@ def regenerate_scenes_only(script_clean, niche, feedback=None):
     coin-flip disguised as a fix.
     """
     feedback_line = f"\n\nHUMAN FEEDBACK on the visuals (apply this directly): {feedback}" if feedback else ""
-    prompt = f"""Generate a fresh, DIFFERENT 20-scene visual JSON array for this existing
+    # FIX (found on deep re-audit): matches the same fix applied to the
+    # main scene-generation prompt above — 20 scenes for a 15-18 minute
+    # video means render_and_encode's repeat-fill logic loops the same
+    # scenes ~7-8 times. Bumped to the same 55-60 dynamic target so a
+    # SWAP VISUALS regeneration doesn't reintroduce the problem.
+    n_scenes_target = 55 + (datetime.datetime.now().timetuple().tm_yday % 6)
+    prompt = f"""Generate a fresh, DIFFERENT {n_scenes_target}-scene visual JSON array for this existing
 documentary narration. Do not change the narration — only invent new scene content,
 different from before: different case details, different numbers, different network
 nodes, different documents each time a scene type repeats.{feedback_line}
@@ -2061,7 +2077,7 @@ Return ONLY valid JSON: {{"scenes":[
 {{"type":"sketch_crowd","duration":7,"title":"...","items":["...","...","...","..."],"label":"..."}},
 {{"type":"sketch_mechanism","duration":8,"title":"...","nodes":["...","...","...","..."],"label":"..."}},
 {{"type":"sketch_findings","duration":10,"title":"...","items":["...","...","...","..."],"label":"..."}}
-... continue this 5-type cycle for a total of 20 scenes, each genuinely different ...
+... continue this 5-type cycle for a total of {n_scenes_target} scenes, each genuinely different ...
 ]}}"""
     try:
         raw = ai(prompt, temp=0.9, tokens=6000, prefer="gemini")
