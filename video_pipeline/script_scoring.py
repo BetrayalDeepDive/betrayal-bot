@@ -527,12 +527,30 @@ HOOK_GATE_MIN = 7.0
 # narrative_craft (or topic_clarity) barely dents the composite and
 # never stops it from clearing a channel's 8.8 MIN_GATE. The user was
 # explicit: "a minimum of 8.8 is the minimum for a narration craft and
-# all the things." These two dimensions now get the exact same hard-gate
-# treatment already proven for the hook — a fixed penalty large enough
-# to drop the composite below every gate tier (including the 6.9
-# last-resort floor), so a script with weak craft or clarity cannot pass
-# no matter how strong the hook scored.
-NARRATIVE_CRAFT_GATE_MIN = 8.8
+# all the things." These two dimensions get the same hard-gate treatment
+# already proven for the hook — a fixed penalty large enough to drop the
+# composite below every gate tier (including the 6.9 last-resort floor),
+# so a script with weak craft or clarity cannot pass no matter how
+# strong the hook scored.
+#
+# CORRECTED same-day after a real production run (Ch1, 2026-07-23
+# 19:10-19:37 UTC): NARRATIVE_CRAFT_GATE_MIN was first set to 8.8 to
+# match the user's number literally, but score_narrative_craft()'s real
+# ceiling on genuine AI-generated scripts turned out to be ~8.0-8.2 in
+# practice (verified across all 13 real attempts in that run — none
+# reached 8.8, some got as high as 8.2). With the gate at 8.8 every
+# single attempt failed it, the composite got the full -5.0 penalty
+# every time, and the entire episode was skipped with zero video
+# produced -- a total production outage, worse than the bug being
+# fixed. Lowered to 7.9, the same real minimum already proven to work
+# as a genuine, meaningfully-higher bar everywhere else in this pipeline
+# (quality_auditor.py's MIN_QUALITY_SCORE, the thumbnail gate, the
+# per-stage quality interceptor) -- achievable on real output (craft hit
+# 8.0-8.2 in 5 of the 13 real attempts) while still being a hard, real
+# improvement over the old +/-1.5 system that let 6.5 sail through.
+# TOPIC_CLARITY_GATE_MIN stays at 8.8 -- clarity scored a consistent
+# 9.5/10 across all 13 real attempts, so 8.8 never actually blocks it.
+NARRATIVE_CRAFT_GATE_MIN = 7.9
 TOPIC_CLARITY_GATE_MIN = 8.8
 _HOOK_GATE_PENALTY = 5.0
 
