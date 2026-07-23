@@ -565,28 +565,63 @@ GB_VOICES = [
 # languages... add everything... so that if that fails... it can move
 # to the next thing, not get stuck with one voice itself"): ALL_VOICES
 # now includes a real, deep additional-accent pool beyond just GB.
+#
+# FIX (direct user report, July 23 2026, second pass — "I want 15 to 18
+# fallback voices... both male and female... according to the nation and
+# according to how the channel works"): expanded to the full real
+# Microsoft Edge neural voice catalog for every non-US English locale
+# (en-GB-NoahNeural excluded — confirmed broken on this repo's Actions
+# runners). Same honest limitation as Ch1/Ch5's identical fix: this
+# sandbox's network policy blocks reaching Microsoft's speech endpoint
+# (confirmed live, 403 from the proxy), so these could not be
+# synthesized and listened to from here — only the GitHub Actions
+# runner can do that, and any renamed/retired ID simply gets skipped by
+# the existing fallback-chain logging.
 EXTENDED_VOICES = [
-    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-GB-AlfieNeural", "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",
+    "en-GB-BellaNeural", "en-GB-OliviaNeural",
     "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
+    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",
+    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
+    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
+    "en-AU-KimNeural", "en-AU-TinaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
     "en-ZA-LukeNeural", "en-ZA-LeahNeural",
     "en-CA-LiamNeural", "en-CA-ClaraNeural",
 ]
 ALL_VOICES     = GB_VOICES + EXTENDED_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
-# Best voices per niche — every pool now has a real 4-deep chain
-# spanning GB/AU/NZ/IE/ZA/CA, not just GB, so a failure on one accent
-# genuinely moves to a different real voice rather than cycling the
-# same handful of GB options.
+# FIX (direct user report, July 23 2026): raised from 4 to 16-18 per
+# niche. Two tone templates rather than 7 fully bespoke lists — both
+# real, gender-mixed, non-US voice lists: PROCEDURAL_SERIOUS (measured,
+# crisp documentary register for the finance/records-heavy niches),
+# TENSE_DOCUMENTARY (dread/investigative energy for the crime-scene-
+# heavy niches).
+_PROCEDURAL_SERIOUS = [
+    "en-GB-ThomasNeural", "en-GB-OliverNeural", "en-AU-WilliamNeural", "en-GB-SoniaNeural",
+    "en-NZ-MitchellNeural", "en-AU-NatashaNeural", "en-GB-LibbyNeural", "en-CA-LiamNeural",
+    "en-IE-ConnorNeural", "en-GB-EthanNeural", "en-AU-FreyaNeural", "en-ZA-LukeNeural",
+    "en-GB-AbbiNeural", "en-CA-ClaraNeural", "en-NZ-MollyNeural", "en-IE-EmilyNeural",
+    "en-AU-DuncanNeural", "en-ZA-LeahNeural",
+]
+_TENSE_DOCUMENTARY = [
+    "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-IE-ConnorNeural", "en-AU-WilliamNeural",
+    "en-CA-LiamNeural", "en-GB-HollieNeural", "en-ZA-LukeNeural", "en-AU-NatashaNeural",
+    "en-GB-EthanNeural", "en-NZ-MitchellNeural", "en-GB-BellaNeural", "en-ZA-LeahNeural",
+    "en-AU-DarrenNeural", "en-GB-SoniaNeural", "en-CA-ClaraNeural", "en-IE-EmilyNeural",
+    "en-AU-KenNeural", "en-NZ-MollyNeural",
+]
+
 NICHE_VOICES = {
-    "forensic_finance":       ["en-GB-ThomasNeural","en-GB-OliverNeural","en-AU-WilliamNeural","en-NZ-MitchellNeural"],
-    "criminal_investigation": ["en-GB-RyanNeural","en-GB-ThomasNeural","en-IE-ConnorNeural","en-CA-LiamNeural"],
-    "corporate_exposure":     ["en-GB-OliverNeural","en-GB-ThomasNeural","en-AU-NatashaNeural","en-ZA-LukeNeural"],
-    "digital_forensics":      ["en-GB-EthanNeural","en-GB-RyanNeural","en-NZ-MollyNeural","en-CA-ClaraNeural"],
-    "body_cam_police":        ["en-GB-RyanNeural","en-GB-ThomasNeural","en-AU-WilliamNeural","en-ZA-LeahNeural"],
-    "courtroom_drama":        ["en-GB-ThomasNeural","en-GB-EthanNeural","en-IE-EmilyNeural","en-NZ-MitchellNeural"],
-    "robbery_documentaries":  ["en-GB-RyanNeural","en-GB-OliverNeural","en-AU-NatashaNeural","en-IE-ConnorNeural"],
+    "forensic_finance":       _PROCEDURAL_SERIOUS,
+    "criminal_investigation": _TENSE_DOCUMENTARY,
+    "corporate_exposure":     _PROCEDURAL_SERIOUS,
+    "digital_forensics":      _PROCEDURAL_SERIOUS,
+    "body_cam_police":        _TENSE_DOCUMENTARY,
+    "courtroom_drama":        _PROCEDURAL_SERIOUS,
+    "robbery_documentaries":  _TENSE_DOCUMENTARY,
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────

@@ -812,28 +812,78 @@ NICHES = [
 # languages... add everything... so that if that fails... it can move
 # to the next thing"): every niche now has a real 4-deep chain spanning
 # GB/AU/NZ/IE/ZA/CA, not just 2 GB-only options.
+#
+# FIX (direct user report, July 23 2026, second pass — "I want 15 to 18
+# fallback voices... both male and female... according to the nation and
+# according to how the channel works"): full real Microsoft Edge neural
+# voice catalog for every non-US English locale (en-GB-NoahNeural
+# excluded — confirmed broken on this repo's Actions runners). Same
+# honest limitation noted on Ch1's identical fix: this sandbox's network
+# policy blocks reaching Microsoft's speech endpoint (confirmed live,
+# 403 from the proxy), so these real, documented voice IDs could not be
+# synthesized and listened to from here. Real listening verification can
+# only happen on the GitHub Actions runner where TTS actually runs; any
+# renamed/retired ID simply gets skipped by the existing fallback-chain
+# logging, same as today.
 EXTENDED_VOICES = [
-    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-AlfieNeural",
+    "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",
+    "en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",
+    "en-GB-BellaNeural", "en-GB-HollieNeural", "en-GB-OliviaNeural",
     "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
+    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",
+    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
+    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
+    "en-AU-KimNeural", "en-AU-TinaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
     "en-ZA-LukeNeural", "en-ZA-LeahNeural",
     "en-CA-LiamNeural", "en-CA-ClaraNeural",
 ]
 
+# FIX (direct user report, July 23 2026): raised from 4 to 16-18 per
+# niche. Three tone templates grouped by subject-matter energy rather
+# than 13 fully bespoke lists — still real voices, still gender-mixed
+# throughout, still no US voices: SERIOUS_ANALYST (measured/authoritative,
+# for the more technical collapse niches), URGENT_DRAMATIC (higher-energy,
+# for the more dramatic crash/flop niches), WARM_EXPLAINER (reassuring/
+# approachable, for the personal-finance-education niches).
+_SERIOUS_ANALYST = [
+    "en-GB-ThomasNeural", "en-AU-NatashaNeural", "en-GB-RyanNeural", "en-AU-WilliamNeural",
+    "en-GB-SoniaNeural", "en-CA-LiamNeural", "en-IE-ConnorNeural", "en-GB-LibbyNeural",
+    "en-AU-DuncanNeural", "en-ZA-LukeNeural", "en-GB-EthanNeural", "en-AU-FreyaNeural",
+    "en-NZ-MitchellNeural", "en-CA-ClaraNeural", "en-GB-OliverNeural", "en-IE-EmilyNeural",
+    "en-ZA-LeahNeural", "en-NZ-MollyNeural",
+]
+_URGENT_DRAMATIC = [
+    "en-GB-EthanNeural", "en-AU-DarrenNeural", "en-GB-OliverNeural", "en-AU-NatashaNeural",
+    "en-ZA-LukeNeural", "en-GB-BellaNeural", "en-CA-LiamNeural", "en-AU-CarlyNeural",
+    "en-IE-ConnorNeural", "en-GB-HollieNeural", "en-NZ-MitchellNeural", "en-ZA-LeahNeural",
+    "en-GB-RyanNeural", "en-AU-KenNeural", "en-CA-ClaraNeural", "en-IE-EmilyNeural",
+    "en-GB-AlfieNeural", "en-NZ-MollyNeural",
+]
+_WARM_EXPLAINER = [
+    "en-GB-RyanNeural", "en-AU-NatashaNeural", "en-GB-SoniaNeural", "en-AU-WilliamNeural",
+    "en-IE-EmilyNeural", "en-GB-LibbyNeural", "en-AU-JoanneNeural", "en-CA-ClaraNeural",
+    "en-GB-EthanNeural", "en-NZ-MollyNeural", "en-ZA-LeahNeural", "en-AU-NeilNeural",
+    "en-GB-AbbiNeural", "en-IE-ConnorNeural", "en-CA-LiamNeural", "en-AU-TinaNeural",
+    "en-GB-OliverNeural", "en-NZ-MitchellNeural",
+]
+
 VOICES = {
-    "ai_startup_collapse":         ["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-AU-WilliamNeural", "en-NZ-MitchellNeural"],
-    "tech_company_collapse":       ["en-GB-RyanNeural", "en-GB-OliverNeural", "en-CA-LiamNeural", "en-IE-ConnorNeural"],
-    "crypto_collapse":             ["en-GB-ThomasNeural", "en-GB-EthanNeural", "en-AU-NatashaNeural", "en-ZA-LukeNeural"],
-    "cybersecurity_disasters":     ["en-GB-OliverNeural", "en-GB-ThomasNeural", "en-NZ-MitchellNeural", "en-CA-LiamNeural"],
-    "product_flops":               ["en-GB-EthanNeural", "en-GB-RyanNeural", "en-IE-EmilyNeural", "en-AU-WilliamNeural"],
-    "dotcom_era_collapse":         ["en-GB-ThomasNeural", "en-GB-OliverNeural", "en-ZA-LeahNeural", "en-NZ-MollyNeural"],
-    "personal_finance_mistakes":   ["en-GB-RyanNeural", "en-GB-EthanNeural", "en-AU-NatashaNeural", "en-IE-ConnorNeural"],
-    "investing_fundamentals":      ["en-GB-OliverNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-ZA-LukeNeural"],
-    "retirement_planning":         ["en-GB-EthanNeural", "en-GB-ThomasNeural", "en-NZ-MollyNeural", "en-AU-WilliamNeural"],
-    "credit_debt_repair":          ["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-IE-EmilyNeural", "en-CA-LiamNeural"],
-    "real_estate_affordability":   ["en-GB-RyanNeural", "en-GB-OliverNeural", "en-AU-NatashaNeural", "en-ZA-LeahNeural"],
-    "budgeting_saving_strategies": ["en-GB-OliverNeural", "en-GB-EthanNeural", "en-NZ-MitchellNeural", "en-IE-ConnorNeural"],
-    "stock_market_crashes_history":["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-AU-WilliamNeural"],
+    "ai_startup_collapse":          _SERIOUS_ANALYST,
+    "tech_company_collapse":        _SERIOUS_ANALYST,
+    "crypto_collapse":              _URGENT_DRAMATIC,
+    "cybersecurity_disasters":      _SERIOUS_ANALYST,
+    "product_flops":                _URGENT_DRAMATIC,
+    "dotcom_era_collapse":          _URGENT_DRAMATIC,
+    "personal_finance_mistakes":    _WARM_EXPLAINER,
+    "investing_fundamentals":       _SERIOUS_ANALYST,
+    "retirement_planning":          _WARM_EXPLAINER,
+    "credit_debt_repair":           _WARM_EXPLAINER,
+    "real_estate_affordability":    _URGENT_DRAMATIC,
+    "budgeting_saving_strategies":  _WARM_EXPLAINER,
+    "stock_market_crashes_history": _SERIOUS_ANALYST,
 }
 
 BG_KEYWORDS = {

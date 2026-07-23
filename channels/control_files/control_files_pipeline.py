@@ -550,25 +550,62 @@ GB_VOICES = [
 # languages... add everything... so that if that fails... it can move
 # to the next thing, not get stuck with one voice itself"): ALL_VOICES
 # now includes a real, deep additional-accent pool beyond just GB.
+#
+# FIX (direct user report, July 23 2026, second pass — "I want 15 to 18
+# fallback voices... both male and female... according to the nation and
+# according to how the channel works"): expanded to the full real
+# Microsoft Edge neural voice catalog for every non-US English locale
+# (en-GB-NoahNeural excluded — confirmed broken on this repo's Actions
+# runners). Same honest limitation as Ch1/Ch2/Ch5's identical fix: this
+# sandbox's network policy blocks reaching Microsoft's speech endpoint
+# (confirmed live, 403 from the proxy), so these could not be
+# synthesized and listened to from here — only the GitHub Actions
+# runner can do that, and any renamed/retired ID simply gets skipped by
+# the existing fallback-chain logging.
 EXTENDED_VOICES = [
-    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-GB-AlfieNeural", "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",
+    "en-GB-BellaNeural", "en-GB-OliviaNeural",
     "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
+    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",
+    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
+    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
+    "en-AU-KimNeural", "en-AU-TinaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
     "en-ZA-LukeNeural", "en-ZA-LeahNeural",
     "en-CA-LiamNeural", "en-CA-ClaraNeural",
 ]
 ALL_VOICES     = GB_VOICES + EXTENDED_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
-# Best voices per niche — every pool now has a real 4-deep chain
-# spanning GB/AU/NZ/IE/ZA/CA.
+# FIX (direct user report, July 23 2026): raised from 4 to 16-18 per
+# niche. Two tone templates rather than 6 fully bespoke lists — both
+# real, gender-mixed, non-US voice lists: CONTROLLED_MEASURED (calm,
+# procedural register for the systems/business-exposure niches),
+# UNSETTLING_COVERT (quieter dread register for the more psychological/
+# covert-manipulation niches).
+_CONTROLLED_MEASURED = [
+    "en-GB-OliverNeural", "en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-GB-SoniaNeural",
+    "en-CA-LiamNeural", "en-AU-NatashaNeural", "en-GB-LibbyNeural", "en-ZA-LukeNeural",
+    "en-IE-ConnorNeural", "en-GB-EthanNeural", "en-AU-DuncanNeural", "en-CA-ClaraNeural",
+    "en-GB-AbbiNeural", "en-NZ-MitchellNeural", "en-ZA-LeahNeural", "en-IE-EmilyNeural",
+    "en-AU-FreyaNeural", "en-NZ-MollyNeural",
+]
+_UNSETTLING_COVERT = [
+    "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-IE-ConnorNeural", "en-AU-NatashaNeural",
+    "en-ZA-LukeNeural", "en-GB-HollieNeural", "en-NZ-MitchellNeural", "en-AU-WilliamNeural",
+    "en-GB-EthanNeural", "en-CA-LiamNeural", "en-GB-BellaNeural", "en-ZA-LeahNeural",
+    "en-AU-DarrenNeural", "en-GB-SoniaNeural", "en-CA-ClaraNeural", "en-IE-EmilyNeural",
+    "en-AU-KenNeural", "en-NZ-MollyNeural",
+]
+
 NICHE_VOICES = {
-    "cult_psychology":            ["en-GB-ThomasNeural","en-GB-RyanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "propaganda_systems":         ["en-GB-OliverNeural","en-GB-ThomasNeural","en-ZA-LukeNeural","en-CA-LiamNeural"],
-    "social_engineering":         ["en-GB-RyanNeural","en-GB-OliverNeural","en-NZ-MitchellNeural","en-AU-NatashaNeural"],
-    "mass_deception":             ["en-GB-EthanNeural","en-GB-ThomasNeural","en-IE-EmilyNeural","en-ZA-LeahNeural"],
-    "dark_business_documentaries":["en-GB-ThomasNeural","en-GB-EthanNeural","en-CA-ClaraNeural","en-NZ-MollyNeural"],
-    "scams_fraud_exposed":        ["en-GB-OliverNeural","en-GB-ThomasNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "cult_psychology":             _UNSETTLING_COVERT,
+    "propaganda_systems":          _CONTROLLED_MEASURED,
+    "social_engineering":          _UNSETTLING_COVERT,
+    "mass_deception":              _UNSETTLING_COVERT,
+    "dark_business_documentaries": _CONTROLLED_MEASURED,
+    "scams_fraud_exposed":         _CONTROLLED_MEASURED,
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────

@@ -631,28 +631,106 @@ NICHES = [
 # has a real 4-deep chain spanning GB/AU/NZ/IE, not just 2 GB-only
 # options. EXTENDED_VOICES below is the full additional-accent pool used
 # to build these chains and every fallback list in this file.
+#
+# FIX (direct user report, July 23 2026, second pass — "I want 15 to 18
+# fallback voices... both male and female... according to the nation and
+# according to how the channel works"): 4-deep was still too shallow and
+# too male-heavy on average. This is now the FULL real Microsoft Edge
+# neural voice catalog for every non-US English locale (en-GB-NoahNeural
+# and en-GB-MaisieNeural excluded -- Noah is confirmed broken on this
+# repo's GitHub Actions runners live, see the FIX note below; Maisie is
+# a child voice, wrong register for any of these niches), gender-
+# labeled so every niche list below can be built genuinely gender-
+# balanced rather than picked ad hoc.
+#
+# HONEST LIMITATION: this sandbox's network policy blocks outbound
+# access to Microsoft's speech endpoint (confirmed live -- the proxy
+# rejects the CONNECT with a 403), so these voice IDs could not be
+# synthesized and listened to from here to judge "how human" each one
+# sounds. Every ID below is a real, currently-documented Microsoft Edge
+# Neural voice (their highest quality tier -- there is no higher tier to
+# pick from), the same class already proven working in production here
+# (WilliamNeural/NatashaNeural). Genuine listening verification can only
+# happen where TTS synthesis actually runs -- the GitHub Actions runner
+# itself, which has no such restriction -- and any ID that has quietly
+# been renamed/retired will surface immediately in the existing
+# fallback-chain logging (every attempted voice + success/failure is
+# already logged) and simply get skipped in favor of the next one in
+# the chain, exactly the "never get stuck on one voice" behavior
+# already built.
 EXTENDED_VOICES = [
-    "en-AU-WilliamNeural", "en-AU-NatashaNeural",   # Australian
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",    # New Zealand
-    "en-IE-ConnorNeural", "en-IE-EmilyNeural",      # Irish
-    "en-ZA-LukeNeural", "en-ZA-LeahNeural",         # South African
-    "en-CA-LiamNeural", "en-CA-ClaraNeural",        # Canadian
+    # British Isles
+    "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-AlfieNeural",         # GB male
+    "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",       # GB male
+    "en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",         # GB female
+    "en-GB-BellaNeural", "en-GB-HollieNeural", "en-GB-OliviaNeural",      # GB female
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",                            # Irish M/F
+    # Australia / NZ / South Africa / Canada
+    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",     # AU male
+    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",              # AU male
+    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",     # AU female
+    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",        # AU female
+    "en-AU-KimNeural", "en-AU-TinaNeural",                                 # AU female
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",                          # NZ M/F
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",                               # South African M/F
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",                              # Canadian M/F
 ]
 
+# FIX (direct user report, July 23 2026): each niche's rotation pool
+# raised from 4 to a real 16-18, matching the explicit "15 to 18
+# fallback voices, both male and female" ask. Ordered and tone-matched
+# per niche rather than reusing one generic order everywhere: dark_horror
+# leads with deeper/graver voices, seduction_dark leads sultrier/moodier,
+# psychological_trap alternates tightly for a controlled/measured feel,
+# supernatural_real favors more atmospheric/eerie voices, obsession_dark
+# leads with more intense/insistent voices. Every list still draws from
+# real GB/AU/NZ/IE/ZA/CA voices only (no US voices — direct prior user
+# feedback that US voices read as "too robotic" for this channel) and
+# every list mixes both genders throughout, not front-loaded by gender.
 VOICES = {
-    "dark_horror":        ["en-GB-RyanNeural", "en-AU-WilliamNeural", "en-NZ-MitchellNeural", "en-IE-ConnorNeural"],
-    "seduction_dark":     ["en-GB-ThomasNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural"],
-    "psychological_trap": ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural"],
+    "dark_horror": [
+        "en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-GB-RyanNeural", "en-AU-NatashaNeural",
+        "en-IE-ConnorNeural", "en-ZA-LukeNeural", "en-GB-SoniaNeural", "en-AU-DuncanNeural",
+        "en-NZ-MitchellNeural", "en-CA-LiamNeural", "en-GB-EthanNeural", "en-AU-FreyaNeural",
+        "en-GB-LibbyNeural", "en-AU-KenNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
+        "en-CA-ClaraNeural", "en-NZ-MollyNeural",
+    ],
+    "seduction_dark": [
+        "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
+        "en-GB-ThomasNeural", "en-AU-DarrenNeural", "en-GB-BellaNeural", "en-AU-CarlyNeural",
+        "en-CA-ClaraNeural", "en-NZ-MollyNeural", "en-GB-RyanNeural", "en-AU-WilliamNeural",
+        "en-GB-HollieNeural", "en-AU-JoanneNeural", "en-IE-ConnorNeural", "en-ZA-LukeNeural",
+        "en-CA-LiamNeural", "en-GB-OliviaNeural",
+    ],
+    "psychological_trap": [
+        "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-AU-NeilNeural", "en-ZA-LukeNeural",
+        "en-CA-LiamNeural", "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-GB-AbbiNeural",
+        "en-AU-ElsieNeural", "en-IE-ConnorNeural", "en-NZ-MitchellNeural", "en-GB-OliverNeural",
+        "en-AU-TinaNeural", "en-GB-LibbyNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
+        "en-CA-ClaraNeural", "en-NZ-MollyNeural",
+    ],
     # FIX (found live, July 23 2026): en-GB-NoahNeural is broken on this
     # repo's GitHub Actions runners specifically -- confirmed live, ALL
     # 8 SSML segments failed 3 attempts each (24/24 failures, "No audio
     # was received"), then even the non-segmented single-shot fallback
     # failed on the SAME voice, before finally succeeding the moment it
     # switched to RyanNeural. Same class of issue as the already-known
-    # "DavisNeural unavailable on Actions" -- swapped for ThomasNeural,
-    # which has direct confirmation of actually working.
-    "supernatural_real":  ["en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-NZ-MollyNeural", "en-IE-ConnorNeural"],
-    "obsession_dark":     ["en-GB-OliverNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-ZA-LukeNeural"],
+    # "DavisNeural unavailable on Actions" -- excluded entirely rather
+    # than just reordered, so no niche can land on it again.
+    "supernatural_real": [
+        "en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-NZ-MollyNeural", "en-IE-ConnorNeural",
+        "en-GB-HollieNeural", "en-AU-DuncanNeural", "en-ZA-LeahNeural", "en-CA-ClaraNeural",
+        "en-GB-EthanNeural", "en-AU-FreyaNeural", "en-GB-BellaNeural", "en-AU-KenNeural",
+        "en-IE-EmilyNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural", "en-NZ-MitchellNeural",
+        "en-GB-OliviaNeural", "en-AU-TimNeural",
+    ],
+    "obsession_dark": [
+        "en-GB-OliverNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-AU-DarrenNeural",
+        "en-ZA-LukeNeural", "en-GB-BellaNeural", "en-AU-CarlyNeural", "en-IE-ConnorNeural",
+        "en-NZ-MollyNeural", "en-GB-EthanNeural", "en-AU-JoanneNeural", "en-ZA-LeahNeural",
+        "en-CA-LiamNeural", "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural",
+        "en-GB-AlfieNeural", "en-NZ-MitchellNeural",
+    ],
 }
 
 BG_KEYWORDS = {

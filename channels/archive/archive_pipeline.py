@@ -569,10 +569,28 @@ GB_VOICES = [
 # languages... add everything... so that if that fails... it can move
 # to the next thing"): ALL_VOICES now includes a real additional-accent
 # pool beyond just GB.
+#
+# FIX (direct user report, July 23 2026, second pass — "I want 15 to 18
+# fallback voices... both male and female... if it is historical, it
+# should be a deep, enthusiastic voice"): expanded to the full real
+# Microsoft Edge neural voice catalog for every non-US English locale
+# (en-GB-NoahNeural excluded — confirmed broken on this repo's Actions
+# runners). Same honest limitation as every other channel's identical
+# fix: this sandbox's network policy blocks reaching Microsoft's speech
+# endpoint (confirmed live, 403 from the proxy), so these could not be
+# synthesized and listened to from here — only the GitHub Actions
+# runner can do that, and any renamed/retired ID simply gets skipped by
+# the existing fallback-chain logging.
 EXTENDED_VOICES = [
-    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-GB-AlfieNeural", "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",
+    "en-GB-BellaNeural", "en-GB-OliviaNeural",
     "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
+    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",
+    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
+    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
+    "en-AU-KimNeural", "en-AU-TinaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
     "en-ZA-LukeNeural", "en-ZA-LeahNeural",
     "en-CA-LiamNeural", "en-CA-ClaraNeural",
 ]
@@ -582,20 +600,31 @@ ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 # Best voices per niche — per explicit clarification, Ch4 uses ONE
 # consistent, powerful, authoritative narrator voice as its identity
 # (matching how Kings and Generals/every real history channel works),
-# not per-niche variation. Same priority list for all 8 real niches —
-# the deepest, most authoritative voices in the roster. FIX (direct user
-# report, July 23 2026): this list mixed in 2 US voices (robotic per
-# direct feedback) — replaced with GB equivalents, preserving the
-# intentional "one consistent voice identity" design.
+# not per-niche variation. Same priority list for all 8 real niches.
+#
+# FIX (direct user report, July 23 2026): raised from 6 to a real 18,
+# still one shared list (preserving the deliberate "one consistent
+# voice identity" design) but now genuinely both male AND female,
+# still every voice deep/authoritative/measured to match "historical =
+# deep, enthusiastic" — the deep authoritative male voices stay first
+# (closest to the channel's established identity), with equally deep,
+# measured female voices mixed through rather than tacked on at the end.
+_DEEP_AUTHORITATIVE_HISTORICAL = [
+    "en-GB-ThomasNeural", "en-GB-OliverNeural", "en-GB-RyanNeural", "en-GB-EthanNeural",
+    "en-AU-WilliamNeural", "en-IE-ConnorNeural", "en-AU-DuncanNeural", "en-CA-LiamNeural",
+    "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-GB-LibbyNeural",
+    "en-ZA-LukeNeural", "en-NZ-MitchellNeural", "en-CA-ClaraNeural", "en-GB-HollieNeural",
+    "en-ZA-LeahNeural", "en-NZ-MollyNeural",
+]
 NICHE_VOICES = {
-    "egyptian_civilization":               ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "chinese_civilization":                ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "mesopotamian_lost_civilizations":     ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "islamic_civilization_history":        ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "fallen_empires_military_overstretch": ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "elite_betrayal_infighting":           ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "propaganda_institutional_decline":    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
-    "modern_parallels":                    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "egyptian_civilization":               _DEEP_AUTHORITATIVE_HISTORICAL,
+    "chinese_civilization":                _DEEP_AUTHORITATIVE_HISTORICAL,
+    "mesopotamian_lost_civilizations":      _DEEP_AUTHORITATIVE_HISTORICAL,
+    "islamic_civilization_history":         _DEEP_AUTHORITATIVE_HISTORICAL,
+    "fallen_empires_military_overstretch":  _DEEP_AUTHORITATIVE_HISTORICAL,
+    "elite_betrayal_infighting":            _DEEP_AUTHORITATIVE_HISTORICAL,
+    "propaganda_institutional_decline":     _DEEP_AUTHORITATIVE_HISTORICAL,
+    "modern_parallels":                     _DEEP_AUTHORITATIVE_HISTORICAL,
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
