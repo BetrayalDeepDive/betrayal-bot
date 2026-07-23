@@ -354,6 +354,34 @@ def pick_voice(for_reels: bool = False) -> dict:
 
 
 # ── LLM (Multi-API fallback) ──────────────────────────────────────────────────
+def _strip_reasoning(text):
+    """
+    FIX (found live, July 23 2026 — real bug, root cause of 0/4 Shorts
+    produced): this exact issue (a reasoning-capable model like
+    gpt-oss-120b/qwen3.6 on Groq embedding its full chain-of-thought
+    directly in the response content, then getting cut off mid-<think>
+    block by max_tokens before ever reaching the actual answer) was
+    already found and fixed in master_pipeline.py's own _strip_reasoning
+    on July 15 2026 -- but this file has its own separate llm()/
+    llm_json() and never got the same fix, so every Shorts script
+    request that landed on a thinking model came back as a truncated,
+    unclosed <think> block with zero usable JSON, confirmed live via
+    llm_json's own new logging: 'raw, truncated: "<think>\\nThinking
+    Process..."'. Same logic, ported here.
+    """
+    if not text:
+        return text
+    for _open, _close in (('<think>', '</think>'), ('<thinking>', '</thinking>')):
+        _idx = text.lower().find(_open)
+        if _idx != -1 and _close not in text.lower()[_idx:]:
+            text = text[:_idx].strip()
+            if not text:
+                return ""
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
+
 def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
         priority: str = "groq") -> str:
     """Generate text with Groq→Gemini→Mistral fallback."""
@@ -407,7 +435,7 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
                         log.warning("groq failed: %s %s", r.status_code, r.text[:150])
                     continue
                 r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return _strip_reasoning(r.json()["choices"][0]["message"]["content"].strip())
 
             elif provider == "gemini":
                 # FIX (critical, confirmed against Google's own official
@@ -426,7 +454,7 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
                     time.sleep(3)
                     continue
                 r.raise_for_status()
-                return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return _strip_reasoning(r.json()["candidates"][0]["content"]["parts"][0]["text"].strip())
 
             elif provider == "mistral":
                 r = requests.post(
@@ -441,7 +469,7 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
                     time.sleep(3)
                     continue
                 r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"].strip()
+                return _strip_reasoning(r.json()["choices"][0]["message"]["content"].strip())
 
         except Exception as e:
             log.warning("%s failed: %s", provider, str(e)[:80])
@@ -450,7 +478,7 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
     raise RuntimeError("All LLM APIs failed")
 
 
-def llm_json(prompt: str, max_tokens: int = 800) -> dict:
+def llm_json(prompt: str, max_tokens: int = 3000) -> dict:
     # FIX (found live, July 22 2026 — real bug, 0/4 Shorts produced this
     # episode with zero diagnostic trail): this returned {} on any parse
     # failure without ever logging the actual raw response, so every
@@ -458,6 +486,20 @@ def llm_json(prompt: str, max_tokens: int = 800) -> dict:
     # nothing but a bare "failed" after 3 silent retries — no way to
     # tell whether the model returned malformed JSON, a truncated
     # response (max_tokens too small), or something else entirely.
+    #
+    # FIX (found live, July 23 2026, confirmed via the logging above —
+    # real bug, root cause of every single Shorts failure): the default
+    # was 800 tokens. Groq's reasoning-capable models in this file's own
+    # provider list (openai/gpt-oss-120b, qwen/qwen3.6-27b) emit their
+    # full chain-of-thought INLINE in the response before the actual
+    # answer -- confirmed live, the raw response was routinely 800+
+    # tokens of "<think>...Analyze User Input..." with the closing
+    # </think> tag and the real JSON never reached at all, every single
+    # attempt, 100% failure rate. 800 tokens was enough for maybe a third
+    # of one reasoning pass, let alone a finished answer after it. Raised
+    # enough to give the model room to actually finish thinking AND
+    # answer -- _strip_reasoning() above still cleans the thinking back
+    # out of whatever comes back either way.
     raw = llm(prompt + "\n\nReturn ONLY valid JSON. No markdown. No explanation.", max_tokens, 0.3)
     cleaned = re.sub(r"^```json\s*", "", raw)
     cleaned = re.sub(r"\s*```$", "", cleaned)
