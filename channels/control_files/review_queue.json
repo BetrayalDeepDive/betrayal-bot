@@ -1,20 +1,26 @@
 {
-  "episode": 65,
-  "title": "The 34 Audio Files That Proved NXIVM's Guilt",
+  "episode": 68,
+  "title": "The Control Files: Propaganda Systems: The Investigation That Changed Everything",
   "artifacts": {
-    "topic": "NXIVM: the self-help empire that branded members and kept documented evidence of its own crimes",
-    "niche_name": "cult_psychology"
+    "topic": "Operation Mockingbird: the declassified CIA program to place agents inside major US newsrooms",
+    "niche_name": "propaganda_systems"
   },
   "checkpoint": "AUDIO_VIDEO",
-  "check_ins_used": 1,
-  "started_at": "2026-07-13T22:59:41.625333",
-  "last_updated": "2026-07-14T02:00:15.522273",
+  "check_ins_used": 2,
+  "started_at": "2026-07-22T23:07:00.995233",
+  "last_updated": "2026-07-23T04:25:32.133695",
   "history": [
     {
       "decision": "approve",
       "feedback": null,
-      "at": "2026-07-14T02:00:15.522273",
+      "at": "2026-07-23T02:07:44.446447",
       "checkpoint_at_time": "SCRIPT"
+    },
+    {
+      "decision": "swap_voice",
+      "feedback": null,
+      "at": "2026-07-23T04:25:32.133695",
+      "checkpoint_at_time": "AUDIO_VIDEO"
     }
   ]
 }
