@@ -557,7 +557,6 @@ US_VOICES = [
 GB_VOICES = [
     "en-GB-RyanNeural",         # BBC documentary gravitas
     "en-GB-ThomasNeural",       # Cold measured cinematic
-    "en-GB-NoahNeural",         # Deep calm investigative
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
     "en-GB-SoniaNeural",        # Sharp devastating (F)
@@ -565,23 +564,29 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-ALL_VOICES     = US_VOICES + GB_VOICES
+# FIX (direct user report, July 23 2026): ALL_VOICES was US+GB (robotic
+# US voices per direct feedback) and GB_VOICES had en-GB-NoahNeural
+# (confirmed broken on this repo's Actions runners). Now GB-only.
+ALL_VOICES     = GB_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
 # Best voices per niche — per explicit clarification, Ch4 uses ONE
 # consistent, powerful, authoritative narrator voice as its identity
 # (matching how Kings and Generals/every real history channel works),
 # not per-niche variation. Same priority list for all 8 real niches —
-# the deepest, most authoritative voices in the roster.
+# the deepest, most authoritative voices in the roster. FIX (direct user
+# report, July 23 2026): this list mixed in 2 US voices (robotic per
+# direct feedback) — replaced with GB equivalents, preserving the
+# intentional "one consistent voice identity" design.
 NICHE_VOICES = {
-    "egyptian_civilization":               ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "chinese_civilization":                ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "mesopotamian_lost_civilizations":     ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "islamic_civilization_history":        ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "fallen_empires_military_overstretch": ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "elite_betrayal_infighting":           ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "propaganda_institutional_decline":    ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
-    "modern_parallels":                    ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural","en-US-BrianNeural"],
+    "egyptian_civilization":               ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "chinese_civilization":                ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "mesopotamian_lost_civilizations":     ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "islamic_civilization_history":        ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "fallen_empires_military_overstretch": ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "elite_betrayal_infighting":           ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "propaganda_institutional_decline":    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "modern_parallels":                    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3714,17 +3719,14 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         preferred = [v for _, v in _ranked]
     except Exception as e:
         log(f"  Learned voice preference (non-fatal, using default order): {e}")
+    # FIX (direct user report, July 23 2026): dropped US voices (robotic
+    # per direct feedback) and en-GB-NoahNeural (confirmed broken on this
+    # repo's Actions runners — 24/24 segment failures in live testing).
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
     "en-GB-RyanNeural",          # Deep British authority
-    "en-US-BrianNeural",         # Deep commanding American documentary
-    "en-US-ChristopherNeural",   # Serious weighted investigative
-    "en-US-AndrewNeural",        # Authoritative storyteller
-    "en-GB-NoahNeural",          # Deep investigative British
-    "en-US-EricNeural",          # Calm serious gravitas
-    "en-US-GuyNeural",           # Strong narrative
-    "en-US-SteffanNeural",       # Measured documentary
     "en-GB-OliverNeural",        # Composed British authority
+    "en-GB-EthanNeural",         # Warm natural storytelling
 ]
     voice_queue = [voice_id]
     for v in preferred:

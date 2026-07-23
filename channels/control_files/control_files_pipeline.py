@@ -538,7 +538,6 @@ US_VOICES = [
 GB_VOICES = [
     "en-GB-RyanNeural",         # BBC documentary gravitas
     "en-GB-ThomasNeural",       # Cold measured cinematic
-    "en-GB-NoahNeural",         # Deep calm investigative
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
     "en-GB-SoniaNeural",        # Sharp devastating (F)
@@ -546,17 +545,23 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-ALL_VOICES     = US_VOICES + GB_VOICES
+# FIX (direct user report, July 23 2026 — "no normal voices, more human,
+# deep voices... for all five channels"): ALL_VOICES was US+GB (robotic
+# US voices per direct feedback on Ch1's identical TTS layer); GB_VOICES
+# had en-GB-NoahNeural, confirmed broken on this repo's Actions runners
+# (24/24 segment failures in live testing). Now GB-only, no broken voice.
+ALL_VOICES     = GB_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
-# Best voices per niche
+# Best voices per niche — was mixing in US voices identically shuffled
+# across every niche (no real per-niche variety). Now GB-only, varied.
 NICHE_VOICES = {
-    "cult_psychology":           ["en-GB-ThomasNeural","en-GB-RyanNeural","en-US-BrianNeural","en-US-ChristopherNeural"],
-    "propaganda_systems":        ["en-US-ChristopherNeural","en-GB-ThomasNeural","en-US-BrianNeural","en-GB-RyanNeural"],
-    "social_engineering":        ["en-GB-RyanNeural","en-US-ChristopherNeural","en-GB-ThomasNeural","en-US-BrianNeural"],
-    "mass_deception":            ["en-US-BrianNeural","en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-RyanNeural"],
-    "dark_business_documentaries":["en-GB-ThomasNeural","en-US-BrianNeural","en-GB-RyanNeural","en-US-ChristopherNeural"],
-    "scams_fraud_exposed":       ["en-US-ChristopherNeural","en-GB-ThomasNeural","en-US-BrianNeural","en-GB-RyanNeural"],
+    "cult_psychology":            ["en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
+    "propaganda_systems":         ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "social_engineering":         ["en-GB-RyanNeural","en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural"],
+    "mass_deception":             ["en-GB-EthanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural"],
+    "dark_business_documentaries":["en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural","en-GB-OliverNeural"],
+    "scams_fraud_exposed":        ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3252,17 +3257,14 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         preferred = [v for _, v in _ranked]
     except Exception as e:
         log(f"  Learned voice preference (non-fatal, using default order): {e}")
+    # FIX (direct user report, July 23 2026): dropped US voices (robotic
+    # per direct feedback) and en-GB-NoahNeural (confirmed broken on this
+    # repo's Actions runners — 24/24 segment failures in live testing).
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
     "en-GB-RyanNeural",          # Deep British authority
-    "en-US-BrianNeural",         # Deep commanding American documentary
-    "en-US-ChristopherNeural",   # Serious weighted investigative
-    "en-US-AndrewNeural",        # Authoritative storyteller
-    "en-GB-NoahNeural",          # Deep investigative British
-    "en-US-EricNeural",          # Calm serious gravitas
-    "en-US-GuyNeural",           # Strong narrative
-    "en-US-SteffanNeural",       # Measured documentary
     "en-GB-OliverNeural",        # Composed British authority
+    "en-GB-EthanNeural",         # Warm natural storytelling
 ]
     voice_queue = [voice_id]
     for v in preferred:

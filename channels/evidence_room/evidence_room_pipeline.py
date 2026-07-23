@@ -553,8 +553,6 @@ US_VOICES = [
 GB_VOICES = [
     "en-GB-RyanNeural",         # BBC documentary gravitas
     "en-GB-ThomasNeural",       # Cold measured cinematic
-    "en-GB-NoahNeural",         # Deep calm investigative (ElliotNeural unavailable)
-    "en-GB-NoahNeural",         # Measured dark deliberate
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
     "en-GB-SoniaNeural",        # Sharp devastating (F)
@@ -562,18 +560,30 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-ALL_VOICES     = US_VOICES + GB_VOICES
+# FIX (direct user report, July 23 2026): ALL_VOICES used to be US+GB and
+# GB_VOICES had en-GB-NoahNeural duplicated twice (confirmed broken on
+# this repo's Actions runners — dead voice occupying half of every
+# GB_VOICES[:4] fallback slice). Now GB-only, no robotic US voices, no
+# broken duplicate.
+ALL_VOICES     = GB_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
 # Best voices per niche
+# FIX (direct user report, July 23 2026 — "no normal voices, more human,
+# deep voices... for all five channels"): every pool here mixed in US
+# voices (robotic per direct user feedback on Ch1's identical TTS layer)
+# and en-GB-NoahNeural (confirmed broken on this repo's Actions runners —
+# 24/24 segment failures in live testing on Ch1). Now GB-only, matching
+# Ch1's fix, with real per-niche variety instead of the same 2 GB voices
+# recycled everywhere.
 NICHE_VOICES = {
-    "forensic_finance":       ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-NoahNeural","en-US-BrianNeural"],
-    "criminal_investigation": ["en-GB-RyanNeural","en-US-AndrewNeural","en-GB-NoahNeural","en-US-EricNeural"],
-    "corporate_exposure":     ["en-US-BrianNeural","en-GB-ThomasNeural","en-US-ChristopherNeural","en-GB-OliverNeural"],
-    "digital_forensics":      ["en-US-ChristopherNeural","en-GB-RyanNeural","en-US-JasonNeural","en-GB-NoahNeural"],
-    "body_cam_police":        ["en-US-BrianNeural","en-GB-RyanNeural","en-US-ChristopherNeural","en-GB-ThomasNeural"],
-    "courtroom_drama":        ["en-GB-ThomasNeural","en-US-ChristopherNeural","en-US-BrianNeural","en-GB-RyanNeural"],
-    "robbery_documentaries":  ["en-GB-RyanNeural","en-US-BrianNeural","en-GB-ThomasNeural","en-US-ChristopherNeural"],
+    "forensic_finance":       ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural","en-GB-RyanNeural"],
+    "criminal_investigation": ["en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
+    "corporate_exposure":     ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "digital_forensics":      ["en-GB-EthanNeural","en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural"],
+    "body_cam_police":        ["en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
+    "courtroom_drama":        ["en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural","en-GB-OliverNeural"],
+    "robbery_documentaries":  ["en-GB-RyanNeural","en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3331,17 +3341,14 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
         preferred = [v for _, v in _ranked]
     except Exception as e:
         log(f"  Learned voice preference (non-fatal, using default order): {e}")
+    # FIX (direct user report, July 23 2026): dropped the US voices (robotic
+    # per direct feedback) and en-GB-NoahNeural (confirmed broken on this
+    # repo's Actions runners — 24/24 segment failures in live testing).
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
     "en-GB-RyanNeural",          # Deep British authority
-    "en-US-BrianNeural",         # Deep commanding American documentary
-    "en-US-ChristopherNeural",   # Serious weighted investigative
-    "en-US-AndrewNeural",        # Authoritative storyteller
-    "en-GB-NoahNeural",          # Deep investigative British
-    "en-US-EricNeural",          # Calm serious gravitas
-    "en-US-GuyNeural",           # Strong narrative
-    "en-US-SteffanNeural",       # Measured documentary
     "en-GB-OliverNeural",        # Composed British authority
+    "en-GB-EthanNeural",         # Warm natural storytelling
 ]
     voice_queue = [voice_id]
     for v in preferred:

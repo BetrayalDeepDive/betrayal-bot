@@ -799,20 +799,28 @@ NICHES = [
     },
 ]
 
+# FIX (direct user report, July 23 2026 — "no normal voices, more human,
+# deep voices... for all five channels"): every niche here used the exact
+# same US voice (robotic on this pipeline's TTS layer per direct user
+# feedback on Ch1) paired with the exact same GB voice — genuinely
+# identical across all 13 niches, no real per-niche variety at all.
+# Replaced with GB-only pairs (matching Ch1's fix; en-GB-NoahNeural
+# excluded — confirmed broken on this repo's Actions runners, 24/24
+# segment failures in live testing), varied per niche.
 VOICES = {
-    "ai_startup_collapse":     ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "tech_company_collapse":  ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "crypto_collapse":        ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "cybersecurity_disasters":["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "product_flops":          ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "dotcom_era_collapse":    ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "personal_finance_mistakes":   ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "investing_fundamentals":      ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "retirement_planning":         ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "credit_debt_repair":          ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "real_estate_affordability":   ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "budgeting_saving_strategies": ["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
-    "stock_market_crashes_history":["en-US-ChristopherNeural", "en-GB-ThomasNeural"],
+    "ai_startup_collapse":         ["en-GB-ThomasNeural", "en-GB-RyanNeural"],
+    "tech_company_collapse":       ["en-GB-RyanNeural", "en-GB-OliverNeural"],
+    "crypto_collapse":             ["en-GB-ThomasNeural", "en-GB-EthanNeural"],
+    "cybersecurity_disasters":     ["en-GB-OliverNeural", "en-GB-ThomasNeural"],
+    "product_flops":               ["en-GB-EthanNeural", "en-GB-RyanNeural"],
+    "dotcom_era_collapse":         ["en-GB-ThomasNeural", "en-GB-OliverNeural"],
+    "personal_finance_mistakes":   ["en-GB-RyanNeural", "en-GB-EthanNeural"],
+    "investing_fundamentals":      ["en-GB-OliverNeural", "en-GB-RyanNeural"],
+    "retirement_planning":         ["en-GB-EthanNeural", "en-GB-ThomasNeural"],
+    "credit_debt_repair":          ["en-GB-ThomasNeural", "en-GB-RyanNeural"],
+    "real_estate_affordability":   ["en-GB-RyanNeural", "en-GB-OliverNeural"],
+    "budgeting_saving_strategies": ["en-GB-OliverNeural", "en-GB-EthanNeural"],
+    "stock_market_crashes_history":["en-GB-ThomasNeural", "en-GB-RyanNeural"],
 }
 
 BG_KEYWORDS = {
@@ -3446,7 +3454,7 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     if not el_ok:
         _fallback_candidates = [v for v in
-            ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-JasonNeural"] if v != edge_voice]
+            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-OliverNeural"] if v != edge_voice]
         try:
             _perf_state = load_state()
             _voice_perf = _perf_state.get("performance", {})
@@ -6207,7 +6215,7 @@ def render_chart_clip(chart_image_path, duration, output_path):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
     return select_best_voice(state, niche_name, available)
 
 
@@ -7316,7 +7324,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -7340,7 +7348,7 @@ def main():
                     # bug as Ch1/2/3/4 -- this used to regenerate with the
                     # exact same edge_voice, so feedback about the voice
                     # never actually changed anything. Now genuinely swaps.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
