@@ -1,0 +1,50 @@
+[
+  {
+    "channel": "collapse_index",
+    "mode": "angle_1",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-23T10:21:44.335532"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "angle_2",
+    "format": "countdown_list",
+    "timestamp": "2026-07-23T10:21:49.907064"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "timestamp": "2026-07-23T10:21:55.533845"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_1",
+    "format": "before_after",
+    "timestamp": "2026-07-23T10:21:57.676322"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_1",
+    "format": "myth_bust",
+    "timestamp": "2026-07-23T10:21:59.668959"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_2",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-23T10:22:01.600713"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_2",
+    "format": "countdown_list",
+    "timestamp": "2026-07-23T10:22:03.495666"
+  },
+  {
+    "channel": "collapse_index",
+    "mode": "standalone_2",
+    "format": "question_hook",
+    "timestamp": "2026-07-23T10:22:05.394638"
+  }
+]
