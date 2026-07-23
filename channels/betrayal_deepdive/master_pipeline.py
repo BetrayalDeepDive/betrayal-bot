@@ -1882,6 +1882,19 @@ def generate_script_content(niche, topic, episode, attempt,
                 log(f"  Expanded: {wc}w")
 
     # Step 4: Stage-level scoring + targeted rewrite of 2 worst stages
+    # FIX (found live, July 22 2026 — real bug, confirmed via a live crash:
+    # "cannot access local variable 'stage_texts'"): stage_texts was only
+    # ever assigned inside this `if wc >= MIN_WORDS:` block, but the
+    # function's return statement below references it unconditionally.
+    # An attempt whose word count still fell short of MIN_WORDS even
+    # after Step 3's expansion pass (observed live: 1670w vs. a 1900w
+    # minimum) skipped this whole block, leaving stage_texts undefined
+    # and crashing on return -- silently swallowed by the attempt loop's
+    # outer exception handler, but a real bug regardless, and the loss
+    # of that entire attempt's work. Empty list is a safe default: every
+    # caller already treats a missing/empty stage_texts as "no stage
+    # breakdown available" rather than assuming it's always populated.
+    stage_texts = []
     if wc >= MIN_WORDS:
         try:
             # Split script proportionally into 7 stages

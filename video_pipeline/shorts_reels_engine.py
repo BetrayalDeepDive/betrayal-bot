@@ -393,8 +393,18 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
                         r = None
                         continue
                 if r is None or r.status_code != 200:
+                    # FIX (found live, July 22 2026 — real bug): any
+                    # Groq status other than 200/429 (400, 401, 403,
+                    # 5xx...) fell through this branch and skipped to
+                    # the next provider with ZERO log line — unlike
+                    # every other failure path in this function, which
+                    # at least reaches the outer except and logs
+                    # "<provider> failed: <error>". This was a silent,
+                    # undiagnosable gap.
                     if r is not None and r.status_code == 429:
                         time.sleep(3)
+                    elif r is not None:
+                        log.warning("groq failed: %s %s", r.status_code, r.text[:150])
                     continue
                 r.raise_for_status()
                 return r.json()["choices"][0]["message"]["content"].strip()
@@ -441,18 +451,27 @@ def llm(prompt: str, max_tokens: int = 1500, temp: float = 0.8,
 
 
 def llm_json(prompt: str, max_tokens: int = 800) -> dict:
+    # FIX (found live, July 22 2026 — real bug, 0/4 Shorts produced this
+    # episode with zero diagnostic trail): this returned {} on any parse
+    # failure without ever logging the actual raw response, so every
+    # caller (produce_video_topic_short/produce_standalone_short) saw
+    # nothing but a bare "failed" after 3 silent retries — no way to
+    # tell whether the model returned malformed JSON, a truncated
+    # response (max_tokens too small), or something else entirely.
     raw = llm(prompt + "\n\nReturn ONLY valid JSON. No markdown. No explanation.", max_tokens, 0.3)
-    raw = re.sub(r"^```json\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
+    cleaned = re.sub(r"^```json\s*", "", raw)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
     try:
-        return json.loads(raw)
+        return json.loads(cleaned)
     except Exception:
-        match = re.search(r'\{.*\}', raw, re.DOTALL)
+        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
             except Exception:
                 pass
+    log.warning("llm_json: failed to parse a JSON object from the LLM response "
+                "(raw, truncated): %r", raw[:300])
     return {}
 
 
@@ -1529,7 +1548,7 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         # 2. Pre-score
         pre_score = score_short_script(script, title, hook)
         log.info("Pre-score: %.1f/10", pre_score["total"])
-        if pre_score["total"] < 7.0:
+        if pre_score["total"] < QUALITY_MIN:
             log.info("Pre-score too low, retrying topic")
             continue
 
@@ -1675,7 +1694,7 @@ Return JSON:
 
         # 2. Pre-score
         pre_score = score_short_script(script, title, hook, for_reels=True)
-        if pre_score["total"] < 7.0:
+        if pre_score["total"] < QUALITY_MIN:
             continue
 
         # 3. Voice (bilingual rotation)
@@ -1820,7 +1839,7 @@ Return JSON:
 
         pre_score = score_short_script(script_data["script"], script_data["title"], script_data["hook_text"])
         log.info("Pre-score: %.1f/10", pre_score["total"])
-        if pre_score["total"] < 7.0:
+        if pre_score["total"] < QUALITY_MIN:
             log.info("Pre-score too low, retrying topic")
             continue
 

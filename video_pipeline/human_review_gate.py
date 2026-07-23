@@ -1275,7 +1275,18 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     try:
         subprocess.run(["ffmpeg", "-y", "-i", video_path, "-t", str(preview_seconds),
                         "-c", "copy", preview_path], capture_output=True, timeout=120)
-        preview_ready = Path(preview_path).exists() and Path(preview_path).stat().st_size > 10000
+        # FIX (found on live Ch1 run — real bug): a 60s "-c copy" trim's
+        # real size scales with the source's bitrate, not just its
+        # duration — a long, high-bitrate final video (seen live: 1120MB
+        # for ~16min, ~70MB for just the first 60s) can still land well
+        # over Telegram's real ~50MB bot-upload cap even after a
+        # genuinely correct trim. The old check only verified the file
+        # existed and wasn't suspiciously tiny (>10KB) — never that it
+        # was actually small enough to SEND. That guaranteed a doomed
+        # _tg_send_video call (confirmed live: HTTP 413 Request Entity
+        # Too Large) on any episode with an unusually large final video.
+        _preview_size = Path(preview_path).stat().st_size if Path(preview_path).exists() else 0
+        preview_ready = 10_000 < _preview_size < 45_000_000
     except Exception:
         preview_ready = False
 
@@ -1284,12 +1295,25 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                      f"{video_score_line}"
                      f"Tap a button below — EDIT will ask what to change, "
                      f"SWAP VISUALS regenerates just the visuals, same script and audio")
+    _video_sent = False
     if preview_ready:
-        _tg_send_video(tg_token, tg_chat, preview_path, caption=video_caption,
+        _video_sent = _tg_send_video(tg_token, tg_chat, preview_path, caption=video_caption,
                        reply_markup=_button_keyboard(fifth_option=("🎨 SWAP VISUALS", "swap_visuals")))
-    else:
+    # FIX (found on live Ch1 run — real bug): _tg_send_video's return
+    # value was never checked here, unlike the equivalent audio path a
+    # few lines above (which already has this exact safety net). Since
+    # the decision BUTTONS are attached to this same sendVideo call, a
+    # failed send (whether from the size check above or a genuine
+    # Telegram-side rejection at send time) used to leave the reviewer
+    # with only a bare thumbnail and zero way to tap a decision —
+    # silently waiting out the full timeout on a message that was never
+    # delivered, with no visible sign anything was expected of them.
+    if not preview_ready or not _video_sent:
         _tg_send_message_with_buttons(tg_token, tg_chat,
-                         f"⚠️ {channel_name}: could not cut a preview clip — sending thumbnail only.\n\n{video_caption}",
+                         f"⚠️ {channel_name}: could not send a video preview "
+                         f"(too large for Telegram's upload limit, or the send failed) "
+                         f"— sending thumbnail only. Full video review happens at the "
+                         f"final pre-publish gate before this goes public.\n\n{video_caption}",
                          include_swap_visuals=True)
     if thumbnail_path and Path(thumbnail_path).exists():
         _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption="Final thumbnail")
@@ -1297,7 +1321,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     if gmail_app_password:
         send_email_notification(f"[{channel_name}] Video ready for review",
                                  f"<p>Video assembled — preview sent to Telegram "
-                                 f"({'clip attached' if preview_ready else 'clip unavailable'}).</p>"
+                                 f"({'clip attached' if _video_sent else 'clip unavailable, thumbnail only'}).</p>"
                                  f"{'<p>Video quality score: ' + str(video_score) + '/10</p>' if video_score is not None else ''}",
                                  gmail_sender, gmail_app_password)
 
