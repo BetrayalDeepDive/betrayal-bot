@@ -41,7 +41,7 @@
       "last_run": "2026-07-22T16:23:45.261942"
     }
   },
-  "last_title_register": "sympathy",
+  "last_title_register": "dread",
   "performance": {
     "thumbnail_style_A": {
       "scores": [
@@ -63,6 +63,7 @@
     },
     "thumbnail_style_B": {
       "scores": [
+        10.0,
         10.0
       ]
     },
@@ -79,7 +80,7 @@
       ]
     }
   },
-  "episode_count": 3,
+  "episode_count": 4,
   "playlists": {
     "obsession_dark": "PLbqqA3yvFSbI",
     "dark_horror": "PLbqqA3yvFSbI"

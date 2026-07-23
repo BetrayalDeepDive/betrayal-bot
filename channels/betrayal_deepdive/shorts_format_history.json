@@ -1,0 +1,50 @@
+[
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_1",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-23T00:57:37.171374"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_2",
+    "format": "countdown_list",
+    "timestamp": "2026-07-23T00:57:42.860757"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "timestamp": "2026-07-23T00:57:49.835923"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "before_after",
+    "timestamp": "2026-07-23T00:57:52.402953"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "myth_bust",
+    "timestamp": "2026-07-23T00:57:54.789897"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-23T00:57:57.325526"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "countdown_list",
+    "timestamp": "2026-07-23T00:57:59.858036"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "question_hook",
+    "timestamp": "2026-07-23T00:58:02.987095"
+  }
+]
