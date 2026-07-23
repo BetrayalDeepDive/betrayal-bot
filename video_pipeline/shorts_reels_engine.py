@@ -1727,6 +1727,20 @@ Score: {final_score['total']}/10
 Subtitles: ✅ Synced
 URL: {yt_url}""")
 
+        # FIX (direct user report, July 23 2026 — "post-upload reporting...
+        # I need it for every thing without fail", applied empire-wide):
+        # same real views/likes/subscribers/revenue snapshot the main
+        # videos get, now for Shorts too.
+        try:
+            from post_upload_reporter import send_post_upload_report
+            _vid_id_report = yt_url.rstrip("/").split("/")[-1]
+            _token_report = get_yt_token()
+            send_post_upload_report(
+                cfg.get("display_name", channel), yt_url, _vid_id_report, _token_report,
+                None, None, gumroad_token=os.environ.get("GUMROAD_ACCESS_TOKEN"), tg_fn=tg)
+        except Exception as e:
+            log.warning("Post-upload report for Short (non-fatal): %s", e)
+
         # Cleanup
         for f in [audio_out, srt_out, bg_out, thumb_out]:
             try:
@@ -2023,6 +2037,20 @@ Return JSON:
             return {"status": "failed", "reason": "upload failed", "title": script_data["title"]}
 
         tg(f"⚡ *VIDEO-TOPIC SHORT UPLOADED*\n{script_data['title']}\n{url}")
+
+        # FIX (direct user report, July 23 2026 — post-upload reporting
+        # for everything without fail, applied empire-wide): same
+        # views/likes/subscribers/revenue snapshot the main videos get.
+        try:
+            from post_upload_reporter import send_post_upload_report
+            _vid_id_report = url.rstrip("/").split("/")[-1]
+            _token_report = get_yt_token()
+            send_post_upload_report(
+                cfg.get("display_name", channel), url, _vid_id_report, _token_report,
+                None, None, gumroad_token=os.environ.get("GUMROAD_ACCESS_TOKEN"), tg_fn=tg)
+        except Exception as e:
+            log.warning("Post-upload report for Short (non-fatal): %s", e)
+
         return {"status": "success", "url": url, "local_path": video_out}
 
     return {"status": "failed", "reason": "all attempts failed pre-score or assembly"}

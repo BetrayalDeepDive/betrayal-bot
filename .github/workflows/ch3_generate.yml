@@ -114,6 +114,9 @@ jobs:
           # these aren't set — always set these for real channel isolation.
           TELEGRAM_TOKEN_CH3:        ${{ secrets.TELEGRAM_TOKEN_CH3 }}
           TELEGRAM_CHAT_ID_CH3:      ${{ secrets.TELEGRAM_CHAT_ID_CH3 }}
+          # For Shorts' post-upload revenue snapshot (post_upload_reporter.py) —
+          # Shorts upload during the generate phase, not the upload phase.
+          GUMROAD_ACCESS_TOKEN:      ${{ secrets.GUMROAD_ACCESS_TOKEN }}
           # v5 addition: Gmail two-way fallback (same mechanism as
           # Ch1/Ch2) — if Telegram is ever down/slow, review replies can
           # come via email instead, using the same real decision parser.

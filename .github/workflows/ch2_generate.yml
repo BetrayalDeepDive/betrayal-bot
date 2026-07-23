@@ -108,6 +108,9 @@ jobs:
           # its own distinct chat ID, even talking to it from the same
           # Telegram account, so this needs its own secret too.
           TELEGRAM_CHAT_ID_CH2:      ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
+          # For Shorts' post-upload revenue snapshot (post_upload_reporter.py) —
+          # Shorts upload during the generate phase, not the upload phase.
+          GUMROAD_ACCESS_TOKEN:      ${{ secrets.GUMROAD_ACCESS_TOKEN }}
           TELEGRAM_CHAT_ID:          ${{ secrets.TELEGRAM_CHAT_ID_CH2 }}
           GMAIL_SENDER_EMAIL:        ${{ secrets.GMAIL_SENDER_EMAIL }}
           GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
