@@ -1720,8 +1720,7 @@ most viewers actually drop off if nothing happens):
   up a payoff requiring continued viewing to resolve.
 
 STAGE 1 — CASE FILE OPEN ({stage_targets[1]} words)
-Sentence 1: exact case reference — number, date, or document ID.
-Sentence 2: specific location of the discovery.
+{"A MANDATORY COLD OPEN is provided above — it already previews this exact case's specific twist/outcome and was scored as the strongest of 3 real variants. Use it AS-IS for Stage 1 (only light edits for grammar/flow into what follows), do NOT write a new, generic case-file open from scratch here. The rules below describe what that mandatory text already satisfies -- they are not a second, separate opening to write instead of it." if "MANDATORY COLD OPEN" in cold_open_block else "Sentence 1: exact case reference — number, date, or document ID. Sentence 2: specific location of the discovery. The opening must preview the real, specific twist/outcome of THIS case (state or strongly imply the actual result) -- not a generic disturbing mood that could belong to any episode."}
 Sentence 3: the question this investigation will answer.
 Forbidden: "welcome back", "today we investigate", "in this video"
 TRIGGER PLACEMENT: DETAIL (s1) → PROXIMITY (s2) → open unresolved loop (s3)
@@ -4725,6 +4724,19 @@ Each cold open must:
 - Never say "welcome back", "today", "in this video"
 - Use a specific date, time, or number in the first sentence
 - Create a question the listener cannot stop thinking about
+- FIX (direct user report, July 23 2026 — same fix already verified on
+  Ch1, applied empire-wide): the opening must actually PREVIEW the real,
+  specific twist/outcome of THIS exact case — state or strongly imply the
+  concrete result up front (e.g. if the case is a manipulation tactic
+  designed to build trust that became the exact tool used to destroy it,
+  say something like "the trust he built is what he used to break her" —
+  naming the real irony, not a vague mood). This creates a "wait — HOW
+  did that happen" curiosity gap about THIS specific case, not generic
+  dread. A viewer must be able to tell, from the cold open alone, roughly
+  WHAT happens by the end — they keep watching to learn HOW, never to
+  learn WHAT. An opening that could be swapped into a different episode
+  about a different case with zero changes has failed this requirement,
+  no matter how disturbing it sounds in isolation.
 
 Format your response EXACTLY as:
 VARIANT_1:

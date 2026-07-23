@@ -1664,6 +1664,19 @@ Each cold open must:
 - Never say "welcome back", "today", "in this video"
 - Use a specific date, time, or number in the first sentence
 - Create a question the listener cannot stop thinking about
+- FIX (direct user report, July 23 2026 — same fix already verified on
+  Ch1, applied empire-wide): the opening must actually PREVIEW the real,
+  specific twist/outcome of THIS exact case — state or strongly imply the
+  concrete result up front (e.g. if the case is a startup that raised a
+  record round only to collapse from the exact bet that won it that
+  round, say something like "the deal that saved them is the one that
+  sank them" — naming the real irony, not a vague mood). This creates a
+  "wait — HOW did that happen" curiosity gap about THIS specific case,
+  not generic dread. A viewer must be able to tell, from the cold open
+  alone, roughly WHAT happens by the end — they keep watching to learn
+  HOW, never to learn WHAT. An opening that could be swapped into a
+  different episode about a different case with zero changes has failed
+  this requirement, no matter how dramatic it sounds in isolation.
 
 Format your response EXACTLY as:
 VARIANT_1:
@@ -2044,9 +2057,7 @@ most viewers actually drop off if nothing happens):
   an incomplete number, a named person whose role isn't yet explained.
 
 STAGE 1 — COLD OPEN ({stage_targets[1]} words)
-Sentence 1 must contain an exact number, date, or duration.
-Sentence 2 places the listener somewhere recognisable.
-Sentence 3 opens a loop the script must close.
+{"A MANDATORY COLD OPEN is provided above in RESEARCH CONTEXT — it already previews this exact case's specific twist/outcome and was scored as the strongest of 3 real variants. Use it AS-IS for Stage 1 (only light edits for grammar/flow into what follows), do NOT write a new, generic cold open from scratch here. The rules below describe what that mandatory text already satisfies -- they are not a second, separate cold open to write instead of it." if "MANDATORY COLD OPEN" in research_context else "Sentence 1 must contain an exact number, date, or duration. Sentence 2 places the listener somewhere recognisable. Sentence 3 opens a loop the script must close. The opening must preview the real, specific twist/outcome of THIS case (state or strongly imply the actual result) -- not a generic dramatic mood that could belong to any episode."}
 Forbidden: "welcome back", "today we", "in this video", "join me"
 Trigger: DETAIL (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
 
