@@ -1632,6 +1632,22 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
             log.info("Pre-score too low, retrying topic")
             continue
 
+        # FIX (direct user report, July 23 2026 — "the quality interceptor...
+        # it's not only for the script stage... shots... everything should
+        # be checked", minimum 7.9, applied empire-wide): independent
+        # AI-judge read of the actual Short script, on top of the
+        # rule-based score_short_script rubric above.
+        try:
+            from quality_auditor import audit_content
+            _audit = audit_content("shorts_script", script, "", lambda p, tokens=350: llm(p, max_tokens=tokens))
+            log.info("Quality audit (shorts_script): %.1f/10 (passed=%s, fallback=%s)",
+                      _audit["score"], _audit["passed"], _audit["used_fallback"])
+            if not _audit["passed"]:
+                log.info("Quality audit below 7.9 bar, retrying topic")
+                continue
+        except Exception as e:
+            log.warning("Quality audit unavailable (non-fatal): %s", e)
+
         # 3. Select voice (rotates gender + accent)
         voice = pick_voice(for_reels=False)
 
@@ -1943,6 +1959,21 @@ Return JSON:
         if pre_score["total"] < QUALITY_MIN:
             log.info("Pre-score too low, retrying topic")
             continue
+
+        # FIX (direct user report, July 23 2026 — quality interceptor for
+        # every stage, minimum 7.9, applied empire-wide): independent
+        # AI-judge read on top of the rule-based rubric above.
+        try:
+            from quality_auditor import audit_content
+            _audit = audit_content("shorts_script", script_data["script"], "",
+                                    lambda p, tokens=350: llm(p, max_tokens=tokens), topic=main_topic)
+            log.info("Quality audit (shorts_script): %.1f/10 (passed=%s, fallback=%s)",
+                      _audit["score"], _audit["passed"], _audit["used_fallback"])
+            if not _audit["passed"]:
+                log.info("Quality audit below 7.9 bar, retrying")
+                continue
+        except Exception as e:
+            log.warning("Quality audit unavailable (non-fatal): %s", e)
 
         voice = pick_voice(for_reels=False)
         run_id = uuid.uuid4().hex[:8]

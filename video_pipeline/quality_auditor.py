@@ -76,6 +76,14 @@ _RUBRICS = {
         "complete beginning/middle/end arc in ~120 words, does it resolve with "
         "a real payoff, and would it actually stop someone mid-scroll?"
     ),
+    "community_post": (
+        "You are an expert YouTube community-engagement strategist. Judge this "
+        "Community Tab poll question (and its options, if any) on: is it "
+        "genuinely specific to this episode's real topic (not generic "
+        "'what do you think?' filler), does it create real curiosity or "
+        "invite genuine discussion, and are the poll options (if given) "
+        "distinct and meaningful choices rather than throwaway text?"
+    ),
 }
 
 

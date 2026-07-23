@@ -933,7 +933,8 @@ def draft_community_post(topic, niche_name, title, ai_fn):
     }
     if not ai_fn:
         return fallback
-    try:
+
+    def _generate_once():
         raw = ai_fn(
             f"""Write ONE short YouTube Community Tab poll for a video titled
 "{title}" (topic: {topic}, niche: {niche_name}).
@@ -948,7 +949,7 @@ OPTION4: <short option, under 30 chars — or leave blank>
 No markdown, no extra commentary — just those lines.""",
         )
         if not raw:
-            return fallback
+            return None
         question = ""
         options = []
         for line in raw.splitlines():
@@ -960,8 +961,28 @@ No markdown, no extra commentary — just those lines.""",
                 if val:
                     options.append(val)
         if not question:
-            return fallback
+            return None
         return {"question": question, "options": options[:4]}
+
+    try:
+        result = _generate_once()
+        if not result:
+            return fallback
+        # FIX (direct user report, July 23 2026 — quality interceptor for
+        # every stage including community posts, minimum 7.9, applied
+        # empire-wide): independent AI-judge read, one rework attempt if
+        # it fails, before this result is used.
+        try:
+            from quality_auditor import audit_content
+            _content = result["question"] + (" | " + " / ".join(result["options"]) if result["options"] else "")
+            _audit = audit_content("community_post", _content, "", ai_fn, topic=topic)
+            if not _audit["passed"]:
+                _reworked = _generate_once()
+                if _reworked:
+                    result = _reworked
+        except Exception:
+            pass
+        return result
     except Exception:
         return fallback
 
