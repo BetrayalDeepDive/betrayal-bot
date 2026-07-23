@@ -6511,6 +6511,60 @@ def main():
         script_clean = script_result["script"]
         wc           = script_result["words"]
         score_val, _score_issues, _score_subscores = score_result(script_result, topic)
+
+        # FIX (direct user report, July 23 2026 — "sync Claude Code into
+        # the script as a main interceptor for quality... if it generates
+        # a script, I want you to read that script and generate the
+        # quality audit... minimum is 6.8... if it is less than that,
+        # remake it without fail, even before it comes to me as a manual
+        # in Telegram"): the 13-attempt loop above already gates on a
+        # rule-based rubric (keyword/pattern signals), but that is not
+        # the same as an independent AI actually reading the whole script
+        # and judging it holistically. This is that second, independent
+        # read -- an AI-judge audit with its own 6.8 floor, reworking
+        # (a fresh run_stage1 attempt) before this ever reaches Telegram.
+        # See video_pipeline/quality_auditor.py for the honest technical
+        # note on why this uses the pipeline's existing AI providers
+        # rather than literally invoking Claude Code from a cron job.
+        try:
+            from quality_auditor import enforce_quality_gate
+            # NOTE: run_stage1 re-picks niche+topic fresh on every call (its
+            # own rotation/backlog logic) -- a rework could legitimately come
+            # back as a different niche/topic than the original attempt. If
+            # only script_clean were replaced here while niche_name/niche/
+            # topic/trending_titles/script_result stayed pointed at the OLD
+            # attempt, every downstream stage (title, thumbnail, audio) would
+            # describe a different story than the script actually being
+            # narrated. enforce_quality_gate keeps whichever rework attempt
+            # scored best, which is not necessarily the LAST one tried -- so
+            # every attempt (including the original) is recorded here, and
+            # after the gate returns, the matching full tuple is looked up
+            # by script text rather than assumed to be the most recent call.
+            _rework_history = [{"niche_name": niche_name, "niche": niche, "topic": topic,
+                                 "script_result": script_result, "trending_titles": trending_titles}]
+            def _rescript():
+                _n2, _ni2, _t2, _res2, _tr2 = run_stage1(state)
+                _rework_history.append({"niche_name": _n2, "niche": _ni2, "topic": _t2,
+                                         "script_result": _res2, "trending_titles": _tr2})
+                return _res2["script"]
+            _audit = enforce_quality_gate(
+                "script", script_clean, "", ai_generate,
+                _rescript, tg_fn=tg, topic=topic, max_reworks=2)
+            for _entry in reversed(_rework_history):
+                if _entry["script_result"]["script"] == _audit["content"]:
+                    niche_name, niche, topic = _entry["niche_name"], _entry["niche"], _entry["topic"]
+                    script_result = _entry["script_result"]
+                    trending_titles = _entry["trending_titles"]
+                    wc = script_result["words"]
+                    score_val, _score_issues, _score_subscores = score_result(script_result, topic)
+                    break
+            script_clean = _audit["content"]
+            log(f"  Quality audit (script): {_audit['score']}/10 "
+                f"(passed={_audit['passed']}, reworked={_audit['reworked']}, "
+                f"fallback={_audit['used_fallback']})")
+        except Exception as e:
+            log(f"  Quality audit unavailable (non-fatal, proceeding with existing script): {e}")
+
         edge_voice   = pick_voice(niche_name, state)
         # v6 addition — real citation system: the actual sources used
         # during research (if any were found), carried through for the

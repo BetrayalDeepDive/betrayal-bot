@@ -7030,6 +7030,43 @@ def main():
         script_clean = script_result["script"]
         wc           = script_result["words"]
         score_val    = score_result(script_result, topic)[0]
+
+        # FIX (direct user report, July 23 2026 — "sync Claude Code into
+        # the script as a main interceptor for quality... minimum is
+        # 6.8... remake it without fail", applied empire-wide, matching
+        # the fix on Ch1/Ch2/Ch3/Ch4): independent AI read-and-score of
+        # the actual script, on top of the rule-based rubric the 13-attempt
+        # loop above already uses. run_stage1 re-picks niche+topic fresh
+        # each call, so a rework re-runs the whole tuple and every
+        # downstream variable is reassigned together, never just the
+        # script text alone.
+        try:
+            from quality_auditor import enforce_quality_gate
+            _rework_history = [{"niche_name": niche_name, "niche": niche, "topic": topic,
+                                 "script_result": script_result, "trending_titles": trending_titles}]
+            def _rescript():
+                _n2, _ni2, _t2, _res2, _tr2 = run_stage1(state)
+                _rework_history.append({"niche_name": _n2, "niche": _ni2, "topic": _t2,
+                                         "script_result": _res2, "trending_titles": _tr2})
+                return _res2["script"]
+            _audit = enforce_quality_gate(
+                "script", script_clean, "", ai_generate,
+                _rescript, tg_fn=tg, topic=topic, max_reworks=2)
+            for _entry in reversed(_rework_history):
+                if _entry["script_result"]["script"] == _audit["content"]:
+                    niche_name, niche, topic = _entry["niche_name"], _entry["niche"], _entry["topic"]
+                    script_result = _entry["script_result"]
+                    trending_titles = _entry["trending_titles"]
+                    wc = script_result["words"]
+                    score_val = score_result(script_result, topic)[0]
+                    break
+            script_clean = _audit["content"]
+            log(f"  Quality audit (script): {_audit['score']}/10 "
+                f"(passed={_audit['passed']}, reworked={_audit['reworked']}, "
+                f"fallback={_audit['used_fallback']})")
+        except Exception as e:
+            log(f"  Quality audit unavailable (non-fatal, proceeding with existing script): {e}")
+
         edge_voice   = pick_voice(niche_name, state)
         # v6 addition — real citation system: the actual sources used
         # during research (if any were found), carried through for the
