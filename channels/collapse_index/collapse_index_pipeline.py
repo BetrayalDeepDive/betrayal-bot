@@ -3914,7 +3914,7 @@ def upload_captions_track(token, video_id, srt_path, language="en"):
         return False
 
 
-def get_stage_matched_video(niche, script, audio_duration, chart_data=None):
+def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topic=""):
     """
     Sequential audio-matched footage: the script is split into 55-75
     proportional segments (~12-15s of narration each), scaled dynamically
@@ -3926,9 +3926,29 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None):
     narration it didn't actually match; sequential + segment-matched
     keeps every visual genuinely tied to what's being said at that moment.
     Falls back to a single looped video if too few real clips come back.
+
+    FIX (found on direct user report, July 23 2026 -- same bug found and
+    fixed in Ch1): this never received the actual episode topic, so
+    footage search terms were built from a fixed, channel-wide generic
+    mood-phrase cycle plus one word pulled from the local narration
+    slice, which in practice was overwhelmingly generic filler rather
+    than anything visually specific to the real story. topic is a
+    short, information-dense summary and reliably contains real,
+    visually groundable specifics -- now extracted once and threaded
+    into every segment's query.
     """
     words     = script.split()
     total     = len(words)
+
+    _topic_stopwords = {"the","a","an","and","or","but","in","on","at","to","for",
+                  "of","with","by","from","this","that","was","were","had","have",
+                  "it","its","he","she","they","their","his","her","be","been",
+                  "not","no","so","as","if","then","than","when","what","who",
+                  "part","real","documented","real-life","true","story"}
+    _topic_words = [w.strip(".,!?;:\"'()") for w in topic.lower().split()
+                    if len(w) > 4 and w.strip(".,!?;:\"'()") not in _topic_stopwords]
+    from collections import Counter as _TopicCounter
+    topic_anchors = [w for w, _ in _TopicCounter(_topic_words).most_common(6)] or []
 
     # Dynamic segment count: target ~13.5s/clip (middle of the 12-15s
     # range), clamped to 55-75 regardless of exact video length so a
@@ -4038,13 +4058,21 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None):
                           if len(w) > 4 and w not in stopwords]
             top_nouns  = [w for w, _ in Counter(wide_words).most_common(6)
                           if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
-        kw = f"{base_kw} {top_nouns[0]}" if top_nouns else base_kw
+        # FIX (found on direct user report, July 23 2026 -- same fix as
+        # Ch1): prioritize a real topic anchor (rotated per segment) over
+        # the local narration word when both exist.
+        topic_anchor = topic_anchors[i % len(topic_anchors)] if topic_anchors else ""
+        specific_term = topic_anchor or (top_nouns[0] if top_nouns else "")
+        kw = f"{base_kw} {specific_term}" if specific_term else base_kw
 
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
 
         downloaded = False
-        search_terms = [kw, base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
+        search_terms = [kw]
+        if topic_anchor and specific_term != topic_anchor:
+            search_terms.append(f"{base_kw} {topic_anchor}")
+        search_terms += [base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
                          "cinematic dark atmosphere"]
         for search_kw in search_terms:
             if downloaded: break
@@ -6354,7 +6382,7 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # working) existed in this same file and was never wired in. That's
     # exactly why the video showed "only one background the whole time."
     search_kw   = ""  # only used by the single-clip fallback below
-    bg_path     = get_stage_matched_video(niche, script, audio_duration, chart_data=chart_data)
+    bg_path     = get_stage_matched_video(niche, script, audio_duration, chart_data=chart_data, topic=topic)
     if not bg_path:
         log("  Stage-matched video unavailable — falling back to single looped clip")
         bg_path = get_background_video(niche, audio_duration, search_kw)
