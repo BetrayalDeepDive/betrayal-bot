@@ -511,5 +511,233 @@
     "status": "pending",
     "created_at": "2026-07-23T09:58:33.837266",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "89e10354eba9",
+    "channel_id": "evidence_room",
+    "topic_text": "How deleted files on a company server reconstructed a 5-year insider trading operation completely",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:16:33.635197",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "ce7f4042e96e",
+    "channel_id": "evidence_room",
+    "topic_text": "The IP address that linked 9 separate fraud accounts to a single apartment across 3 countries",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 6.0,
+      "source_depth": 6.0,
+      "monetization_fit": 6.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.0,
+    "reasoning": "Scoring check failed \u2014 neutral score assigned, review manually.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:17:25.578484",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "db5cc953866f",
+    "channel_id": "evidence_room",
+    "topic_text": "The trading algorithm audit that showed a system was front-running client orders \u2014 automated proof",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is product_fit because while the topic is intriguing, it lacks a clear framework or reusable structure beyond a single investigative story, limiting its potential as a foundational chapter in a broader product or course.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:21:08.239167",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "d89699e8b2d5",
+    "channel_id": "evidence_room",
+    "topic_text": "Metadata embedded in a document proved it was written 2 years before the date it was supposedly signed",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 5.0,
+      "evergreen_value": 8.0,
+      "source_depth": 7.0,
+      "monetization_fit": 4.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 5.95,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is intriguing, it doesn't naturally lend itself to a clear product or resource CTA beyond niche digital forensics tools or services.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:24:32.780165",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "41e5d35b6656",
+    "channel_id": "evidence_room",
+    "topic_text": "How a data broker built profiles on 300 million people and what investigators found inside those files",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 9.0,
+      "monetization_fit": 6.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 7.15,
+    "reasoning": "The weakest dimension is product_fit, as the topic is more of a one-off investigative story rather than a framework that can be easily repurposed into a reusable product or chapter.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:28:40.882887",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "902f3cc1c957",
+    "channel_id": "evidence_room",
+    "topic_text": "The Dark Web Drug Bust: Linking Cryptocurrency Transactions to a Cartel",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The weakest dimension is product_fit because while the topic is intriguing, it lacks a clear framework or reusable structure that could be extracted into a broader product or educational resource, making it more of a one-off story than a foundational piece.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:32:18.056149",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "18fd8e86ba17",
+    "channel_id": "evidence_room",
+    "topic_text": "The Dark Web Paedophile Ring Busted by a Forgotten USB Drive",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 3.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 5.35,
+    "reasoning": "evergreen_value is the weakest dimension\u2014true crime/dark web topics are often tied to fleeting news cycles and legal outcomes, making long-term relevance low.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:35:47.820008",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "5ab0fc63a94a",
+    "channel_id": "evidence_room",
+    "topic_text": "The British police's use of digital forensics to uncover a global dark web child exploitation ring linked via cryptocurrency transaction tracing in 2023",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 9.0,
+      "product_fit": 8.0
+    },
+    "composite_score": 7.6,
+    "reasoning": "Source depth is the weakest dimension\u2014government law enforcement operations are often shrouded in secrecy, and even with 2023 docs, public records may be limited, requiring heavy reliance on speculation or anonymous sources.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:37:23.718993",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "adc6a40a2486",
+    "channel_id": "evidence_room",
+    "topic_text": "The takedown of the Genesis Market dark web marketplace in 2023 after digital forensics linked its stolen browser data to millions of breaches",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 6.0,
+      "product_fit": 8.0
+    },
+    "composite_score": 7.55,
+    "reasoning": "Monetization_fit is weakest\u2014while the topic has real-world hooks, converting it into a strong CTA requires forcing a product (e.g., digital forensics tools) that may not align naturally with passive viewers.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:40:27.175938",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "bb71ff2a00fe",
+    "channel_id": "evidence_room",
+    "topic_text": "The investigation into the Twitter (now X) whistleblower who exposed internal moderation failures using internal Slack messages and digital forensics.",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "source_depth is the weakest dimension\u2014internal Slack messages and digital forensics are hard to access legally, and much of the story relies on leaked or redacted material, limiting verifiable content.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:42:01.856366",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "96e8a539da58",
+    "channel_id": "evidence_room",
+    "topic_text": "The recovery of deleted WhatsApp messages in a high-profile corruption case in 2023, using iPhone forensic techniques to reconstruct conversations.",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 4.0,
+      "source_depth": 7.0,
+      "monetization_fit": 8.0,
+      "product_fit": 9.0
+    },
+    "composite_score": 6.65,
+    "reasoning": "Evergreen_value is weak because digital forensics techniques and legal admissibility cases vary by jurisdiction and time, making the topic less timeless.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:42:49.040443",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "295f7509fd10",
+    "channel_id": "evidence_room",
+    "topic_text": "The recovery of deleted video footage from a dashcam in the 2024 investigation of the fatal Tesla Autopilot crash",
+    "niche_name": "digital_forensics",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 7.0
+    },
+    "composite_score": 6.6,
+    "reasoning": "Source_depth is the weakest: dashcam recovery is niche within digital forensics, and 15-18 minutes of verifiable material will require heavy speculation or fictionalized reconstruction if legal/technical details are scarce.",
+    "product_route": "faceless-documentary-creator-toolkit",
+    "status": "pending",
+    "created_at": "2026-07-23T20:43:37.565186",
+    "produced_episode_number": null
   }
 ]
