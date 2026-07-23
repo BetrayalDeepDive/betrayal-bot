@@ -596,8 +596,22 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
               f"{thumb_score_line}"
               f"Description quality score: {description_score}/10\n\n"
               f"Tap a button below — EDIT will ask what to change")
-    _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption,
+    # FIX (found on direct user report, July 23 2026 — real bug): this
+    # checkpoint's decision BUTTONS are attached to the thumbnail photo
+    # message — but the send's return value was never checked, unlike
+    # (now) every other checkpoint in this file. A failed photo send
+    # (bad path, oversized image, a transient Telegram error) meant the
+    # reviewer got literally nothing for this checkpoint: no photo, no
+    # buttons, no text, nothing indicating a decision was even expected
+    # — while the pipeline sat waiting out the full timeout regardless.
+    # This is very likely why a real reviewer reported seeing only the
+    # script and audio checkpoints and nothing past them.
+    _ttd_photo_sent = _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption,
                    reply_markup=_button_keyboard())
+    if not _ttd_photo_sent:
+        _tg_send_message_with_buttons(tg_token, tg_chat,
+            f"⚠️ Could not send the thumbnail image (missing file, too large, or a "
+            f"Telegram error) — review the title/description below and decide anyway.\n\n{caption}")
     # FIX (found on deep re-audit): this used to send the ENTIRE
     # description as one message with zero chunking. Ch3's (and Ch1/2's)
     # descriptions can legitimately reach up to 5000 characters (YouTube's
@@ -1210,7 +1224,8 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                             tg_token, tg_chat, check_ins_used=0, gmail_sender=None,
                             gmail_app_password=None, timeout_minutes=60, preview_seconds=60,
                             audio_score=None, audio_score_breakdown=None,
-                            video_score=None, video_score_breakdown=None):
+                            video_score=None, video_score_breakdown=None,
+                            yt_preview_url=None):
     """
     THE COMBINED AUDIO+VIDEO CHECKPOINT — sent together in one review
     window, per the explicit decision to keep this inside a single
@@ -1231,6 +1246,17 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     integrity, file-size sanity), not estimates. When given, shown
     directly in the review message with a one-line breakdown so a low
     score is explainable, not just a number.
+
+    FIX (found on direct user request, July 23 2026): yt_preview_url,
+    when given, is the real full-length YouTube link for this exact
+    video (the caller uploads it unlisted right before calling this,
+    same pattern as the final pre-publish gate) — included directly in
+    the video caption. This is the ONLY way to genuinely watch the whole
+    thing at this checkpoint: the 60s preview clip below is still
+    attempted for a quick in-Telegram look, but a long or high-bitrate
+    video routinely exceeds Telegram's real ~50MB bot upload limit even
+    for just those 60 seconds (confirmed live), while the real YouTube
+    link has no such limit.
     """
     schedule_line = get_schedule_line(check_ins_used)
 
@@ -1291,7 +1317,10 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
         preview_ready = False
 
     video_score_line = f"Video quality score: {video_score}/10{_breakdown_line(video_score_breakdown)}\n\n" if video_score is not None else ""
-    video_caption = (f"🎬 {channel_name} — VIDEO REVIEW\n\nFirst {preview_seconds}s preview\n\n"
+    yt_link_line = f"🔗 Full video (unlisted, watch/download anytime): {yt_preview_url}\n\n" if yt_preview_url else ""
+    video_caption = (f"🎬 {channel_name} — VIDEO REVIEW\n\nFirst {preview_seconds}s preview below"
+                     f"{' (or use the real link for the whole thing)' if yt_preview_url else ''}\n\n"
+                     f"{yt_link_line}"
                      f"{video_score_line}"
                      f"Tap a button below — EDIT will ask what to change, "
                      f"SWAP VISUALS regenerates just the visuals, same script and audio")

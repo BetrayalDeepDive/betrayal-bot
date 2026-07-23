@@ -610,12 +610,25 @@ NICHES = [
     },
 ]
 
+# FIX (found on direct user request, July 23 2026): every niche had a
+# US voice as either the primary or secondary pick — the exact thing
+# the user said sounds "too robotic". Switched to British/Australian
+# voices only, channel-wide. GB voices (RyanNeural, ThomasNeural,
+# NoahNeural, OliverNeural, EthanNeural) are already proven working in
+# production across every other channel in this repo (see Ch2/3/4's
+# GB_VOICES/NICHE_VOICES). The two Australian voices (WilliamNeural,
+# NatashaNeural) are real, standard Microsoft neural voices on the same
+# underlying Azure TTS service GB already uses successfully here — not
+# yet stress-tested specifically on this repo's GitHub Actions runners,
+# so kept as the SECOND option per niche behind an already-proven GB
+# voice, with the existing SSML/Fish Audio/Kokoro fallback chain still
+# there as a safety net if either ever fails.
 VOICES = {
-    "dark_horror":        ["en-US-JasonNeural", "en-GB-RyanNeural"],  # DavisNeural unavailable on Actions
-    "seduction_dark":     ["en-GB-RyanNeural",  "en-US-AndrewNeural"],
-    "psychological_trap": ["en-US-BrianNeural", "en-GB-ThomasNeural"],
-    "supernatural_real":  ["en-GB-RyanNeural",  "en-US-JasonNeural"],  # DavisNeural unavailable on Actions
-    "obsession_dark":     ["en-US-AndrewNeural","en-GB-RyanNeural"],
+    "dark_horror":        ["en-GB-RyanNeural",   "en-AU-WilliamNeural"],
+    "seduction_dark":     ["en-GB-ThomasNeural",  "en-AU-WilliamNeural"],
+    "psychological_trap": ["en-GB-RyanNeural",    "en-GB-ThomasNeural"],
+    "supernatural_real":  ["en-GB-NoahNeural",    "en-AU-WilliamNeural"],
+    "obsession_dark":     ["en-GB-OliverNeural",  "en-GB-RyanNeural"],
 }
 
 BG_KEYWORDS = {
@@ -2974,8 +2987,9 @@ def run_audio_stage(script, niche_name, edge_voice):
             return audio_path, duration, ass_path, edge_voice
 
     if not el_ok:
+        # FIX (July 23 2026, direct user request): no US voices, channel-wide.
         _fallback_candidates = [v for v in
-            ["en-GB-RyanNeural", "en-US-BrianNeural", "en-US-JasonNeural"] if v != edge_voice]
+            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-AU-WilliamNeural"] if v != edge_voice]
         # v1 addition — real learning-loop closure: voice performance has
         # been tracked into state["performance"] this whole time but
         # never read back. Reorders only the FALLBACK candidates (never
@@ -3057,8 +3071,12 @@ def run_audio_stage(script, niche_name, edge_voice):
                 import numpy as np
                 log("  Trying Kokoro (local, natural-sounding, no rate limit)...")
                 _kokoro_pipeline = KPipeline(lang_code="a")
-                _kokoro_voice = {"en-GB-RyanNeural": "bm_george", "en-US-BrianNeural": "am_michael"}.get(
-                    edge_voice, "am_michael")
+                # FIX (July 23 2026, direct user request): default changed from
+                # an American Kokoro voice to a British one -- edge_voice is
+                # now always GB/AU per the VOICES policy above, so falling
+                # back to an American-sounding voice here would silently
+                # reintroduce the exact thing that was just removed.
+                _kokoro_voice = {"en-GB-RyanNeural": "bm_george"}.get(edge_voice, "bm_george")
                 _generator = _kokoro_pipeline(script_clean, voice=_kokoro_voice, speed=1.0)
                 _all_audio = []
                 for _, _, _audio_chunk in _generator:
@@ -4766,6 +4784,32 @@ def delete_yt_video(video_id, token=None):
         log(f"  Delete rejected video (non-fatal): {e}")
         return False
 
+def update_video_metadata(video_id, title, description, tags, token=None):
+    """
+    Real, metadata-only YouTube API call — updates an already-uploaded
+    video's title/description/tags without re-uploading the file. Used
+    when the Upload phase reuses the unlisted video already uploaded
+    during the generate-phase audio+video review (which only had a
+    placeholder description at that point, since the real one isn't
+    generated until STAGE 5) -- this pushes the real, final metadata
+    onto it before it ever goes public.
+    """
+    token = token or get_yt_token()
+    try:
+        r = requests.put(
+            f"{YT_DATA_URL}/videos?part=snippet",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"id": video_id, "snippet": {"title": title[:100], "description": description,
+                                               "tags": tags[:15], "categoryId": "22"}},
+            timeout=20)
+        if r.status_code == 200:
+            return True
+        log(f"  Update video metadata FAILED: {r.status_code} — {r.text[:200]}")
+        return False
+    except Exception as e:
+        log(f"  Update video metadata (non-fatal): {e}")
+        return False
+
 def upload_thumbnail(video_id, thumb_path, token):
     # NOTE: this function is not currently called anywhere — the actual
     # active thumbnail upload is inline in the main upload flow (already
@@ -5424,7 +5468,7 @@ def run_stage1(state):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
     return select_best_voice(state, niche_name, available)
 
 
@@ -5926,15 +5970,27 @@ def main():
 
         token = get_yt_token()
 
-        # Upload main video — UNLISTED first, not public yet. The final
-        # pre-publish gate below sends the real, full, unlisted link
-        # (no Telegram size limit, unlike the 60s preview clip reviewed
-        # during generate) so the whole thing can be watched/downloaded
-        # and judged before it ever goes public, even if the reviewer
-        # was away and missed every earlier check-in.
-        yt_url, vid_id = run_stage_with_retry(
-            upload_yt, "Upload",
-            video_path, title, description, tags, token=token, privacy="unlisted")
+        # FIX (July 23 2026, direct user request): reuse the video already
+        # uploaded unlisted during the generate-phase audio+video review,
+        # instead of uploading the same multi-hundred-MB file a second
+        # time. That upload only had placeholder metadata (description/
+        # tags don't exist until STAGE 5, after that review) -- push the
+        # real, final metadata onto it now, before it goes public.
+        _prerendered_vid_id = pending.get("prerendered_yt_video_id")
+        if _prerendered_vid_id:
+            update_video_metadata(_prerendered_vid_id, title, description, tags, token=token)
+            yt_url, vid_id = pending.get("prerendered_yt_url"), _prerendered_vid_id
+            log(f"  Reusing pre-rendered unlisted video from generate-phase review: {yt_url}")
+        else:
+            # Upload main video — UNLISTED first, not public yet. The final
+            # pre-publish gate below sends the real, full, unlisted link
+            # (no Telegram size limit, unlike the 60s preview clip reviewed
+            # during generate) so the whole thing can be watched/downloaded
+            # and judged before it ever goes public, even if the reviewer
+            # was away and missed every earlier check-in.
+            yt_url, vid_id = run_stage_with_retry(
+                upload_yt, "Upload",
+                video_path, title, description, tags, token=token, privacy="unlisted")
 
         from human_review_gate import review_final_video_before_publish
         _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
@@ -6486,6 +6542,42 @@ def main():
         # random state, clip selection is genuinely different each call,
         # not a coin-flip disguised as a fix.
         _remade_av = False
+        # FIX (found on direct user request, July 23 2026): the review below
+        # can only send a short local preview clip through Telegram, which
+        # routinely exceeds Telegram's real ~50MB bot upload limit for a
+        # long/high-bitrate episode (confirmed live: 1120MB video, 413
+        # error). Uploading the actual current video to YouTube as
+        # UNLISTED right here gives a real, full-quality, no-size-limit
+        # link to watch or download before deciding — same mechanism
+        # already built for the final pre-publish gate, just available
+        # immediately instead of waiting for tomorrow's Upload run. If
+        # this episode is approved, the video ID carries forward in
+        # pending_upload.json so the Upload phase reuses it (just flips
+        # privacy to public) instead of uploading the same file twice.
+        _prerendered_yt_url = None
+        _prerendered_yt_vid_id = None
+
+        def _refresh_prerendered_upload(cur_video_path):
+            # NOTE: description/tags aren't generated until STAGE 5 (after
+            # this review), so this upload uses placeholder metadata --
+            # the real title (already generated in STAGE 1) is the one
+            # thing that IS final by this point. The Upload phase updates
+            # this same video's real title/description/tags via
+            # update_video_metadata() once they exist, before flipping it
+            # public -- never publishes with placeholder text.
+            nonlocal _prerendered_yt_url, _prerendered_yt_vid_id
+            try:
+                _token = get_yt_token()
+                if _prerendered_yt_vid_id:
+                    delete_yt_video(_prerendered_yt_vid_id, token=_token)
+                _prerendered_yt_url, _prerendered_yt_vid_id = upload_yt(
+                    cur_video_path, title, "Draft — under review, description finalized before publish.", [],
+                    token=_token, privacy="unlisted")
+                log(f"  Uploaded unlisted preview for review: {_prerendered_yt_url}")
+            except Exception as e:
+                log(f"  Unlisted preview upload (non-fatal, falling back to clip-only review): {e}")
+                _prerendered_yt_url, _prerendered_yt_vid_id = None, None
+
         try:
             from human_review_gate import review_audio_and_video
             from quality_scoring import score_audio_quality, score_video_quality, get_media_duration
@@ -6494,6 +6586,7 @@ def main():
             _check_ins_used_av = 0
 
             while True:
+                _refresh_prerendered_upload(video_path)
                 try:
                     _audio_score, _audio_breakdown = score_audio_quality(
                         audio_path, audio_duration, len(script_clean.split()), edge_voice)
@@ -6514,11 +6607,14 @@ def main():
                     TG_TOKEN, TG_CHAT, _check_ins_used_av,
                     gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
                     audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
-                    video_score=_video_score, video_score_breakdown=_video_breakdown)
+                    video_score=_video_score, video_score_breakdown=_video_breakdown,
+                    yt_preview_url=_prerendered_yt_url)
                 _check_ins_used_av += 1
 
                 _a_dec = _av_review["audio_decision"]["decision"]
                 if _a_dec in ("reject", "remake"):
+                    if _prerendered_yt_vid_id:
+                        delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
                     if _a_dec == "remake":
                         tg("🔄 Ch1: REMAKE requested at audio review — this episode is being "
                            "scrapped. A fresh episode will be generated on the next scheduled run.")
@@ -6530,8 +6626,12 @@ def main():
 
                 _v_dec = _av_review["video_decision"]["decision"] if _av_review["video_decision"] else "approve"
                 if _v_dec == "reject":
+                    if _prerendered_yt_vid_id:
+                        delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
                     log("Rejected during video review."); sys.exit(0)
                 if _v_dec == "remake":
+                    if _prerendered_yt_vid_id:
+                        delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
                     tg("🔄 Ch1: REMAKE requested at video review — this episode is being "
                        "scrapped. A fresh episode will be generated on the next scheduled run.")
                     log("  REMAKE requested during video review — clearing pending, exiting.")
@@ -6564,7 +6664,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -6595,7 +6695,7 @@ def main():
                     # script itself is reviewed separately at the SCRIPT
                     # checkpoint — so EDIT here now actually swaps to a
                     # genuinely different voice, same as SWAP VOICE does.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-US-BrianNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
@@ -6863,6 +6963,16 @@ def main():
 
             ok_count = sum(1 for s in shorts if s.get("ok"))
             log(f"  Shorts (generate phase): {ok_count}/{len(shorts)} generated")
+            # FIX (found on direct user report, July 23 2026 — real gap):
+            # a total Shorts failure (0 produced) was only ever logged to
+            # the GitHub Actions console, never surfaced to Telegram —
+            # the review checkpoint below is skipped entirely when there's
+            # nothing to review, so a real, complete content failure had
+            # zero visibility to the actual human reviewing the episode.
+            if ok_count == 0 and shorts:
+                tg(f"⚠️ Ch1: 0/{len(shorts)} Shorts produced this episode — "
+                   f"all attempts failed pre-score or assembly. Check the "
+                   f"Generate run's log for details.")
 
             # SHORTS REVIEW — the real final checkpoint (5 options).
             # Honest constraint: Shorts are already published by this
@@ -6977,6 +7087,14 @@ def main():
             "quality_attempt": script_result.get("attempt", 1),
             "providers_healthy_count": len(_healthy_providers) if _healthy_providers else 7,
             "authenticity_score": _auth_score,
+            # FIX (July 23 2026, direct user request for a real video link):
+            # the approved video is already sitting on YouTube as unlisted
+            # (uploaded for the audio+video review above) -- carrying its
+            # ID forward means the Upload phase can reuse it (update real
+            # metadata, flip to public) instead of uploading the same
+            # multi-hundred-MB file a second time.
+            "prerendered_yt_video_id": _prerendered_yt_vid_id,
+            "prerendered_yt_url": _prerendered_yt_url,
         })
         if _pending_result.get("overwrite_warning"):
             tg(f"🚨 Ch1 Generate: {_pending_result['overwrite_warning']}")
