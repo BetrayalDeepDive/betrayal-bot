@@ -627,7 +627,15 @@ VOICES = {
     "dark_horror":        ["en-GB-RyanNeural",   "en-AU-WilliamNeural"],
     "seduction_dark":     ["en-GB-ThomasNeural",  "en-AU-WilliamNeural"],
     "psychological_trap": ["en-GB-RyanNeural",    "en-GB-ThomasNeural"],
-    "supernatural_real":  ["en-GB-NoahNeural",    "en-AU-WilliamNeural"],
+    # FIX (found live, July 23 2026): en-GB-NoahNeural is broken on this
+    # repo's GitHub Actions runners specifically -- confirmed live, ALL
+    # 8 SSML segments failed 3 attempts each (24/24 failures, "No audio
+    # was received"), then even the non-segmented single-shot fallback
+    # failed on the SAME voice, before finally succeeding the moment it
+    # switched to RyanNeural. Same class of issue as the already-known
+    # "DavisNeural unavailable on Actions" -- swapped for ThomasNeural,
+    # which has direct confirmation of actually working.
+    "supernatural_real":  ["en-GB-ThomasNeural",  "en-AU-WilliamNeural"],
     "obsession_dark":     ["en-GB-OliverNeural",  "en-GB-RyanNeural"],
 }
 
