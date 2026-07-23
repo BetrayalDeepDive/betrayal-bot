@@ -2065,6 +2065,75 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
             if _any_rewritten:
                 stage_txts = split_into_stage_texts(clean, targets_l)
 
+            # FIX (direct user report, July 23 2026 — real production data
+            # showed score_narrative_craft's hard 7.9 gate failing on most
+            # attempts, exhausting all 13 tries with zero video produced):
+            # the ONLY prior response to a failing craft score was to
+            # reject the whole attempt and re-roll a brand new script from
+            # scratch, hoping the next generation happens to land an
+            # escalation beat, a resolution beat, sentence-rhythm variety,
+            # and no repeated phrasing all by chance. This directly
+            # rewrites the middle third (escalation) and final third
+            # (resolution) with the exact missing structural beats
+            # score_narrative_craft checks for, then keeps whichever
+            # version actually scores higher.
+            try:
+                from script_scoring import score_narrative_craft, NARRATIVE_CRAFT_GATE_MIN
+                _craft_before, _ = score_narrative_craft(clean)
+                if _craft_before < NARRATIVE_CRAFT_GATE_MIN:
+                    _clean_before_craft = clean
+                    _cwords = clean.split()
+                    _cthird = len(_cwords) // 3
+                    _mid_text = " ".join(_cwords[_cthird:2 * _cthird])
+                    _mid_prompt = (
+                        f"Rewrite this middle section of a psychological manipulation documentary "
+                        f"narration. Return ONLY the rewritten prose, same approximate length, no "
+                        f"headers, no markdown.\n\n"
+                        f"REQUIRED, all of these:\n"
+                        f"1. One genuine escalation moment — new evidence, a worse discovery, a "
+                        f"visible turn for the worse. A real turn, not just a transition word.\n"
+                        f"2. Vary sentence length dramatically — mix short punches (4-8 words) with "
+                        f"longer sentences (20+ words).\n"
+                        f"3. Do not repeat any 4-word phrase from elsewhere in the script.\n\n"
+                        f"ORIGINAL:\n{_mid_text}\n\nRewrite now:"
+                    )
+                    _new_mid = ai(_mid_prompt, temp=0.82, tokens=1500, prefer="groq")
+                    if _new_mid:
+                        _new_mid = strip_md(_new_mid)
+                        if len(_new_mid.split()) > 30:
+                            clean = clean.replace(_mid_text, _new_mid, 1)
+
+                    _cwords2 = clean.split()
+                    _cthird2 = len(_cwords2) // 3
+                    _final_text = " ".join(_cwords2[2 * _cthird2:])
+                    _final_prompt = (
+                        f"Rewrite this final section of a psychological manipulation documentary "
+                        f"narration. Return ONLY the rewritten prose, same approximate length, no "
+                        f"headers, no markdown.\n\n"
+                        f"REQUIRED, all of these:\n"
+                        f"1. One genuine resolution moment — what turned out to be true, what was "
+                        f"finally confirmed. A real payoff, not a summary.\n"
+                        f"2. Vary sentence length dramatically — mix short punches (4-8 words) with "
+                        f"longer sentences (20+ words).\n"
+                        f"3. Do not repeat any 4-word phrase from elsewhere in the script.\n\n"
+                        f"ORIGINAL:\n{_final_text}\n\nRewrite now:"
+                    )
+                    _new_final = ai(_final_prompt, temp=0.82, tokens=1500, prefer="groq")
+                    if _new_final:
+                        _new_final = strip_md(_new_final)
+                        if len(_new_final.split()) > 30:
+                            clean = clean.replace(_final_text, _new_final, 1)
+
+                    _craft_after, _ = score_narrative_craft(clean)
+                    if _craft_after < _craft_before:
+                        clean = _clean_before_craft
+                        log(f"  Targeted craft rewrite: {_craft_before}/10 -> {_craft_after}/10 (worse, reverted)")
+                    else:
+                        stage_txts = split_into_stage_texts(clean, targets_l)
+                        log(f"  Targeted craft rewrite: {_craft_before}/10 -> {_craft_after}/10")
+            except Exception as e:
+                log(f"  Targeted craft rewrite (non-fatal): {e}")
+
             wc = len(clean.split())
             log(f"  After targeted rewrite: {wc}w")
         except Exception as e:

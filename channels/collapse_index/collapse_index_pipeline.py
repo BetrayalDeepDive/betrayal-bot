@@ -2545,6 +2545,76 @@ def generate_script_content(niche, topic, episode, attempt,
         except Exception as e:
             log(f"  Stage rewrite (non-fatal): {e}")
 
+    # FIX (direct user report, July 23 2026 — real production data showed
+    # score_narrative_craft's hard 7.9 gate failing on most attempts,
+    # exhausting all 13 tries with zero video produced): the ONLY prior
+    # response to a failing craft score was to reject the whole attempt
+    # and re-roll a brand new script from scratch, hoping the next
+    # generation happens to land an escalation beat, a resolution beat,
+    # sentence-rhythm variety, and no repeated phrasing all by chance.
+    # This directly rewrites the middle third (escalation) and final
+    # third (resolution) with the exact missing structural beats
+    # score_narrative_craft checks for, then keeps whichever version
+    # (original or rewritten) actually scores higher — a real fix to the
+    # writing, not another reroll of the dice.
+    try:
+        from script_scoring import score_narrative_craft, NARRATIVE_CRAFT_GATE_MIN
+        _craft_before, _craft_issues_before = score_narrative_craft(script)
+        if _craft_before < NARRATIVE_CRAFT_GATE_MIN:
+            _script_before_craft = script
+            _cwords = script.split()
+            _cthird = len(_cwords) // 3
+            _mid_text = " ".join(_cwords[_cthird:2 * _cthird])
+            _mid_prompt = (
+                f"Rewrite this middle section of a documentary narration. Return ONLY the "
+                f"rewritten prose, same approximate length, no headers or labels, no markdown.\n\n"
+                f"REQUIRED, all of these:\n"
+                f"1. One genuine escalation moment — something that intensifies, worsens, or "
+                f"upends what came before (new evidence, a worse discovery, a visible turn for "
+                f"the worse). A real turn, not just a transition word.\n"
+                f"2. Vary sentence length dramatically — mix short punches (4-8 words) with "
+                f"longer sentences (20+ words). Flat, same-length sentences read as robotic.\n"
+                f"3. Do not repeat any 4-word phrase from elsewhere in the script.\n\n"
+                f"ORIGINAL:\n{_mid_text}\n\nRewrite now:"
+            )
+            _new_mid = ai_generate(_mid_prompt, tokens=1500)
+            if _new_mid:
+                _new_mid = strip_md(_new_mid)
+                if len(_new_mid.split()) > 30:
+                    script = script.replace(_mid_text, _new_mid, 1)
+
+            _cwords2 = script.split()
+            _cthird2 = len(_cwords2) // 3
+            _final_text = " ".join(_cwords2[2 * _cthird2:])
+            _final_prompt = (
+                f"Rewrite this final section of a documentary narration. Return ONLY the "
+                f"rewritten prose, same approximate length, no headers or labels, no markdown.\n\n"
+                f"REQUIRED, all of these:\n"
+                f"1. One genuine resolution moment — what turned out to be true, what was "
+                f"finally confirmed, or the real explanation. A real payoff, not a summary.\n"
+                f"2. Vary sentence length dramatically — mix short punches (4-8 words) with "
+                f"longer sentences (20+ words).\n"
+                f"3. Do not repeat any 4-word phrase from elsewhere in the script.\n\n"
+                f"ORIGINAL:\n{_final_text}\n\nRewrite now:"
+            )
+            _new_final = ai_generate(_final_prompt, tokens=1500)
+            if _new_final:
+                _new_final = strip_md(_new_final)
+                if len(_new_final.split()) > 30:
+                    script = script.replace(_final_text, _new_final, 1)
+
+            _craft_after, _ = score_narrative_craft(script)
+            if _craft_after < _craft_before:
+                script = _script_before_craft
+                log(f"  Targeted craft rewrite: {_craft_before}/10 -> {_craft_after}/10 (worse, reverted)")
+            else:
+                wc         = len(script.split())
+                violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
+                stage_texts = split_into_stage_texts(script, targets)
+                log(f"  Targeted craft rewrite: {_craft_before}/10 -> {_craft_after}/10")
+    except Exception as e:
+        log(f"  Targeted craft rewrite (non-fatal): {e}")
+
     # FIX: fiction-labeling was only a prompt INSTRUCTION with zero code-level
     # verification — meaning it was hoped-for, not guaranteed, every single
     # run. Since this is a real policy-safety requirement (not a creative
