@@ -5681,6 +5681,72 @@ def extract_key_phrases(script, num_phrases=6):
     return phrases
 
 
+# FIX (found on direct user report, July 23 2026 — "if there is anything
+# that is dropping the point or the coin or something, it should give it.
+# It should be based on the topic and the niche. It should not be
+# something random."): the horror FX below previously only had generic
+# riser/impact/drone/stinger tones with zero connection to what the
+# script actually describes. No real sound-effect library is reachable
+# from this environment (no network for asset downloads), so this maps
+# specific script content — a coin/money beat, a knock, a phone ringing,
+# a scream, a gunshot/impact, a ticking clock — to a DISTINCT synthesized
+# tone signature per category (different frequencies/envelopes, not the
+# same stinger reused everywhere), placed at the real sentence position
+# where that content is mentioned instead of at a random/fixed time.
+CONTENT_SFX_KEYWORDS = {
+    "coin_drop":   ["coin", "coins", "money", "cash", "dollar", "dollars",
+                    "inheritance", "payment", "paid", "wire transfer"],
+    "door_knock":  ["door", "knock", "knocked", "doorbell", "footsteps"],
+    "phone_ring":  ["phone", "called", "call", "rang", "ringing", "voicemail"],
+    "scream_shock":["screamed", "scream", "gasped", "shrieked", "shouted"],
+    "gunshot_impact": ["gunshot", "gun", "shot", "stabbed", "stabbing", "struck", "collapsed"],
+    "clock_tick":  ["clock", "ticking", "midnight", "countdown"],
+}
+
+# Each category = list of (frequency, duration, fade_out_start, fade_out_dur,
+# volume) tone layers mixed together — same primitives (sine/afade/volume)
+# already proven working in the stinger/impact/drone chains below, just a
+# different combination per category so they're audibly distinct from each
+# other instead of one generic stinger reused for everything.
+CONTENT_SFX_SYNTH = {
+    "coin_drop":      [(1800, 0.3, 0.05, 0.25, 1.1), (2600, 0.22, 0.03, 0.19, 0.8)],
+    "door_knock":      [(100, 0.15, 0.02, 0.13, 1.6)],
+    "phone_ring":      [(950, 0.2, 0.05, 0.15, 1.0), (1400, 0.2, 0.05, 0.15, 0.7)],
+    "scream_shock":    [(1200, 0.35, 0.05, 0.3, 1.3), (2000, 0.3, 0.04, 0.26, 0.9)],
+    "gunshot_impact":  [(55, 0.25, 0.02, 0.23, 2.2)],
+    "clock_tick":      [(2000, 0.06, 0.01, 0.05, 0.9)],
+}
+
+
+def _detect_content_sfx_cues(script, audio_duration, max_cues=3):
+    """Scan the script sentence-by-sentence (same proportional-position
+    approach as extract_key_phrases) for content categories in
+    CONTENT_SFX_KEYWORDS. Returns up to `max_cues` (category, time_seconds)
+    tuples, in script order, one per distinct category found — so the
+    sound design reflects what THIS story actually contains, not a fixed
+    generic set."""
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script) if s.strip()]
+    if not sentences:
+        return []
+    total = len(sentences)
+    cues = []
+    seen_categories = set()
+    for idx, sent in enumerate(sentences):
+        low = sent.lower()
+        for category, keywords in CONTENT_SFX_KEYWORDS.items():
+            if category in seen_categories:
+                continue
+            if any(kw in low for kw in keywords):
+                frac = idx / total
+                # skip the first/last 5% — too close to cold open or outro
+                if 0.05 < frac < 0.95:
+                    cues.append((category, frac * audio_duration))
+                    seen_categories.add(category)
+        if len(cues) >= max_cues:
+            break
+    return cues
+
+
 def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, output_path):
     """
     Horror-appropriate visual treatment — replaces the earlier boxed
@@ -5741,7 +5807,16 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
                 )
 
         # ── ONE jump-scare white flash at the biggest reveal moment ──
-        flash_frac = 0.65
+        # FIX (direct user report, July 23 2026): this was a fixed 0.65
+        # fraction on every single video regardless of content — "if there
+        # is a jump scare, it should give a jump scare" implies it should
+        # land on the actual reveal, not an arbitrary timestamp. phrases[-1]
+        # is already the last detected story beat (used above for the 2nd
+        # chromatic-aberration burst) — reuse its real position when
+        # available, since that IS the closest thing this script has to a
+        # detected "biggest reveal" moment, and only fall back to 0.65 when
+        # extract_key_phrases found nothing to anchor to.
+        flash_frac = phrases[-1][1] if phrases and 0.4 <= phrases[-1][1] <= 0.85 else 0.65
         flash_t0 = flash_frac * audio_duration
         flash_t1 = flash_t0 + 0.15
 
@@ -5775,10 +5850,28 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             )
             stinger_labels.append(f"[{label}]")
 
+        # ── Content-specific SFX: a coin/knock/phone/scream/gunshot/clock
+        # cue at the real script position where that content is actually
+        # mentioned, each with its own distinct tone signature (see
+        # CONTENT_SFX_SYNTH) instead of the same generic stinger everywhere.
+        content_cues = _detect_content_sfx_cues(script, audio_duration)
+        for ci, (category, cue_t) in enumerate(content_cues):
+            cue_delay_ms = int(max(0.3, cue_t) * 1000)
+            for li, (freq, dur, fade_st, fade_d, vol) in enumerate(CONTENT_SFX_SYNTH[category]):
+                label = f"content{ci}_{li}"
+                stinger_filters.append(
+                    f"sine=frequency={freq}:duration={dur},"
+                    f"afade=t=out:st={fade_st}:d={fade_d},volume={vol},"
+                    f"adelay={cue_delay_ms}|{cue_delay_ms}[{label}]"
+                )
+                stinger_labels.append(f"[{label}]")
+        if content_cues:
+            log(f"  Content-matched SFX: {[c for c, _ in content_cues]}")
+
         drone_duration = audio_duration + 1
         stinger_chain = ";".join(stinger_filters)
         stinger_inputs = "".join(stinger_labels)
-        n_mix_inputs = 4 + len(stinger_labels)  # original + riser + impact + drone + stingers
+        n_mix_inputs = 4 + len(stinger_labels)  # original + riser + impact + drone + stingers/content-cues
 
         filter_complex = (
             f"[0:v]{','.join(video_filters)}[graded];"
@@ -5808,7 +5901,8 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 
         if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
             log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
-                f"1 jump-scare flash + {len(phrases)} unstable text beats")
+                f"1 jump-scare flash + {len(phrases)} unstable text beats + "
+                f"{len(content_cues)} content-matched SFX cues")
             return output_path
         else:
             log("  Horror FX: output invalid — using un-treated video (non-fatal)")
@@ -5946,24 +6040,43 @@ def generate_thumbnail_text(niche, topic, title=""):
     except Exception:
         score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
 
+    # FIX (direct user report, July 23 2026 — "for everything, there should
+    # be specific scores that it should pass. If it doesn't pass, I want
+    # you to rework that stage without fail"): picking the best of 3 was
+    # still accepting whatever that best happened to be, even if all 3 were
+    # weak. Now a real bar (THUMB_TEXT_MIN) is enforced — a second round of
+    # 3 fresh candidates is generated if nothing clears it, same
+    # rework-not-silently-proceed discipline as the script/audio gates.
+    THUMB_TEXT_MIN = 6.5
     candidates = []
-    try:
-        for _ in range(3):
-            result = ai_generate(prompt, tokens=15)
-            if result:
-                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-                words = result.split()[:3]
-                if len(words) == 3:
-                    candidates.append(' '.join(words))
-    except Exception as e:
-        log(f"  Thumbnail text (non-fatal): {e}")
+    for _round in range(2):
+        try:
+            for _ in range(3):
+                result = ai_generate(prompt, tokens=15)
+                if result:
+                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    words = result.split()[:3]
+                    if len(words) == 3:
+                        candidates.append(' '.join(words))
+        except Exception as e:
+            log(f"  Thumbnail text (non-fatal): {e}")
+
+        if candidates:
+            scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
+            best_text, best_score = max(scored, key=lambda pair: pair[1])
+            if best_score >= THUMB_TEXT_MIN:
+                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar)")
+                return best_text
+            log(f"  Thumbnail candidates scored: {scored} -> best '{best_text}' ({best_score}/10) "
+                f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")
 
     if not candidates:
         candidates = [random.choice(fallback_bank.get(niche.get("name", "dark_horror"), fallback_bank["dark_horror"]))]
 
     scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
     best_text, best_score = max(scored, key=lambda pair: pair[1])
-    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10)")
+    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10) "
+        f"[best-effort after {THUMB_TEXT_MIN} bar unmet across all rounds]")
     return best_text
 
 

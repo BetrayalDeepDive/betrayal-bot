@@ -1822,6 +1822,21 @@ def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str
     if not main_script:
         main_script = main_topic
 
+    # FIX (direct user report, July 23 2026 — "I want shots that
+    # specifically have the same killer hook, the story, and the
+    # ending"): this used to hand the LLM only main_script[:500] as
+    # source material. A full episode script runs several thousand
+    # characters, so the real twist/resolution — which lives near the
+    # END of the script, not the opening — was NEVER included. The Short
+    # could not possibly share "the same... ending" as the main video
+    # because it never saw what that ending was. Now includes both the
+    # opening (setup/hook) and a real slice of the actual ending so the
+    # same twist can genuinely be reused, not re-invented from scratch.
+    if len(main_script) > 1400:
+        story_excerpt = main_script[:600] + "\n...\n" + main_script[-800:]
+    else:
+        story_excerpt = main_script
+
     angle_instructions = {
         "angle_1": ("Lead with the single most surprising, concrete fact from this real "
                     "story. Build a complete, self-contained account around it — a full "
@@ -1859,7 +1874,7 @@ def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str
 
         script_data = llm_json(f"""Create a complete, standalone 45-55 second YouTube Short.
 Real topic: {main_topic}
-Real story details: {main_script[:500]}
+Real story details, opening AND actual ending/twist of the full episode: {story_excerpt}
 
 {instruction}{format_block}
 
@@ -1868,7 +1883,13 @@ Rules:
   no reference to any other video existing
 - Real specific details only (numbers, dates, names where used in the source) —
   never invent facts not grounded in the real topic above
-- Must resolve — end with the actual point/payoff, not a cliffhanger
+- The opening line must preview the SAME real twist/irony shown in the ending
+  slice above (state or strongly imply the concrete outcome up front, the
+  same "wait — HOW did that happen" curiosity gap as the full episode's
+  cold open) — this is the same story with the same hook and the same
+  ending as the main video, not an independently invented angle
+- Must resolve with the SAME actual twist/payoff shown in the ending slice
+  above — not a different or softer resolution, and not a cliffhanger
 
 Return JSON:
 {{"title": "under 55 chars, curiosity-gap title, no 'part 1' or 'full video' language",
