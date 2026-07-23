@@ -1626,9 +1626,14 @@ def _validate_retention_hooks_ch5(script_clean):
 
     if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
         penalty -= 0.4; issues.append("Missing 30% hook")
+    # FIX (direct user report, July 23 2026): missing CTA at the
+    # retention peak is now a hard gate, matching the NARRATIVE_CRAFT/
+    # TOPIC_CLARITY/HOOK gates in script_scoring.py — large enough to
+    # drop the composite below every gate tier.
     h60 = sum(1 for w in hook_signals if w in seg(0.55, 0.65))
     if h60 < 2:
-        penalty -= 0.8; issues.append("Weak 60% hook — peak CTA missing")
+        penalty -= 5.0; issues.append("PEAK CTA GATE FAILED: weak 60% hook/CTA — this attempt "
+                                       "cannot pass regardless of any other score.")
     elif h60 >= 3:
         penalty += 0.3
     if sum(1 for w in hook_signals if w in seg(0.75, 0.85)) < 1:
@@ -2048,7 +2053,15 @@ SERIES: {niche["series"]} — Episode {episode}
 TOTAL WORD REQUIREMENT: {MIN_WORDS} to {MAX_WORDS} words.
 Each stage must hit its target. If any stage runs short, expand with more specific evidence.
 
-SEVEN-STAGE STRUCTURE — write continuously, no labels, no headers:
+SEVEN-STAGE STRUCTURE — write continuously, no labels, no headers. The
+stage names below (COLD OPEN, THE BEFORE, etc.) are structural notes for
+YOU, the writer, describing what content goes where — they are NOT text
+to include in your response. Never write "Stage 1", "Stage 4", "Chapter
+2", a stage's name, or any invented chapter title (e.g. never write
+something like "Stage 4: The Investigation Deepens") anywhere in your
+output. The reader must experience one continuous, unbroken narration
+with zero visible section breaks of any kind — the transition between
+stages should be a single smooth sentence, never a title or heading:
 
 SIGNATURE OPENING (brand consistency — real successful channels have this,
 generic AI content doesn't): begin the cold open with a recognizable rhythm
@@ -2165,7 +2178,11 @@ RULES:
 5. Every date must be specific: not "years ago" but "a Thursday in March 2019".
 6. Every location must be specific: not "a small town" but "a city of 340,000 people".
 7. Start immediately. No preamble. No introduction.
-8. Write one continuous narrative — do not number or label stages.
+8. Write one continuous narrative — do not number or label stages. Never
+   write "Stage N", a stage's name, or an invented chapter title anywhere
+   in the output (e.g. never "Stage 4: The Investigation Deepens") — this
+   applies to every one of the seven stages above, all the way through
+   Stage 7, not just the opening.
 
 Write the complete script now:"""
 
@@ -2299,6 +2316,14 @@ def generate_script_content(niche, topic, episode, attempt,
     if not raw:
         return None
     script     = strip_md(strip_md(raw))
+    # FIX (direct user report, July 23 2026 — a live test run's PDF showed
+    # "Stage 4: The Investigation Deepens" as literal narration text): the
+    # prompt above shows all 7 numbered "STAGE N — NAME" section headers
+    # as structural documentation, which models sometimes echo verbatim
+    # or paraphrased despite the "write continuously, no labels"
+    # instruction. Swept out here before anything downstream ever sees it.
+    from script_scoring import strip_all_leaked_stage_headers
+    script     = strip_all_leaked_stage_headers(script)
     wc         = len(script.split())
     violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
     log(f"  Script: {wc}w | {violations} violations")
@@ -2316,7 +2341,7 @@ def generate_script_content(niche, topic, episode, attempt,
         )
         raw2 = ai_generate(exp, tokens=8000)
         if raw2:
-            s2 = strip_md(strip_md(raw2))
+            s2 = strip_all_leaked_stage_headers(strip_md(strip_md(raw2)))
             if len(s2.split()) > wc:
                 script     = s2
                 wc         = len(script.split())
@@ -2330,18 +2355,14 @@ def generate_script_content(niche, topic, episode, attempt,
     # Step 4: Stage-level scoring + targeted rewrite of 2 worst stages
     if wc >= MIN_WORDS:
         try:
-            # Split script proportionally into 7 stages
-            words    = script.split()
-            total    = len(words)
+            # FIX (direct user report, July 23 2026 — a live test run's
+            # PDF showed a sentence physically split in half between the
+            # "COLD OPEN" and "THE BEFORE" sections): naive words[pos:end]
+            # slicing had zero sentence-boundary awareness. Now snapped to
+            # real sentence breaks (video_pipeline/script_scoring.py).
             targets  = [110, 210, 260, 420, 170, 680, 190]
-            total_t  = sum(targets)
-            stage_texts = []
-            pos = 0
-            for i, tgt in enumerate(targets):
-                share = tgt / total_t
-                end   = pos + int(total * share) if i < 6 else total
-                stage_texts.append(" ".join(words[pos:end]))
-                pos   = end
+            from script_scoring import split_into_stage_texts, strip_leaked_stage_headers
+            stage_texts = split_into_stage_texts(script, targets)
 
             # Score each stage
             stage_names   = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
@@ -2420,6 +2441,7 @@ def generate_script_content(niche, topic, episode, attempt,
 
             # Rewrite the 2 worst stages
             worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
+            _any_rewritten = False
             for idx in worst_two:
                 if stage_scores[idx] >= 7.5:
                     continue
@@ -2428,8 +2450,14 @@ def generate_script_content(niche, topic, episode, attempt,
                 sdef_forb   = forbidden_per[idx]
                 forb_str    = ", ".join(f'"{f}"' for f in sdef_forb) if sdef_forb else "none"
                 rewrite_p   = (
-                    f"Rewrite ONLY this single script stage. Return ONLY the rewritten stage.\n\n"
-                    f"STAGE: {sdef_name} (target: {sdef_target} words)\n"
+                    f"Rewrite ONLY this single script stage. Return ONLY the rewritten stage — "
+                    f"pure narration prose, continuing the story. "
+                    f"Do NOT include a title, heading, or any text like \"Stage {idx+1}:\" or "
+                    f"\"{sdef_name}:\" or any chapter/section label of any kind — the reader must "
+                    f"never see the words \"stage\" or \"chapter\" or a number label; the response "
+                    f"must read as an uninterrupted continuation of the narration, nothing else.\n\n"
+                    f"STAGE PURPOSE (for your reference only, do not name it in the output): {sdef_name} "
+                    f"(target: {sdef_target} words)\n"
                     f"TOPIC: {topic[:100]}\n"
                     f"CURRENT SCORE: {stage_scores[idx]}/10\n"
                     f"PROBLEMS: sentences over 13 words, vague quantities, forbidden phrases\n"
@@ -2437,18 +2465,29 @@ def generate_script_content(niche, topic, episode, attempt,
                     f"RULES:\n"
                     f"- Maximum 13 words per sentence. Every sentence.\n"
                     f"- Every number must be specific (not 'many' but '47').\n"
-                    f"- Zero markdown. Zero AI filler phrases.\n"
+                    f"- Zero markdown. Zero AI filler phrases. Zero titles/headers/labels.\n"
                     f"- More visceral and specific than the original.\n"
                     f"- Target: {sdef_target} words (±15% acceptable).\n\n"
                     f"ORIGINAL STAGE:\n{stage_texts[idx]}\n\n"
-                    f"Write the improved version now:"
+                    f"Write the improved version now (prose only, no label):"
                 )
                 new_stage = ai_generate(rewrite_p, tokens=2000)
                 if new_stage:
                     new_stage = strip_md(new_stage)
+                    new_stage = strip_leaked_stage_headers(new_stage)
                     if len(new_stage.split()) > 30:
                         script = script.replace(stage_texts[idx], new_stage, 1)
                         log(f"  Stage {sdef_name} rewritten ({stage_scores[idx]}/10 → improved)")
+                        _any_rewritten = True
+
+            # FIX (direct user report, July 23 2026): stage_texts was never
+            # recomputed after a targeted rewrite modified `script` -- the
+            # returned stage breakdown (used for the PDF and any further
+            # scoring) would go stale/out-of-sync with the actual final
+            # script the moment any rewrite happened. Recomputed fresh here
+            # so it always matches the real, current script content.
+            if _any_rewritten:
+                stage_texts = split_into_stage_texts(script, targets)
 
             wc         = len(script.split())
             violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))

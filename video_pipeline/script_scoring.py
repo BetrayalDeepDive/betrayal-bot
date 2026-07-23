@@ -16,6 +16,140 @@ burning extra AI provider quota.
 """
 import re
 
+# ══════════════════════════════════════════════════════════════════════
+# FIX (direct user report, July 23 2026 — a live test run's script PDF
+# showed "Stage 4: The Investigation Deepens" as literal narration text
+# under the COLD OPEN header, and a sentence was cut in half between the
+# "COLD OPEN" and "THE BEFORE" sections): two real, distinct bugs.
+#
+# 1. HEADER LEAKAGE: the generation prompt shows the model numbered
+#    "STAGE N — NAME" section headers as structural documentation, then
+#    separately instructs "write continuously, no labels" -- a
+#    self-contradictory prompt smaller/free-tier models don't reliably
+#    follow, so the model sometimes echoes its own invented chapter
+#    title into the actual narration. strip_leaked_stage_headers() is a
+#    defense-in-depth safety net (the real fix is strengthening the
+#    prompt instruction itself, done separately per channel) that
+#    detects and removes a leaked "Stage N: <title>" prefix, whether it
+#    appears on its own line or inline before the real sentence begins.
+#
+# 2. MID-SENTENCE CHOPPING: stage_texts (used for per-stage scoring, the
+#    targeted-rewrite splice, and the PDF export) was built via naive
+#    words[pos:end] fixed-word-count slicing with zero sentence-boundary
+#    awareness. split_into_stage_texts() snaps each boundary to the
+#    nearest real sentence break instead.
+# ══════════════════════════════════════════════════════════════════════
+_STAGE_HEADER_PREFIX = re.compile(
+    r'^\s*(?:Stage|Chapter|Part|Section)\s+\d+\s*[:\-—]\s*', re.IGNORECASE)
+_STAGE_HEADER_LINE = re.compile(
+    r'^\s*(?:Stage|Chapter|Part|Section)\s+\d+\s*[:\-—].{0,60}$', re.IGNORECASE)
+_SENTENCE_STARTERS = re.compile(
+    r'\b(?:By|In|On|At|After|Before|During|She|He|They|It|His|Her|Their|'
+    r'One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Twenty|Thirty|'
+    r'January|February|March|April|May|June|July|August|September|'
+    r'October|November|December)\b')
+
+
+def strip_leaked_stage_headers(text):
+    """Removes a leaked 'Stage N: <title>' prefix from AI output, whether
+    it's on its own line (safe, exact) or inline immediately before the
+    real sentence begins (heuristic — a best-effort safety net, not a
+    claim of perfect precision on every phrasing)."""
+    if not text:
+        return text
+    m = _STAGE_HEADER_PREFIX.match(text)
+    if m:
+        rest = text[m.end():]
+        nl_idx = rest.find('\n')
+        title_end = nl_idx if 0 <= nl_idx <= 60 else -1
+        if title_end == -1:
+            search_region = rest[:90]
+            starter = _SENTENCE_STARTERS.search(search_region)
+            digit = re.search(r'(?<=\s)\d', search_region)
+            candidates = [c.start() for c in [starter, digit] if c]
+            if candidates:
+                title_end = min(candidates)
+            else:
+                cand = [c for c in re.finditer(r'(?<=\s)[A-Z][a-z]', search_region) if c.start() >= 8]
+                title_end = cand[0].start() if cand else -1
+        if title_end != -1 and not any(p in rest[:title_end] for p in '.!?'):
+            rest = rest[title_end:].lstrip('\n ')
+        text = rest
+    lines = text.split("\n")
+    cleaned = [ln for ln in lines if not _STAGE_HEADER_LINE.match(ln.strip())]
+    return "\n".join(cleaned).strip()
+
+
+_LEAKED_HEADER_ANYWHERE = re.compile(
+    r'(?:Stage|Chapter|Part|Section)\s+\d+\s*[:\-—]', re.IGNORECASE)
+
+
+def strip_all_leaked_stage_headers(script, max_sweeps=10):
+    """Sweeps the ENTIRE script (not just the start) for any leaked
+    'Stage N:' style header — the full-script generation prompt shows all
+    7 stage headers as structural documentation throughout, so a leak can
+    happen at any internal stage transition, not just the very first
+    sentence. Reuses strip_leaked_stage_headers' prefix-stripping logic
+    at each occurrence found anywhere in the text."""
+    if not script:
+        return script
+    for _ in range(max_sweeps):
+        m = _LEAKED_HEADER_ANYWHERE.search(script)
+        if not m:
+            break
+        before = script[:m.start()]
+        after = script[m.start():]
+        cleaned_after = strip_leaked_stage_headers(after)
+        if cleaned_after == after:
+            break
+        sep = " " if before and not before.endswith(("\n", " ")) else ""
+        script = before + sep + cleaned_after
+    return script
+
+
+def split_into_stage_texts(script, targets):
+    """
+    Splits a continuous script into len(targets) stage texts, each
+    boundary snapped to the nearest real sentence break instead of a
+    naive fixed word-count cut -- so no stage ever ends or begins
+    mid-sentence. `targets` is the list of target word counts per stage
+    (same proportional-share logic every channel already uses); the
+    actual returned stage lengths will vary slightly from the targets
+    to respect real sentence boundaries.
+    """
+    sentences = _sentences(script)
+    if not sentences:
+        return ["" for _ in targets]
+    total_words = sum(len(s.split()) for s in sentences)
+    total_target = sum(targets)
+
+    stage_texts = []
+    sent_idx = 0
+    words_used = 0
+    for i, tgt in enumerate(targets):
+        if i == len(targets) - 1:
+            chunk = sentences[sent_idx:]
+        else:
+            share_words = int(total_words * (tgt / total_target))
+            goal = words_used + share_words
+            chunk = []
+            running = words_used
+            while sent_idx < len(sentences):
+                s = sentences[sent_idx]
+                s_wc = len(s.split())
+                # Always take at least one sentence per stage; otherwise
+                # stop once adding the next sentence would overshoot the
+                # goal by more than it undershoots stopping now.
+                if chunk and running + s_wc - goal > goal - running:
+                    break
+                chunk.append(s)
+                running += s_wc
+                sent_idx += 1
+            words_used = running
+        stage_texts.append(" ".join(chunk).strip())
+    return stage_texts
+
+
 _WEAK_OPENERS = [
     "in this video", "today we", "today i", "welcome back", "welcome to",
     "let's talk about", "have you ever wondered", "have you ever asked",
@@ -383,6 +517,23 @@ def validate_rehook_beat(script_text):
 # 13th-attempt floor), so a script with a genuinely weak hook cannot
 # publish no matter how strong its other stages score.
 HOOK_GATE_MIN = 7.0
+
+# FIX (direct user report, July 23 2026 — live Telegram review showed
+# "Score: 10.0/10" as the headline while "Narrative craft: 6.5/10 — No
+# clear escalation beat in the middle third" sat right underneath it, and
+# the episode was one 60-minute timeout away from auto-publishing. Root
+# cause: the composite `bonus` below is a SMALL +/-1.5 adjustment folded
+# into a channel's own ~8.5-9.5 baseline score, so a mediocre
+# narrative_craft (or topic_clarity) barely dents the composite and
+# never stops it from clearing a channel's 8.8 MIN_GATE. The user was
+# explicit: "a minimum of 8.8 is the minimum for a narration craft and
+# all the things." These two dimensions now get the exact same hard-gate
+# treatment already proven for the hook — a fixed penalty large enough
+# to drop the composite below every gate tier (including the 6.9
+# last-resort floor), so a script with weak craft or clarity cannot pass
+# no matter how strong the hook scored.
+NARRATIVE_CRAFT_GATE_MIN = 8.8
+TOPIC_CLARITY_GATE_MIN = 8.8
 _HOOK_GATE_PENALTY = 5.0
 
 
@@ -412,6 +563,8 @@ def score_script_rubric(script_text, topic=""):
 
     hook_gate_avg = (hook_score + open15_score) / 2.0
     hook_gate_passed = hook_gate_avg >= HOOK_GATE_MIN
+    craft_gate_passed = craft_score >= NARRATIVE_CRAFT_GATE_MIN
+    clarity_gate_passed = clarity_score >= TOPIC_CLARITY_GATE_MIN
 
     subscores = {
         "killer_hook": hook_score,
@@ -419,6 +572,8 @@ def score_script_rubric(script_text, topic=""):
         "narrative_craft": craft_score,
         "topic_clarity": clarity_score,
         "hook_gate_passed": hook_gate_passed,
+        "craft_gate_passed": craft_gate_passed,
+        "clarity_gate_passed": clarity_gate_passed,
     }
     issues = list(hook_issues) + list(open15_issues) + list(craft_issues) + list(clarity_issues)
 
@@ -430,6 +585,16 @@ def score_script_rubric(script_text, topic=""):
         issues.insert(0, f"HOOK GATE FAILED: hook/first-15s average {hook_gate_avg:.1f}/10 is "
                          f"below the required {HOOK_GATE_MIN} — this attempt cannot pass regardless "
                          f"of any other score.")
+        bonus = -_HOOK_GATE_PENALTY
+    if not craft_gate_passed:
+        issues.insert(0, f"NARRATIVE CRAFT GATE FAILED: {craft_score}/10 is below the required "
+                         f"{NARRATIVE_CRAFT_GATE_MIN} — this attempt cannot pass regardless of any "
+                         f"other score.")
+        bonus = -_HOOK_GATE_PENALTY
+    if not clarity_gate_passed:
+        issues.insert(0, f"TOPIC CLARITY GATE FAILED: {clarity_score}/10 is below the required "
+                         f"{TOPIC_CLARITY_GATE_MIN} — this attempt cannot pass regardless of any "
+                         f"other score.")
         bonus = -_HOOK_GATE_PENALTY
 
     return bonus, issues, subscores

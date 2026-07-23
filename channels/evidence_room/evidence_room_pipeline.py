@@ -1786,7 +1786,15 @@ POWER WORDS: {power_str}
 
 TOTAL: {MIN_WORDS} to {MAX_WORDS} words. Each stage must hit its target.
 
-SEVEN-STAGE FORENSIC STRUCTURE — write continuously, no labels:
+SEVEN-STAGE FORENSIC STRUCTURE — write continuously, no labels. The stage
+names below (STAGE 1 — CASE FILE OPEN, STAGE 2 — THE SUBJECT, etc.) are
+structural notes for YOU, the writer, describing what content goes where —
+they are NOT text to include in your response. Never write "Stage 1",
+"Stage 4", "Chapter 2", a stage's name, or any invented section title (e.g.
+never write something like "Stage 4: The Evidence Builds") anywhere in your
+output. The reader must experience one continuous, unbroken narration with
+zero visible section breaks of any kind — the transition between stages
+should be a single smooth sentence, never a title or heading:
 
 SIGNATURE OPENING (brand consistency): begin the case file open with a
 recognizable rhythm specific to {niche['series']} — exact words can vary per
@@ -1923,8 +1931,13 @@ RULES:
 1. Maximum 13 words per sentence. Every sentence.
 2. Zero markdown. Zero AI filler phrases.
 3. Every number specific. Every date specific. Every location specific.
-4. Write continuously — no stage labels, no headers.
-5. Start immediately with Stage 1.
+4. Write continuously — no stage labels, no headers. Never write "Stage N",
+   a stage's name, or an invented section title anywhere in the output
+   (e.g. never "Stage 4: The Evidence Builds") — this applies to every one
+   of the seven stages above, all the way through Stage 7, not just the
+   opening.
+5. Start immediately with the case file open narration itself — never with
+   a label or heading.
 
 After writing the complete narration, add exactly 10 dashes on a new line, then provide scene JSON.
 IMPORTANT: provide exactly {n_scenes_target} scenes (55-60, not fewer) — this video runs
@@ -1962,6 +1975,8 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
     raw   = ai(prompt, temp=temp, tokens=7000, prefer="gemini")
     parts = raw.split("----------") if raw else [""]
     clean = strip_md(strip_md(parts[0].strip()))
+    from script_scoring import strip_all_leaked_stage_headers, split_into_stage_texts, strip_leaked_stage_headers
+    clean = strip_all_leaked_stage_headers(clean)
     wc    = len(clean.split())
 
     # Expansion rounds
@@ -1979,7 +1994,7 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
         )
         raw2 = ai(exp, temp=0.82, tokens=7000, prefer="gemini")
         if raw2:
-            c2 = strip_md(strip_md(raw2))
+            c2 = strip_all_leaked_stage_headers(strip_md(strip_md(raw2)))
             if len(c2.split()) > wc:
                 clean = c2
                 wc    = len(clean.split())
@@ -1988,17 +2003,8 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
     # Stage-level scoring + targeted rewrite of 2 worst stages
     if wc >= MIN_WORDS:
         try:
-            words      = clean.split()
-            total      = len(words)
             targets_l  = [110, 210, 260, 420, 170, 680, 190]
-            total_t    = sum(targets_l)
-            stage_txts = []
-            pos = 0
-            for i, tgt in enumerate(targets_l):
-                share = tgt / total_t
-                end   = pos + int(total * share) if i < 6 else total
-                stage_txts.append(" ".join(words[pos:end]))
-                pos   = end
+            stage_txts = split_into_stage_texts(clean, targets_l)
 
             stage_names = ["CASE OPEN","SUBJECT","ANOMALIES","EVIDENCE",
                            "CLOSURE","FULL RECORD","IMPLICATIONS"]
@@ -2053,29 +2059,41 @@ Write narration first ({MIN_WORDS}-{MAX_WORDS} words), then 10 dashes, then JSON
             stage_scores_str = " | ".join(f"{n[:6]}:{s}" for n,s in zip(stage_names,stage_scores))
             log(f"  Stage scores: {stage_scores_str}")
             worst_two = sorted(range(len(stage_scores)), key=lambda i: stage_scores[i])[:2]
+            _any_rewritten = False
 
             for idx in worst_two:
                 if stage_scores[idx] >= 7.5:
                     continue
                 rewrite_p = (
-                    f"Rewrite ONLY this forensic documentary stage. Return ONLY the rewritten stage.\n\n"
-                    f"STAGE: {stage_names[idx]} (target: {targets_l[idx]} words)\n"
+                    f"Rewrite ONLY this forensic documentary stage. Return ONLY the rewritten stage — "
+                    f"pure narration prose, continuing the case file. "
+                    f"Do NOT include a title, heading, or any text like \"Stage {idx+1}:\" or "
+                    f"\"{stage_names[idx]}:\" or any chapter/section label of any kind — the reader "
+                    f"must never see the words \"stage\" or \"chapter\" or a number label; the "
+                    f"response must read as an uninterrupted continuation of the narration.\n\n"
+                    f"STAGE PURPOSE (for your reference only, do not name it in the output): "
+                    f"{stage_names[idx]} (target: {targets_l[idx]} words)\n"
                     f"TOPIC: {topic[:100]}\n"
                     f"SCORE: {stage_scores[idx]}/10 — sentences too long or too vague\n\n"
                     f"RULES:\n"
                     f"- Max 13 words per sentence.\n"
                     f"- Every number specific (not 'many' but '47').\n"
                     f"- Every date specific (not 'years ago' but 'March 2011').\n"
-                    f"- Zero markdown. Zero AI filler.\n"
+                    f"- Zero markdown. Zero AI filler. Zero titles/headers/labels.\n"
                     f"- Target: {targets_l[idx]} words (±15% ok).\n\n"
-                    f"ORIGINAL:\n{stage_txts[idx]}\n\nRewrite now:"
+                    f"ORIGINAL:\n{stage_txts[idx]}\n\nRewrite now (prose only, no label):"
                 )
                 new_s = ai(rewrite_p, temp=0.82, tokens=2000, prefer="groq")
                 if new_s:
                     new_s = strip_md(new_s)
+                    new_s = strip_leaked_stage_headers(new_s)
                     if len(new_s.split()) > 30:
                         clean = clean.replace(stage_txts[idx], new_s, 1)
                         log(f"  Stage {stage_names[idx]} rewritten")
+                        _any_rewritten = True
+
+            if _any_rewritten:
+                stage_txts = split_into_stage_texts(clean, targets_l)
 
             wc = len(clean.split())
             log(f"  After targeted rewrite: {wc}w")
@@ -4606,10 +4624,14 @@ def score_script_er(script_clean, wc, violations, topic=""):
         if sum(1 for w in hook_signals if w in seg(0.25, 0.35)) < 1:
             score -= 0.4
             issues.append("Missing 30% retention hook")
+        # FIX (direct user report, July 23 2026): missing CTA at the
+        # retention peak is now a hard gate, matching the
+        # NARRATIVE_CRAFT/TOPIC_CLARITY/HOOK gates in script_scoring.py.
         h60 = sum(1 for w in hook_signals if w in seg(0.55, 0.65))
         if h60 < 2:
-            score -= 0.8
-            issues.append("Weak 60% peak hook")
+            score -= 5.0
+            issues.append("PEAK CTA GATE FAILED: weak 60% hook/CTA — this attempt cannot pass "
+                          "regardless of any other score.")
         elif h60 >= 3:
             score += 0.3
         if "subscribe" not in " ".join(words[-60:]).lower():
