@@ -32,7 +32,8 @@ this module importing a specific channel's provider code.
 import json
 import re
 
-MIN_QUALITY_SCORE = 6.8
+# FIX (direct user report, July 23 2026 — "the minimum is 7.9, not 6.8"): raised.
+MIN_QUALITY_SCORE = 7.9
 
 _RUBRICS = {
     "script": (
@@ -41,11 +42,15 @@ _RUBRICS = {
         "ENTIRE script below and judge it honestly on:\n"
         "1. Does the cold open actually preview the real, specific twist/outcome "
         "of THIS story (not generic dread that could belong to any episode)?\n"
-        "2. Is the story specific and grounded (real numbers, names, dates) "
+        "2. Does the opening use a genuine reversal/violated-expectation pattern "
+        "and name concrete stakes (a marriage, a fortune, a life, a family) "
+        "rather than a vague disturbing mood -- the real mechanism behind a "
+        "curiosity gap, not just the presence of a question?\n"
+        "3. Is the story specific and grounded (real numbers, names, dates) "
         "rather than vague and generic?\n"
-        "3. Does it maintain tension and avoid repetitive phrasing/structure?\n"
-        "4. Does it actually resolve/pay off what it opened with?\n"
-        "5. Would a real viewer feel this was worth their time, or does it read "
+        "4. Does it maintain tension and avoid repetitive phrasing/structure?\n"
+        "5. Does it actually resolve/pay off what it opened with?\n"
+        "6. Would a real viewer feel this was worth their time, or does it read "
         "as generic AI filler?"
     ),
     "thumbnail_text": (

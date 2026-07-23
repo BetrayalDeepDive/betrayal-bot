@@ -1580,7 +1580,8 @@ def score_result(r, topic=""):
             if subscores:
                 log(f"  Rubric: Hook {subscores['killer_hook']}/10 | "
                     f"Craft {subscores['narrative_craft']}/10 | "
-                    f"Clarity {subscores['topic_clarity']}/10")
+                    f"Clarity {subscores['topic_clarity']}/10 | "
+                f"HookGate {'PASS' if subscores.get('hook_gate_passed') else 'FAIL'}")
             if rubric_issues:
                 log(f"  Rubric issues: {' | '.join(rubric_issues[:3])}")
             rehook_bonus, rehook_issues = validate_rehook_beat(script)
@@ -1677,6 +1678,20 @@ Each cold open must:
   HOW, never to learn WHAT. An opening that could be swapped into a
   different episode about a different case with zero changes has failed
   this requirement, no matter how dramatic it sounds in isolation.
+
+- FIX (direct user report, July 23 2026 — "I don't want you to just use
+  the AI to write things. I want to think harder and use the human
+  attention connection of how humans get interested with any video"):
+  the opening sentence must use a REVERSAL pattern — state something
+  that violates an expectation (e.g. "wasn't supposed to", "everyone
+  assumed", "should have been the one thing that..."), not a flat
+  statement of fact. It must name concrete STAKES — what is actually at
+  risk (a marriage, a fortune, a life, a family, a reputation), not an
+  abstract disturbing mood. And it must include a real named person or
+  place, not pure abstraction. These three signals are automatically
+  scored after generation (video_pipeline/script_scoring.py) — an
+  opening missing them will fail the hook gate and be reworked, so build
+  them in now rather than relying on a retry to catch it.
 
 Format your response EXACTLY as:
 VARIANT_1:
@@ -6565,7 +6580,8 @@ def generate_thumbnail_text(niche, topic, title=""):
     # empire-wide): picking the best of 3 still accepted whatever that
     # best happened to be. Now enforces a real 6.5/10 bar across up to 2
     # rounds before falling back to best-effort.
-    THUMB_TEXT_MIN = 6.5
+    THUMB_TEXT_MIN = 7.9
+    THUMB_TEXT_EXCELLENT = 8.8  # aspirational tier, logged but not a hard requirement
     candidates = []
     for _round in range(2):
         try:
@@ -6582,7 +6598,8 @@ def generate_thumbnail_text(niche, topic, title=""):
             scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
             best_text, best_score = max(scored, key=lambda pair: pair[1])
             if best_score >= THUMB_TEXT_MIN:
-                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar)")
+                _tier = " [EXCELLENT tier >=8.8]" if best_score >= THUMB_TEXT_EXCELLENT else ""
+                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar){_tier}")
                 return best_text
             log(f"  Thumbnail candidates scored: {scored} -> best '{best_text}' ({best_score}/10) "
                 f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")

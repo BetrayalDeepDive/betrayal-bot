@@ -48,13 +48,72 @@ def _sentences(text):
     return [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
 
 
+# FIX (direct user report, July 23 2026 — "I don't want you to just use
+# the AI to write things. I want to think harder and use the human
+# attention connection of how humans get interested with any video"):
+# added real, well-established attention/curiosity-gap signals beyond
+# the original number/question/opener/sentence-length checks —
+# named stakes (what's actually at risk), a violated-expectation/
+# reversal pattern (the actual mechanism behind a curiosity gap, not
+# just "a question exists"), and concrete named specificity (a proper
+# noun, not just any digit).
+_STAKES_WORDS = [
+    "marriage", "life", "lives", "career", "fortune", "family", "freedom",
+    "reputation", "everything", "future", "custody", "inheritance", "empire",
+    "company", "throne", "crown", "nation", "kingdom", "savings", "home",
+    "children", "trust", "legacy", "survival", "safety",
+]
+
+_REVERSAL_PATTERNS = [
+    "wasn't supposed to", "was never supposed to", "should have been",
+    "no one thought", "everyone assumed", "everyone believed", "nobody expected",
+    "was meant to", "looked like", "seemed like", "appeared to be",
+    "was the last", "was the one thing", "the one person", "the same",
+]
+
+
+_COMMON_CAPITALIZED = {
+    "the", "a", "an", "it", "he", "she", "they", "this", "that", "but", "and", "so",
+    "in", "on", "at", "for", "with", "after", "before", "when", "while", "i", "if",
+    "there", "here", "then", "now", "one", "some", "many", "most", "all", "no", "not",
+}
+
+
+def _has_named_entity(zone_text):
+    """
+    Real (if imperfect) proper-noun signal: a capitalized word, not the
+    very first word of the zone, not immediately following sentence-
+    ending punctuation (i.e. not just a new sentence's capitalized first
+    word), and not a common capitalized non-name word. No NLP model
+    here — same class of deterministic regex/wordlist heuristic as
+    every other check in this file, not a claim of perfect precision.
+    """
+    tokens = zone_text.split()
+    for idx, tok in enumerate(tokens):
+        if idx == 0:
+            continue
+        prev = tokens[idx - 1]
+        if prev.endswith((".", "!", "?")):
+            continue
+        clean = tok.strip(".,!?;:\"'").lower()
+        if tok[:1].isupper() and len(clean) > 2 and clean not in _COMMON_CAPITALIZED:
+            return True
+    return False
+
+
 def score_killer_hook(script_text):
     """
     Scores the opening ~10% of the script — the cold open — the single
     stretch that determines whether YouTube promotes the video at all.
     Real signals: a specific number/date (concrete claim beats a vague
     tease), no throat-clearing opener, an explicit unresolved question,
-    and short punchy sentences rather than a scene-setting wind-up.
+    short punchy sentences rather than a scene-setting wind-up, NAMED
+    stakes (what's actually at risk — a vague "disturbing" feeling isn't
+    the same as a viewer knowing a marriage/fortune/life is on the line),
+    a violated-expectation/reversal pattern (the actual psychological
+    mechanism behind a real curiosity gap, not just the presence of a
+    question mark), and concrete named specificity (a proper noun, not
+    just any digit).
     """
     words = script_text.split()
     if len(words) < 40:
@@ -63,11 +122,11 @@ def score_killer_hook(script_text):
     hook_zone_wc = max(40, int(len(words) * 0.10))
     hook_zone = " ".join(words[:hook_zone_wc])
     hook_lower = hook_zone.lower()
-    score = 3.0
+    score = 2.0
     issues = []
 
     if re.search(r'\d', hook_zone):
-        score += 2.5
+        score += 1.8
     else:
         issues.append("No specific number/date in the hook")
 
@@ -75,18 +134,35 @@ def score_killer_hook(script_text):
         score -= 2.0
         issues.append("Opens with a weak/generic opener")
     else:
-        score += 1.5
+        score += 1.2
 
     if any(w in hook_lower for w in _QUESTION_CUES) or "?" in hook_zone:
-        score += 2.0
+        score += 1.4
     else:
         issues.append("No open question/unresolved tension in the hook")
+
+    if any(w in hook_lower for w in _STAKES_WORDS):
+        score += 1.4
+    else:
+        issues.append("No named stakes in the hook (what's actually at risk — "
+                       "a marriage, a fortune, a life — not just a vague mood)")
+
+    if any(p in hook_lower for p in _REVERSAL_PATTERNS):
+        score += 1.4
+    else:
+        issues.append("No violated-expectation/reversal pattern in the hook "
+                       "(the real mechanism behind a curiosity gap)")
+
+    if _has_named_entity(hook_zone):
+        score += 0.8
+    else:
+        issues.append("No named person/place in the hook — pure abstraction reads as generic")
 
     hook_sentences = _sentences(hook_zone)
     if hook_sentences:
         avg_len = sum(len(s.split()) for s in hook_sentences) / len(hook_sentences)
         if avg_len <= 12:
-            score += 1.0
+            score += 0.8
         elif avg_len > 20:
             score -= 0.5
             issues.append("Hook sentences run too long")
@@ -114,19 +190,39 @@ def validate_first_15_seconds(script_text, wpm=150):
     zone = " ".join(words[:zone_wc])
     zone_lower = zone.lower()
 
-    score = 3.0
+    score = 2.0
     issues = []
 
     if any(w in zone_lower for w in _WEAK_OPENERS):
         score -= 2.5
         issues.append("First 15 seconds opens with a weak/generic opener")
     else:
-        score += 1.5
+        score += 1.2
 
     if re.search(r'\d', zone) or any(w in zone_lower for w in _QUESTION_CUES) or "?" in zone:
-        score += 2.5
+        score += 1.8
     else:
         issues.append("First 15 seconds has no concrete detail or open question — nothing to hook on")
+
+    # FIX (direct user report, July 23 2026 — same real human-attention
+    # signals added to score_killer_hook, applied here too since this is
+    # the true first-15-seconds zone, the actual moment a viewer decides
+    # to keep watching): named stakes + reversal pattern, not just any
+    # question mark existing.
+    if any(w in zone_lower for w in _STAKES_WORDS):
+        score += 1.4
+    else:
+        issues.append("No named stakes in the first 15 seconds (what's actually at risk)")
+
+    if any(p in zone_lower for p in _REVERSAL_PATTERNS):
+        score += 1.4
+    else:
+        issues.append("No violated-expectation/reversal pattern in the first 15 seconds")
+
+    if _has_named_entity(zone):
+        score += 0.6
+    else:
+        issues.append("No named person/place in the first 15 seconds")
 
     zone_sentences = _sentences(zone)
     first_sentence = zone_sentences[0] if zone_sentences else zone
@@ -134,7 +230,7 @@ def validate_first_15_seconds(script_text, wpm=150):
         score -= 1.0
         issues.append("Opening sentence runs too long for a fast cold open")
     else:
-        score += 1.0
+        score += 0.6
 
     return round(min(max(score, 0.0), 10.0), 1), issues
 
@@ -278,17 +374,33 @@ def validate_rehook_beat(script_text):
     return -0.6, ["Missing mid-video rehook — no direct-address beat near the drift point (50-72%)"]
 
 
+# FIX (direct user report, July 23 2026 — "There should be a killer hook
+# for every channel and every video, and a CTR should be there. Without
+# it, it should not move ahead."): a real hard gate on the hook itself,
+# not just a small +/-1.5 bonus folded into the overall composite. Below
+# this bar, the penalty applied is large enough to drop the composite
+# below every gate tier every channel uses (including the last-resort
+# 13th-attempt floor), so a script with a genuinely weak hook cannot
+# publish no matter how strong its other stages score.
+HOOK_GATE_MIN = 7.0
+_HOOK_GATE_PENALTY = 5.0
+
+
 def score_script_rubric(script_text, topic=""):
     """
     Combined Killer Hook / Narrative Craft / Topic Clarity rubric.
 
     Returns (bonus, issues, subscores):
-      bonus     - small +/- adjustment (capped at +/-1.5) meant to be added
-                  directly to a channel's existing score_result()/
-                  score_script_er() total.
+      bonus     - adjustment added directly to a channel's existing
+                  score_result()/score_script_er() total. Normally capped
+                  at +/-1.5, EXCEPT when the hook itself fails its own
+                  hard gate (subscores["hook_gate_passed"] is False) — in
+                  that case a large fixed penalty is applied instead,
+                  regardless of how strong narrative_craft/topic_clarity
+                  scored, so the overall attempt cannot pass any gate.
       issues    - combined list of human-readable issue strings, for logging.
-      subscores - {"killer_hook": x, "narrative_craft": y, "topic_clarity": z},
-                  each 0-10, for logging/telemetry.
+      subscores - {"killer_hook": x, "first_15_seconds": y, "narrative_craft": z,
+                  "topic_clarity": w, "hook_gate_passed": bool}, for logging/telemetry.
     """
     if not script_text:
         return 0.0, ["Empty script"], {}
@@ -298,16 +410,26 @@ def score_script_rubric(script_text, topic=""):
     craft_score, craft_issues = score_narrative_craft(script_text)
     clarity_score, clarity_issues = score_topic_clarity(script_text, topic)
 
+    hook_gate_avg = (hook_score + open15_score) / 2.0
+    hook_gate_passed = hook_gate_avg >= HOOK_GATE_MIN
+
     subscores = {
         "killer_hook": hook_score,
         "first_15_seconds": open15_score,
         "narrative_craft": craft_score,
         "topic_clarity": clarity_score,
+        "hook_gate_passed": hook_gate_passed,
     }
-    issues = hook_issues + open15_issues + craft_issues + clarity_issues
+    issues = list(hook_issues) + list(open15_issues) + list(craft_issues) + list(clarity_issues)
 
     avg = (hook_score + open15_score + craft_score + clarity_score) / 4.0
     bonus = round((avg - 5.0) * 0.3, 2)
     bonus = max(-1.5, min(1.5, bonus))
+
+    if not hook_gate_passed:
+        issues.insert(0, f"HOOK GATE FAILED: hook/first-15s average {hook_gate_avg:.1f}/10 is "
+                         f"below the required {HOOK_GATE_MIN} — this attempt cannot pass regardless "
+                         f"of any other score.")
+        bonus = -_HOOK_GATE_PENALTY
 
     return bonus, issues, subscores
