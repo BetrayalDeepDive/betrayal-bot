@@ -6354,27 +6354,47 @@ def main():
     # for this exact spot (control_files/archive's hook_prompt pattern);
     # Ch2 never did. Added here, with the same generic-fallback safety
     # net those channels already use if the AI call fails.
-    try:
-        _hook_prompt = (f"Write ONE compelling 2-sentence hook for a YouTube description, "
-                        f"for a forensic investigative documentary about: {topic[:200]}. "
-                        f"Specific, evidence-focused, no clickbait, no markdown. "
-                        f"Return ONLY the 2 sentences.")
-        episode_hook = ai(_hook_prompt, tokens=120, prefer="groq")
-        episode_hook = strip_md(episode_hook).strip() if episode_hook else \
-            "Every case. Every document. Every piece of evidence — animated."
-    except Exception:
-        episode_hook = "Every case. Every document. Every piece of evidence — animated."
-    description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
-                   f"{episode_hook}\n\n"
-                   f"{chapters_block}\n\n"
-                   f"Subscribe to The Evidence Room."
-                   f"{cross_promo}"
-                   f"{affiliate_block}"
-                   f"{product_cta}\n\n"
-                   f"\u2728 Real cases, brought to life with next-generation AI narration and forensic craft."
-                   f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
-                   f"{citations_block}\n\n"
-                   f"{hashtags}")
+    # FIX (direct user report, July 23 2026 — "for everything, there
+    # should be specific scores that it should pass... rework that stage
+    # without fail"): this description was built ONCE with no scoring or
+    # rework of any kind -- every other channel (Ch1/Ch3/Ch4/Ch5) already
+    # runs its description through regenerate_description_until_good
+    # (real score_description() rubric, min 9.0, up to 4 attempts). Ch2
+    # was the one channel missing this gate entirely. Wrapped the same
+    # content/branding this function already built (business email,
+    # "Subscribe to The Evidence Room", cross-promo, affiliate/product
+    # CTAs, citations, hashtags all preserved) in a real generate-and-score
+    # closure so a fresh hook line is attempted each retry.
+    def _desc_gen(_n, _t, _ti, _ep, _ch, _dur):
+        try:
+            _hook_prompt = (f"Write ONE compelling 2-sentence hook for a YouTube description, "
+                            f"for a forensic investigative documentary about: {_t[:200]}. "
+                            f"Specific, evidence-focused, no clickbait, no markdown. "
+                            f"Return ONLY the 2 sentences.")
+            _hook = ai(_hook_prompt, tokens=120, prefer="groq")
+            _hook = strip_md(_hook).strip() if _hook else \
+                "Every case. Every document. Every piece of evidence — animated."
+        except Exception:
+            _hook = "Every case. Every document. Every piece of evidence — animated."
+        return (f"{seo_first}\n\nEpisode {_ep} of {_n['series']}.\n\n"
+                f"{_hook}\n\n"
+                f"{_ch}\n\n"
+                f"Subscribe to The Evidence Room."
+                f"{cross_promo}"
+                f"{affiliate_block}"
+                f"{product_cta}\n\n"
+                f"\u2728 Real cases, brought to life with next-generation AI narration and forensic craft."
+                f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
+                f"{citations_block}\n\n"
+                f"{hashtags}")
+
+    from human_review_gate import regenerate_description_until_good
+    _desc_result = regenerate_description_until_good(
+        niche, topic, title_str, episode, chapters_block, duration, niche["name"], _desc_gen,
+        min_score=9.0, max_attempts=4)
+    description = _desc_result["description"]
+    log(f"  Description score: {_desc_result['score']}/10 "
+        f"(hit target: {_desc_result['hit_target']}, {_desc_result['attempts']} attempts)")
 
     # Video
     video_path = run_stage_with_retry(
