@@ -6945,12 +6945,12 @@ def main():
                f"{cross_promo}"
                f"{affiliate_block}"
                f"{product_cta}\n\n"
-               f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+               f"\u2728 Real history, brought to life with next-generation AI narration and research craft."
                f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                f"{citations_block}\n\n"
                f"{episode_hashtags}")
         if len(desc) > 5000:
-            tail = (f"\u26a0\ufe0f AI-assisted narration and historical analysis."
+            tail = (f"\u2728 Real history, brought to life with next-generation AI narration and research craft."
                     f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}{citations_block}\n\n{episode_hashtags}")
             desc = desc[:5000 - len(tail) - 5] + "\n\n" + tail
         return desc

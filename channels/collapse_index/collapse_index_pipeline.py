@@ -2881,7 +2881,7 @@ those are added separately afterward."""
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
-        desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        desc += "\n\n✨ Real stories, brought to life with next-generation AI narration and production craft."
         desc += f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
         desc += citations_block
         desc += f"\n\n{hashtags}"
@@ -2895,7 +2895,7 @@ those are added separately afterward."""
             f"Subscribe for new investigations every week.\n\n"
             f"{chapters_text or '0:00 Introduction'}"
             f"{cross_promo_txt}\n\n"
-            f"⚠️ This video features AI-assisted narration and editing."
+            f"✨ Real stories, brought to life with next-generation AI narration and production craft."
             f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
             f"{citations_block}\n\n"
             f"{hashtags}")

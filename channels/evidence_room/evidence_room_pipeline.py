@@ -5078,14 +5078,14 @@ those are added separately afterward."""
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
-        desc += "\n\n⚠️ This video features AI-assisted narration and editing."
+        desc += "\n\n✨ Real stories, brought to life with next-generation AI narration and production craft."
         desc += citations_block
         desc += f"\n\n{hashtags}"
         return desc
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
             f"Subscribe for new investigations every week."
             f"{cross_promo_txt}\n\n"
-            f"⚠️ This video features AI-assisted narration and editing."
+            f"✨ Real stories, brought to life with next-generation AI narration and production craft."
             f"{citations_block}\n\n"
             f"{hashtags}")
 
@@ -6324,7 +6324,7 @@ def main():
                    f"{cross_promo}"
                    f"{affiliate_block}"
                    f"{product_cta}\n\n"
-                   f"\u26a0\ufe0f AI-assisted narration and forensic analysis."
+                   f"\u2728 Real cases, brought to life with next-generation AI narration and forensic craft."
                    f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                    f"{citations_block}\n\n"
                    f"{hashtags}")
@@ -6482,7 +6482,7 @@ def main():
                        f"{cross_promo}"
                        f"{affiliate_block}"
                        f"{product_cta}\n\n"
-                       f"⚠️ AI-assisted narration and forensic analysis."
+                       f"✨ Real cases, brought to life with next-generation AI narration and forensic craft."
                        f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
                        f"{citations_block}\n\n"
                        f"{hashtags}")
