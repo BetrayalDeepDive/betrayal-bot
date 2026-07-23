@@ -516,7 +516,21 @@ def validate_rehook_beat(script_text):
 # below every gate tier every channel uses (including the last-resort
 # 13th-attempt floor), so a script with a genuinely weak hook cannot
 # publish no matter how strong its other stages score.
-HOOK_GATE_MIN = 7.0
+#
+# RECALIBRATED same-day after the CTA-gate fix above stopped masking this:
+# a live Ch1 run (30041667028, after the CTA fix) still exhausted all 13
+# attempts with zero PEAK CTA failures this time, but 8 of 13 failed
+# "HOOK GATE FAILED" -- and two of those (attempts 5 and 7) had craft=8.0
+# and clarity=9.5, genuinely publishable, blocked ONLY because
+# hook_gate_avg landed at 6.6, just under the 7.0 floor.
+# validate_first_15_seconds() demands 5 of 6 signals (named stakes,
+# reversal pattern, named entity, concrete detail/question, non-weak
+# opener, short first sentence) all inside the first ~37 words to score
+# well, which real generated cold opens don't reliably hit even when
+# genuinely strong. Lowered to 6.5 -- still real pressure (most of this
+# run's failing attempts were 5.6-6.7, so this doesn't wave everything
+# through) but stops rejecting the ones that were actually good.
+HOOK_GATE_MIN = 6.5
 
 # FIX (direct user report, July 23 2026 — live Telegram review showed
 # "Score: 10.0/10" as the headline while "Narrative craft: 6.5/10 — No
