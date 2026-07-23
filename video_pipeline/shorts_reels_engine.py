@@ -1043,8 +1043,35 @@ def generate_synced_subtitles(script: str, audio_path: str,
 
 
 # ── BACKGROUND CLIPS ──────────────────────────────────────────────────────────
-def download_background_clip(niche: str, output_path: str) -> bool:
-    """Download 9:16 background clip from Pixabay."""
+# FIX (direct user report, July 23 2026 — "the background visuals
+# should also be according to the niche... and the video animation
+# should be proper"): same anchor-extraction technique already proven
+# for the main channel videos' stock footage (get_stage_matched_video).
+_BG_TOPIC_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "this", "that", "was", "were", "had", "have",
+    "it", "its", "he", "she", "they", "their", "his", "her", "be", "been",
+    "not", "no", "so", "as", "if", "then", "than", "when", "what", "who",
+    "part", "real", "documented", "real-life", "true", "story",
+}
+
+
+def _extract_topic_anchor(topic):
+    words = [w.strip(".,!?;:\"'()") for w in topic.lower().split()
+             if len(w) > 5 and w.strip(".,!?;:\"'()") not in _BG_TOPIC_STOPWORDS]
+    if not words:
+        return ""
+    from collections import Counter as _C
+    return _C(words).most_common(1)[0][0]
+
+
+def download_background_clip(niche: str, output_path: str, topic: str = "") -> bool:
+    """Download 9:16 background clip from Pixabay. When `topic` is given,
+    tries a topic-anchored query first (a real specific word from THIS
+    Short's actual topic, combined with the niche's mood keyword) before
+    falling back to the plain niche-category search — so the background
+    isn't just "cinematic dark drama" for every Short in the category,
+    regardless of what the Short is actually about."""
     niche_keywords = {
         "betrayal":     ["dramatic shadow person","mystery dark room","emotional confrontation"],
         "crime":        ["police lights night","detective crime scene","dark thriller"],
@@ -1079,26 +1106,37 @@ def download_background_clip(niche: str, output_path: str) -> bool:
     keywords = niche_keywords.get(niche, niche_keywords["default"])
     kw = random.choice(keywords)
 
+    # Topic-anchored query tried FIRST — a real specific word from this
+    # Short's actual topic combined with the niche's mood keyword, so the
+    # background reflects what THIS Short is about, not just its category.
+    query_candidates = []
+    topic_anchor = _extract_topic_anchor(topic) if topic else ""
+    if topic_anchor:
+        query_candidates.append(f"{topic_anchor} {kw}")
+    query_candidates.append(kw)
+
     if PIX_KEY:
-        try:
-            r = requests.get(
-                "https://pixabay.com/api/videos/",
-                params={"key": PIX_KEY, "q": kw, "per_page": 5,
-                        "video_type": "film", "min_duration": 10},
-                timeout=20
-            )
-            for hit in r.json().get("hits", []):
-                for quality in ["large", "medium", "small"]:
-                    url = hit.get("videos", {}).get(quality, {}).get("url", "")
-                    if url:
-                        vr = requests.get(url, stream=True, timeout=60)
-                        with open(output_path, "wb") as f:
-                            for chunk in vr.iter_content(8192):
-                                f.write(chunk)
-                        if os.path.getsize(output_path) > 50000:
-                            return True
-        except Exception as e:
-            log.warning("Pixabay: %s", e)
+        for query in query_candidates:
+            try:
+                r = requests.get(
+                    "https://pixabay.com/api/videos/",
+                    params={"key": PIX_KEY, "q": query, "per_page": 5,
+                            "video_type": "film", "min_duration": 10},
+                    timeout=20
+                )
+                for hit in r.json().get("hits", []):
+                    for quality in ["large", "medium", "small"]:
+                        url = hit.get("videos", {}).get(quality, {}).get("url", "")
+                        if url:
+                            vr = requests.get(url, stream=True, timeout=60)
+                            with open(output_path, "wb") as f:
+                                for chunk in vr.iter_content(8192):
+                                    f.write(chunk)
+                            if os.path.getsize(output_path) > 50000:
+                                log.info("Background matched: '%s'", query)
+                                return True
+            except Exception as e:
+                log.warning("Pixabay (%s): %s", query, e)
 
     # FIX: this fallback used to be a completely flat, static black screen
     # with a vignette — about as visually "dead"/robotic-looking as a
@@ -1610,7 +1648,7 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
 
         # 6. Download background
         bg_out = os.path.join(OUTPUT_DIR, f"bg_{run_id}.mp4")
-        download_background_clip(niche, bg_out)
+        download_background_clip(niche, bg_out, topic=title)
 
         # 7. Assemble video
         video_out = os.path.join(OUTPUT_DIR, f"short_{mode}_{run_id}_final.mp4")
@@ -1917,7 +1955,7 @@ Return JSON:
             continue
 
         generate_synced_subtitles(script_data["script"], audio_out, srt_out)
-        download_background_clip(cfg["bg_search_term"], bg_out)
+        download_background_clip(cfg["bg_search_term"], bg_out, topic=main_topic)
 
         if not assemble_short_video(bg_out, audio_out, srt_out,
                                      script_data["hook_text"], video_out):
