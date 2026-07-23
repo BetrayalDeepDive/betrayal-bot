@@ -5892,6 +5892,20 @@ def main():
         set_video_privacy(vid_id, "public", token=token_yt)
         log(f"  Final gate approved — video is now public: {yt_url}")
 
+        # FIX (direct user report, July 23 2026 — "after uploading, it
+        # also needs to take up the job of checking: what is going on,
+        # how many views... likes... subscribers... what the monetary
+        # environment is... report back to me... in Telegram", applied
+        # empire-wide): a real publish-time snapshot sent right after the
+        # video goes public, on top of the existing weekly aggregate report.
+        try:
+            from post_upload_reporter import send_post_upload_report
+            send_post_upload_report(
+                "The Evidence Room", yt_url, vid_id, token_yt,
+                TG_TOKEN, TG_CHAT, gumroad_token=os.environ.get("GUMROAD_ACCESS_TOKEN"), tg_fn=tg)
+        except Exception as e:
+            log(f"  Post-upload report (non-fatal): {e}")
+
         # FIX: same root cause found and fixed in Ch1 — ensure_playlist
         # existed fully built but was never called, so playlist_id was
         # always empty, meaning add_to_playlist below never actually fired.

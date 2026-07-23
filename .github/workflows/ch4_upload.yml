@@ -103,6 +103,9 @@ jobs:
           # so it needs these here too, not just in ch3_generate.yml.
           TELEGRAM_TOKEN_CH4:        ${{ secrets.TELEGRAM_TOKEN_CH4 }}
           TELEGRAM_CHAT_ID_CH4:      ${{ secrets.TELEGRAM_CHAT_ID_CH4 }}
+          # For the new post-upload revenue snapshot (post_upload_reporter.py) —
+          # optional, degrades to an honest "not connected" line if unset.
+          GUMROAD_ACCESS_TOKEN:      ${{ secrets.GUMROAD_ACCESS_TOKEN }}
           GMAIL_SENDER_EMAIL:        ${{ secrets.GMAIL_SENDER_EMAIL }}
           GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
           CEREBRAS_API_KEY:          ${{ secrets.CEREBRAS_API_KEY }}

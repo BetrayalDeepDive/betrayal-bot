@@ -6369,6 +6369,20 @@ def main():
         set_video_privacy(vid_id, "public", token=token_yt)
         log(f"  Final gate approved — video is now public: {yt_url}")
 
+        # FIX (direct user report, July 23 2026 — "after uploading, it
+        # also needs to take up the job of checking: what is going on,
+        # how many views... likes... subscribers... what the monetary
+        # environment is... report back to me... in Telegram", applied
+        # empire-wide): a real publish-time snapshot sent right after the
+        # video goes public, on top of the existing weekly aggregate report.
+        try:
+            from post_upload_reporter import send_post_upload_report
+            send_post_upload_report(
+                "The Archive", yt_url, vid_id, token_yt,
+                TG_TOKEN, TG_CHAT, gumroad_token=os.environ.get("GUMROAD_ACCESS_TOKEN"), tg_fn=tg)
+        except Exception as e:
+            log(f"  Post-upload report (non-fatal): {e}")
+
         if playlist_id: add_to_playlist(token_yt, playlist_id, vid_id)
 
         if thumb_path and Path(thumb_path).exists():
