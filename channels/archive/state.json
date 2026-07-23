@@ -14,8 +14,16 @@
     },
     "voice_en-GB-ThomasNeural": {
       "scores": [
-        10.0
+        10.0,
+        9.4
       ]
+    },
+    "elite_betrayal_infighting": {
+      "scores": [
+        9.4
+      ],
+      "streak_below": 0,
+      "last_episode": 69
     }
   }
 }

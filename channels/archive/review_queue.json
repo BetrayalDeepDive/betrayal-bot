@@ -1,19 +1,19 @@
 {
-  "episode": 66,
-  "title": "The Archive: Fallen Empires: The Investigation That Changed Everything",
+  "episode": 69,
+  "title": "The Archive: Elite Betrayal: The Investigation That Changed Everything",
   "artifacts": {
-    "topic": "Part 1: Rome's overstretch \u2014 the documented cost of defending a border twice the length it could afford",
-    "niche_name": "fallen_empires_military_overstretch"
+    "topic": "Part 1: The Ides of March \u2014 the documented senators, the real conspiracy, and why they miscalculated",
+    "niche_name": "elite_betrayal_infighting"
   },
-  "checkpoint": "AUDIO_VIDEO",
+  "checkpoint": "DONE",
   "check_ins_used": 1,
-  "started_at": "2026-07-14T03:50:31.042216",
-  "last_updated": "2026-07-14T06:51:02.931520",
+  "started_at": "2026-07-23T03:58:02.591194",
+  "last_updated": "2026-07-23T04:28:28.435572",
   "history": [
     {
-      "decision": "approve",
+      "decision": "remake",
       "feedback": null,
-      "at": "2026-07-14T06:51:02.931520",
+      "at": "2026-07-23T04:28:27.335928",
       "checkpoint_at_time": "SCRIPT"
     }
   ]
