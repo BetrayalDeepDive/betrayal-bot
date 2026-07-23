@@ -4557,12 +4557,12 @@ def _inject_ctas_er(script_clean, niche_name):
         # actually about.
         "body_cam_police": [
             "If footage like this concerns you, subscribe — documented body cam cases every week.",
-            "This channel documents real body cam evidence. Subscribe to follow the record.",
+            "This channel investigates documented body cam evidence. Subscribe to follow the evidence.",
             "More documented footage like this is coming. Subscribe to The Evidence Room.",
         ],
         "courtroom_drama": [
             "If this verdict concerns you, subscribe — documented courtroom cases every week.",
-            "This channel documents real courtroom proceedings. Subscribe to follow the record.",
+            "This channel investigates documented courtroom proceedings. Subscribe to follow the evidence.",
             "More documented trials like this are coming. Subscribe to The Evidence Room.",
         ],
         "robbery_documentaries": [

@@ -5105,7 +5105,7 @@ def _inject_ctas_er(script_clean, niche_name):
         ],
         "chinese_civilization": [
             "If this dynasty's story interests you, subscribe — more documented history every week.",
-            "This channel documents real dynastic history. Subscribe to follow the record.",
+            "This channel investigates documented dynastic history. Subscribe to follow the record.",
             "More documented history like this is coming. Subscribe to The Archive.",
         ],
         "mesopotamian_lost_civilizations": [
@@ -5115,7 +5115,7 @@ def _inject_ctas_er(script_clean, niche_name):
         ],
         "islamic_civilization_history": [
             "If this history fascinates you, subscribe — documented civilization every week.",
-            "This channel documents real Islamic civilization history. Subscribe to follow the record.",
+            "This channel investigates documented Islamic civilization history. Subscribe to follow the record.",
             "More documented history like this is coming. Subscribe to The Archive.",
         ],
         "fallen_empires_military_overstretch": [
@@ -5125,7 +5125,7 @@ def _inject_ctas_er(script_clean, niche_name):
         ],
         "elite_betrayal_infighting": [
             "If this kind of betrayal fascinates you, subscribe — documented history every week.",
-            "This channel documents real elite betrayal in detail. Subscribe to follow the record.",
+            "This channel investigates documented elite betrayal in detail. Subscribe to follow the record.",
             "More documented history like this is coming. Subscribe to The Archive.",
         ],
         "propaganda_institutional_decline": [

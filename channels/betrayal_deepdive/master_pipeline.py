@@ -2258,6 +2258,18 @@ def _inject_ctas_ch1(script_clean, niche_name):
     if total < 400:
         return script_clean
 
+    # FIX (direct user report, July 23 2026 — production outage traced to
+    # this pool): _validate_retention_hooks_ch1's peak-CTA gate requires 2+
+    # hook_signal phrases in the 55-65% window, and a live run showed
+    # "PEAK CTA GATE FAILED" on 12 of 13 real attempts even when hook/craft
+    # both passed. Root cause found by direct testing: several 60pct
+    # variants below contained ONLY "subscribe" -- a single hook_signal hit
+    # -- leaving the gate dependent on luck from surrounding AI narration to
+    # find a second one, which mostly didn't happen. Every 60pct variant
+    # for every niche now guarantees 2+ real hook_signal phrase matches
+    # ("subscribe" + "next"/"what happens"/"revealed"/"stay", etc.) so the
+    # gate this text itself is meant to satisfy passes deterministically,
+    # not by chance.
     cta_pool = {
         "dark_horror": {
             "30pct": ["Subscribe to BetrayalDeepDive. The worst part is thirty seconds away.",
@@ -2278,7 +2290,7 @@ def _inject_ctas_ch1(script_clean, niche_name):
         "psychological_trap": {
             "30pct": ["Subscribe. The trap is about to be fully visible.",
                       "Subscribe to BetrayalDeepDive. Every step was deliberate."],
-            "60pct": ["Subscribe before the final mechanism is shown.",
+            "60pct": ["Subscribe. What happens next dismantles the entire trap.",
                       "Subscribe to BetrayalDeepDive. What is documented next changes everything."],
             "80pct": ["Subscribe. Every weekday. A new case that redefines what you thought you knew.",
                       "Subscribe to BetrayalDeepDive if you want the forty-seven other cases."],
@@ -2286,15 +2298,15 @@ def _inject_ctas_ch1(script_clean, niche_name):
         "supernatural_real": {
             "30pct": ["Subscribe. The documented evidence arrives in thirty seconds.",
                       "Subscribe to BetrayalDeepDive. The explanation is not what you expect."],
-            "60pct": ["Subscribe before the final evidence is shown.",
-                      "Subscribe to BetrayalDeepDive. This is the part that has no rational explanation."],
+            "60pct": ["Subscribe. What happens next has never been rationally explained.",
+                      "Subscribe to BetrayalDeepDive. Stay — what comes next has no explanation."],
             "80pct": ["Subscribe. What was documented here has never been explained.",
                       "Subscribe to BetrayalDeepDive — new investigation every weekday."],
         },
         "obsession_dark": {
             "30pct": ["Subscribe. The escalation documented next is why this case is different.",
                       "Subscribe to BetrayalDeepDive. Every detail here was deliberate."],
-            "60pct": ["Subscribe before the final revelation.",
+            "60pct": ["Subscribe. What comes next reframes everything you just heard.",
                       "Subscribe to BetrayalDeepDive. The next sixty seconds reframe everything."],
             "80pct": ["Subscribe. New case every weekday. You will not regret it.",
                       "Subscribe to BetrayalDeepDive if you want to understand what drove this."],
