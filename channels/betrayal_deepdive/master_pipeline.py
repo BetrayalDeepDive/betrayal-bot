@@ -5712,73 +5712,16 @@ def extract_key_phrases(script, num_phrases=6):
     return phrases
 
 
-# FIX (found on direct user report, July 23 2026 — "if there is anything
-# that is dropping the point or the coin or something, it should give it.
-# It should be based on the topic and the niche. It should not be
-# something random."): the horror FX below previously only had generic
-# riser/impact/drone/stinger tones with zero connection to what the
-# script actually describes. No real sound-effect library is reachable
-# from this environment (no network for asset downloads), so this maps
-# specific script content — a coin/money beat, a knock, a phone ringing,
-# a scream, a gunshot/impact, a ticking clock — to a DISTINCT synthesized
-# tone signature per category (different frequencies/envelopes, not the
-# same stinger reused everywhere), placed at the real sentence position
-# where that content is mentioned instead of at a random/fixed time.
-CONTENT_SFX_KEYWORDS = {
-    "coin_drop":   ["coin", "coins", "money", "cash", "dollar", "dollars",
-                    "inheritance", "payment", "paid", "wire transfer"],
-    "door_knock":  ["door", "knock", "knocked", "doorbell", "footsteps"],
-    "phone_ring":  ["phone", "called", "call", "rang", "ringing", "voicemail"],
-    "scream_shock":["screamed", "scream", "gasped", "shrieked", "shouted"],
-    "gunshot_impact": ["gunshot", "gun", "shot", "stabbed", "stabbing", "struck", "collapsed"],
-    "clock_tick":  ["clock", "ticking", "midnight", "countdown"],
-}
-
-# Each category = list of (frequency, duration, fade_out_start, fade_out_dur,
-# volume) tone layers mixed together — same primitives (sine/afade/volume)
-# already proven working in the stinger/impact/drone chains below, just a
-# different combination per category so they're audibly distinct from each
-# other instead of one generic stinger reused for everything.
-CONTENT_SFX_SYNTH = {
-    "coin_drop":      [(1800, 0.3, 0.05, 0.25, 1.1), (2600, 0.22, 0.03, 0.19, 0.8)],
-    "door_knock":      [(100, 0.15, 0.02, 0.13, 1.6)],
-    "phone_ring":      [(950, 0.2, 0.05, 0.15, 1.0), (1400, 0.2, 0.05, 0.15, 0.7)],
-    "scream_shock":    [(1200, 0.35, 0.05, 0.3, 1.3), (2000, 0.3, 0.04, 0.26, 0.9)],
-    "gunshot_impact":  [(55, 0.25, 0.02, 0.23, 2.2)],
-    "clock_tick":      [(2000, 0.06, 0.01, 0.05, 0.9)],
-}
+# FIX (direct user report, July 23 2026 — "it's not only the things that
+# I told. There should be hundreds of things that should be added...
+# according to the niche and title"): the original 6-category version
+# lived here as a local dict. Replaced with video_pipeline/content_sfx.py
+# — a shared, ~78-category (290+ individual keyword phrases) library
+# used by all 5 channels, with per-niche priority categories and a real
+# topic/title-anchor cue, instead of a small fixed local set.
 
 
-def _detect_content_sfx_cues(script, audio_duration, max_cues=3):
-    """Scan the script sentence-by-sentence (same proportional-position
-    approach as extract_key_phrases) for content categories in
-    CONTENT_SFX_KEYWORDS. Returns up to `max_cues` (category, time_seconds)
-    tuples, in script order, one per distinct category found — so the
-    sound design reflects what THIS story actually contains, not a fixed
-    generic set."""
-    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script) if s.strip()]
-    if not sentences:
-        return []
-    total = len(sentences)
-    cues = []
-    seen_categories = set()
-    for idx, sent in enumerate(sentences):
-        low = sent.lower()
-        for category, keywords in CONTENT_SFX_KEYWORDS.items():
-            if category in seen_categories:
-                continue
-            if any(kw in low for kw in keywords):
-                frac = idx / total
-                # skip the first/last 5% — too close to cold open or outro
-                if 0.05 < frac < 0.95:
-                    cues.append((category, frac * audio_duration))
-                    seen_categories.add(category)
-        if len(cues) >= max_cues:
-            break
-    return cues
-
-
-def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, output_path):
+def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, output_path, topic=""):
     """
     Horror-appropriate visual treatment — replaces the earlier boxed
     kinetic-text-callout system (that was an explainer-video convention,
@@ -5881,14 +5824,16 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             )
             stinger_labels.append(f"[{label}]")
 
-        # ── Content-specific SFX: a coin/knock/phone/scream/gunshot/clock
-        # cue at the real script position where that content is actually
-        # mentioned, each with its own distinct tone signature (see
-        # CONTENT_SFX_SYNTH) instead of the same generic stinger everywhere.
-        content_cues = _detect_content_sfx_cues(script, audio_duration)
+        # ── Content-specific SFX: real ~78-category, niche+topic-aware
+        # library (video_pipeline/content_sfx.py) — a cue at the real
+        # script position where that content is actually mentioned, each
+        # with its own distinct tone signature, instead of a handful of
+        # generic stingers reused everywhere.
+        from content_sfx import detect_content_sfx_cues, get_sfx_synth
+        content_cues = detect_content_sfx_cues(script, audio_duration, niche_name=niche_name, topic=topic, max_cues=6)
         for ci, (category, cue_t) in enumerate(content_cues):
             cue_delay_ms = int(max(0.3, cue_t) * 1000)
-            for li, (freq, dur, fade_st, fade_d, vol) in enumerate(CONTENT_SFX_SYNTH[category]):
+            for li, (freq, dur, fade_st, fade_d, vol) in enumerate(get_sfx_synth(category)):
                 label = f"content{ci}_{li}"
                 stinger_filters.append(
                     f"sine=frequency={freq}:duration={dur},"
@@ -5974,7 +5919,7 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
         overlaid = str(WORK_DIR / "composed_horror_fx.mp4")
         _pre_horror_composed = composed
         composed = add_horror_atmosphere_fx(composed, script, audio_duration,
-                                             niche_name, overlaid)
+                                             niche_name, overlaid, topic=topic)
         _last_video_fallback_flags["horror_fx_failed"] = (composed == _pre_horror_composed)
 
     # FIX (warbook v3 retention blueprint): removed the 2-second silent

@@ -6452,9 +6452,20 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # jump-scares and horror grain to a video about a startup's funding
     # collapse or a personal budgeting mistake is a real, wrong content-tone
     # mismatch, not a stylistic choice. Removed entirely, per explicit
-    # instruction — Ch5 gets no atmosphere-FX post-processing pass at all
-    # for now; the video is the clean composed output from compose_video()
-    # above.
+    # instruction — Ch5 gets no VISUAL atmosphere-FX post-processing pass.
+    #
+    # FIX (direct user report, July 23 2026 — "hundreds of things...
+    # according to the niche and title... should not be missed"): Ch5
+    # still had ZERO content-matched sound design at all beyond ambient
+    # music, unlike Ch1. Added the genre-neutral, audio-only layer
+    # (no grain/flash/glitch, just real content-matched stingers mixed
+    # into the existing narration+music track) from the same shared
+    # ~78-category library Ch1 uses.
+    if script:
+        from content_sfx import apply_audio_only_content_sfx
+        _sfx_out = str(WORK_DIR / "composed_content_sfx.mp4")
+        composed = apply_audio_only_content_sfx(
+            composed, script, audio_duration, niche_name, _sfx_out, topic=topic, log_fn=log)
 
     # FIX (warbook v3 retention blueprint): removed the 2-second silent
     # black branded intro card that used to play BEFORE the cold open. That

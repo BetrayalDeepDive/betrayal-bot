@@ -2719,7 +2719,7 @@ def get_niche_ambient_music(niche_name, duration):
     return _synthesize_mood_track(mood, duration)
 
 
-def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, episode=1, real_cases=None, ass_path=None):
+def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, episode=1, real_cases=None, ass_path=None, script="", topic=""):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
     concat_parts = []
@@ -2831,6 +2831,22 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
         raise RuntimeError(f"FFmpeg audio+caption mux failed: {err}")
     log(f"  Video: {Path(final).stat().st_size/1024/1024:.0f}MB | 1080p | "
         f"{'Real synced captions' if ass_path else 'No captions (real sync unavailable this episode)'}")
+
+    # FIX (direct user report, July 23 2026 — "hundreds of things...
+    # according to the niche and title... should not be missed"): Ch3
+    # had ZERO content-matched sound design beyond ambient music.
+    # Genre-neutral, audio-only layer (no visual grain/flash — Ch3's own
+    # genre, not Ch1's horror-movie language) from the shared
+    # ~78-category library, applied here before the outro/citations are
+    # appended so both the with-outro and without-outro paths get it.
+    if script:
+        try:
+            from content_sfx import apply_audio_only_content_sfx
+            _sfx_out = str(WORK_DIR / f"video_content_sfx_{episode}.mp4")
+            final = apply_audio_only_content_sfx(
+                final, script, duration, niche_name, _sfx_out, topic=topic, log_fn=log)
+        except Exception as _sfx_e:
+            log(f"  Content SFX layer (non-fatal): {_sfx_e}")
 
     # v6 addition — found only by explicitly re-checking rather than
     # assuming: Ch3 had NO outro at all, same genuine gap Ch2 had before
@@ -6544,7 +6560,7 @@ def main():
 
     # Video
     video_path = run_stage_with_retry(
-        render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
+        render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path, script=script_clean, topic=topic)
 
     # Thumbnail
     thumb_path = generate_thumbnail_with_ai_bg(
@@ -6637,7 +6653,7 @@ def main():
                 ass_path = None
             video_path = run_stage_with_retry(
                 render_and_encode, "Animation", style_name, scenes, audio_path, duration,
-                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path, script=script_clean, topic=topic)
             continue
         if audio_decision["decision"] == "edit":
             # FIX (found on direct user report, July 15 2026): this used to
@@ -6680,7 +6696,7 @@ def main():
                 ass_path = None
             video_path = run_stage_with_retry(
                 render_and_encode, "Animation", style_name, scenes, audio_path, duration,
-                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path)
+                niche_name=niche["name"], episode=episode, real_cases=real_cases, ass_path=ass_path, script=script_clean, topic=topic)
             continue  # re-send the combined checkpoint with the new audio
 
         # Audio approved — now handle the video decision (skipped entirely if
@@ -6715,7 +6731,7 @@ def main():
             if new_scenes:
                 scenes = new_scenes
             video_path = run_stage_with_retry(
-                render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases)
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases, script=script_clean, topic=topic)
             continue
         if video_decision["decision"] == "swap_visuals":
             log(f"  SWAP VISUALS requested: {video_decision.get('feedback')} — "
@@ -6728,7 +6744,7 @@ def main():
                    "and re-rendering with them (a genuine re-render still applies fresh Ken Burns "
                    "motion timing, so this isn't a complete no-op).")
             video_path = run_stage_with_retry(
-                render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases)
+                render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], episode=episode, real_cases=real_cases, script=script_clean, topic=topic)
             continue
 
     # FIX (found on deep re-audit): chapters_block and the description

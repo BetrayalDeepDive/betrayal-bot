@@ -6478,6 +6478,19 @@ def main():
     # Video
     video_path = run_stage_with_retry(
         render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+    # FIX (direct user report, July 23 2026 — "hundreds of things...
+    # according to the niche and title... should not be missed"): Ch2
+    # had ZERO content-matched sound design beyond ambient music.
+    # Genre-neutral, audio-only layer (no visual grain/flash — Ch2's
+    # own genre, not Ch1's horror-movie language) from the shared
+    # ~78-category library.
+    try:
+        from content_sfx import apply_audio_only_content_sfx
+        _sfx_out = str(WORK_DIR / f"video_content_sfx_{episode}.mp4")
+        video_path = apply_audio_only_content_sfx(
+            video_path, script_clean, duration, niche["name"], _sfx_out, topic=topic, log_fn=log)
+    except Exception as _sfx_e:
+        log(f"  Content SFX layer (non-fatal): {_sfx_e}")
 
     # COMBINED AUDIO + VIDEO REVIEW — mirrors Ch1 exactly.
     _remade_av_ch2 = False
@@ -6544,6 +6557,19 @@ def main():
                 log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
                 video_path = run_stage_with_retry(
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+                # FIX (direct user report, July 23 2026 — "hundreds of things...
+                # according to the niche and title... should not be missed"): Ch2
+                # had ZERO content-matched sound design beyond ambient music.
+                # Genre-neutral, audio-only layer (no visual grain/flash — Ch2's
+                # own genre, not Ch1's horror-movie language) from the shared
+                # ~78-category library.
+                try:
+                    from content_sfx import apply_audio_only_content_sfx
+                    _sfx_out = str(WORK_DIR / f"video_content_sfx_{episode}.mp4")
+                    video_path = apply_audio_only_content_sfx(
+                        video_path, script_clean, duration, niche["name"], _sfx_out, topic=topic, log_fn=log)
+                except Exception as _sfx_e:
+                    log(f"  Content SFX layer (non-fatal): {_sfx_e}")
                 continue
             if _v_dec == "approve" and _a_dec == "approve":
                 # FIX (found on deep re-audit): score_audio_quality/
@@ -6574,6 +6600,19 @@ def main():
                     ass_path = None
                 video_path = run_stage_with_retry(
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+                # FIX (direct user report, July 23 2026 — "hundreds of things...
+                # according to the niche and title... should not be missed"): Ch2
+                # had ZERO content-matched sound design beyond ambient music.
+                # Genre-neutral, audio-only layer (no visual grain/flash — Ch2's
+                # own genre, not Ch1's horror-movie language) from the shared
+                # ~78-category library.
+                try:
+                    from content_sfx import apply_audio_only_content_sfx
+                    _sfx_out = str(WORK_DIR / f"video_content_sfx_{episode}.mp4")
+                    video_path = apply_audio_only_content_sfx(
+                        video_path, script_clean, duration, niche["name"], _sfx_out, topic=topic, log_fn=log)
+                except Exception as _sfx_e:
+                    log(f"  Content SFX layer (non-fatal): {_sfx_e}")
                 continue
             if _a_dec == "edit":
                 _fb_audio = _av_review["audio_decision"]["feedback"] or ""
@@ -6594,6 +6633,19 @@ def main():
                     ass_path = None
                 video_path = run_stage_with_retry(
                     render_and_encode, "Animation", style_name, scenes, audio_path, duration, niche_name=niche["name"], niche_obj=niche, episode=episode, real_cases=real_cases, ass_path=ass_path)
+                # FIX (direct user report, July 23 2026 — "hundreds of things...
+                # according to the niche and title... should not be missed"): Ch2
+                # had ZERO content-matched sound design beyond ambient music.
+                # Genre-neutral, audio-only layer (no visual grain/flash — Ch2's
+                # own genre, not Ch1's horror-movie language) from the shared
+                # ~78-category library.
+                try:
+                    from content_sfx import apply_audio_only_content_sfx
+                    _sfx_out = str(WORK_DIR / f"video_content_sfx_{episode}.mp4")
+                    video_path = apply_audio_only_content_sfx(
+                        video_path, script_clean, duration, niche["name"], _sfx_out, topic=topic, log_fn=log)
+                except Exception as _sfx_e:
+                    log(f"  Content SFX layer (non-fatal): {_sfx_e}")
                 continue
     except Exception as e:
         log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
