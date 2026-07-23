@@ -404,6 +404,97 @@ def _tg_send_photo(tg_token, tg_chat, photo_path, caption="", reply_markup=None)
         return False
 
 
+def _tg_send_document(tg_token, tg_chat, doc_path, caption="", reply_markup=None):
+    """
+    Real Telegram document send (PDF/Word/etc.) — built in direct
+    response to explicit feedback that a long wall of chunked text
+    messages for the script is unreadable. A proper file attachment
+    opens in the reader's own PDF/Word viewer instead.
+    """
+    try:
+        data = {"chat_id": tg_chat, "caption": caption}
+        if reply_markup:
+            data["reply_markup"] = json.dumps(reply_markup)
+        with open(doc_path, "rb") as f:
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendDocument",
+                          data=data, files={"document": f}, timeout=120)
+        if r.status_code != 200:
+            print(f"  Telegram sendDocument failed (check bot token/chat ID): {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"  Telegram sendDocument failed: {e}")
+        return False
+
+
+def export_script_to_pdf(channel_name, title, niche_name, score, full_script,
+                          stage_texts=None, stage_names=None, thumbnail_text=None,
+                          tags=None, output_path=None):
+    """
+    Real, properly formatted PDF of the script for review — built in
+    direct response to explicit feedback that a long wall of chunked
+    Telegram text messages ("cutting down the paragraphs") is unreadable
+    and doesn't invite anyone to actually read it. Uses reportlab, the
+    same library already proven in video_pipeline/monetization.py for
+    product manuscript PDFs. Returns the output path on success, None on
+    any failure (caller falls back to the existing chunked-text send,
+    so a missing reportlab install or a render error never blocks the
+    actual review from happening).
+    """
+    if output_path is None:
+        output_path = "/tmp/script_review.pdf"
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+
+        doc = SimpleDocTemplate(str(output_path), pagesize=letter,
+                                 topMargin=0.9*inch, bottomMargin=0.9*inch,
+                                 leftMargin=0.9*inch, rightMargin=0.9*inch)
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name="ScriptTitle", fontSize=20, leading=26,
+                                   spaceAfter=6, fontName="Helvetica-Bold",
+                                   textColor=colors.HexColor("#14161a")))
+        styles.add(ParagraphStyle(name="ScriptMeta", fontSize=10.5, leading=15,
+                                   spaceAfter=18, textColor=colors.grey))
+        styles.add(ParagraphStyle(name="StageHead", fontSize=13, leading=17,
+                                   spaceBefore=16, spaceAfter=8, fontName="Helvetica-Bold",
+                                   textColor=colors.HexColor("#7d6b45")))
+        styles.add(ParagraphStyle(name="ScriptBody", fontSize=11, leading=16,
+                                   spaceAfter=8))
+
+        def _esc_pdf(text):
+            return _html_module.escape(str(text), quote=False).replace("\n", "<br/>")
+
+        story = [Paragraph(_esc_pdf(title), styles["ScriptTitle"]),
+                 Paragraph(f"{channel_name} | {niche_name} | Score: {score}/10 | "
+                           f"{len(full_script.split())} words", styles["ScriptMeta"])]
+
+        if stage_texts and stage_names and len(stage_texts) == len(stage_names):
+            for name, text in zip(stage_names, stage_texts):
+                story.append(Paragraph(_esc_pdf(name.upper()), styles["StageHead"]))
+                story.append(Paragraph(_esc_pdf(text), styles["ScriptBody"]))
+        else:
+            story.append(Paragraph(_esc_pdf(full_script), styles["ScriptBody"]))
+
+        if thumbnail_text or tags:
+            story.append(Spacer(1, 12))
+            story.append(Paragraph("METADATA", styles["StageHead"]))
+            if thumbnail_text:
+                story.append(Paragraph(f"Thumbnail text: {_esc_pdf(thumbnail_text)}", styles["ScriptBody"]))
+            if tags:
+                tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags)
+                story.append(Paragraph(f"Tags: {_esc_pdf(tags_str)}", styles["ScriptBody"]))
+
+        doc.build(story)
+        return output_path
+    except Exception as e:
+        print(f"  Script PDF export failed (falling back to chunked text): {e}")
+        return None
+
+
 def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
                         gmail_sender=None, gmail_app_password=None):
     """
@@ -1164,25 +1255,41 @@ def review_script(channel_name, title, full_script, score, niche_name,
              f"(auto-approves in {timeout_minutes} min)")
     _tg_send_message_with_buttons(tg_token, tg_chat, header)
 
-    # Real message-splitting — Telegram's real hard limit is 4096 characters.
-    # Send stage-by-stage with a clear header when the caller has that
-    # breakdown; otherwise fall back to the old flat-chunk behavior so
-    # nothing breaks for a caller that doesn't pass stage data.
-    chunk_size = 3700  # leaves headroom for the header/chunk-number prefix
-    if stage_texts and stage_names and len(stage_texts) == len(stage_names):
-        for stage_name, stage_text in zip(stage_names, stage_texts):
-            escaped_stage = _esc(stage_text)
-            sub_chunks = [escaped_stage[i:i+chunk_size] for i in range(0, len(escaped_stage), chunk_size)] or [""]
-            for i, chunk in enumerate(sub_chunks):
-                part_label = f" ({i+1}/{len(sub_chunks)})" if len(sub_chunks) > 1 else ""
-                _tg_send_message(tg_token, tg_chat, f"━━━ <b>{_esc(stage_name.upper())}</b>{part_label} ━━━\n\n{chunk}")
-                time.sleep(1)
-    else:
-        _escaped_script = _esc(full_script)
-        chunks = [_escaped_script[i:i+chunk_size] for i in range(0, len(_escaped_script), chunk_size)]
-        for i, chunk in enumerate(chunks):
-            _tg_send_message(tg_token, tg_chat, f"[{i+1}/{len(chunks)}]\n{chunk}")
-            time.sleep(1)  # avoid Telegram rate limits on rapid sequential sends
+    # FIX (found on direct user report, July 23 2026): a long wall of
+    # chunked text messages ("cutting down the paragraphs") is genuinely
+    # unreadable and doesn't invite anyone to actually read the script.
+    # A real PDF is the primary experience now — opens in the reader's
+    # own PDF viewer, properly formatted with stage headers. The old
+    # chunked-text send only runs as a fallback if the PDF export or
+    # send fails for any reason (e.g. reportlab not installed), so the
+    # actual script is never silently withheld from review either way.
+    pdf_path = export_script_to_pdf(channel_name, title, niche_name, score, full_script,
+                                     stage_texts=stage_texts, stage_names=stage_names,
+                                     thumbnail_text=thumbnail_text, tags=tags)
+    pdf_sent = False
+    if pdf_path:
+        pdf_sent = _tg_send_document(tg_token, tg_chat, pdf_path,
+                                      caption=f"📄 Full script — {title} ({len(full_script.split())} words)")
+    if not pdf_sent:
+        # Real message-splitting — Telegram's real hard limit is 4096 characters.
+        # Send stage-by-stage with a clear header when the caller has that
+        # breakdown; otherwise fall back to the old flat-chunk behavior so
+        # nothing breaks for a caller that doesn't pass stage data.
+        chunk_size = 3700  # leaves headroom for the header/chunk-number prefix
+        if stage_texts and stage_names and len(stage_texts) == len(stage_names):
+            for stage_name, stage_text in zip(stage_names, stage_texts):
+                escaped_stage = _esc(stage_text)
+                sub_chunks = [escaped_stage[i:i+chunk_size] for i in range(0, len(escaped_stage), chunk_size)] or [""]
+                for i, chunk in enumerate(sub_chunks):
+                    part_label = f" ({i+1}/{len(sub_chunks)})" if len(sub_chunks) > 1 else ""
+                    _tg_send_message(tg_token, tg_chat, f"━━━ <b>{_esc(stage_name.upper())}</b>{part_label} ━━━\n\n{chunk}")
+                    time.sleep(1)
+        else:
+            _escaped_script = _esc(full_script)
+            chunks = [_escaped_script[i:i+chunk_size] for i in range(0, len(_escaped_script), chunk_size)]
+            for i, chunk in enumerate(chunks):
+                _tg_send_message(tg_token, tg_chat, f"[{i+1}/{len(chunks)}]\n{chunk}")
+                time.sleep(1)  # avoid Telegram rate limits on rapid sequential sends
 
     # Thumbnail text / tags — always their own separate, clearly labeled
     # message, never mixed into the narration above.

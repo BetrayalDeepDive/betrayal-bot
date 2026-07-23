@@ -58,7 +58,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
-          pip install requests pillow edge-tts gTTS -q
+          # reportlab: real PDF export for the script review checkpoint,
+          # per explicit user request that a wall of chunked Telegram
+          # text is unreadable -- the script now goes out as a proper
+          # PDF attachment instead.
+          pip install requests pillow edge-tts gTTS reportlab -q
           # Kokoro (local TTS, genuinely natural-sounding, no rate limit) —
           # CPU-only torch wheel keeps this from downloading unnecessary
           # CUDA packages, which matters since GitHub Actions runners have

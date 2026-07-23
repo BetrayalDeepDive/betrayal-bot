@@ -1367,6 +1367,20 @@ Each cold open must:
 - Never say "welcome back", "today", "in this video"
 - Use a specific date, time, or number in the first sentence
 - Create a question the listener cannot stop thinking about
+- FIX (found on direct user report, July 23 2026 — real bug, this was
+  the single biggest gap in the whole video): the opening must actually
+  PREVIEW the real, specific twist/irony of THIS exact topic — state or
+  strongly imply the concrete outcome up front (e.g. if the topic is a
+  surprise anniversary gift that exposed the affair that ended the
+  marriage, say something like "the surprise she planned became the
+  thing that ended it" — naming the real irony, not a vague mood).
+  This creates a "wait — HOW did that happen" curiosity gap about THIS
+  specific story, not generic dread. A viewer must be able to tell,
+  from the cold open alone, roughly WHAT happens by the end — they
+  keep watching to learn HOW, never to learn WHAT. An opening that
+  could be swapped into a different episode about a different topic
+  with zero changes has failed this requirement, no matter how
+  disturbing it sounds in isolation.
 
 Format your response EXACTLY as:
 VARIANT_1:
@@ -1666,9 +1680,7 @@ most viewers actually drop off if nothing happens):
   an incomplete number, a named person whose role isn't yet explained.
 
 STAGE 1 — COLD OPEN ({stage_targets[1]} words)
-Sentence 1 must contain an exact number, date, or duration.
-Sentence 2 places the listener somewhere recognisable.
-Sentence 3 opens a loop the script must close.
+{"A MANDATORY COLD OPEN is provided above in RESEARCH CONTEXT — it already previews this exact story's specific twist/irony and was scored as the strongest of 3 real variants. Use it AS-IS for Stage 1 (only light edits for grammar/flow into what follows), do NOT write a new, generic cold open from scratch here. The rules below describe what that mandatory text already satisfies -- they are not a second, separate cold open to write instead of it." if "MANDATORY COLD OPEN" in research_context else "Sentence 1 must contain an exact number, date, or duration. Sentence 2 places the listener somewhere recognisable. Sentence 3 opens a loop the script must close. The opening must preview the real, specific twist/irony of THIS topic (state or strongly imply the actual outcome) -- not a generic disturbing mood that could belong to any episode."}
 Forbidden: "welcome back", "today we", "in this video", "join me"
 Trigger: DETAIL (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
 
@@ -2500,11 +2512,27 @@ def call_elevenlabs(script, niche_name, output_path):
             log(f"  ElevenLabs chunk {idx+1}/{len(chunks)}")
             r = requests.post(f"{ELEVENLABS_URL}/{voice_id}",
                 headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
-                json={"text": chunk, "model_id": "eleven_monolingual_v1",
+                # FIX (found live, July 23 2026 — likely root cause of the
+                # consistent 400 that's been silently sending every episode
+                # to the more robotic edge-tts fallback): eleven_monolingual_v1
+                # is ElevenLabs' original, oldest model -- their current
+                # documented migration path points to eleven_multilingual_v2
+                # for quality. Not empirically confirmed against a live call
+                # (no network access to ElevenLabs from this environment),
+                # but paired with the logging fix below, the next real run
+                # will show definitively whether this was the cause.
+                json={"text": chunk, "model_id": "eleven_multilingual_v2",
                       "voice_settings": {"stability": 0.45, "similarity_boost": 0.82}},
                 timeout=120)
             if r.status_code != 200:
-                log(f"  ElevenLabs {r.status_code}")
+                # FIX (found live, July 23 2026 — real bug): this only ever
+                # logged the bare status code, never the response body --
+                # ElevenLabs' error responses explain exactly what's wrong
+                # (bad model_id, quota, invalid voice) but that information
+                # was silently discarded every single time, making this
+                # failure completely undiagnosable. Same class of bug found
+                # and fixed for Groq/llm_json this session.
+                log(f"  ElevenLabs {r.status_code}: {r.text[:300]}")
                 return False
             part = str(WORK_DIR / f"el_{idx}.mp3")
             with open(part, "wb") as f: f.write(r.content)
@@ -5863,17 +5891,37 @@ def generate_thumbnail_text(niche, topic, title=""):
         f"Rules: EXACTLY 3 words. ALL CAPS. Dark and specific. Never generic.\n"
         f"Return ONLY 3 words. Example: FOUND INSIDE WALLS or NOBODY EVER LISTENED"
     )
+    # FIX (found on direct user request, July 23 2026 — real gate gap
+    # matching Ch5's already-proven fix): a real scoring function for
+    # exactly this purpose exists in thumbnail_engine_v2.py, but this
+    # function generated exactly ONE AI candidate and used it unscored,
+    # unconditionally — no gate at all, not even the "pick best of
+    # several" pattern Ch5 already has. Now generates up to 3 real
+    # candidates and picks the highest-scoring one.
     try:
-        result = ai_generate(prompt, tokens=15)
-        if result:
-            result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-            words  = result.split()[:3]
-            if len(words) == 3:
-                log(f"  Thumbnail: {' '.join(words)}")
-                return ' '.join(words)
+        from thumbnail_engine_v2 import score_thumbnail_text
+    except Exception:
+        score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
+
+    candidates = []
+    try:
+        for _ in range(3):
+            result = ai_generate(prompt, tokens=15)
+            if result:
+                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                words = result.split()[:3]
+                if len(words) == 3:
+                    candidates.append(' '.join(words))
     except Exception as e:
         log(f"  Thumbnail text (non-fatal): {e}")
-    return random.choice(fallback_bank.get(niche.get("name", "dark_horror"), fallback_bank["dark_horror"]))
+
+    if not candidates:
+        candidates = [random.choice(fallback_bank.get(niche.get("name", "dark_horror"), fallback_bank["dark_horror"]))]
+
+    scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
+    best_text, best_score = max(scored, key=lambda pair: pair[1])
+    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10)")
+    return best_text
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
@@ -6523,10 +6571,32 @@ def main():
         # size AND real measured duration against what the script's word
         # count implies) but was never called anywhere — a truncated or
         # corrupted audio file could silently reach video assembly undetected.
+        #
+        # FIX (found on direct user request, July 23 2026 — real gate gap):
+        # this only ever sent a Telegram warning and then proceeded anyway
+        # with the same corrupted/truncated audio -- exactly the "silently
+        # push it forward" behavior the user explicitly said they don't
+        # want. Now genuinely regenerates on a real failure (up to 2 real
+        # attempts) before ever falling through to a hold -- never
+        # publishes a corrupted/truncated narration automatically.
         _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
+        _audio_quality_retries = 0
+        while not check_audio_quality(audio_path, _expected_dur) and _audio_quality_retries < 2:
+            _audio_quality_retries += 1
+            tg(f"🔄 Ch1: audio quality check failed (expected ~{_expected_dur:.0f}s, got "
+               f"{audio_duration:.0f}s) — regenerating audio (attempt {_audio_quality_retries}/2) "
+               f"instead of publishing it as-is.")
+            log(f"  Audio quality gate failed — regenerating (attempt {_audio_quality_retries}/2)")
+            audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+            edge_voice = voice_used
         if not check_audio_quality(audio_path, _expected_dur):
-            tg(f"⚠️ Ch1 audio quality check failed — expected ~{_expected_dur:.0f}s, "
-               f"got {audio_duration:.0f}s. Proceeding, but this episode's audio needs review.")
+            tg(f"🛑 Ch1 HOLD — audio quality check still failing after 2 regeneration "
+               f"attempts (expected ~{_expected_dur:.0f}s, got {audio_duration:.0f}s). This "
+               f"episode is NOT being published automatically. Review manually, then re-run.\n\n"
+               f"Title: {title}")
+            log("  HOLD: audio quality gate still failing after 2 regeneration attempts. Stopping here.")
+            sys.exit(0)
 
         log("\nSTAGE 4: Video")
         # v1 addition — real, word-level synced captions, per explicit
@@ -6776,6 +6846,18 @@ def main():
             log(f"  Thumbnail style tracking (non-fatal): {e}")
         thumb_text  = generate_thumbnail_text(niche, topic, title)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+        # FIX (found on direct user report, July 23 2026 — real gap):
+        # score_thumbnail_text() already exists and Ch5 already wires it
+        # in, but Ch1 never did -- review_title_thumbnail_description()'s
+        # thumbnail_score parameter was always None here, so the CTR/
+        # thumbnail score the user explicitly asked for only ever showed
+        # up for the description, never the thumbnail, looking like
+        # scores were showing "randomly" rather than consistently missing.
+        try:
+            from thumbnail_engine_v2 import score_thumbnail_text
+            _thumb_score = score_thumbnail_text(thumb_text)
+        except Exception:
+            _thumb_score = None
 
         # Description generated here now (moved earlier from its old spot
         # right before upload) so it can be reviewed together with title
@@ -6826,7 +6908,8 @@ def main():
                 _ttd_review = review_title_thumbnail_description(
                     "BetrayalDeepDive", title, thumb_path, description, _desc_result["score"],
                     TG_TOKEN, TG_CHAT, _check_ins_used_ttd,
-                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
+                    thumbnail_score=_thumb_score)
                 _check_ins_used_ttd += 1
 
                 if _ttd_review["decision"] == "reject":
