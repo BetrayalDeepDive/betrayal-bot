@@ -6559,17 +6559,33 @@ def generate_thumbnail_text(niche, topic, title=""):
     except Exception:
         score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
 
+    # FIX (direct user report, July 23 2026 — "for everything, there
+    # should be specific scores that it should pass... rework that stage
+    # without fail", same fix already verified on Ch1, applied
+    # empire-wide): picking the best of 3 still accepted whatever that
+    # best happened to be. Now enforces a real 6.5/10 bar across up to 2
+    # rounds before falling back to best-effort.
+    THUMB_TEXT_MIN = 6.5
     candidates = []
-    try:
-        for _ in range(3):
-            result = ai_generate(prompt, tokens=15)
-            if result:
-                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-                words = result.split()[:3]
-                if len(words) == 3:
-                    candidates.append(' '.join(words))
-    except Exception as e:
-        log(f"  Thumbnail text (non-fatal): {e}")
+    for _round in range(2):
+        try:
+            for _ in range(3):
+                result = ai_generate(prompt, tokens=15)
+                if result:
+                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    words = result.split()[:3]
+                    if len(words) == 3:
+                        candidates.append(' '.join(words))
+        except Exception as e:
+            log(f"  Thumbnail text (non-fatal): {e}")
+        if candidates:
+            scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
+            best_text, best_score = max(scored, key=lambda pair: pair[1])
+            if best_score >= THUMB_TEXT_MIN:
+                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar)")
+                return best_text
+            log(f"  Thumbnail candidates scored: {scored} -> best '{best_text}' ({best_score}/10) "
+                f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")
 
     if not candidates:
         candidates = [random.choice(fallback_bank.get(niche.get("name", "personal_finance_mistakes"),
@@ -6577,7 +6593,8 @@ def generate_thumbnail_text(niche, topic, title=""):
 
     scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
     best_text, best_score = max(scored, key=lambda pair: pair[1])
-    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10)")
+    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10) "
+        f"[best-effort after {THUMB_TEXT_MIN} bar unmet across all rounds]")
     return best_text
 
 

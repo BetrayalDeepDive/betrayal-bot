@@ -1567,14 +1567,42 @@ USE ONE OF THESE 5 TRIGGERS (pick whichever fits the topic best):
 
 Rules: EXACTLY 3 words. ALL CAPS. Evidence-focused. Never generic.
 Return ONLY 3 words. Example: PAPER TRAIL FOUND or NOBODY EVER LISTENED"""
-    thumb_text = None
+    # FIX (direct user report, July 23 2026 — "for everything, there
+    # should be specific scores that it should pass... rework that stage
+    # without fail", same fix already verified on Ch1, applied
+    # empire-wide): this generated exactly ONE candidate, unscored, no
+    # gate at all. Now generates up to 3 real candidates per round, scores
+    # them, and reworks a second round if nothing clears a real 6.5/10 bar.
     try:
-        result = ai(prompt,temp=0.82,tokens=15,prefer="groq")
-        result = re.sub(r'[^A-Z\s]','',result.upper()).strip()
-        words  = result.split()[:3]
-        if len(words)==3:
-            thumb_text = ' '.join(words)
-    except: pass
+        from thumbnail_engine_v2 import score_thumbnail_text
+    except Exception:
+        score_thumbnail_text = lambda t: 5.0
+    THUMB_TEXT_MIN = 6.5
+    candidates = []
+    for _round in range(2):
+        try:
+            for _ in range(3):
+                result = ai(prompt, temp=0.82, tokens=15, prefer="groq")
+                if result:
+                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    words = result.split()[:3]
+                    if len(words) == 3:
+                        candidates.append(' '.join(words))
+        except Exception as e:
+            log(f"  Thumbnail text (non-fatal): {e}")
+        if candidates:
+            scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
+            _best_text, _best_score = max(scored, key=lambda pair: pair[1])
+            if _best_score >= THUMB_TEXT_MIN:
+                log(f"  Thumbnail candidates scored: {scored} -> chose '{_best_text}' ({_best_score}/10, passed {THUMB_TEXT_MIN} bar)")
+                break
+            log(f"  Thumbnail candidates scored: {scored} -> best '{_best_text}' ({_best_score}/10) "
+                f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")
+    thumb_text = None
+    if candidates:
+        scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
+        thumb_text, _final_score = max(scored, key=lambda pair: pair[1])
+        log(f"  Thumbnail candidates scored: {scored} -> chose '{thumb_text}' ({_final_score}/10)")
     if not thumb_text:
         thumb_text = random.choice(niche["thumbnail_triggers"])
 
