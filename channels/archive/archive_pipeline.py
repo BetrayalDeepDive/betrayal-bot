@@ -564,10 +564,19 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-# FIX (direct user report, July 23 2026): ALL_VOICES was US+GB (robotic
-# US voices per direct feedback) and GB_VOICES had en-GB-NoahNeural
-# (confirmed broken on this repo's Actions runners). Now GB-only.
-ALL_VOICES     = GB_VOICES
+# FIX (direct user report, July 23 2026 — "I wanted to go beyond the
+# Great Britain voices... Australian, New Zealand, or other English
+# languages... add everything... so that if that fails... it can move
+# to the next thing"): ALL_VOICES now includes a real additional-accent
+# pool beyond just GB.
+EXTENDED_VOICES = [
+    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",
+]
+ALL_VOICES     = GB_VOICES + EXTENDED_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
 # Best voices per niche — per explicit clarification, Ch4 uses ONE
@@ -579,14 +588,14 @@ ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 # direct feedback) — replaced with GB equivalents, preserving the
 # intentional "one consistent voice identity" design.
 NICHE_VOICES = {
-    "egyptian_civilization":               ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "chinese_civilization":                ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "mesopotamian_lost_civilizations":     ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "islamic_civilization_history":        ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "fallen_empires_military_overstretch": ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "elite_betrayal_infighting":           ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "propaganda_institutional_decline":    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "modern_parallels":                    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
+    "egyptian_civilization":               ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "chinese_civilization":                ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "mesopotamian_lost_civilizations":     ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "islamic_civilization_history":        ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "fallen_empires_military_overstretch": ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "elite_betrayal_infighting":           ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "propaganda_institutional_decline":    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "modern_parallels":                    ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural","en-GB-EthanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3756,7 +3765,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     "en-GB-RyanNeural",          # Deep British authority
     "en-GB-OliverNeural",        # Composed British authority
     "en-GB-EthanNeural",         # Warm natural storytelling
-]
+] + EXTENDED_VOICES  # AU/NZ/IE/ZA/CA — real fallback depth beyond GB-only
     voice_queue = [voice_id]
     for v in preferred:
         if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)

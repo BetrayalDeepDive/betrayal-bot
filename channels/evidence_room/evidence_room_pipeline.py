@@ -560,30 +560,33 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-# FIX (direct user report, July 23 2026): ALL_VOICES used to be US+GB and
-# GB_VOICES had en-GB-NoahNeural duplicated twice (confirmed broken on
-# this repo's Actions runners — dead voice occupying half of every
-# GB_VOICES[:4] fallback slice). Now GB-only, no robotic US voices, no
-# broken duplicate.
-ALL_VOICES     = GB_VOICES
+# FIX (direct user report, July 23 2026 — "I wanted to go beyond the
+# Great Britain voices... Australian, New Zealand, or other English
+# languages... add everything... so that if that fails... it can move
+# to the next thing, not get stuck with one voice itself"): ALL_VOICES
+# now includes a real, deep additional-accent pool beyond just GB.
+EXTENDED_VOICES = [
+    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",
+]
+ALL_VOICES     = GB_VOICES + EXTENDED_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
-# Best voices per niche
-# FIX (direct user report, July 23 2026 — "no normal voices, more human,
-# deep voices... for all five channels"): every pool here mixed in US
-# voices (robotic per direct user feedback on Ch1's identical TTS layer)
-# and en-GB-NoahNeural (confirmed broken on this repo's Actions runners —
-# 24/24 segment failures in live testing on Ch1). Now GB-only, matching
-# Ch1's fix, with real per-niche variety instead of the same 2 GB voices
-# recycled everywhere.
+# Best voices per niche — every pool now has a real 4-deep chain
+# spanning GB/AU/NZ/IE/ZA/CA, not just GB, so a failure on one accent
+# genuinely moves to a different real voice rather than cycling the
+# same handful of GB options.
 NICHE_VOICES = {
-    "forensic_finance":       ["en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural","en-GB-RyanNeural"],
-    "criminal_investigation": ["en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
-    "corporate_exposure":     ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "digital_forensics":      ["en-GB-EthanNeural","en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural"],
-    "body_cam_police":        ["en-GB-RyanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
-    "courtroom_drama":        ["en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural","en-GB-OliverNeural"],
-    "robbery_documentaries":  ["en-GB-RyanNeural","en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural"],
+    "forensic_finance":       ["en-GB-ThomasNeural","en-GB-OliverNeural","en-AU-WilliamNeural","en-NZ-MitchellNeural"],
+    "criminal_investigation": ["en-GB-RyanNeural","en-GB-ThomasNeural","en-IE-ConnorNeural","en-CA-LiamNeural"],
+    "corporate_exposure":     ["en-GB-OliverNeural","en-GB-ThomasNeural","en-AU-NatashaNeural","en-ZA-LukeNeural"],
+    "digital_forensics":      ["en-GB-EthanNeural","en-GB-RyanNeural","en-NZ-MollyNeural","en-CA-ClaraNeural"],
+    "body_cam_police":        ["en-GB-RyanNeural","en-GB-ThomasNeural","en-AU-WilliamNeural","en-ZA-LeahNeural"],
+    "courtroom_drama":        ["en-GB-ThomasNeural","en-GB-EthanNeural","en-IE-EmilyNeural","en-NZ-MitchellNeural"],
+    "robbery_documentaries":  ["en-GB-RyanNeural","en-GB-OliverNeural","en-AU-NatashaNeural","en-IE-ConnorNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3378,7 +3381,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     "en-GB-RyanNeural",          # Deep British authority
     "en-GB-OliverNeural",        # Composed British authority
     "en-GB-EthanNeural",         # Warm natural storytelling
-]
+] + EXTENDED_VOICES  # AU/NZ/IE/ZA/CA — real fallback depth beyond GB-only
     voice_queue = [voice_id]
     for v in preferred:
         if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)

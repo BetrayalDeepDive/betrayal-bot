@@ -545,23 +545,30 @@ GB_VOICES = [
     "en-GB-AbbiNeural",         # Clear warm professional (F)
     "en-GB-HollieNeural",       # Professional sharp (F)
 ]
-# FIX (direct user report, July 23 2026 — "no normal voices, more human,
-# deep voices... for all five channels"): ALL_VOICES was US+GB (robotic
-# US voices per direct feedback on Ch1's identical TTS layer); GB_VOICES
-# had en-GB-NoahNeural, confirmed broken on this repo's Actions runners
-# (24/24 segment failures in live testing). Now GB-only, no broken voice.
-ALL_VOICES     = GB_VOICES
+# FIX (direct user report, July 23 2026 — "I wanted to go beyond the
+# Great Britain voices... Australian, New Zealand, or other English
+# languages... add everything... so that if that fails... it can move
+# to the next thing, not get stuck with one voice itself"): ALL_VOICES
+# now includes a real, deep additional-accent pool beyond just GB.
+EXTENDED_VOICES = [
+    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",
+]
+ALL_VOICES     = GB_VOICES + EXTENDED_VOICES
 ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 
-# Best voices per niche — was mixing in US voices identically shuffled
-# across every niche (no real per-niche variety). Now GB-only, varied.
+# Best voices per niche — every pool now has a real 4-deep chain
+# spanning GB/AU/NZ/IE/ZA/CA.
 NICHE_VOICES = {
-    "cult_psychology":            ["en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-OliverNeural","en-GB-EthanNeural"],
-    "propaganda_systems":         ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-RyanNeural","en-GB-EthanNeural"],
-    "social_engineering":         ["en-GB-RyanNeural","en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural"],
-    "mass_deception":             ["en-GB-EthanNeural","en-GB-ThomasNeural","en-GB-OliverNeural","en-GB-RyanNeural"],
-    "dark_business_documentaries":["en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural","en-GB-OliverNeural"],
-    "scams_fraud_exposed":        ["en-GB-OliverNeural","en-GB-ThomasNeural","en-GB-EthanNeural","en-GB-RyanNeural"],
+    "cult_psychology":            ["en-GB-ThomasNeural","en-GB-RyanNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
+    "propaganda_systems":         ["en-GB-OliverNeural","en-GB-ThomasNeural","en-ZA-LukeNeural","en-CA-LiamNeural"],
+    "social_engineering":         ["en-GB-RyanNeural","en-GB-OliverNeural","en-NZ-MitchellNeural","en-AU-NatashaNeural"],
+    "mass_deception":             ["en-GB-EthanNeural","en-GB-ThomasNeural","en-IE-EmilyNeural","en-ZA-LeahNeural"],
+    "dark_business_documentaries":["en-GB-ThomasNeural","en-GB-EthanNeural","en-CA-ClaraNeural","en-NZ-MollyNeural"],
+    "scams_fraud_exposed":        ["en-GB-OliverNeural","en-GB-ThomasNeural","en-AU-WilliamNeural","en-IE-ConnorNeural"],
 }
 
 # ── ANIMATION STYLES ────────────────────────────────────────
@@ -3294,7 +3301,7 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     "en-GB-RyanNeural",          # Deep British authority
     "en-GB-OliverNeural",        # Composed British authority
     "en-GB-EthanNeural",         # Warm natural storytelling
-]
+] + EXTENDED_VOICES  # AU/NZ/IE/ZA/CA — real fallback depth beyond GB-only
     voice_queue = [voice_id]
     for v in preferred:
         if v not in voice_queue and v not in ROBOTIC_VOICES: voice_queue.append(v)

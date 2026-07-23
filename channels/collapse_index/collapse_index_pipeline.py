@@ -807,20 +807,33 @@ NICHES = [
 # Replaced with GB-only pairs (matching Ch1's fix; en-GB-NoahNeural
 # excluded — confirmed broken on this repo's Actions runners, 24/24
 # segment failures in live testing), varied per niche.
+# FIX (direct user report, July 23 2026 — "I wanted to go beyond the
+# Great Britain voices... Australian, New Zealand, or other English
+# languages... add everything... so that if that fails... it can move
+# to the next thing"): every niche now has a real 4-deep chain spanning
+# GB/AU/NZ/IE/ZA/CA, not just 2 GB-only options.
+EXTENDED_VOICES = [
+    "en-AU-WilliamNeural", "en-AU-NatashaNeural",
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",
+]
+
 VOICES = {
-    "ai_startup_collapse":         ["en-GB-ThomasNeural", "en-GB-RyanNeural"],
-    "tech_company_collapse":       ["en-GB-RyanNeural", "en-GB-OliverNeural"],
-    "crypto_collapse":             ["en-GB-ThomasNeural", "en-GB-EthanNeural"],
-    "cybersecurity_disasters":     ["en-GB-OliverNeural", "en-GB-ThomasNeural"],
-    "product_flops":               ["en-GB-EthanNeural", "en-GB-RyanNeural"],
-    "dotcom_era_collapse":         ["en-GB-ThomasNeural", "en-GB-OliverNeural"],
-    "personal_finance_mistakes":   ["en-GB-RyanNeural", "en-GB-EthanNeural"],
-    "investing_fundamentals":      ["en-GB-OliverNeural", "en-GB-RyanNeural"],
-    "retirement_planning":         ["en-GB-EthanNeural", "en-GB-ThomasNeural"],
-    "credit_debt_repair":          ["en-GB-ThomasNeural", "en-GB-RyanNeural"],
-    "real_estate_affordability":   ["en-GB-RyanNeural", "en-GB-OliverNeural"],
-    "budgeting_saving_strategies": ["en-GB-OliverNeural", "en-GB-EthanNeural"],
-    "stock_market_crashes_history":["en-GB-ThomasNeural", "en-GB-RyanNeural"],
+    "ai_startup_collapse":         ["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-AU-WilliamNeural", "en-NZ-MitchellNeural"],
+    "tech_company_collapse":       ["en-GB-RyanNeural", "en-GB-OliverNeural", "en-CA-LiamNeural", "en-IE-ConnorNeural"],
+    "crypto_collapse":             ["en-GB-ThomasNeural", "en-GB-EthanNeural", "en-AU-NatashaNeural", "en-ZA-LukeNeural"],
+    "cybersecurity_disasters":     ["en-GB-OliverNeural", "en-GB-ThomasNeural", "en-NZ-MitchellNeural", "en-CA-LiamNeural"],
+    "product_flops":               ["en-GB-EthanNeural", "en-GB-RyanNeural", "en-IE-EmilyNeural", "en-AU-WilliamNeural"],
+    "dotcom_era_collapse":         ["en-GB-ThomasNeural", "en-GB-OliverNeural", "en-ZA-LeahNeural", "en-NZ-MollyNeural"],
+    "personal_finance_mistakes":   ["en-GB-RyanNeural", "en-GB-EthanNeural", "en-AU-NatashaNeural", "en-IE-ConnorNeural"],
+    "investing_fundamentals":      ["en-GB-OliverNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-ZA-LukeNeural"],
+    "retirement_planning":         ["en-GB-EthanNeural", "en-GB-ThomasNeural", "en-NZ-MollyNeural", "en-AU-WilliamNeural"],
+    "credit_debt_repair":          ["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-IE-EmilyNeural", "en-CA-LiamNeural"],
+    "real_estate_affordability":   ["en-GB-RyanNeural", "en-GB-OliverNeural", "en-AU-NatashaNeural", "en-ZA-LeahNeural"],
+    "budgeting_saving_strategies": ["en-GB-OliverNeural", "en-GB-EthanNeural", "en-NZ-MitchellNeural", "en-IE-ConnorNeural"],
+    "stock_market_crashes_history":["en-GB-ThomasNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-AU-WilliamNeural"],
 }
 
 BG_KEYWORDS = {
@@ -3480,7 +3493,7 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     if not el_ok:
         _fallback_candidates = [v for v in
-            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-OliverNeural"] if v != edge_voice]
+            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-OliverNeural"] + EXTENDED_VOICES if v != edge_voice]
         try:
             _perf_state = load_state()
             _voice_perf = _perf_state.get("performance", {})
@@ -6241,7 +6254,7 @@ def render_chart_clip(chart_image_path, duration, output_path):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
     return select_best_voice(state, niche_name, available)
 
 
@@ -7420,7 +7433,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -7444,7 +7457,7 @@ def main():
                     # bug as Ch1/2/3/4 -- this used to regenerate with the
                     # exact same edge_voice, so feedback about the voice
                     # never actually changed anything. Now genuinely swaps.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"

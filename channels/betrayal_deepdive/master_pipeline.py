@@ -623,10 +623,26 @@ NICHES = [
 # so kept as the SECOND option per niche behind an already-proven GB
 # voice, with the existing SSML/Fish Audio/Kokoro fallback chain still
 # there as a safety net if either ever fails.
+# FIX (direct user report, July 23 2026 — "I wanted to go beyond the
+# Great Britain voices. I wanted to use Australian, New Zealand, or
+# other English languages that have more human and more interesting
+# voices... add everything... so that if that fails... it can move to
+# the next thing, not get stuck with one voice itself"): every niche now
+# has a real 4-deep chain spanning GB/AU/NZ/IE, not just 2 GB-only
+# options. EXTENDED_VOICES below is the full additional-accent pool used
+# to build these chains and every fallback list in this file.
+EXTENDED_VOICES = [
+    "en-AU-WilliamNeural", "en-AU-NatashaNeural",   # Australian
+    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",    # New Zealand
+    "en-IE-ConnorNeural", "en-IE-EmilyNeural",      # Irish
+    "en-ZA-LukeNeural", "en-ZA-LeahNeural",         # South African
+    "en-CA-LiamNeural", "en-CA-ClaraNeural",        # Canadian
+]
+
 VOICES = {
-    "dark_horror":        ["en-GB-RyanNeural",   "en-AU-WilliamNeural"],
-    "seduction_dark":     ["en-GB-ThomasNeural",  "en-AU-WilliamNeural"],
-    "psychological_trap": ["en-GB-RyanNeural",    "en-GB-ThomasNeural"],
+    "dark_horror":        ["en-GB-RyanNeural", "en-AU-WilliamNeural", "en-NZ-MitchellNeural", "en-IE-ConnorNeural"],
+    "seduction_dark":     ["en-GB-ThomasNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural"],
+    "psychological_trap": ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural"],
     # FIX (found live, July 23 2026): en-GB-NoahNeural is broken on this
     # repo's GitHub Actions runners specifically -- confirmed live, ALL
     # 8 SSML segments failed 3 attempts each (24/24 failures, "No audio
@@ -635,8 +651,8 @@ VOICES = {
     # switched to RyanNeural. Same class of issue as the already-known
     # "DavisNeural unavailable on Actions" -- swapped for ThomasNeural,
     # which has direct confirmation of actually working.
-    "supernatural_real":  ["en-GB-ThomasNeural",  "en-AU-WilliamNeural"],
-    "obsession_dark":     ["en-GB-OliverNeural",  "en-GB-RyanNeural"],
+    "supernatural_real":  ["en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-NZ-MollyNeural", "en-IE-ConnorNeural"],
+    "obsession_dark":     ["en-GB-OliverNeural", "en-GB-RyanNeural", "en-CA-ClaraNeural", "en-ZA-LukeNeural"],
 }
 
 BG_KEYWORDS = {
@@ -3040,7 +3056,7 @@ def run_audio_stage(script, niche_name, edge_voice):
     if not el_ok:
         # FIX (July 23 2026, direct user request): no US voices, channel-wide.
         _fallback_candidates = [v for v in
-            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-AU-WilliamNeural"] if v != edge_voice]
+            ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES if v != edge_voice]
         # v1 addition — real learning-loop closure: voice performance has
         # been tracked into state["performance"] this whole time but
         # never read back. Reorders only the FALLBACK candidates (never
@@ -5562,7 +5578,7 @@ def run_stage1(state):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
     return select_best_voice(state, niche_name, available)
 
 
@@ -6984,7 +7000,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -7015,7 +7031,7 @@ def main():
                     # script itself is reviewed separately at the SCRIPT
                     # checkpoint — so EDIT here now actually swaps to a
                     # genuinely different voice, same as SWAP VOICE does.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"])
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
