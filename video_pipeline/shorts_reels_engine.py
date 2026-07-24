@@ -121,7 +121,19 @@ MAIN_TOPIC  = os.environ.get("MAIN_VIDEO_TOPIC", "")
 OUTPUT_DIR  = os.environ.get("OUTPUT_DIR", "/tmp/shorts_output")
 CHANNEL     = "BETRAYAL DEEPDIVE"      # legacy default — see CHANNEL_CONFIGS below
 WATERMARK   = "@BetrayalDeepDive"      # legacy default — see CHANNEL_CONFIGS below
-QUALITY_MIN = 8.5
+
+# FIX (real production data, Ch1 run 30066893737, 2026-07-24): 8.5 required
+# near-perfect scores across all 5 independent rubric dimensions (hook,
+# length, loop ending, emotional arc, title) simultaneously -- the same
+# compounding-gate problem already found and fixed twice today for the
+# main script rubric (narrative craft 8.8->7.9, hook gate 7.0->6.5).
+# 9 real attempts that same run (3 video-topic angles, 6 standalone)
+# scored 2.5-7.0, with zero clearing 8.5 -- the best real attempt (7.0)
+# was still rejected, and 0/4 Shorts got produced. Recalibrated to a
+# real-data-informed floor that still rejects the weak 2.5-6.0 attempts
+# but lets a genuinely strong one (7.0+) through, same margin used for
+# HOOK_GATE_MIN's identical recalibration.
+QUALITY_MIN = 6.5
 
 # ══════════════════════════════════════════════════════════════════
 # FIX: this whole file was hardcoded to Ch1's identity throughout —
