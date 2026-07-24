@@ -45,6 +45,29 @@
       ],
       "fresh_topic_ideas": [],
       "last_run": "2026-07-15T05:40:27.145102"
+    },
+    "credit_debt_repair": {
+      "top_hook_formulas": [],
+      "winning_title_patterns": [
+        "NUMBER + NOUN format",
+        "The [THING] That Changed Everything"
+      ],
+      "thumbnail_text_examples": [],
+      "retention_hooks": [
+        "The next detail is the one that changes everything",
+        "What was found at this point made investigators stop",
+        "The final revelation is the one nobody expected"
+      ],
+      "niche_power_words": [
+        "documented",
+        "witnessed",
+        "concealed",
+        "discovered",
+        "classified",
+        "permanent"
+      ],
+      "fresh_topic_ideas": [],
+      "last_run": "2026-07-24T05:42:20.888516"
     }
   },
   "thumbnail_ab": {
