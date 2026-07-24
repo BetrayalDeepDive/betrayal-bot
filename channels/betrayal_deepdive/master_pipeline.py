@@ -7717,6 +7717,16 @@ def main_with_retry():
                 tg(f"❌ Ch1 FAILED after {max_retries} attempts.")
                 sys.exit(1)
         except Exception as e:
+            # FIX (found diagnosing real Ch2/3/4 upload failures on the
+            # exact same pattern): tg() only ever received a 200/300-char
+            # truncated str(e), and never printed anything to stdout --
+            # meaning the real exception (type, full message, traceback)
+            # was invisible in the GitHub Actions log unless Telegram
+            # happened to deliver it, and even then only truncated. Now
+            # always logs the full traceback to stdout first, regardless
+            # of Telegram delivery.
+            import traceback
+            log(f"  main_with_retry: attempt {attempt}/{max_retries} crashed:\n{traceback.format_exc()}")
             if attempt < max_retries:
                 tg(f"⚠️ Ch1 crash {attempt}/{max_retries}: {str(e)[:200]}\nRetrying in 10 minutes...")
                 time.sleep(600)
