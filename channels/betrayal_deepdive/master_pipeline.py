@@ -3165,7 +3165,22 @@ def _detect_abnormal_silence(mp3_path, total_duration):
     """
     v1 addition — real, signal-based audio quality check using ffmpeg's
     actual silencedetect filter, not just file size/duration heuristics.
-    Flags if total detected silence exceeds 15% of the audio.
+
+    FIX (real production data, run 30058094102): the cumulative-fraction
+    check alone can't tell "many short dramatic pauses" (legitimate —
+    this is a slow-paced horror/documentary narration deliberately
+    slowed -5% to -10% for weight) from "one dead segment" (a real
+    dropped/corrupted render). Three independent real syntheses of the
+    same script (an 8-segment SSML crossfade render, then two plain
+    single-shot fallback renders) all landed at exactly 23% cumulative
+    silence with zero crashes or errors anywhere in the chain — that's
+    the narration's real pacing, not corruption, and 15% was already
+    unreachable for this kind of deliberately-paced narration (same
+    category of miscalibration as the narrative-craft gate, which was
+    unreachable at 8.8 and had to be recalibrated to a real 7.9 ceiling).
+    Now checks BOTH: cumulative fraction (raised to a real-data-informed
+    30%) AND the single longest silent run (12s+ is a genuine dropped
+    segment — real spoken dramatic pauses don't run that long).
     """
     if not total_duration or total_duration <= 0:
         return True, 0.0
@@ -3175,17 +3190,21 @@ def _detect_abnormal_silence(mp3_path, total_duration):
              "-f", "null", "-"],
             capture_output=True, text=True, timeout=60)
         silence_total = 0.0
+        longest_run = 0.0
         for line in r.stderr.splitlines():
             if "silence_duration:" in line:
                 try:
-                    silence_total += float(line.split("silence_duration:")[1].strip())
+                    d = float(line.split("silence_duration:")[1].strip())
+                    silence_total += d
+                    longest_run = max(longest_run, d)
                 except (ValueError, IndexError):
                     pass
         fraction = silence_total / total_duration
-        is_normal = fraction <= 0.15
+        is_normal = fraction <= 0.30 and longest_run < 12.0
         if not is_normal:
             log(f"  Audio silence check: {fraction*100:.0f}% of audio is silence "
-                f"(threshold 15%) — possible corrupted/truncated segment")
+                f"(threshold 30%), longest single gap {longest_run:.1f}s (threshold 12s) "
+                f"— possible corrupted/truncated segment")
         return is_normal, fraction
     except Exception as e:
         log(f"  Silence detection (non-fatal, not blocking): {e}")

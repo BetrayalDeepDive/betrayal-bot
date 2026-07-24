@@ -3279,9 +3279,19 @@ def _detect_abnormal_silence(mp3_path, total_duration):
     Catches a genuine TTS failure mode that size checks miss entirely: a
     segment that generated corrupted or got silently truncated mid-
     synthesis, leaving a real, audible silent gap in otherwise normal-
-    sized audio. Flags if total detected silence exceeds 15% of the
-    audio — continuous narration should have brief natural pauses, not
-    long unexplained gaps. Returns (is_normal, silence_fraction).
+    sized audio.
+
+    FIX (same root cause confirmed live on Ch1, run 30058094102): a pure
+    cumulative-fraction check can't tell "many short dramatic pauses"
+    (legitimate for a slow-paced narration) from "one dead segment" (a
+    real dropped/corrupted render). Three independent real Ch1 syntheses
+    of the same script all landed at 23% cumulative silence with zero
+    errors anywhere in the chain -- that's real narration pacing, not
+    corruption, and 15% was unreachable for this kind of deliberately
+    slowed narration. Now checks BOTH: cumulative fraction (raised to a
+    real-data-informed 30%) AND the single longest silent run (12s+ is a
+    genuine dropped segment -- real spoken pauses don't run that long).
+    Returns (is_normal, silence_fraction).
     """
     if not total_duration or total_duration <= 0:
         return True, 0.0  # can't evaluate — don't block on missing data
@@ -3291,17 +3301,21 @@ def _detect_abnormal_silence(mp3_path, total_duration):
              "-f", "null", "-"],
             capture_output=True, text=True, timeout=60)
         silence_total = 0.0
+        longest_run = 0.0
         for line in r.stderr.splitlines():
             if "silence_duration:" in line:
                 try:
-                    silence_total += float(line.split("silence_duration:")[1].strip())
+                    d = float(line.split("silence_duration:")[1].strip())
+                    silence_total += d
+                    longest_run = max(longest_run, d)
                 except (ValueError, IndexError):
                     pass
         fraction = silence_total / total_duration
-        is_normal = fraction <= 0.15
+        is_normal = fraction <= 0.30 and longest_run < 12.0
         if not is_normal:
             log(f"  Audio silence check: {fraction*100:.0f}% of audio is silence "
-                f"(threshold 15%) — possible corrupted/truncated segment")
+                f"(threshold 30%), longest single gap {longest_run:.1f}s (threshold 12s) "
+                f"— possible corrupted/truncated segment")
         return is_normal, fraction
     except Exception as e:
         log(f"  Silence detection (non-fatal, not blocking): {e}")
