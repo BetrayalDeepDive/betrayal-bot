@@ -142,5 +142,53 @@
     "mode": "standalone_2",
     "format": "before_after",
     "timestamp": "2026-07-24T09:22:44.016721"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_1",
+    "format": "myth_bust",
+    "timestamp": "2026-07-24T14:41:11.889248"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_2",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-24T14:41:24.497650"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "countdown_list",
+    "timestamp": "2026-07-24T14:41:36.031593"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "timestamp": "2026-07-24T14:41:37.587196"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "before_after",
+    "timestamp": "2026-07-24T14:41:39.571543"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "myth_bust",
+    "timestamp": "2026-07-24T14:41:41.875134"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "direct_reveal",
+    "timestamp": "2026-07-24T14:41:47.913204"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "countdown_list",
+    "timestamp": "2026-07-24T14:41:52.166352"
   }
 ]
