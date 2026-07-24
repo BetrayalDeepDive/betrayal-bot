@@ -825,8 +825,13 @@ NICHES = [
 # only happen on the GitHub Actions runner where TTS actually runs; any
 # renamed/retired ID simply gets skipped by the existing fallback-chain
 # logging, same as today.
+# FIX (direct user report, July 24 2026): en-GB-RyanNeural removed
+# entirely from every voice pool/fallback list in this file — user
+# reported it sounds robotic and asked repeatedly for it to stop being
+# used; it kept resurfacing because it was hardcoded first in fallback
+# lists and present in most niche pools.
 EXTENDED_VOICES = [
-    "en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-AlfieNeural",
+    "en-GB-ThomasNeural", "en-GB-AlfieNeural",
     "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",
     "en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",
     "en-GB-BellaNeural", "en-GB-HollieNeural", "en-GB-OliviaNeural",
@@ -849,7 +854,7 @@ EXTENDED_VOICES = [
 # for the more dramatic crash/flop niches), WARM_EXPLAINER (reassuring/
 # approachable, for the personal-finance-education niches).
 _SERIOUS_ANALYST = [
-    "en-GB-ThomasNeural", "en-AU-NatashaNeural", "en-GB-RyanNeural", "en-AU-WilliamNeural",
+    "en-GB-ThomasNeural", "en-AU-NatashaNeural", "en-AU-WilliamNeural",
     "en-GB-SoniaNeural", "en-CA-LiamNeural", "en-IE-ConnorNeural", "en-GB-LibbyNeural",
     "en-AU-DuncanNeural", "en-ZA-LukeNeural", "en-GB-EthanNeural", "en-AU-FreyaNeural",
     "en-NZ-MitchellNeural", "en-CA-ClaraNeural", "en-GB-OliverNeural", "en-IE-EmilyNeural",
@@ -859,11 +864,11 @@ _URGENT_DRAMATIC = [
     "en-GB-EthanNeural", "en-AU-DarrenNeural", "en-GB-OliverNeural", "en-AU-NatashaNeural",
     "en-ZA-LukeNeural", "en-GB-BellaNeural", "en-CA-LiamNeural", "en-AU-CarlyNeural",
     "en-IE-ConnorNeural", "en-GB-HollieNeural", "en-NZ-MitchellNeural", "en-ZA-LeahNeural",
-    "en-GB-RyanNeural", "en-AU-KenNeural", "en-CA-ClaraNeural", "en-IE-EmilyNeural",
+    "en-AU-KenNeural", "en-CA-ClaraNeural", "en-IE-EmilyNeural",
     "en-GB-AlfieNeural", "en-NZ-MollyNeural",
 ]
 _WARM_EXPLAINER = [
-    "en-GB-RyanNeural", "en-AU-NatashaNeural", "en-GB-SoniaNeural", "en-AU-WilliamNeural",
+    "en-AU-NatashaNeural", "en-GB-SoniaNeural", "en-AU-WilliamNeural",
     "en-IE-EmilyNeural", "en-GB-LibbyNeural", "en-AU-JoanneNeural", "en-CA-ClaraNeural",
     "en-GB-EthanNeural", "en-NZ-MollyNeural", "en-ZA-LeahNeural", "en-AU-NeilNeural",
     "en-GB-AbbiNeural", "en-IE-ConnorNeural", "en-CA-LiamNeural", "en-AU-TinaNeural",
@@ -1263,12 +1268,23 @@ def call_gemini(prompt, tokens=8000):
     return None
 
 # Free models on OpenRouter — try in order until one responds
+# FIX (direct user report, July 24 2026): "Open Router is not working" —
+# real test logs showed 404 (model not found) on every slug in the old
+# list. OpenRouter regularly retires free-tier model IDs without notice
+# (phi-3-mini, zephyr-7b, and openchat-3.5 are all long past end-of-life
+# on their free catalog as of this fix), so the list is refreshed to
+# current (mid-2026) free-tier slugs and widened for more redundancy —
+# any name that goes stale again just gets skipped via the existing
+# 404-continue handling below, same self-healing behavior as Cerebras.
 OR_FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",    # best quality
+    "deepseek/deepseek-chat-v3.1:free",           # best quality, free
+    "deepseek/deepseek-r1:free",                  # strong reasoning fallback
+    "qwen/qwen-2.5-72b-instruct:free",             # Qwen fallback
+    "meta-llama/llama-3.3-70b-instruct:free",     # Meta fallback
+    "mistralai/mistral-nemo:free",                 # Mistral fallback
     "mistralai/mistral-7b-instruct:free",         # reliable fallback
-    "google/gemma-2-9b-it:free",                  # Google fallback
-    "microsoft/phi-3-mini-128k-instruct:free",    # Microsoft fallback
-    "huggingfaceh4/zephyr-7b-beta:free",          # last resort
+    "google/gemma-3-27b-it:free",                  # Google fallback
+    "nousresearch/hermes-3-llama-3.1-405b:free",  # last resort
 ]
 
 def call_openrouter(prompt, tokens=8000):
@@ -1761,6 +1777,16 @@ Each cold open must:
   opening missing them will fail the hook gate and be reworked, so build
   them in now rather than relying on a retry to catch it.
 
+- FIX (direct user report, July 24 2026 — "the cold open should open
+  with a question and also interview the audience"): weave a direct,
+  second-person question aimed at the viewer ("you"/"your") into the
+  first two or three sentences — not a generic rhetorical cliché like
+  "have you ever...", but a specific question tied to THIS case's real
+  twist. It must still open mid-action with the disturbing fact per the
+  rules above — the question is woven into the opening beats, not a
+  throat-clearing preamble before the real hook starts. This is also
+  automatically scored below.
+
 Format your response EXACTLY as:
 VARIANT_1:
 [cold open text here]
@@ -1809,6 +1835,14 @@ Write all 3 now. Zero markdown."""
         # Opens mid-action (no weak openers)
         weak = ["in this", "today we", "welcome", "hello", "this is the story", "have you ever"]
         if not any(w in words[:50] for w in weak): s += 1.5
+        # FIX (direct user report, July 24 2026 — "open with a question
+        # and also interview the audience"): reward a real question posed
+        # directly to the viewer early in the cold open. The weak-opener
+        # penalty above still applies to a lazy "have you ever" cliché,
+        # so this only rewards a genuine, specific, second-person question.
+        has_question = "?" in text[:250]
+        has_you       = bool(re.search(r'\byou\b|\byour\b', words[:250]))
+        if has_question and has_you: s += 1.5
         return round(min(s, 10.0), 1)
 
     scored = [(v, score_cold_open(v)) for v in variants]
@@ -2413,9 +2447,22 @@ def generate_script_content(niche, topic, episode, attempt,
     # tried to use it, crashing with UnboundLocalError. Moved here,
     # unconditional, so it's always bound regardless of which branches
     # below actually run.
-    stage_texts = []
-    targets = [110, 210, 260, 420, 170, 680, 190]
+    # FIX (direct user report, July 24 2026 — real published preview
+    # showed the whole script as one undifferentiated paragraph, no
+    # COLD OPEN/FIRST SIGNALS/ESCALATION/etc headers anywhere): this used
+    # to stay an empty [] placeholder unless wc >= MIN_WORDS (1900) --
+    # meaning ANY attempt landing even slightly short of that lost
+    # stage_texts entirely, and every downstream consumer (PDF export,
+    # Telegram review) fell back to flat, unlabeled prose with no error
+    # or log line. split_into_stage_texts is a pure, proportional split
+    # that works correctly regardless of total length, so there was
+    # never a real reason to gate it on MIN_WORDS -- only the heavier
+    # stage-scoring/rewrite loop below genuinely needs that gate.
+    # Computed here, unconditionally, so review material always shows
+    # real structure.
     from script_scoring import split_into_stage_texts, strip_leaked_stage_headers
+    targets = [110, 210, 260, 420, 170, 680, 190]
+    stage_texts = split_into_stage_texts(script, targets)
     if wc >= MIN_WORDS:
         try:
             # FIX (direct user report, July 23 2026 — a live test run's
@@ -3677,7 +3724,7 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     if not el_ok:
         _fallback_candidates = [v for v in
-            ["en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-OliverNeural"] + EXTENDED_VOICES if v != edge_voice]
+            ["en-GB-ThomasNeural", "en-GB-OliverNeural"] + EXTENDED_VOICES if v != edge_voice]
         try:
             _perf_state = load_state()
             _voice_perf = _perf_state.get("performance", {})
@@ -4176,10 +4223,45 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
                   "it","its","he","she","they","their","his","her","be","been",
                   "not","no","so","as","if","then","than","when","what","who",
                   "part","real","documented","real-life","true","story"}
+    # FIX (direct user report, July 24 2026 — same bug/rationale as Ch1):
+    # topic_anchors used to be picked by raw word frequency alone, with no
+    # check on whether a word is something a generic stock-video library
+    # can actually match. Abstract/administrative words return zero real
+    # hits once paired with a mood phrase, silently degrading the search
+    # down to the fully generic catch-all fallback — which is what actually
+    # surfaced unrelated aesthetic clips. Concrete, visually groundable
+    # nouns (office, spreadsheet, laptop, warehouse, factory, storefront...
+    # plus the general documentary set) now get first priority.
+    CONCRETE_VISUAL_NOUNS = {
+        "notebook","notebooks","diary","diaries","letter","letters","note","notes",
+        "mailbox","apartment","house","hallway","corridor","window","windows","door","doors",
+        "phone","telephone","camera","cameras","car","cars","street","streets","road","roads",
+        "photograph","photographs","photo","photos","picture","pictures","room","rooms",
+        "drawer","drawers","box","boxes","basement","attic","garage","fence","key","keys",
+        "lock","locks","stairs","staircase","closet","bedroom","kitchen","office","desk",
+        "computer","laptop","envelope","envelopes","package","packages","parking","alley",
+        "porch","balcony","garden","yard","gate","curtain","curtains","mirror","mirrors",
+        "flashlight","lantern","candle","clock","watch","suitcase","backpack","handwriting",
+        "typewriter","file","files","folder","folders","cabinet","surveillance","camcorder",
+        "recorder","tape","tapes","cassette","radio","television","newspaper","newspapers",
+        "magazine","journal","map","maps","train","station","bridge","tunnel","forest","woods",
+        "lake","river","ocean","cabin","motel","hotel","hospital","clinic","church","school",
+        "classroom","library","warehouse","factory","truck","van","bus","bicycle","motorcycle",
+        "footprint","footprints","shadow","shadows","light","lights","lamp","lamps",
+        "spreadsheet","spreadsheets","invoice","invoices","contract","contracts","storefront",
+        "boardroom","chart","charts","graph","graphs","calculator","cubicle","skyline",
+        "stockmarket","exchange","bank","vault","atm","billboard","suitcase",
+    }
     _topic_words = [w.strip(".,!?;:\"'()") for w in topic.lower().split()
                     if len(w) > 4 and w.strip(".,!?;:\"'()") not in _topic_stopwords]
     from collections import Counter as _TopicCounter
-    topic_anchors = [w for w, _ in _TopicCounter(_topic_words).most_common(6)] or []
+    _topic_concrete = []
+    for _w in _topic_words:
+        if _w in CONCRETE_VISUAL_NOUNS and _w not in _topic_concrete:
+            _topic_concrete.append(_w)
+    _topic_ranked = [w for w, _ in _TopicCounter(_topic_words).most_common(12)
+                     if w not in CONCRETE_VISUAL_NOUNS]
+    topic_anchors = (_topic_concrete + _topic_ranked)[:6] or []
 
     # Dynamic segment count: target ~13.5s/clip (middle of the 12-15s
     # range), clamped to 55-75 regardless of exact video length so a
@@ -4269,7 +4351,10 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
             "playground","festival","carnival","circus","confetti",
         }
         from collections import Counter
-        top_nouns  = [w for w, _ in Counter(stage_words).most_common(6)
+        _concrete_in_stage = [w for w in stage_words
+                               if w in CONCRETE_VISUAL_NOUNS and w not in BRIGHT_MUNDANE_BLOCKLIST]
+        top_nouns  = [_concrete_in_stage[0]] if _concrete_in_stage else \
+                     [w for w, _ in Counter(stage_words).most_common(6)
                       if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
         # FIX (found on deep re-audit, same bug as Ch1): bucket_words is
         # often only ~25-35 words (total script / 55-75 buckets) — plenty
@@ -4287,7 +4372,10 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
             wide_text  = " ".join(words[wide_start:wide_end]).lower()
             wide_words = [w.strip(".,!?;:") for w in wide_text.split()
                           if len(w) > 4 and w not in stopwords]
-            top_nouns  = [w for w, _ in Counter(wide_words).most_common(6)
+            _concrete_in_wide = [w for w in wide_words
+                                  if w in CONCRETE_VISUAL_NOUNS and w not in BRIGHT_MUNDANE_BLOCKLIST]
+            top_nouns  = [_concrete_in_wide[0]] if _concrete_in_wide else \
+                         [w for w, _ in Counter(wide_words).most_common(6)
                           if w not in BRIGHT_MUNDANE_BLOCKLIST][:1]
         # FIX (found on direct user report, July 23 2026 -- same fix as
         # Ch1): prioritize a real topic anchor (rotated per segment) over
@@ -4303,8 +4391,12 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
         search_terms = [kw]
         if topic_anchor and specific_term != topic_anchor:
             search_terms.append(f"{base_kw} {topic_anchor}")
-        search_terms += [base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3],
-                         "cinematic dark atmosphere"]
+        # FIX (direct user report, July 24 2026 — same fix as Ch1): dropped
+        # the ultra-generic "cinematic dark atmosphere" tail query, which is
+        # where unrelated aesthetic clips (forest/ocean/etc.) actually came
+        # from. The niche's own BG_KEYWORDS entry is now the true last
+        # resort before a neutral black clip.
+        search_terms += [base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]
         for search_kw in search_terms:
             if downloaded: break
             try:
@@ -6455,7 +6547,7 @@ def render_chart_clip(chart_image_path, duration, output_path):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
+    available = VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
     return select_best_voice(state, niche_name, available)
 
 
@@ -7551,7 +7643,7 @@ def main():
         _audio_quality_retries = 0
         while not check_audio_quality(audio_path, _expected_dur) and _audio_quality_retries < 2:
             _audio_quality_retries += 1
-            _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
+            _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
                            if v != edge_voice]
             _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
             tg(f"🔄 Ch5: audio quality check failed (expected ~{_expected_dur:.0f}s, got "
@@ -7674,7 +7766,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -7698,7 +7790,7 @@ def main():
                     # bug as Ch1/2/3/4 -- this used to regenerate with the
                     # exact same edge_voice, so feedback about the voice
                     # never actually changed anything. Now genuinely swaps.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
+                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"

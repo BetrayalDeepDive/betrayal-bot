@@ -1062,10 +1062,32 @@ def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
         pass
 
     # Real stock-photo fallback — still genuinely topic-specific, not a flat color
+    # FIX (direct user report, July 24 2026 — "random thumbnails which are
+    # not even suiting the thing"): this only fires when Pollinations
+    # (the topic-aware AI image generator above) fails, but the raw
+    # topic_w query it used has the same problem already found and fixed
+    # in the main video's stock-footage search — the first 6 words of a
+    # topic line are often abstract/administrative ("witnesses",
+    # "classified", "agencies", "documented") rather than concrete,
+    # photographable nouns, and a generic stock-photo library returns
+    # unrelated hits for those. Concrete nouns get priority when present.
+    _thumb_concrete_nouns = {
+        "notebook","notebooks","diary","letter","letters","note","notes","mailbox",
+        "apartment","house","hallway","window","door","phone","camera","car","street",
+        "photograph","photo","room","drawer","box","basement","attic","key","lock",
+        "stairs","closet","bedroom","kitchen","office","desk","computer","laptop",
+        "envelope","package","garden","gate","curtain","mirror","clock","suitcase",
+        "handwriting","file","folder","cabinet","newspaper","map","train","station",
+        "bridge","forest","lake","river","ocean","cabin","hotel","hospital","school",
+        "spreadsheet","invoice","contract","chart","calculator","warehouse","factory",
+    }
+    _topic_w_words = [w.strip(".,!?;:\"'()") for w in topic_w.lower().split()]
+    _topic_w_concrete = [w for w in _topic_w_words if w in _thumb_concrete_nouns]
+    thumb_query = " ".join(_topic_w_concrete[:3]) if _topic_w_concrete else topic_w
     if PIXABAY_KEY:
         try:
             r = requests.get("https://pixabay.com/api/",
-                params={"key": PIXABAY_KEY, "q": topic_w, "image_type": "photo",
+                params={"key": PIXABAY_KEY, "q": thumb_query, "image_type": "photo",
                         "orientation": "horizontal", "per_page": 5, "safesearch": "true"},
                 timeout=20)
             if r.status_code == 200 and r.json().get("hits"):

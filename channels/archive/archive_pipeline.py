@@ -554,8 +554,11 @@ US_VOICES = [
     "en-US-SteffanNeural",      # Professional clear
     "en-US-TonyNeural",         # Confident expressive
 ]
+# FIX (direct user report, July 24 2026): en-GB-RyanNeural removed
+# entirely from every voice pool/fallback list in this file — user
+# reported it sounds robotic and asked repeatedly for it to stop being
+# used.
 GB_VOICES = [
-    "en-GB-RyanNeural",         # BBC documentary gravitas
     "en-GB-ThomasNeural",       # Cold measured cinematic
     "en-GB-OliverNeural",       # Professional authoritative
     "en-GB-EthanNeural",        # Warm natural storytelling
@@ -610,7 +613,7 @@ ROBOTIC_VOICES = ["en-US-AriaNeural", "en-US-AnaNeural"]
 # (closest to the channel's established identity), with equally deep,
 # measured female voices mixed through rather than tacked on at the end.
 _DEEP_AUTHORITATIVE_HISTORICAL = [
-    "en-GB-ThomasNeural", "en-GB-OliverNeural", "en-GB-RyanNeural", "en-GB-EthanNeural",
+    "en-GB-ThomasNeural", "en-GB-OliverNeural", "en-GB-EthanNeural",
     "en-AU-WilliamNeural", "en-IE-ConnorNeural", "en-AU-DuncanNeural", "en-CA-LiamNeural",
     "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-GB-LibbyNeural",
     "en-ZA-LukeNeural", "en-NZ-MitchellNeural", "en-CA-ClaraNeural", "en-GB-HollieNeural",
@@ -1083,13 +1086,21 @@ def _call_openrouter(prompt, tokens=9000):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY secret not set — skipping")
         return None
+    # FIX (direct user report, July 24 2026): "Open Router is not working" —
+    # real test logs showed 404 on every slug below. OpenRouter regularly
+    # retires free-tier model IDs without notice (phi-3-mini, zephyr-7b,
+    # and openchat-3.5 are all long past end-of-life on the free catalog
+    # as of this fix); refreshed to current (mid-2026) slugs and widened
+    # for redundancy, same self-healing 404-skip behavior as before.
     for model in [
+        "deepseek/deepseek-chat-v3.1:free",
+        "deepseek/deepseek-r1:free",
+        "qwen/qwen-2.5-72b-instruct:free",
         "meta-llama/llama-3.3-70b-instruct:free",
+        "mistralai/mistral-nemo:free",
         "mistralai/mistral-7b-instruct:free",
-        "google/gemma-2-9b-it:free",
-        "microsoft/phi-3-mini-128k-instruct:free",
-        "huggingfaceh4/zephyr-7b-beta:free",
-        "openchat/openchat-3.5-0106:free",
+        "google/gemma-3-27b-it:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
     ]:
         try:
             r = requests.post(OPENROUTER_URL,
@@ -3919,7 +3930,6 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     # repo's Actions runners — 24/24 segment failures in live testing).
     GUARANTEED_VOICES = [
     "en-GB-ThomasNeural",       # Cold BBC gravitas — best for dark documentary
-    "en-GB-RyanNeural",          # Deep British authority
     "en-GB-OliverNeural",        # Composed British authority
     "en-GB-EthanNeural",         # Warm natural storytelling
 ] + EXTENDED_VOICES  # AU/NZ/IE/ZA/CA — real fallback depth beyond GB-only
@@ -5510,6 +5520,16 @@ Each cold open must:
   opening missing them will fail the hook gate and be reworked, so build
   them in now rather than relying on a retry to catch it.
 
+- FIX (direct user report, July 24 2026 — "the cold open should open
+  with a question and also interview the audience"): weave a direct,
+  second-person question aimed at the viewer ("you"/"your") into the
+  first two or three sentences — not a generic rhetorical cliché like
+  "have you ever...", but a specific question tied to THIS case's real
+  twist. It must still open mid-action with the disturbing fact per the
+  rules above — the question is woven into the opening beats, not a
+  throat-clearing preamble before the real hook starts. This is also
+  automatically scored below.
+
 Format your response EXACTLY as:
 VARIANT_1:
 [cold open text here]
@@ -5558,6 +5578,14 @@ Write all 3 now. Zero markdown."""
         # Opens mid-action (no weak openers)
         weak = ["in this", "today we", "welcome", "hello", "this is the story", "have you ever"]
         if not any(w in words[:50] for w in weak): s += 1.5
+        # FIX (direct user report, July 24 2026 — "open with a question
+        # and also interview the audience"): reward a real question posed
+        # directly to the viewer early in the cold open. The weak-opener
+        # penalty above still applies to a lazy "have you ever" cliché,
+        # so this only rewards a genuine, specific, second-person question.
+        has_question = "?" in text[:250]
+        has_you       = bool(re.search(r'\byou\b|\byour\b', words[:250]))
+        if has_question and has_you: s += 1.5
         return round(min(s, 10.0), 1)
 
     scored = [(v, score_cold_open(v)) for v in variants]
