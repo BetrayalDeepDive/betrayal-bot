@@ -2067,6 +2067,18 @@ def generate_script_content(niche, topic, episode, attempt,
     # caller already treats a missing/empty stage_texts as "no stage
     # breakdown available" rather than assuming it's always populated.
     stage_texts = []
+    # FIX (found live, July 23 2026 — real crash: "cannot access local
+    # variable 'split_into_stage_texts'"): this import previously lived
+    # inside the `if wc >= MIN_WORDS:` block below. Python treats any
+    # name imported ANYWHERE in a function as local to the whole
+    # function, so on an attempt where that block's condition was false,
+    # the name was never actually bound -- yet the later targeted
+    # craft-rewrite step (which also calls split_into_stage_texts) still
+    # tried to use it, crashing with UnboundLocalError. Moved here,
+    # unconditional, so it's always bound regardless of which branches
+    # below actually run.
+    targets = [110, 210, 260, 420, 170, 680, 190]
+    from script_scoring import split_into_stage_texts, strip_leaked_stage_headers
     if wc >= MIN_WORDS:
         try:
             # FIX (direct user report, July 23 2026 — a live test run's
@@ -2074,8 +2086,6 @@ def generate_script_content(niche, topic, episode, attempt,
             # "COLD OPEN" and "THE BEFORE" sections): naive words[pos:end]
             # slicing had zero sentence-boundary awareness. Now snapped to
             # real sentence breaks (video_pipeline/script_scoring.py).
-            targets  = [110, 210, 260, 420, 170, 680, 190]
-            from script_scoring import split_into_stage_texts, strip_leaked_stage_headers
             stage_texts = split_into_stage_texts(script, targets)
 
             # Score each stage
