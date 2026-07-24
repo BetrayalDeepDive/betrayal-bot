@@ -16,5 +16,14 @@
     "video_id": null,
     "timestamp": "2026-07-23T14:54:50.277463",
     "ctr_pct": null
+  },
+  {
+    "channel": "BetrayalDeepDive",
+    "niche": "obsession_dark",
+    "episode": 6,
+    "format": "comparison_grid",
+    "video_id": null,
+    "timestamp": "2026-07-24T09:21:20.298683",
+    "ctr_pct": null
   }
 ]
