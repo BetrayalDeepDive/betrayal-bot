@@ -520,6 +520,31 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
     # reply — whatever its wording — is taken as that edit content,
     # rather than re-parsed as a fresh decision keyword.
 
+    # FIX (real production bug, Ch1 run 30106640227): offset starts at
+    # None on every single call -- each GitHub Actions run is a fresh
+    # process/container, so nothing persists it. getUpdates with no
+    # offset returns EVERY update Telegram still has queued, including
+    # any button tap or text reply left over from a completely
+    # different, earlier review checkpoint that already resolved (by
+    # timeout or a real decision) before that reply ever arrived. A
+    # script review here was rejected 18 seconds after its message was
+    # sent -- far too fast for a real read, and traced to exactly this:
+    # a stale queued update from an unrelated earlier checkpoint was
+    # consumed as if it were this review's decision. Drain whatever is
+    # already queued once, advancing past it without treating any of it
+    # as a real decision, so only updates that arrive AFTER this
+    # specific review was posted can ever resolve it.
+    try:
+        _drain = requests.get(f"https://api.telegram.org/bot{tg_token}/getUpdates",
+                              params={"timeout": 0}, timeout=15)
+        _drain_updates = _drain.json().get("result", []) if _drain.status_code == 200 else []
+        if _drain_updates:
+            offset = _drain_updates[-1]["update_id"] + 1
+            print(f"  Discarded {len(_drain_updates)} stale Telegram update(s) queued "
+                  f"before this review started.")
+    except Exception as e:
+        print(f"  Stale-update drain (non-fatal): {e}")
+
     for attempt in range(1, max_attempts + 1):
         if _total_review_time_exhausted():
             _tg_send_message(tg_token, tg_chat,
