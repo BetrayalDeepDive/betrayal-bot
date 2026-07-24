@@ -7,8 +7,12 @@
 name: Ch4 The Archive — Upload
 
 on:
-  schedule:
-    - cron: '0 20 * * 2-6'   # 1:30 AM IST | Tue-Sat (1h after Ch3 upload)
+  # PAUSED (2026-07-24, explicit user request): all automations disabled
+  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
+  # workflow_dispatch below still works for manual runs. Re-enable by
+  # uncommenting the schedule block once fixes are confirmed.
+  # schedule:
+  #   - cron: '0 20 * * 2-6'   # 1:30 AM IST | Tue-Sat (1h after Ch3 upload)
   workflow_dispatch:
 
 env:

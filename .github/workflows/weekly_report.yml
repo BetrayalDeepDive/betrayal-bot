@@ -13,8 +13,12 @@
 name: Weekly Self-Improvement Report
 
 on:
-  schedule:
-    - cron: '30 3 * * 0'   # 9:00 AM IST | Sunday
+  # PAUSED (2026-07-24, explicit user request): all automations disabled
+  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
+  # workflow_dispatch below still works for manual runs. Re-enable by
+  # uncommenting the schedule block once fixes are confirmed.
+  # schedule:
+  #   - cron: '30 3 * * 0'   # 9:00 AM IST | Sunday
   workflow_dispatch:
 
 env:

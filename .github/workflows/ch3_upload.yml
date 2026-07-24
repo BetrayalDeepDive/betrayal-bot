@@ -7,8 +7,12 @@
 name: Ch3 Control Files — Upload
 
 on:
-  schedule:
-    - cron: '0 19 * * 2-6'   # 12:30 AM IST | Tue-Sat
+  # PAUSED (2026-07-24, explicit user request): all automations disabled
+  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
+  # workflow_dispatch below still works for manual runs. Re-enable by
+  # uncommenting the schedule block once fixes are confirmed.
+  # schedule:
+  #   - cron: '0 19 * * 2-6'   # 12:30 AM IST | Tue-Sat
   workflow_dispatch:
 
 env:

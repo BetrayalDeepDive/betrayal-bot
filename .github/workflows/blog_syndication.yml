@@ -1,8 +1,12 @@
 name: Blog Syndication
 
 on:
-  schedule:
-    - cron: '0 8 * * *'   # 1:30 PM IST daily — runs a few hours after
+  # PAUSED (2026-07-24, explicit user request): all automations disabled
+  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
+  # workflow_dispatch below still works for manual runs. Re-enable by
+  # uncommenting the schedule block once fixes are confirmed.
+  # schedule:
+  #   - cron: '0 8 * * *'   # 1:30 PM IST daily — runs a few hours after
                             # the channel upload workflows, so any real
                             # new episode has already published by then
   workflow_dispatch:
