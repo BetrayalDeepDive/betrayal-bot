@@ -2854,6 +2854,72 @@ def get_niche_ambient_music(niche_name, duration):
     return _synthesize_mood_track(mood, duration)
 
 
+# FIX (direct user report, July 24 2026 — same fix/rationale as Ch2 —
+# "blend live action as well as stock inserts for tangibility... use
+# both according to the topics... whenever it is required and whenever
+# there is demand"): real stock-footage insert mixed in alongside the
+# existing polished sketch/motion-graphics scenes for the tangible scene
+# types (sketch_document = case files/documents, sketch_findings =
+# physical evidence items) — never replacing all of them, since the
+# whiteboard reveal is itself real, retention-tested content.
+_TANGIBLE_SCENE_TYPES = {"sketch_document", "sketch_findings"}
+_STOCK_BLEND_PROBABILITY = 0.30
+
+def _fetch_real_stock_clip_for_scene(scene, niche_name, dest_path):
+    parts = [scene.get("title", "")]
+    for key in ("items", "lines", "events", "nodes"):
+        v = scene.get(key)
+        if isinstance(v, list):
+            parts += [str(x) for x in v]
+    text = " ".join(parts)
+    stopwords = {"the","a","an","and","or","but","in","on","at","to","for",
+                 "of","with","by","from","this","that","was","were","case",
+                 "file","status","action","reference"}
+    words = [w.strip(".,!?;:\"'()—") for w in text.lower().split()
+             if len(w) > 4 and w.strip(".,!?;:\"'()—") not in stopwords]
+    kw = " ".join(list(dict.fromkeys(words))[:2]) if words else ""
+    if not kw:
+        kw = BG_KEYWORDS.get(niche_name, DEFAULT_BG_KEYWORDS)[0]
+    for search_kw in (kw, BG_KEYWORDS.get(niche_name, DEFAULT_BG_KEYWORDS)[0]):
+        try:
+            if PIXABAY_KEY:
+                r = requests.get("https://pixabay.com/api/videos/",
+                    params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
+                            "video_type": "film", "orientation": "horizontal"}, timeout=25)
+                if r.status_code == 200 and r.json().get("hits"):
+                    hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                    url = hit["videos"]["medium"]["url"]
+                    with requests.get(url, timeout=45, stream=True) as dl:
+                        dl.raise_for_status()
+                        with open(dest_path, "wb") as f:
+                            for chunk in dl.iter_content(32768): f.write(chunk)
+                    if Path(dest_path).exists() and Path(dest_path).stat().st_size > 50000:
+                        return dest_path
+        except Exception as e:
+            log(f"    Stock-blend Pixabay ({search_kw[:30]}): {e}")
+        try:
+            if PEXELS_KEY:
+                r = requests.get("https://api.pexels.com/videos/search",
+                    headers={"Authorization": PEXELS_KEY},
+                    params={"query": search_kw, "per_page": 5, "orientation": "landscape"}, timeout=25)
+                if r.status_code == 200 and r.json().get("videos"):
+                    vids = r.json()["videos"]
+                    best = max(vids, key=lambda v: v.get("duration", 0))
+                    files_ = sorted(best.get("video_files", []), key=lambda vf: vf.get("width", 0), reverse=True)
+                    url = next((vf["link"] for vf in files_ if vf.get("width", 0) <= 1920), None) \
+                          or (files_[0]["link"] if files_ else None)
+                    if url:
+                        with requests.get(url, timeout=45, stream=True) as dl:
+                            dl.raise_for_status()
+                            with open(dest_path, "wb") as f:
+                                for chunk in dl.iter_content(32768): f.write(chunk)
+                        if Path(dest_path).exists() and Path(dest_path).stat().st_size > 50000:
+                            return dest_path
+        except Exception as e:
+            log(f"    Stock-blend Pexels ({search_kw[:30]}): {e}")
+    return None
+
+
 def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None, episode=1, real_cases=None, ass_path=None, script="", topic=""):
     frames_base = WORK_DIR/"frames"
     frames_base.mkdir(exist_ok=True)
@@ -2861,6 +2927,23 @@ def render_and_encode(style_name, scenes, audio_path, duration, niche_name=None,
     for si, scene in enumerate(scenes):
         dur_s = scene.get("duration",8); total_f = dur_s*FPS
         fd = frames_base/f"scene_{si:03d}"; fd.mkdir(exist_ok=True)
+
+        if (scene.get("type") in _TANGIBLE_SCENE_TYPES and
+                random.random() < _STOCK_BLEND_PROBABILITY and (PIXABAY_KEY or PEXELS_KEY)):
+            stock_raw = str(fd) + "_stockraw.mp4"
+            stock_clip = _fetch_real_stock_clip_for_scene(scene, niche_name, stock_raw)
+            if stock_clip:
+                stock_scaled = str(fd) + "_stock_scaled.mp4"
+                run_ffmpeg(["ffmpeg","-y","-stream_loop","2","-i",stock_clip,
+                    "-vf", f"scale=1920:1080:force_original_aspect_ratio=decrease,"
+                          f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps={FPS}",
+                    "-t", str(dur_s), "-c:v","libx264","-preset","ultrafast",
+                    "-pix_fmt","yuv420p","-an", stock_scaled], label=f"stock-blend-{si}")
+                if Path(stock_scaled).exists() and Path(stock_scaled).stat().st_size > 50000:
+                    concat_parts.append(f"file '{stock_scaled}'")
+                    log(f"    Scene {si+1}: real stock-footage clip used (tangibility blend)")
+                    continue  # skip the animated PIL render entirely for this scene
+
         log(f"  Rendering scene {si+1}/{len(scenes)}: {scene.get('type','?')} — {total_f}f")
         for fi in range(total_f):
             img = render_frame_pil(style_name, scene, fi, total_f, si, len(scenes))

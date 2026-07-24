@@ -171,12 +171,19 @@ NICHE_PROFILES = {
         "thumbnail_text_examples": ["LAST TAPE", "ROOM 307", "SECOND VOICE", "SHE LIED"],
     },
     "seduction_dark": {
-        "bg_color":        (5, 2, 8),
-        "primary_text":    (240, 220, 255),
-        "accent_text":     (180, 80, 255),      # deep purple
-        "shadow_color":    (40, 0, 80),
-        "badge_color":     (140, 40, 200),
-        "glow_color":      (200, 100, 255),
+        # FIX (direct user report, July 24 2026 — "for the first channel,
+        # it should be black and red, as it is Betrayal DeepDive, so
+        # black and red"): unified channel-wide brand color palette
+        # across all 5 Ch1 niches, replacing each niche's previous
+        # distinct accent color. Niche-specific imagery/text still
+        # differs below (pollinations_style, thumbnail_families, etc.)
+        # — only the color palette is now consistent black+red.
+        "bg_color":        (5, 2, 2),
+        "primary_text":    (255, 255, 255),
+        "accent_text":     (220, 30, 30),      # blood red — channel identity
+        "shadow_color":    (100, 0, 0),
+        "badge_color":     (180, 20, 20),
+        "glow_color":      (255, 50, 50),
         "vignette_strength": 0.80,
         "brightness":      0.20,
         "pollinations_style": (
@@ -196,12 +203,14 @@ NICHE_PROFILES = {
         "thumbnail_text_examples": ["SHE KNEW ALREADY", "TWENTY EIGHT DAYS", "ONE TRAP CLOSED", "COST HER EVERYTHING"],
     },
     "psychological_trap": {
-        "bg_color":        (3, 3, 3),
+        # FIX (direct user report, July 24 2026): unified Ch1 black+red
+        # brand palette — see seduction_dark's comment above.
+        "bg_color":        (5, 2, 2),
         "primary_text":    (255, 255, 255),
-        "accent_text":     (255, 200, 0),       # warning yellow
-        "shadow_color":    (80, 60, 0),
-        "badge_color":     (200, 150, 0),
-        "glow_color":      (255, 220, 50),
+        "accent_text":     (220, 30, 30),       # blood red — channel identity
+        "shadow_color":    (100, 0, 0),
+        "badge_color":     (180, 20, 20),
+        "glow_color":      (255, 50, 50),
         "vignette_strength": 0.90,
         "brightness":      0.15,
         "pollinations_style": (
@@ -221,12 +230,14 @@ NICHE_PROFILES = {
         "thumbnail_text_examples": ["NO EXIT EXISTS", "SIX STAGES FOUND", "TRUTH WAS WORSE", "EVERYONE BLAMED HIM"],
     },
     "supernatural_real": {
-        "bg_color":        (2, 4, 8),
-        "primary_text":    (200, 230, 255),
-        "accent_text":     (60, 180, 255),      # cold blue
-        "shadow_color":    (0, 40, 80),
-        "badge_color":     (20, 100, 200),
-        "glow_color":      (80, 200, 255),
+        # FIX (direct user report, July 24 2026): unified Ch1 black+red
+        # brand palette — see seduction_dark's comment above.
+        "bg_color":        (5, 2, 2),
+        "primary_text":    (255, 255, 255),
+        "accent_text":     (220, 30, 30),      # blood red — channel identity
+        "shadow_color":    (100, 0, 0),
+        "badge_color":     (180, 20, 20),
+        "glow_color":      (255, 50, 50),
         "vignette_strength": 0.85,
         "brightness":      0.17,
         "pollinations_style": (
@@ -246,12 +257,14 @@ NICHE_PROFILES = {
         "thumbnail_text_examples": ["NINE NIGHTS RECORDED", "STILL UNEXPLAINED TODAY", "WITNESSES CONFIRMED THIS", "NOBODY CAME BACK"],
     },
     "obsession_dark": {
-        "bg_color":        (4, 2, 2),
-        "primary_text":    (255, 240, 230),
-        "accent_text":     (255, 100, 20),      # amber warning
-        "shadow_color":    (80, 30, 0),
-        "badge_color":     (200, 80, 0),
-        "glow_color":      (255, 140, 40),
+        # FIX (direct user report, July 24 2026): unified Ch1 black+red
+        # brand palette — see seduction_dark's comment above.
+        "bg_color":        (5, 2, 2),
+        "primary_text":    (255, 255, 255),
+        "accent_text":     (220, 30, 30),      # blood red — channel identity
+        "shadow_color":    (100, 0, 0),
+        "badge_color":     (180, 20, 20),
+        "glow_color":      (255, 50, 50),
         "vignette_strength": 0.88,
         "brightness":      0.16,
         "pollinations_style": (
@@ -748,13 +761,20 @@ NICHE_PROFILES = {
     # channel fell back to FALLBACK_PROFILE's generic dark-horror-red
     # styling regardless of whether the episode was about AI startups,
     # crypto, or personal finance.
+    # FIX (direct user report, July 24 2026 — "gold as well as dark
+    # green for financial authority"): unified channel-wide brand
+    # color palette across all 13 Ch5 niches, replacing each niche's
+    # previous distinct accent color. Niche-specific imagery/text
+    # still differs below (pollinations_style, silhouette_style,
+    # composition) — only the color palette is now consistent
+    # gold+dark-green.
     "ai_startup_collapse": {
-        "bg_color":        (1, 2, 6),
-        "primary_text":    (225, 235, 255),
-        "accent_text":     (60, 170, 255),
-        "shadow_color":    (0, 30, 90),
-        "badge_color":     (20, 110, 210),
-        "glow_color":      (90, 200, 255),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.82,
         "brightness":      0.20,
         "pollinations_style": (
@@ -768,12 +788,12 @@ NICHE_PROFILES = {
         "composition":     "text_center",
     },
     "tech_company_collapse": {
-        "bg_color":        (2, 3, 5),
-        "primary_text":    (225, 235, 250),
-        "accent_text":     (90, 140, 220),
-        "shadow_color":    (0, 25, 70),
-        "badge_color":     (40, 90, 170),
-        "glow_color":      (130, 180, 240),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.80,
         "brightness":      0.21,
         "pollinations_style": (
@@ -787,12 +807,12 @@ NICHE_PROFILES = {
         "composition":     "text_lower_third",
     },
     "crypto_collapse": {
-        "bg_color":        (4, 1, 5),
-        "primary_text":    (240, 220, 255),
-        "accent_text":     (230, 140, 30),
-        "shadow_color":    (55, 0, 70),
-        "badge_color":     (150, 30, 170),
-        "glow_color":      (255, 170, 60),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.85,
         "brightness":      0.19,
         "pollinations_style": (
@@ -806,12 +826,12 @@ NICHE_PROFILES = {
         "composition":     "text_upper_third",
     },
     "cybersecurity_disasters": {
-        "bg_color":        (0, 4, 1),
-        "primary_text":    (210, 255, 220),
-        "accent_text":     (30, 220, 100),
-        "shadow_color":    (0, 50, 15),
-        "badge_color":     (15, 150, 60),
-        "glow_color":      (80, 255, 140),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.86,
         "brightness":      0.18,
         "pollinations_style": (
@@ -825,12 +845,12 @@ NICHE_PROFILES = {
         "composition":     "text_lower_third",
     },
     "product_flops": {
-        "bg_color":        (5, 2, 1),
-        "primary_text":    (250, 230, 215),
-        "accent_text":     (230, 100, 30),
-        "shadow_color":    (60, 20, 0),
-        "badge_color":     (180, 70, 15),
-        "glow_color":      (250, 140, 60),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.84,
         "brightness":      0.19,
         "pollinations_style": (
@@ -844,12 +864,12 @@ NICHE_PROFILES = {
         "composition":     "text_center",
     },
     "dotcom_era_collapse": {
-        "bg_color":        (2, 1, 4),
-        "primary_text":    (230, 225, 255),
-        "accent_text":     (220, 60, 200),
-        "shadow_color":    (45, 0, 60),
-        "badge_color":     (150, 30, 140),
-        "glow_color":      (240, 110, 220),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.83,
         "brightness":      0.20,
         "pollinations_style": (
@@ -863,12 +883,12 @@ NICHE_PROFILES = {
         "composition":     "text_upper_third",
     },
     "personal_finance_mistakes": {
-        "bg_color":        (5, 1, 1),
-        "primary_text":    (250, 225, 215),
-        "accent_text":     (220, 40, 40),
-        "shadow_color":    (60, 0, 0),
-        "badge_color":     (170, 20, 20),
-        "glow_color":      (240, 80, 80),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.85,
         "brightness":      0.19,
         "pollinations_style": (
@@ -882,12 +902,12 @@ NICHE_PROFILES = {
         "composition":     "text_lower_third",
     },
     "investing_fundamentals": {
-        "bg_color":        (1, 4, 2),
-        "primary_text":    (220, 250, 225),
-        "accent_text":     (60, 210, 110),
-        "shadow_color":    (0, 50, 20),
-        "badge_color":     (20, 150, 70),
-        "glow_color":      (100, 235, 150),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.80,
         "brightness":      0.21,
         "pollinations_style": (
@@ -901,12 +921,12 @@ NICHE_PROFILES = {
         "composition":     "text_center",
     },
     "retirement_planning": {
-        "bg_color":        (2, 3, 5),
-        "primary_text":    (230, 235, 250),
-        "accent_text":     (200, 170, 70),
-        "shadow_color":    (0, 25, 65),
-        "badge_color":     (140, 110, 30),
-        "glow_color":      (230, 200, 110),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.79,
         "brightness":      0.21,
         "pollinations_style": (
@@ -920,12 +940,12 @@ NICHE_PROFILES = {
         "composition":     "text_upper_third",
     },
     "credit_debt_repair": {
-        "bg_color":        (5, 2, 1),
-        "primary_text":    (250, 230, 210),
-        "accent_text":     (230, 110, 30),
-        "shadow_color":    (60, 25, 0),
-        "badge_color":     (180, 80, 15),
-        "glow_color":      (250, 150, 60),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.84,
         "brightness":      0.19,
         "pollinations_style": (
@@ -939,12 +959,12 @@ NICHE_PROFILES = {
         "composition":     "text_lower_third",
     },
     "real_estate_affordability": {
-        "bg_color":        (3, 2, 1),
-        "primary_text":    (245, 232, 215),
-        "accent_text":     (170, 120, 60),
-        "shadow_color":    (40, 25, 0),
-        "badge_color":     (130, 90, 30),
-        "glow_color":      (210, 165, 100),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.81,
         "brightness":      0.20,
         "pollinations_style": (
@@ -958,12 +978,12 @@ NICHE_PROFILES = {
         "composition":     "text_center",
     },
     "budgeting_saving_strategies": {
-        "bg_color":        (0, 4, 3),
-        "primary_text":    (215, 250, 240),
-        "accent_text":     (40, 200, 170),
-        "shadow_color":    (0, 50, 40),
-        "badge_color":     (15, 140, 115),
-        "glow_color":      (90, 230, 200),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.79,
         "brightness":      0.21,
         "pollinations_style": (
@@ -977,12 +997,12 @@ NICHE_PROFILES = {
         "composition":     "text_upper_third",
     },
     "stock_market_crashes_history": {
-        "bg_color":        (5, 1, 1),
-        "primary_text":    (250, 225, 215),
-        "accent_text":     (220, 30, 30),
-        "shadow_color":    (60, 0, 0),
-        "badge_color":     (170, 20, 20),
-        "glow_color":      (240, 70, 70),
+        "bg_color":        (2, 5, 3),
+        "primary_text":    (245, 240, 220),
+        "accent_text":     (212, 175, 55),
+        "shadow_color":    (0, 45, 20),
+        "badge_color":     (20, 90, 45),
+        "glow_color":      (255, 210, 90),
         "vignette_strength": 0.88,
         "brightness":      0.16,
         "pollinations_style": (
@@ -1344,7 +1364,7 @@ def draw_highlight_shape(draw, shape, canvas_w, canvas_h, accent_color):
         for w in range(6):
             draw.ellipse([cx - r - w, cy - r - w, cx + r + w, cy + r + w],
                          outline=accent_color)
-    elif shape == "arrow":
+    elif shape in ("arrow", "circle_and_arrow"):
         x0, y0 = int(canvas_w * 0.10), int(canvas_h * 0.20)
         x1, y1 = int(canvas_w * 0.38), int(canvas_h * 0.45)
         draw.line([(x0, y0), (x1, y1)], fill=accent_color, width=8)
@@ -1355,6 +1375,17 @@ def draw_highlight_shape(draw, shape, canvas_w, canvas_h, accent_color):
             hx = x1 - head_len * math.cos(angle - spread * 0.9)
             hy = y1 - head_len * math.sin(angle - spread * 0.9)
             draw.line([(x1, y1), (hx, hy)], fill=accent_color, width=8)
+    # FIX (direct user report, July 24 2026 — "for Channel 4... I want
+    # you to work on that... the red circle/arrow highlight and a
+    # map-based picture in the back, so that can be done... that
+    # shouldn't be missing, as it goes with Channel 1"): circle and
+    # arrow occupy different regions of the frame (circle upper-right,
+    # arrow upper-left-to-center) so drawing both never overlaps.
+    if shape == "circle_and_arrow":
+        cx, cy, r = int(canvas_w * 0.74), int(canvas_h * 0.30), 90
+        for w in range(6):
+            draw.ellipse([cx - r - w, cy - r - w, cx + r + w, cy + r + w],
+                         outline=accent_color)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1507,7 +1538,10 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
         lines = [" ".join(words[:mid]), " ".join(words[mid:])]
 
     # Font sizing — two-pass: try large, reduce if doesn't fit
-    font_size = 116
+    # FIX (direct user report, July 24 2026 — "not some big typing
+    # letters"): starting size lowered from 116 to 96 so the overlay text
+    # doesn't dominate the frame over the actual background image/subject.
+    font_size = 96
     while font_size > 60:
         font     = get_font(font_size)
         max_w    = max(
@@ -1590,19 +1624,31 @@ def score_thumbnail_text(thumb_text):
     """
     Score a thumbnail text on 3 axes.
     Used to compare A/B variants before choosing which to upload.
+
+    FIX (direct user report, July 24 2026 — "it should be questioning the
+    audience... not some big typing letters"): a direct QUESTION format
+    (ends in "?") is now scored as an equally valid alternative to
+    NUMBER+NOUN, instead of taking the flat -2.0 "no number" penalty that
+    made a question always score too low to ever win the thumbnail gate.
     """
     t  = thumb_text.upper()
     sc = 5.0
+    is_question = t.rstrip().endswith("?")
 
-    # 1. Has number (most important)
-    if re.search(r'\b\d[\d,\.]*\b|\$', t):
+    # 1. Has number OR is a genuine direct question — either is a real,
+    # equally valid curiosity-gap driver; only penalize having neither.
+    has_number = bool(re.search(r'\b\d[\d,\.]*\b|\$', t))
+    if has_number:
+        sc += 2.5
+    elif is_question:
         sc += 2.5
     else:
         sc -= 2.0
 
-    # 2. Length — 2-3 words optimal
+    # 2. Length — 2-3 words optimal (a question may need up to 4)
     words = t.split()
     if 2 <= len(words) <= 3:  sc += 1.5
+    elif len(words) == 4 and is_question: sc += 1.0
     elif len(words) == 1:     sc += 0.5
     elif len(words) > 4:      sc -= 1.0
 
@@ -1611,5 +1657,7 @@ def score_thumbnail_text(thumb_text):
                 "CASES", "REPORTS", "FILES", "GONE", "HIDDEN", "EXPOSED"]
     if any(s in t for s in specific):
         sc += 1.0
+    elif is_question and t.split()[0].rstrip("?") in ("WHO", "WHY", "WHAT", "HOW", "WHERE"):
+        sc += 1.0  # a real direct-address question opener is its own specificity signal
 
     return round(min(max(sc, 0), 10), 1)

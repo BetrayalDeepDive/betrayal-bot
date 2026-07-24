@@ -21,6 +21,7 @@ import os, sys, json, re, time, random, datetime, glob, asyncio
 import subprocess
 from pathlib import Path
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
 # ── SHARED UTILS (inlined — no external file dependency) ──
 """
@@ -3937,7 +3938,10 @@ def download_pixabay_video(keywords):
                     dl.raise_for_status()
                     with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000:
+                # FIX (direct user report, July 24 2026 — same bug as
+                # get_stage_matched_video): Pixabay's video API has no
+                # real orientation filter, so this needs its own real check.
+                if Path(path).stat().st_size > 50000 and _is_landscape_video(path):
                     return path
         except Exception as e:
             log(f"  Pixabay '{kw}': {e}")
@@ -3976,7 +3980,10 @@ def download_pexels_video(keywords):
                     dl.raise_for_status()
                     with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000: return path
+                # FIX (direct user report, July 24 2026): target was picked
+                # by width alone with no check that width > height.
+                if Path(path).stat().st_size > 50000 and _is_landscape_video(path):
+                    return path
         except Exception as e: log(f"  Pexels '{kw}': {e}")
     return None
 
@@ -4192,7 +4199,99 @@ def upload_captions_track(token, video_id, srt_path, language="en"):
         return False
 
 
-def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topic=""):
+# FIX (direct user report, July 24 2026 — same bug/rationale as Ch1):
+# Pixabay's real Video API has NO "orientation" parameter at all (only
+# its separate Image API does) -- the "orientation": "horizontal" sent
+# below is silently ignored. Pexels' video search does support
+# "orientation": "landscape", but the file-selection only checked
+# width <= 1920 with no check that width > height, so a portrait
+# rendition (e.g. 1080x1920) passes just as easily as a landscape one.
+# Real ffprobe check on every downloaded clip; rejects anything that
+# isn't genuinely landscape so the caller tries the next source/term.
+def _is_landscape_video(path):
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", path],
+            capture_output=True, timeout=15, text=True)
+        if r.returncode != 0:
+            return False
+        streams = json.loads(r.stdout).get("streams", [])
+        vs = next((s for s in streams if s.get("codec_type") == "video"), None)
+        if not vs:
+            return False
+        w, h = vs.get("width", 0), vs.get("height", 0)
+        return bool(w and h and w > h)
+    except Exception:
+        return False
+
+
+# Common demonyms/adjectival forms for the nations a script is most
+# likely to reference in prose ("American markets", "British regulators")
+# rather than the formal country name — real GeoJSON names are formal
+# ("United States"), so this closes that real gap. Same list as Ch1.
+_NATION_DEMONYMS = {
+    "american": "United States", "u.s.": "United States", "usa": "United States",
+    "british": "United Kingdom", "english": "United Kingdom", "uk": "United Kingdom",
+    "canadian": "Canada", "australian": "Australia", "irish": "Ireland",
+    "scottish": "United Kingdom", "welsh": "United Kingdom",
+    "german": "Germany", "french": "France", "italian": "Italy",
+    "spanish": "Spain", "russian": "Russia", "chinese": "China",
+    "japanese": "Japan", "indian": "India", "mexican": "Mexico",
+    "brazilian": "Brazil", "south african": "South Africa",
+}
+
+# FIX (direct user report, July 24 2026 — "without fail", same fix as
+# Ch1): real stories overwhelmingly name a specific US STATE or a major
+# foreign CITY rather than saying "American"/"British" outright.
+_US_STATES = {
+    "alabama","alaska","arizona","arkansas","california","colorado","connecticut",
+    "delaware","florida","georgia","hawaii","idaho","illinois","indiana","iowa",
+    "kansas","kentucky","louisiana","maine","maryland","massachusetts","michigan",
+    "minnesota","mississippi","missouri","montana","nebraska","nevada",
+    "new hampshire","new jersey","new mexico","new york","north carolina",
+    "north dakota","ohio","oklahoma","oregon","pennsylvania","rhode island",
+    "south carolina","south dakota","tennessee","texas","utah","vermont",
+    "virginia","washington","west virginia","wisconsin","wyoming",
+}
+for _state in _US_STATES:
+    _NATION_DEMONYMS[_state] = "United States"
+
+_MAJOR_CITY_NATIONS = {
+    "london": "United Kingdom", "manchester": "United Kingdom", "birmingham": "United Kingdom",
+    "glasgow": "United Kingdom", "edinburgh": "United Kingdom", "liverpool": "United Kingdom",
+    "toronto": "Canada", "vancouver": "Canada", "montreal": "Canada", "ottawa": "Canada",
+    "sydney": "Australia", "melbourne": "Australia", "brisbane": "Australia", "perth": "Australia",
+    "auckland": "New Zealand", "wellington": "New Zealand",
+    "dublin": "Ireland", "cork": "Ireland",
+    "cape town": "South Africa", "johannesburg": "South Africa", "durban": "South Africa",
+}
+_NATION_DEMONYMS.update(_MAJOR_CITY_NATIONS)
+
+
+def _detect_nation_context(title, topic, script):
+    """
+    FIX (direct user report, July 24 2026 — same fix as Ch1 — "stock
+    footage... should be embedded properly according to the nation,
+    according to the video title, without fail... main priority"): real
+    nation detection against the real world_map_data.json dataset
+    (reusing _load_world_map_data, already built for the map-clip
+    feature), checked title first, then topic, then the script's
+    opening. Returns a real country name or "" if none is present.
+    """
+    data = _load_world_map_data()
+    real_names = [f["name"] for f in data.get("features", [])]
+    for source in (title or "", topic or "", " ".join(script.split()[:150])):
+        low = source.lower()
+        for demonym, country in _NATION_DEMONYMS.items():
+            if demonym in low:
+                return country
+        for name in real_names:
+            if len(name) > 3 and name.lower() in low:
+                return name
+    return ""
+
+
+def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topic="", title=""):
     """
     Sequential audio-matched footage: the script is split into 55-75
     proportional segments (~12-15s of narration each), scaled dynamically
@@ -4263,12 +4362,18 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
                      if w not in CONCRETE_VISUAL_NOUNS]
     topic_anchors = (_topic_concrete + _topic_ranked)[:6] or []
 
-    # Dynamic segment count: target ~13.5s/clip (middle of the 12-15s
-    # range), clamped to 55-75 regardless of exact video length so a
-    # 15-min and an 18-min video both stay in the requested density band.
+    # FIX (direct user report, July 24 2026 — same fix as Ch1): real
+    # detected nation threaded into every segment's search query below,
+    # not just the topic_anchors rotation.
+    nation_context = _detect_nation_context(title, topic, script)
+
+    # Dynamic segment count: target ~13.5s/clip, clamped to 55-65 per
+    # direct user request ("stock footage of 55 to 65... based on the
+    # niche") regardless of exact video length so a 15-min and an 18-min
+    # video both stay in the requested density band.
     TARGET_SECONDS_PER_CLIP = 13.5
     n_buckets = int(round(audio_duration / TARGET_SECONDS_PER_CLIP))
-    n_buckets = max(55, min(75, n_buckets))
+    n_buckets = max(55, min(65, n_buckets))
 
     # Expanded theme list (was 28, now 60) so segments this close together
     # don't hit the same theme label repeatedly — each tagged with a
@@ -4391,6 +4496,14 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
         search_terms = [kw]
         if topic_anchor and specific_term != topic_anchor:
             search_terms.append(f"{base_kw} {topic_anchor}")
+        # FIX (direct user report, July 24 2026 — same fix as Ch1 —
+        # "according to the nation... without fail... main priority"):
+        # nation+subject variants tried early, ahead of niche-mood-only
+        # fallbacks, kept to 2-word queries for real-hit likelihood.
+        if nation_context:
+            if specific_term:
+                search_terms.append(f"{nation_context} {specific_term}")
+            search_terms.append(f"{nation_context} {base_kw}")
         # FIX (direct user report, July 24 2026 — same fix as Ch1): dropped
         # the ultra-generic "cinematic dark atmosphere" tail query, which is
         # where unrelated aesthetic clips (forest/ocean/etc.) actually came
@@ -4412,7 +4525,11 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
                             with open(clip_path, "wb") as f:
                                 for chunk in dl.iter_content(32768): f.write(chunk)
                         if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                            downloaded = True; continue
+                            if _is_landscape_video(clip_path):
+                                downloaded = True; continue
+                            else:
+                                log(f"    Segment {i+1} Pixabay: rejected portrait clip for '{search_kw[:30]}'")
+                                Path(clip_path).unlink(missing_ok=True)
                     elif r.status_code == 429:
                         log(f"    Segment {i+1} Pixabay: 429 rate limited")
             except Exception as e:
@@ -4438,7 +4555,11 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
                                     with open(clip_path, "wb") as f:
                                         for chunk in dl.iter_content(32768): f.write(chunk)
                                 if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                                    downloaded = True
+                                    if _is_landscape_video(clip_path):
+                                        downloaded = True
+                                    else:
+                                        log(f"    Segment {i+1} Pexels: rejected portrait clip for '{search_kw[:30]}'")
+                                        Path(clip_path).unlink(missing_ok=True)
                         elif r.status_code == 429:
                             log(f"    Segment {i+1} Pexels: 429 rate limited")
                 except Exception as e:
@@ -4514,6 +4635,36 @@ def get_stage_matched_video(niche, script, audio_duration, chart_data=None, topi
                         log(f"  Real chart clip inserted at segment {insert_idx}/{len(parts)}: {chart_data.get('title','')}")
         except Exception as e:
             log(f"  Chart clip insertion (non-fatal): {e}")
+
+    # v1 addition — real map clip insertion, per direct user request
+    # ("for the fifth channel... it should also show the maps, the
+    # charts, and stock footage, everything"). Only fires when the
+    # script genuinely mentions real countries (detect_map_countries
+    # matches against the real world_map_data.json dataset), so this
+    # never highlights invented geography. Inserted later in the
+    # sequence than the chart (65% vs 45%) so the two visual breaks
+    # don't land back-to-back.
+    try:
+        _map_countries = detect_map_countries(script)
+        if _map_countries:
+            map_img = str(WORK_DIR / "map_data.png")
+            map_label = " / ".join(_map_countries[:2])
+            if generate_map_image(_map_countries, map_label, map_img):
+                map_clip_raw = str(WORK_DIR / "map_clip_raw.mp4")
+                map_dur = min(8.0, segment_dur * 1.5)
+                if render_chart_clip(map_img, map_dur, map_clip_raw):
+                    map_scaled = str(WORK_DIR / "map_clip_scaled.mp4")
+                    run_ffmpeg(["ffmpeg", "-y", "-i", map_clip_raw,
+                        "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
+                              "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                        "-an", map_scaled], label="map-scale")
+                    if Path(map_scaled).exists():
+                        insert_idx = max(1, int(len(parts) * 0.65))
+                        parts.insert(insert_idx, map_scaled)
+                        log(f"  Real map clip inserted at segment {insert_idx}/{len(parts)}: {map_label}")
+    except Exception as e:
+        log(f"  Map clip insertion (non-fatal): {e}")
 
     list_file = str(WORK_DIR / "stage_list.txt")
     combined  = str(WORK_DIR / "background_staged.mp4")
@@ -6469,6 +6620,110 @@ def run_stage1(state):
     sys.exit(0)
 
 
+# ══════════════════════════════════════════════════════════════════
+# REAL WORLD MAP — per direct user request ("for the fifth channel...
+# it should also show the maps, the charts, and stock footage,
+# everything... nothing should be missing"). Reuses the exact real
+# country-boundary dataset and equirectangular-projection technique
+# already built and proven for Ch4 (world_map_data.json + polygon
+# drawing) — same honest limitation stated there: modern country
+# borders, not a claim of period-accurate cartography for any specific
+# historical moment a script might reference.
+# ══════════════════════════════════════════════════════════════════
+
+_WORLD_MAP_DATA = None
+
+def _load_world_map_data():
+    global _WORLD_MAP_DATA
+    if _WORLD_MAP_DATA is not None:
+        return _WORLD_MAP_DATA
+    try:
+        map_path = Path(__file__).parent / "world_map_data.json"
+        with open(map_path) as f:
+            _WORLD_MAP_DATA = json.load(f)
+        log(f"  Real world map data loaded: {len(_WORLD_MAP_DATA['features'])} countries")
+    except Exception as e:
+        log(f"  World map data failed to load (non-fatal, map scenes will show a blank base): {e}")
+        _WORLD_MAP_DATA = {"features": []}
+    return _WORLD_MAP_DATA
+
+
+def _lonlat_to_xy(lon, lat, map_w=1600, map_h=760, offset_x=160, offset_y=170):
+    """Real equirectangular projection — genuine lon/lat to pixel mapping."""
+    x = offset_x + (lon + 180) / 360 * map_w
+    y = offset_y + (90 - lat) / 180 * map_h
+    return x, y
+
+
+def _draw_country_polygon(draw, geometry, fill=None, outline=(80, 80, 80), width=1):
+    def draw_ring(ring):
+        pts = [_lonlat_to_xy(lon, lat) for lon, lat in ring]
+        if len(pts) >= 3:
+            draw.polygon(pts, fill=fill, outline=outline)
+    if geometry["type"] == "Polygon":
+        for ring in geometry["coordinates"]:
+            draw_ring(ring)
+    elif geometry["type"] == "MultiPolygon":
+        for poly in geometry["coordinates"]:
+            for ring in poly:
+                draw_ring(ring)
+
+
+def detect_map_countries(script, max_countries=3):
+    """
+    Real detection: scans the script for actual country names present in
+    the real world_map_data.json dataset, so a map segment only ever
+    highlights countries genuinely mentioned in THIS episode's narration
+    — never invented or generic. Returns up to max_countries real names
+    in the order they're first mentioned.
+    """
+    data = _load_world_map_data()
+    low = script.lower()
+    found = []
+    for feat in data.get("features", []):
+        name = feat["name"]
+        if name.lower() in low and name not in found:
+            found.append(name)
+        if len(found) >= max_countries:
+            break
+    return found
+
+
+def generate_map_image(highlight_countries, label, output_path,
+                        map_w=1600, map_h=760):
+    """
+    Renders one real static world-map image with the given real
+    countries highlighted — the closest single-frame equivalent of Ch4's
+    animated map scene, turned into a video clip via render_chart_clip's
+    existing Ken Burns image->video helper (same pattern already proven
+    for chart inserts in this file), so this channel gets genuine map
+    visuals without duplicating Ch4's whole frame-by-frame renderer.
+    """
+    try:
+        data = _load_world_map_data()
+        if not data.get("features"):
+            return False
+        img = Image.new("RGB", (map_w + 320, map_h + 340), (18, 20, 24))
+        draw = ImageDraw.Draw(img)
+        highlight_set = set(highlight_countries)
+        for feat in data["features"]:
+            is_hl = feat["name"] in highlight_set
+            fill = (170, 130, 50) if is_hl else (32, 36, 42)
+            outline = (200, 160, 70) if is_hl else (52, 58, 66)
+            _draw_country_polygon(draw, feat["geometry"], fill=fill, outline=outline, width=1)
+        if label:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+            except Exception:
+                font = ImageFont.load_default()
+            draw.text((160, 60), label, font=font, fill=(220, 190, 120))
+        img.save(output_path)
+        return Path(output_path).exists()
+    except Exception as e:
+        log(f"  Map image generation (non-fatal): {e}")
+        return False
+
+
 def generate_data_chart(chart_type, title, labels, values, output_path,
                           y_label="", highlight_last=True):
     """
@@ -6710,7 +6965,7 @@ def extract_key_phrases(script, num_phrases=6):
 # module level and read by the caller immediately after each call.
 _last_video_fallback_flags = {}
 
-def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, chart_data=None, ass_path=None):
+def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, chart_data=None, ass_path=None, title=""):
     """Assemble final video: background footage + narration + ambient music
     + kinetic text overlays at key story beats (clear, credible finance/
     collapse-documentary style, matched to niche — mix approach: animation
@@ -6722,7 +6977,9 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # working) existed in this same file and was never wired in. That's
     # exactly why the video showed "only one background the whole time."
     search_kw   = ""  # only used by the single-clip fallback below
-    bg_path     = get_stage_matched_video(niche, script, audio_duration, chart_data=chart_data, topic=topic)
+    # FIX (direct user report, July 24 2026): title threaded through so
+    # get_stage_matched_video can detect the real nation/setting.
+    bg_path     = get_stage_matched_video(niche, script, audio_duration, chart_data=chart_data, topic=topic, title=title)
     if not bg_path:
         log("  Stage-matched video unavailable — falling back to single looped clip")
         bg_path = get_background_video(niche, audio_duration, search_kw)
@@ -6808,34 +7065,6 @@ def generate_thumbnail_text(niche, topic, title=""):
     but the function never actually received the title at all — thumbnail
     and title registers could genuinely clash (e.g. sympathy title, dread
     thumbnail) since they were chosen completely independently."""
-    fallback_bank = {
-        "ai_startup_collapse":          ["INVESTORS LOST EVERYTHING", "PRODUCT NEVER WORKED", "STAFF FOUND OUT LAST",
-                                          "EIGHTEEN MONTHS TOTAL", "DOCUMENTED IN EMAILS"],
-        "tech_company_collapse":       ["THEY SAW IT COMING", "BOARD IGNORED THIS", "FORTY YEARS ENDED",
-                                          "ONE MEETING DECIDED", "DOCUMENTED INTERNAL MEMO"],
-        "crypto_collapse":             ["SEVENTY TWO HOURS TOTAL", "BILLIONS SIMPLY VANISHED", "STAFF KNEW FIRST",
-                                          "DOCUMENTED SLACK MESSAGES", "USERS FOUND OUT LAST"],
-        "cybersecurity_disasters":     ["SEVENTY SIX DAYS UNNOTICED", "PATCH EXISTED ALREADY", "MILLIONS OF RECORDS",
-                                          "DOCUMENTED SECURITY REPORT", "ONE SERVER MISSED"],
-        "product_flops":               ["MILLIONS WASTED TOTAL", "TESTING PREDICTED THIS", "THREE WEEKS TOTAL",
-                                          "DOCUMENTED FOCUS GROUPS", "NOBODY WANTED THIS"],
-        "dotcom_era_collapse":         ["TWO HUNDRED DAYS TOTAL", "DOCUMENTED IPO PROMISES", "NEVER TURNED PROFITABLE",
-                                          "MILLIONS ON ONE AD", "DOCUMENTED BURN RATE"],
-        "personal_finance_mistakes":   ["THIS MISTAKE COST THOUSANDS", "MOST PEOPLE MISS THIS", "REAL NUMBERS SHOWN",
-                                          "DOCUMENTED HOUSEHOLD BUDGET", "SPECIFIC FIX EXPLAINED"],
-        "investing_fundamentals":      ["REAL RETURNS COMPARED", "MOST PEOPLE GET WRONG", "SPECIFIC MATH SHOWN",
-                                          "DOCUMENTED PORTFOLIO DATA", "REAL NUMBERS EXPLAINED"],
-        "retirement_planning":         ["REAL RETIREMENT MATH", "MOST PEOPLE MISS THIS", "SPECIFIC AGES COMPARED",
-                                          "DOCUMENTED WITHDRAWAL DATA", "REAL NUMBERS SHOWN"],
-        "credit_debt_repair":          ["REAL CREDIT MATH", "SPECIFIC SCORE JUMP", "DOCUMENTED REAL CASE",
-                                          "MOST PEOPLE MISS THIS", "REAL TIMELINE SHOWN"],
-        "real_estate_affordability":   ["REAL AFFORDABILITY MATH", "SPECIFIC NUMBERS COMPARED", "MOST PEOPLE GET WRONG",
-                                          "DOCUMENTED REAL COSTS", "REAL MATH EXPLAINED"],
-        "budgeting_saving_strategies": ["REAL BUDGET RESULTS", "SPECIFIC METHOD EXPLAINED", "DOCUMENTED REAL SAVINGS",
-                                          "MOST PEOPLE MISS THIS", "REAL NUMBERS SHOWN"],
-        "stock_market_crashes_history":["DOCUMENTED MARKET HISTORY", "REAL NUMBERS COMPARED", "PATTERN REPEATS TODAY",
-                                          "SPECIFIC CRASH EXPLAINED", "REAL DATA SHOWN"],
-    }
     title_context = (
         f"\nTHE ACTUAL VIDEO TITLE (match its register exactly — if it's dread-driven,\n"
         f"the thumbnail must be dread-driven too; if it's sympathy/woeful, match that.\n"
@@ -6848,33 +7077,42 @@ def generate_thumbnail_text(niche, topic, title=""):
     # would bias the AI's first draft toward the wrong register entirely,
     # even before run_thumbnail_stage's own before/after dispatch runs.
     is_finance = niche["name"] in FINANCE_NICHE_NAMES
+    # FIX (direct user report, July 24 2026 — "it should be questioning
+    # the audience... not some big typing letters", same fix as Ch1):
+    # both prompts now offer a direct QUESTION format as an equally valid
+    # alternative to NUMBER+NOUN, instead of only ever producing a flat
+    # statement.
     if is_finance:
         prompt = (
-            f"Generate the most compelling 3-word thumbnail text for a clear, "
+            f"Generate the most compelling short thumbnail text for a clear, "
             f"confident finance explainer video.\n"
             f"NICHE: {niche['name']} | TOPIC: {topic[:100]}\n"
             f"{title_context}\n"
-            f"USE THESE TRIGGERS (pick ONE, don't mix):\n"
-            f"1. SPECIFICITY: a real number or concrete result, not vague\n"
-            f"2. CURIOSITY GAP: a genuinely useful question the video answers\n"
-            f"3. RESULT-FOCUSED: implies a clear, real outcome\n\n"
-            f"Rules: EXACTLY 3 words. ALL CAPS. Specific and credible, never sensational.\n"
-            f"Return ONLY 3 words. Example: REAL NUMBERS SHOWN or THIS MISTAKE COSTS"
+            f"Pick ONE of these two formats — whichever fits THIS topic best:\n"
+            f"A. NUMBER+NOUN: a real number or concrete result, not vague\n"
+            f"   (e.g. REAL NUMBERS SHOWN, $40K MISTAKE)\n"
+            f"B. DIRECT QUESTION: a short, genuinely useful question the video\n"
+            f"   answers, aimed straight at the viewer (e.g. ARE YOU OVERPAYING?)\n\n"
+            f"Rules: 2-4 words. ALL CAPS. Specific and credible, never sensational.\n"
+            f"If format B, end with a single '?' and nothing else.\n"
+            f"Return ONLY the text, nothing else."
         )
     else:
         prompt = (
-            f"Generate the most psychologically compelling 3-word thumbnail text "
+            f"Generate the most psychologically compelling short thumbnail text "
             f"for a serious business/tech collapse documentary.\n"
             f"NICHE: {niche['name']} | TOPIC: {topic[:100]}\n"
             f"{title_context}\n"
-            f"USE THESE TRIGGERS (pick ONE register, don't mix — and it MUST match\n"
-            f"the title's register above if one is given):\n"
-            f"1. CURIOSITY GAP: creates an unanswerable question\n"
-            f"2. DREAD register: implies something disturbing was confirmed\n"
-            f"3. SPECIFICITY: a number or concrete detail, not vague\n"
-            f"4. PATTERN INTERRUPT: unexpected — makes viewer stop scrolling\n\n"
-            f"Rules: EXACTLY 3 words. ALL CAPS. Dramatic and specific. Never generic.\n"
-            f"Return ONLY 3 words. Example: DOCUMENTED IN EMAILS or SEVENTY TWO HOURS"
+            f"Pick ONE of these two formats — whichever creates the strongest real\n"
+            f"curiosity gap for THIS topic (must match the title's register above\n"
+            f"if one is given):\n"
+            f"A. NUMBER+NOUN: a specific number + concrete detail, not vague\n"
+            f"   (e.g. DOCUMENTED IN EMAILS, SEVENTY TWO HOURS)\n"
+            f"B. DIRECT QUESTION: a short, unsettling question aimed straight at\n"
+            f"   the viewer, tied to the real topic (e.g. WHO KNEW FIRST?)\n\n"
+            f"Rules: 2-4 words. ALL CAPS. Dramatic and specific. Never generic.\n"
+            f"If format B, end with a single '?' and nothing else.\n"
+            f"Return ONLY the text, nothing else."
         )
     # FIX (found on final re-audit, direct user request for a real
     # attention-grabbing score): a real scoring function for exactly this
@@ -6891,45 +7129,44 @@ def generate_thumbnail_text(niche, topic, title=""):
     except Exception:
         score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
 
-    # FIX (direct user report, July 23 2026 — "for everything, there
-    # should be specific scores that it should pass... rework that stage
-    # without fail", same fix already verified on Ch1, applied
-    # empire-wide): picking the best of 3 still accepted whatever that
-    # best happened to be. Now enforces a real 6.5/10 bar across up to 2
-    # rounds before falling back to best-effort.
-    THUMB_TEXT_MIN = 7.9
-    THUMB_TEXT_EXCELLENT = 8.8  # aspirational tier, logged but not a hard requirement
+    # FIX (direct user report, July 24 2026 — explicit policy decision,
+    # same fix as Ch1): hard floor raised from 7.9 to 8.5, and this no
+    # longer "best-effort" publishes the best candidate found (or a
+    # fallback_bank phrase) if nothing ever cleared the bar — that
+    # silently violated "if it is less than that, I don't want it to
+    # produce that." Now generates up to 8 real candidates one at a time,
+    # stopping the moment one clears the gate; returns None (real
+    # failure) if none of the 8 do.
+    THUMB_TEXT_MIN = 8.5
+    THUMB_TEXT_MAX_ATTEMPTS = 8
     candidates = []
-    for _round in range(2):
+    for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
         try:
-            for _ in range(3):
-                result = ai_generate(prompt, tokens=15)
-                if result:
-                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-                    words = result.split()[:3]
-                    if len(words) == 3:
-                        candidates.append(' '.join(words))
+            result = ai_generate(prompt, tokens=15)
+            if result:
+                # FIX (direct user report, July 24 2026): preserve a
+                # trailing "?" (previously stripped, making a genuine
+                # question format impossible) and allow 2-4 words.
+                has_question = result.strip().endswith("?")
+                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                words = result.split()[:4]
+                if 2 <= len(words) <= 4:
+                    text = ' '.join(words) + ("?" if has_question else "")
+                    candidates.append(text)
         except Exception as e:
-            log(f"  Thumbnail text (non-fatal): {e}")
+            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS} (non-fatal): {e}")
+
         if candidates:
             scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
             best_text, best_score = max(scored, key=lambda pair: pair[1])
+            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: best so far "
+                f"'{best_text}' ({best_score}/10)")
             if best_score >= THUMB_TEXT_MIN:
-                _tier = " [EXCELLENT tier >=8.8]" if best_score >= THUMB_TEXT_EXCELLENT else ""
-                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar){_tier}")
+                log(f"  Thumbnail text cleared {THUMB_TEXT_MIN}/10 on attempt {attempt}.")
                 return best_text
-            log(f"  Thumbnail candidates scored: {scored} -> best '{best_text}' ({best_score}/10) "
-                f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")
 
-    if not candidates:
-        candidates = [random.choice(fallback_bank.get(niche.get("name", "personal_finance_mistakes"),
-                                                        fallback_bank["personal_finance_mistakes"]))]
-
-    scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
-    best_text, best_score = max(scored, key=lambda pair: pair[1])
-    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10) "
-        f"[best-effort after {THUMB_TEXT_MIN} bar unmet across all rounds]")
-    return best_text
+    log(f"  Thumbnail text never cleared {THUMB_TEXT_MIN}/10 after {THUMB_TEXT_MAX_ATTEMPTS} attempts.")
+    return None
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
@@ -7674,7 +7911,7 @@ def main():
         # from script generation to actual video assembly.
         chart_data = script_result.get("chart_data")
         video_path = run_stage_with_retry(
-            assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, chart_data, ass_path)
+            assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, chart_data, ass_path, title=title)
 
         # COMBINED AUDIO + VIDEO REVIEW — one review window, two distinct
         # decisions (audio: 4 real options; video: 5, the 5th being SWAP
@@ -7746,7 +7983,7 @@ def main():
                     log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
-                        topic, script_clean, episode, real_cases, chart_data, ass_path)
+                        topic, script_clean, episode, real_cases, chart_data, ass_path, title=title)
                     continue  # send the newly-assembled video for another look
                 if _v_dec == "approve" and _a_dec == "approve":
                     # FIX (found on deep re-audit): score_audio_quality/
@@ -7782,7 +8019,7 @@ def main():
                     # one is matched to the previous audio's timing.
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
-                        topic, script_clean, episode, real_cases, chart_data, ass_path)
+                        topic, script_clean, episode, real_cases, chart_data, ass_path, title=title)
                     continue  # send the newly-generated audio/video for another look
                 if _a_dec == "edit":
                     _fb_audio = _av_review["audio_decision"]["feedback"] or ""
@@ -7847,7 +8084,16 @@ def main():
                 state["performance"] = _perf
         except Exception as e:
             log(f"  Thumbnail style tracking (non-fatal): {e}")
+        # FIX (direct user report, July 24 2026 — explicit policy decision,
+        # same fix as Ch1): generate_thumbnail_text now genuinely returns
+        # None if nothing cleared the 8.5 gate after 8 attempts, instead
+        # of silently publishing a best-effort or fallback-bank phrase.
         thumb_text  = generate_thumbnail_text(niche, topic, title)
+        if not thumb_text:
+            tg(f"Ch5 Day Skipped — no thumbnail text cleared 8.5/10 after 8 attempts. Per your "
+               f"standing instruction, nothing under 8.5 gets published.")
+            log("  Thumbnail text gate never cleared 8.5 after 8 attempts. Skipping.")
+            sys.exit(0)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
         try:
             from thumbnail_engine_v2 import score_thumbnail_text
@@ -8077,6 +8323,22 @@ def main():
                     _sh_review = review_shorts("TheCollapseIndex", _real_shorts, TG_TOKEN, TG_CHAT,
                                                check_ins_used=0, gmail_sender=_gmail_sender,
                                                gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    # FIX (direct user report, July 24 2026 — same fix as
+                    # Ch1 — "if I tell it reject then it needs to rework on
+                    # it"): REJECT used to be a silent no-op, identical to
+                    # APPROVE. Shorts are real YouTube videos and can
+                    # actually be deleted, so REJECT now does that.
+                    if _sh_review["decision"] == "reject":
+                        _sh_token = get_yt_token()
+                        for _s in _real_shorts:
+                            _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
+                            if _m:
+                                try:
+                                    delete_yt_video(_m.group(1), token=_sh_token)
+                                    log(f"  Deleted rejected Short: {_s['name']}")
+                                except Exception as e:
+                                    log(f"  Failed to delete rejected Short {_s['name']} (non-fatal): {e}")
+                        tg("🗑️ Ch5: Shorts REJECTED — all of this episode's Shorts have been deleted.")
                     if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
                         log(f"  Shorts {_sh_review['decision']} requested: "
                             f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")

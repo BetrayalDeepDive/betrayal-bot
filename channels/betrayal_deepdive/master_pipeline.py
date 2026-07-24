@@ -171,50 +171,73 @@ def _record_title_history(niche_name, episode, title, score):
 
 
 def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
-                        series_name, episode, ai_fn, min_ctr=6.5):
+                        series_name, episode, ai_fn, min_ctr=8.5, max_attempts=13):
+    """
+    FIX (direct user report, July 24 2026 — explicit policy decision):
+    hard floor 8.5, up to 8 real attempts (the original 5-title batch is
+    attempt 1, each regeneration round is one more). Previously this only
+    ever did ONE regeneration round and fell back to publishing the best
+    title found regardless of whether it ever cleared the gate — that
+    silently violated "if it is less than that, I don't want it to
+    produce that." Now returns (None, v2_scored) if nothing clears
+    min_ctr within max_attempts — the caller must treat that as a real
+    stage failure, not substitute a fallback title.
+    """
     if not title_scores:
-        return title_str, [(title_str, 5.0)]
+        return None, [(title_str, 5.0)]
     v2_scored = sorted([(t, score_title_v2(t)[0]) for t, _ in title_scores],
                         key=lambda x: x[1], reverse=True)
     best_title, best_score = v2_scored[0]
+    attempt = 1
+    log(f"  Title attempt {attempt}/{max_attempts}: {best_score}/10 — {best_title[:55]}")
+    notify_stage_score("Title", attempt, max_attempts, best_score, min_ctr, extra=best_title[:60])
     if best_score >= min_ctr:
         _record_title_history(niche_name, episode, best_title, best_score)
         return best_title, v2_scored
-    # Regenerate with targeted fix
-    _, bd = score_title_v2(best_title)
-    weak  = [k for k,v in bd.items() if "WEAK" in str(v) or "ABSENT" in str(v)]
-    fixes = {
-        "curiosity_gap":    "Start with 'Nobody knew' or 'What the records show'",
-        "specificity":      "Include a specific number",
-        "revelation":       "Include 'documented', 'exposed', or 'revealed'",
-        "pattern_interrupt":"Add 'They Knew' or 'Still Happening'",
-    }
-    fix_instructions = "\n".join(f"- {fixes[w]}" for w in weak[:2] if w in fixes)
-    if not fix_instructions:
-        fix_instructions = "- Add a specific number AND a curiosity gap phrase"
-    try:
-        result = ai_fn(
-            f"Generate 5 stronger YouTube titles for: {topic[:120]}\n"
-            f"Series: {series_name} Ep{episode}\n"
-            f"Current best score: {best_score}/10 — too low.\n"
-            f"Required fixes:\n{fix_instructions}\n"
-            f"Rules: 50-65 chars. Dark documentary tone.\n"
-            f'Return ONLY: ["Title 1","Title 2","Title 3","Title 4","Title 5"]',
-            tokens=300)
-        if result:
-            result = re.sub(r'```json|```','', result).strip()
-            m = re.search(r'\[[\s\S]*?\]', result)
-            if m:
-                titles  = [t for t in json.loads(m.group()) if t]
-                new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
-                                     key=lambda x: x[1], reverse=True)
-                if new_scored and new_scored[0][1] > best_score:
-                    _record_title_history(niche_name, episode, new_scored[0][0], new_scored[0][1])
-                    return new_scored[0][0], new_scored
-    except:
-        pass
-    _record_title_history(niche_name, episode, best_title, best_score)
-    return best_title, v2_scored
+
+    while attempt < max_attempts:
+        attempt += 1
+        # Regenerate with targeted fix based on exactly which dimension is weak
+        _, bd = score_title_v2(best_title)
+        weak  = [k for k,v in bd.items() if "WEAK" in str(v) or "ABSENT" in str(v)]
+        fixes = {
+            "curiosity_gap":    "Start with 'Nobody knew' or 'What the records show'",
+            "specificity":      "Include a specific number",
+            "revelation":       "Include 'documented', 'exposed', or 'revealed'",
+            "pattern_interrupt":"Add 'They Knew' or 'Still Happening'",
+        }
+        fix_instructions = "\n".join(f"- {fixes[w]}" for w in weak[:2] if w in fixes)
+        if not fix_instructions:
+            fix_instructions = "- Add a specific number AND a curiosity gap phrase"
+        try:
+            result = ai_fn(
+                f"Generate 5 stronger YouTube titles for: {topic[:120]}\n"
+                f"Series: {series_name} Ep{episode}\n"
+                f"Current best score: {best_score}/10 — too low (need {min_ctr}+).\n"
+                f"Required fixes:\n{fix_instructions}\n"
+                f"Rules: 50-65 chars. Dark documentary tone.\n"
+                f'Return ONLY: ["Title 1","Title 2","Title 3","Title 4","Title 5"]',
+                tokens=300)
+            if result:
+                result = re.sub(r'```json|```','', result).strip()
+                m = re.search(r'\[[\s\S]*?\]', result)
+                if m:
+                    titles  = [t for t in json.loads(m.group()) if t]
+                    new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
+                                         key=lambda x: x[1], reverse=True)
+                    if new_scored and new_scored[0][1] > best_score:
+                        best_title, best_score = new_scored[0]
+                        v2_scored = new_scored
+        except Exception as e:
+            log(f"  Title regeneration attempt {attempt} (non-fatal): {e}")
+        log(f"  Title attempt {attempt}/{max_attempts}: {best_score}/10 — {best_title[:55]}")
+        notify_stage_score("Title", attempt, max_attempts, best_score, min_ctr, extra=best_title[:60])
+        if best_score >= min_ctr:
+            _record_title_history(niche_name, episode, best_title, best_score)
+            return best_title, v2_scored
+
+    log(f"  Title never cleared {min_ctr}/10 after {max_attempts} attempts (best: {best_score}/10).")
+    return None, v2_scored
 
 
 # Real business-inquiries contact, per explicit request — every published
@@ -495,11 +518,21 @@ CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner resta
 # ================================================================
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
-MIN_GATE   = 8.8   # FIX (found on deep re-audit): was 8.5 — archive/control_files
-                    # were already raised to 8.8 per the explicit "8.8-8.9 minimum,
-                    # every time" empire-wide directive; this channel was never
-                    # updated to match. attempts 1-8.
-FINAL_GATE = 6.9   # absolute last-resort floor, attempt 13 only, never crossed below
+# FIX (direct user report, July 24 2026 — explicit, final policy decision
+# after being shown real data that 8.8 essentially never gets hit): hard
+# floor is 8.5, EVERY stage (script, audio, video, thumbnail, title,
+# Shorts, community post), maximum 8 remake attempts, NO relaxation tiers.
+# If nothing clears 8.5 within 8 attempts, the day is skipped entirely —
+# no publish. The bar itself stays flat at 8.5 — the user explicitly
+# rejected graduated fallback thresholds (8.5 -> 7.0 -> 6.9): "below
+# that, I don't want any videos to be published if it is not working...
+# I don't want any crap videos." Attempt budget raised 8 -> 13 (direct
+# user report, July 24 2026 — "increase the attempts from 8 to 13...
+# so we get an opportunity to remake it... without missing out on the
+# day's target") purely to give the SAME 8.5 bar more real tries before
+# the day is skipped, not to relax the bar itself.
+MIN_GATE    = 8.5
+MAX_ATTEMPTS = 13
 
 # Word targets per stage (sum = MIN_WORDS baseline)
 STAGE_WORDS = [100, 200, 250, 400, 200, 650, 200]
@@ -658,85 +691,66 @@ NICHES = [
 # already logged) and simply get skipped in favor of the next one in
 # the chain, exactly the "never get stuck on one voice" behavior
 # already built.
-# FIX (direct user report, July 24 2026): en-GB-RyanNeural removed
-# entirely from every voice pool/fallback list in this file — user
-# reported it sounds robotic and asked repeatedly for it to stop being
-# used. Previously it kept resurfacing because it was hardcoded FIRST
-# in the universal fallback default and present in most niche pools, so
-# any niche-voice synthesis failure fell straight back onto it.
-EXTENDED_VOICES = [
-    # British Isles
-    "en-GB-ThomasNeural", "en-GB-AlfieNeural",         # GB male
-    "en-GB-ElliotNeural", "en-GB-EthanNeural", "en-GB-OliverNeural",       # GB male
-    "en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",         # GB female
-    "en-GB-BellaNeural", "en-GB-HollieNeural", "en-GB-OliviaNeural",      # GB female
-    "en-IE-ConnorNeural", "en-IE-EmilyNeural",                            # Irish M/F
-    # Australia / NZ / South Africa / Canada
-    "en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",     # AU male
-    "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural",              # AU male
-    "en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",     # AU female
-    "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",        # AU female
-    "en-AU-KimNeural", "en-AU-TinaNeural",                                 # AU female
-    "en-NZ-MitchellNeural", "en-NZ-MollyNeural",                          # NZ M/F
-    "en-ZA-LukeNeural", "en-ZA-LeahNeural",                               # South African M/F
-    "en-CA-LiamNeural", "en-CA-ClaraNeural",                              # Canadian M/F
-]
+# FIX (direct user report, July 24 2026): en-GB-RyanNeural, en-GB-NoahNeural
+# and en-GB-MaisieNeural stay excluded (Ryan reported robotic; Noah
+# confirmed broken on this repo's GitHub Actions runners live — 24/24
+# SSML failures; Maisie is a child voice, wrong register).
+#
+# FIX (direct user report, July 24 2026 — explicit priority order
+# "1. Australian voice 2. Great Britain voice 3. US voice 4. the
+# remaining voices... mix of male and female... should keep rotating...
+# confirm all the voices"): this REVERSES the July 23 "no US voices"
+# decision at the user's explicit request this time — US voices are
+# back in the pool, ranked 3rd (after AU/GB, before IE/NZ/ZA/CA).
+# Built programmatically instead of one giant hand-typed list per niche:
+# guarantees the AU>GB>US>rest block order holds for every niche, every
+# voice in the real catalog is genuinely included ("confirm all the
+# voices"), and each gender-interleaved block mixes male/female
+# throughout rather than front-loading one gender. Per-niche rotation
+# offset keeps the 5 niches from being identical lists while never
+# breaking the AU>GB>US>rest block order.
+_AU_MALE   = ["en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
+              "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural"]
+_AU_FEMALE = ["en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
+              "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
+              "en-AU-KimNeural", "en-AU-TinaNeural"]
+_GB_MALE   = ["en-GB-ThomasNeural", "en-GB-AlfieNeural", "en-GB-ElliotNeural",
+              "en-GB-EthanNeural", "en-GB-OliverNeural"]
+_GB_FEMALE = ["en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",
+              "en-GB-BellaNeural", "en-GB-HollieNeural", "en-GB-OliviaNeural"]
+_US_MALE   = ["en-US-AndrewNeural", "en-US-BrianNeural", "en-US-GuyNeural",
+              "en-US-EricNeural", "en-US-RogerNeural", "en-US-ChristopherNeural"]
+_US_FEMALE = ["en-US-AriaNeural", "en-US-JennyNeural", "en-US-MichelleNeural",
+              "en-US-EmmaNeural", "en-US-AvaNeural", "en-US-SaraNeural"]
+_REST_MALE   = ["en-IE-ConnorNeural", "en-NZ-MitchellNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural"]
+_REST_FEMALE = ["en-IE-EmilyNeural", "en-NZ-MollyNeural", "en-ZA-LeahNeural", "en-CA-ClaraNeural"]
 
-# FIX (direct user report, July 23 2026): each niche's rotation pool
-# raised from 4 to a real 16-18, matching the explicit "15 to 18
-# fallback voices, both male and female" ask. Ordered and tone-matched
-# per niche rather than reusing one generic order everywhere: dark_horror
-# leads with deeper/graver voices, seduction_dark leads sultrier/moodier,
-# psychological_trap alternates tightly for a controlled/measured feel,
-# supernatural_real favors more atmospheric/eerie voices, obsession_dark
-# leads with more intense/insistent voices. Every list still draws from
-# real GB/AU/NZ/IE/ZA/CA voices only (no US voices — direct prior user
-# feedback that US voices read as "too robotic" for this channel) and
-# every list mixes both genders throughout, not front-loaded by gender.
+def _interleave_genders(male, female):
+    out = []
+    for i in range(max(len(male), len(female))):
+        if i < len(male):   out.append(male[i])
+        if i < len(female): out.append(female[i])
+    return out
+
+def _rotate(lst, n):
+    n = n % len(lst)
+    return lst[n:] + lst[:n]
+
+def _build_voice_pool(rotation_offset):
+    au   = _rotate(_interleave_genders(_AU_MALE, _AU_FEMALE), rotation_offset)
+    gb   = _rotate(_interleave_genders(_GB_MALE, _GB_FEMALE), rotation_offset)
+    us   = _rotate(_interleave_genders(_US_MALE, _US_FEMALE), rotation_offset)
+    rest = _rotate(_interleave_genders(_REST_MALE, _REST_FEMALE), rotation_offset)
+    return au + gb + us + rest  # AU > GB > US > remaining, always
+
+EXTENDED_VOICES = _build_voice_pool(0)
+
 VOICES = {
-    "dark_horror": [
-        "en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-AU-NatashaNeural",
-        "en-IE-ConnorNeural", "en-ZA-LukeNeural", "en-GB-SoniaNeural", "en-AU-DuncanNeural",
-        "en-NZ-MitchellNeural", "en-CA-LiamNeural", "en-GB-EthanNeural", "en-AU-FreyaNeural",
-        "en-GB-LibbyNeural", "en-AU-KenNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
-        "en-CA-ClaraNeural", "en-NZ-MollyNeural",
-    ],
-    "seduction_dark": [
-        "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
-        "en-GB-ThomasNeural", "en-AU-DarrenNeural", "en-GB-BellaNeural", "en-AU-CarlyNeural",
-        "en-CA-ClaraNeural", "en-NZ-MollyNeural", "en-AU-WilliamNeural",
-        "en-GB-HollieNeural", "en-AU-JoanneNeural", "en-IE-ConnorNeural", "en-ZA-LukeNeural",
-        "en-CA-LiamNeural", "en-GB-OliviaNeural",
-    ],
-    "psychological_trap": [
-        "en-GB-ThomasNeural", "en-AU-NeilNeural", "en-ZA-LukeNeural",
-        "en-CA-LiamNeural", "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-GB-AbbiNeural",
-        "en-AU-ElsieNeural", "en-IE-ConnorNeural", "en-NZ-MitchellNeural", "en-GB-OliverNeural",
-        "en-AU-TinaNeural", "en-GB-LibbyNeural", "en-IE-EmilyNeural", "en-ZA-LeahNeural",
-        "en-CA-ClaraNeural", "en-NZ-MollyNeural",
-    ],
-    # FIX (found live, July 23 2026): en-GB-NoahNeural is broken on this
-    # repo's GitHub Actions runners specifically -- confirmed live, ALL
-    # 8 SSML segments failed 3 attempts each (24/24 failures, "No audio
-    # was received"), then even the non-segmented single-shot fallback
-    # failed on the SAME voice, before finally succeeding the moment it
-    # switched to RyanNeural. Same class of issue as the already-known
-    # "DavisNeural unavailable on Actions" -- excluded entirely rather
-    # than just reordered, so no niche can land on it again.
-    "supernatural_real": [
-        "en-GB-ThomasNeural", "en-AU-WilliamNeural", "en-NZ-MollyNeural", "en-IE-ConnorNeural",
-        "en-GB-HollieNeural", "en-AU-DuncanNeural", "en-ZA-LeahNeural", "en-CA-ClaraNeural",
-        "en-GB-EthanNeural", "en-AU-FreyaNeural", "en-GB-BellaNeural", "en-AU-KenNeural",
-        "en-IE-EmilyNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural", "en-NZ-MitchellNeural",
-        "en-GB-OliviaNeural", "en-AU-TimNeural",
-    ],
-    "obsession_dark": [
-        "en-GB-OliverNeural", "en-CA-ClaraNeural", "en-AU-DarrenNeural",
-        "en-ZA-LukeNeural", "en-GB-BellaNeural", "en-AU-CarlyNeural", "en-IE-ConnorNeural",
-        "en-NZ-MollyNeural", "en-GB-EthanNeural", "en-AU-JoanneNeural", "en-ZA-LeahNeural",
-        "en-CA-LiamNeural", "en-GB-SoniaNeural", "en-AU-NatashaNeural", "en-IE-EmilyNeural",
-        "en-GB-AlfieNeural", "en-NZ-MitchellNeural",
-    ],
+    "dark_horror":        _build_voice_pool(0),
+    "seduction_dark":     _build_voice_pool(1),
+    "psychological_trap": _build_voice_pool(2),
+    "supernatural_real":  _build_voice_pool(3),
+    "obsession_dark":     _build_voice_pool(4),
 }
 
 BG_KEYWORDS = {
@@ -816,6 +830,25 @@ def tg(m):
                 timeout=25)
         except Exception as e:
             log(f"TG: {e}")
+
+# FIX (direct user report, July 24 2026 — "I want these LLM to take the
+# quality scoring expertly serious and give me a notification everytime
+# they score any stage without fail. its my main REQUIREMENT"): every
+# single scored attempt at every stage — script, audio, video,
+# thumbnail-text, Shorts — now sends a real Telegram message the moment
+# it's scored, pass or fail, not just on the final winning attempt or
+# final exhaustion. Wrapped so a Telegram hiccup can never block the
+# actual pipeline (same non-fatal pattern as every other tg() call).
+def notify_stage_score(stage_name, attempt, max_attempts, score, gate, extra=""):
+    verdict = "✅ CLEARED" if score >= gate else "❌ below gate"
+    msg = (f"📊 <b>Ch1 — {stage_name}</b>\n"
+           f"Attempt {attempt}/{max_attempts}: <b>{score}/10</b> (gate {gate}) — {verdict}")
+    if extra:
+        msg += f"\n{extra}"
+    try:
+        tg(msg)
+    except Exception as e:
+        log(f"  Score notification (non-fatal): {e}")
 
 def tg_buttons(text):
     """Send Telegram message with ✅ APPROVE / ❌ REJECT / ✏️ CHANGE inline buttons."""
@@ -936,7 +969,15 @@ def call_cerebras(prompt, tokens=8000):
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
         return None
     _url    = "https://api.cerebras.ai/v1/chat/completions"
-    _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]  # Cerebras free-tier catalog narrowed to gpt-oss-120b/zai-glm-4.7 as of June 2026 — old llama names kept as fallback in case they return
+    # FIX (direct user report, July 24 2026 — "find if there are any
+    # expired LLMs... I want them to take up the job and work diligently
+    # without fail"): zai-glm-4.7 is confirmed scheduled for retirement
+    # Aug 17 2026 — still alive today but close enough to add real
+    # redundancy ahead of it rather than wait for it to start failing.
+    # qwen-3-32b/qwen-3-235b-a22b added — confirmed on Cerebras's free
+    # tier alongside gpt-oss-120b as of an April 2026 catalog snapshot.
+    _models = ["gpt-oss-120b", "qwen-3-32b", "zai-glm-4.7", "qwen-3-235b-a22b",
+               "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
             r = requests.post(_url,
@@ -970,9 +1011,16 @@ def call_cerebras(prompt, tokens=8000):
 
 def call_groq(prompt, tokens=8000):
     if not GROQ_KEY: return None
-    # Groq announced deprecation of llama-3.3-70b-versatile on June 17 2026.
-    # Try the recommended replacements first, keep the old name as last-resort.
-    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.3-70b-versatile"]:
+    # FIX (direct user report, July 24 2026 — real provider audit):
+    # confirmed llama-3.3-70b-versatile and llama-3.1-8b-instant were
+    # BOTH formally deprecated by Groq on June 17 2026 (already past —
+    # this is a genuinely dead model now, not just an old fallback).
+    # Removed entirely rather than kept as dead weight. Groq's own
+    # recommended replacements — openai/gpt-oss-120b, qwen/qwen3.6-27b,
+    # openai/gpt-oss-20b — are what's tried now, plus qwen3-32b (also
+    # confirmed live on Groq) for extra redundancy.
+    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b",
+                  "openai/gpt-oss-20b", "qwen/qwen3-32b"]:
         try:
             r = requests.post(GROQ_URL,
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
@@ -1038,22 +1086,22 @@ def call_gemini(prompt, tokens=8000):
     return None
 
 # Free models on OpenRouter — try in order until one responds
-# FIX (direct user report, July 24 2026): "Open Router is not working" —
-# real test logs showed 404 (model not found) on every slug in the old
-# list. OpenRouter regularly retires free-tier model IDs without notice
-# (phi-3-mini, zephyr-7b, and openchat-3.5 are all long past end-of-life
-# on their free catalog as of this fix), so the list is refreshed to
-# current (mid-2026) free-tier slugs and widened for more redundancy —
-# any name that goes stale again just gets skipped via the existing
-# 404-continue handling below, same self-healing behavior as Cerebras.
+# FIX (direct user report, July 24 2026 — real provider audit): a live
+# search of OpenRouter's current free catalog found DeepSeek and
+# Mistral have NO free-tier models on OpenRouter as of July 2026 (both
+# had free variants previously, both pulled them) — the 4 DeepSeek/
+# Mistral entries below were dead weight, all guaranteed 404s. Removed
+# and replaced with the families actually confirmed live on OpenRouter's
+# free collection right now: Qwen, Llama, OpenAI GPT-OSS, Gemma, NVIDIA
+# Nemotron. Any name that goes stale again just gets skipped via the
+# existing 404-continue handling below — same self-healing behavior as
+# Cerebras/Groq.
 OR_FREE_MODELS = [
-    "deepseek/deepseek-chat-v3.1:free",           # best quality, free
-    "deepseek/deepseek-r1:free",                  # strong reasoning fallback
-    "qwen/qwen-2.5-72b-instruct:free",             # Qwen fallback
-    "meta-llama/llama-3.3-70b-instruct:free",     # Meta fallback
-    "mistralai/mistral-nemo:free",                 # Mistral fallback
-    "mistralai/mistral-7b-instruct:free",         # reliable fallback
-    "google/gemma-3-27b-it:free",                  # Google fallback
+    "qwen/qwen-2.5-72b-instruct:free",             # Qwen — confirmed live
+    "meta-llama/llama-3.3-70b-instruct:free",     # Meta — confirmed live
+    "openai/gpt-oss-120b:free",                    # OpenAI OSS — confirmed live family
+    "google/gemma-3-27b-it:free",                  # Google — confirmed live
+    "nvidia/nemotron-nano-9b-v2:free",              # NVIDIA — confirmed live family
     "nousresearch/hermes-3-llama-3.1-405b:free",  # last resort
 ]
 
@@ -1094,11 +1142,12 @@ def call_cohere(prompt, tokens=8000):
         log("  Cohere: COHERE_API_KEY not set — skipping")
         return None
     # FIX (confirmed against Cohere's own official deprecations page):
-    # command-r-08-2024 is explicitly marked deprecated, with an April 4,
-    # 2026 retirement date already passed. Same fragile single-model
-    # pattern already fixed for Gemini/Groq. command-a-03-2025 is
-    # Cohere's own current recommended, production-stable replacement.
-    for _cohere_model in ["command-a-03-2025", "command-r-08-2024"]:
+    # command-r-08-2024 is explicitly marked deprecated, retirement date
+    # already passed — removed entirely (dead weight, guaranteed fail).
+    # command-a-plus-05-2026 is Cohere's newest model (confirmed live,
+    # released May 2026), tried first; command-a-03-2025 stays as the
+    # proven, stable fallback right behind it.
+    for _cohere_model in ["command-a-plus-05-2026", "command-a-03-2025"]:
         try:
             r = requests.post(COHERE_URL,
                 headers={"Authorization": f"Bearer {COHERE_KEY}",
@@ -1324,6 +1373,7 @@ def track_episode(state, niche_name, score, voice, episode):
     v = perf.get(f"voice_{voice}", {"scores": []})
     v["scores"] = (v["scores"] + [score])[-20:]
     perf[f"voice_{voice}"] = v
+    perf[f"last_voice_{niche_name}"] = voice  # feeds select_best_voice's no-repeat rule
     state["performance"] = perf
     return state
 
@@ -2565,8 +2615,6 @@ Dark investigative tone. No colons unless essential. No quotes.
 IMPORTANT: Start with a NUMBER or specific statistic for highest CTR.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
-    best = f"{niche['series']}: {topic[:55]}"
-    best_score = 0
 
     def looks_like_title(t):
         # FIX: the AI sometimes returns a formatted fact list instead of a
@@ -2595,14 +2643,22 @@ Return ONLY 5 titles, one per line."""
             # with TARGETED regeneration based on exactly which dimension
             # scored weak — sitting completely unused elsewhere in this file.
             # Wired in now instead of the simpler check.
+            #
+            # FIX (direct user report, July 24 2026 — explicit policy
+            # decision): run_title_ctr_gate now hard-gates at 8.5/10 over
+            # up to 8 real attempts and returns None if nothing ever
+            # clears it — this used to silently fall back to publishing
+            # whatever it had (even a bare "Series: topic" placeholder)
+            # regardless of score. Now genuinely returns None on total
+            # failure so the caller can skip the day, never a fallback
+            # title that never earned the bar.
             title_scores = [(l, 0) for l in lines]
             best, v2_scored = run_title_ctr_gate(
                 lines[0], title_scores, topic, niche["name"], niche["series"],
-                episode, ai_generate, min_ctr=6.5)
-            best_score = v2_scored[0][1] if v2_scored else 0
-            log(f"  Title (v2 scorer): {best_score}/10 — {best[:55]}")
+                episode, ai_generate)
+            return best
 
-    return best
+    return None
 
 def generate_chapters(audio_duration):
     if audio_duration < 60:
@@ -2796,36 +2852,48 @@ def call_elevenlabs(script, niche_name, output_path):
     voice_id = EL_VOICES.get(niche_name, "29vD33N1CtxCmqQRPOHJ")
     chunks   = [script[i:i+4500] for i in range(0, len(script), 4500)]
     parts    = []
+    # FIX (direct user report, July 24 2026 — "I want ElevenLabs to work
+    # without fail... find if there is any updated version or something
+    # is missing"): the July 23 fix (monolingual_v1 -> multilingual_v2)
+    # was never empirically confirmed against a live call, so it may not
+    # be the real cause. Rather than bet everything on one guessed model,
+    # this now tries 3 real, currently-documented ElevenLabs models in
+    # order per chunk — multilingual_v2 (highest quality), turbo_v2_5 and
+    # flash_v2_5 (both faster/cheaper, more likely available on
+    # lower-tier plans if the 400 turns out to be a plan/quota
+    # restriction on multilingual_v2 rather than a bad model name).
+    _EL_MODELS = ["eleven_multilingual_v2", "eleven_turbo_v2_5", "eleven_flash_v2_5"]
     try:
         for idx, chunk in enumerate(chunks):
             log(f"  ElevenLabs chunk {idx+1}/{len(chunks)}")
-            r = requests.post(f"{ELEVENLABS_URL}/{voice_id}",
-                headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
-                # FIX (found live, July 23 2026 — likely root cause of the
-                # consistent 400 that's been silently sending every episode
-                # to the more robotic edge-tts fallback): eleven_monolingual_v1
-                # is ElevenLabs' original, oldest model -- their current
-                # documented migration path points to eleven_multilingual_v2
-                # for quality. Not empirically confirmed against a live call
-                # (no network access to ElevenLabs from this environment),
-                # but paired with the logging fix below, the next real run
-                # will show definitively whether this was the cause.
-                json={"text": chunk, "model_id": "eleven_multilingual_v2",
-                      "voice_settings": {"stability": 0.45, "similarity_boost": 0.82}},
-                timeout=120)
-            if r.status_code != 200:
-                # FIX (found live, July 23 2026 — real bug): this only ever
-                # logged the bare status code, never the response body --
-                # ElevenLabs' error responses explain exactly what's wrong
-                # (bad model_id, quota, invalid voice) but that information
-                # was silently discarded every single time, making this
-                # failure completely undiagnosable. Same class of bug found
-                # and fixed for Groq/llm_json this session.
-                log(f"  ElevenLabs {r.status_code}: {r.text[:300]}")
+            _chunk_ok = False
+            _last_err = ""
+            for _el_model in _EL_MODELS:
+                r = requests.post(f"{ELEVENLABS_URL}/{voice_id}",
+                    headers={"xi-api-key": ELEVENLABS_KEY, "Content-Type": "application/json"},
+                    json={"text": chunk, "model_id": _el_model,
+                          "voice_settings": {"stability": 0.45, "similarity_boost": 0.82}},
+                    timeout=120)
+                if r.status_code == 200:
+                    part = str(WORK_DIR / f"el_{idx}.mp3")
+                    with open(part, "wb") as f: f.write(r.content)
+                    parts.append(part)
+                    _chunk_ok = True
+                    log(f"  OK ElevenLabs ({_el_model})")
+                    break
+                _last_err = f"{r.status_code}: {r.text[:300]}"
+                log(f"  ElevenLabs {_el_model} {_last_err}")
+            if not _chunk_ok:
+                # FIX (direct user report, July 24 2026 — "give me a
+                # notification everytime... without fail"): the real error
+                # body from ElevenLabs (exactly what's wrong — bad model,
+                # quota, invalid voice) now reaches Telegram directly
+                # instead of only the GitHub Actions console log, so the
+                # next real run gives a definitive, VISIBLE root cause
+                # instead of another silent guess.
+                tg(f"⚠️ Ch1: ElevenLabs failed on all {len(_EL_MODELS)} models tried — "
+                   f"falling back to edge-tts. Real error: {_last_err}")
                 return False
-            part = str(WORK_DIR / f"el_{idx}.mp3")
-            with open(part, "wb") as f: f.write(r.content)
-            parts.append(part)
             time.sleep(1)
         if len(parts) == 1:
             import shutil; shutil.copy(parts[0], output_path)
@@ -3331,9 +3399,10 @@ def run_audio_stage(script, niche_name, edge_voice):
             return audio_path, duration, ass_path, edge_voice
 
     if not el_ok:
-        # FIX (July 23 2026, direct user request): no US voices, channel-wide.
+        # FIX (July 24 2026, direct user request): AU>GB>US>rest priority
+        # order, all baked into EXTENDED_VOICES itself.
         _fallback_candidates = [v for v in
-            ["en-GB-ThomasNeural"] + EXTENDED_VOICES if v != edge_voice]
+            EXTENDED_VOICES if v != edge_voice]
         # v1 addition — real learning-loop closure: voice performance has
         # been tracked into state["performance"] this whole time but
         # never read back. Reorders only the FALLBACK candidates (never
@@ -3555,7 +3624,10 @@ def download_pixabay_video(keywords):
                     dl.raise_for_status()
                     with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000:
+                # FIX (direct user report, July 24 2026 — same bug as
+                # get_stage_matched_video: Pixabay's video API has no real
+                # orientation filter, so this needs its own real check.
+                if Path(path).stat().st_size > 50000 and _is_landscape_video(path):
                     return path
         except Exception as e:
             log(f"  Pixabay '{kw}': {e}")
@@ -3594,7 +3666,11 @@ def download_pexels_video(keywords):
                     dl.raise_for_status()
                     with open(path, "wb") as f:
                         for chunk in dl.iter_content(32768): f.write(chunk)
-                if Path(path).stat().st_size > 50000: return path
+                # FIX (direct user report, July 24 2026): target was picked
+                # by width alone with no check that width > height, so a
+                # portrait rendition could pass.
+                if Path(path).stat().st_size > 50000 and _is_landscape_video(path):
+                    return path
         except Exception as e: log(f"  Pexels '{kw}': {e}")
     return None
 
@@ -3810,7 +3886,128 @@ def upload_captions_track(token, video_id, srt_path, language="en"):
         return False
 
 
-def get_stage_matched_video(niche, script, audio_duration, topic=""):
+# FIX (direct user report, July 24 2026 — "it is giving the horizontal as
+# well as vertical videos"): real root cause found — Pixabay's actual
+# Video API has NO "orientation" parameter at all (only its separate
+# Image API does); the "orientation": "horizontal" sent to Pixabay's
+# video search below is silently ignored, giving zero real filtering.
+# Pexels' video search DOES support "orientation": "landscape", but the
+# file-selection logic only checked width <= 1920 with no check that
+# width > height — a 1080x1920 (portrait) rendition passes that check
+# just as easily as a 1920x1080 (landscape) one. Both gaps let portrait
+# clips through despite the code appearing to request landscape-only.
+# This real ffprobe-based check runs on every downloaded clip regardless
+# of source, and rejects (deletes + reports not-downloaded) anything
+# that isn't genuinely landscape, so the caller tries the next source/
+# search term instead of accepting a portrait clip.
+def _is_landscape_video(path):
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", path],
+            capture_output=True, timeout=15, text=True)
+        if r.returncode != 0:
+            return False
+        streams = json.loads(r.stdout).get("streams", [])
+        vs = next((s for s in streams if s.get("codec_type") == "video"), None)
+        if not vs:
+            return False
+        w, h = vs.get("width", 0), vs.get("height", 0)
+        return bool(w and h and w > h)
+    except Exception:
+        return False
+
+
+_WORLD_MAP_DATA_FOOTAGE = None
+
+def _load_world_map_data_footage():
+    """Real country-name list, reused (same dataset as the map-scene
+    system) purely as a real-nation dictionary for footage matching."""
+    global _WORLD_MAP_DATA_FOOTAGE
+    if _WORLD_MAP_DATA_FOOTAGE is not None:
+        return _WORLD_MAP_DATA_FOOTAGE
+    try:
+        map_path = Path(__file__).parent / "world_map_data.json"
+        with open(map_path) as f:
+            _WORLD_MAP_DATA_FOOTAGE = json.load(f)
+    except Exception:
+        _WORLD_MAP_DATA_FOOTAGE = {"features": []}
+    return _WORLD_MAP_DATA_FOOTAGE
+
+
+# Common demonyms/adjectival forms for the nations a script is most
+# likely to actually reference in prose ("American street", "British
+# police") rather than the formal country name — the real GeoJSON dataset
+# only has formal names ("United States"), so this closes that real gap.
+_NATION_DEMONYMS = {
+    "american": "United States", "u.s.": "United States", "usa": "United States",
+    "british": "United Kingdom", "english": "United Kingdom", "uk": "United Kingdom",
+    "canadian": "Canada", "australian": "Australia", "irish": "Ireland",
+    "scottish": "United Kingdom", "welsh": "United Kingdom",
+    "german": "Germany", "french": "France", "italian": "Italy",
+    "spanish": "Spain", "russian": "Russia", "chinese": "China",
+    "japanese": "Japan", "indian": "India", "mexican": "Mexico",
+    "brazilian": "Brazil", "south african": "South Africa",
+}
+
+# FIX (direct user report, July 24 2026 — "without fail"): real stories
+# overwhelmingly name a specific US STATE or a major foreign CITY rather
+# than saying "American"/"British" outright (e.g. "Providence, Rhode
+# Island", not "an American city") — the demonym-only list above missed
+# every one of these. All 50 real US states map to United States; a
+# compact set of major, unambiguous English-speaking-world cities covers
+# the next most common real case without the false-positive risk of
+# guessing at every possible town name.
+_US_STATES = {
+    "alabama","alaska","arizona","arkansas","california","colorado","connecticut",
+    "delaware","florida","georgia","hawaii","idaho","illinois","indiana","iowa",
+    "kansas","kentucky","louisiana","maine","maryland","massachusetts","michigan",
+    "minnesota","mississippi","missouri","montana","nebraska","nevada",
+    "new hampshire","new jersey","new mexico","new york","north carolina",
+    "north dakota","ohio","oklahoma","oregon","pennsylvania","rhode island",
+    "south carolina","south dakota","tennessee","texas","utah","vermont",
+    "virginia","washington","west virginia","wisconsin","wyoming",
+}
+for _state in _US_STATES:
+    _NATION_DEMONYMS[_state] = "United States"
+
+_MAJOR_CITY_NATIONS = {
+    "london": "United Kingdom", "manchester": "United Kingdom", "birmingham": "United Kingdom",
+    "glasgow": "United Kingdom", "edinburgh": "United Kingdom", "liverpool": "United Kingdom",
+    "toronto": "Canada", "vancouver": "Canada", "montreal": "Canada", "ottawa": "Canada",
+    "sydney": "Australia", "melbourne": "Australia", "brisbane": "Australia", "perth": "Australia",
+    "auckland": "New Zealand", "wellington": "New Zealand",
+    "dublin": "Ireland", "cork": "Ireland",
+    "cape town": "South Africa", "johannesburg": "South Africa", "durban": "South Africa",
+}
+_NATION_DEMONYMS.update(_MAJOR_CITY_NATIONS)
+
+
+def _detect_nation_context(title, topic, script):
+    """
+    FIX (direct user report, July 24 2026 — "stock footage... should be
+    embedded properly according to the nation, according to the video
+    title, without fail... hard-code embedded, that should be your main
+    priority"): real nation detection, checked against the title first
+    (most specific), then topic, then the opening of the script — so
+    footage search terms carry the actual country/setting of the story,
+    not just its mood or a generic concrete noun. Returns a real country
+    name (matching the same dataset the map system uses) or "" if none
+    is genuinely present in any of the three sources.
+    """
+    data = _load_world_map_data_footage()
+    real_names = [f["name"] for f in data.get("features", [])]
+    for source in (title or "", topic or "", " ".join(script.split()[:150])):
+        low = source.lower()
+        for demonym, country in _NATION_DEMONYMS.items():
+            if demonym in low:
+                return country
+        for name in real_names:
+            if len(name) > 3 and name.lower() in low:
+                return name
+    return ""
+
+
+def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     """
     Sequential audio-matched footage: the script is split into 55-75
     proportional segments (~12-15s of narration each), scaled dynamically
@@ -3891,12 +4088,22 @@ def get_stage_matched_video(niche, script, audio_duration, topic=""):
                      if w not in CONCRETE_VISUAL_NOUNS]
     topic_anchors = (_topic_concrete + _topic_ranked)[:6] or []
 
-    # Dynamic segment count: target ~13.5s/clip (middle of the 12-15s
-    # range), clamped to 55-75 regardless of exact video length so a
-    # 15-min and an 18-min video both stay in the requested density band.
+    # FIX (direct user report, July 24 2026 — "stock footage... should be
+    # embedded properly according to the nation, according to the video
+    # title, without fail... main priority"): a real, detected nation is
+    # threaded into EVERY segment's search query below (not just the
+    # topic_anchors rotation), so the footage's actual setting/country is
+    # never dropped even on segments whose local topic_anchor happens to
+    # be something else that round.
+    nation_context = _detect_nation_context(title, topic, script)
+
+    # Dynamic segment count: target ~13.5s/clip, clamped to 55-65 per
+    # direct user request ("stock footage of 55 to 65... based on the
+    # niche") regardless of exact video length so a 15-min and an 18-min
+    # video both stay in the requested density band.
     TARGET_SECONDS_PER_CLIP = 13.5
     n_buckets = int(round(audio_duration / TARGET_SECONDS_PER_CLIP))
-    n_buckets = max(55, min(75, n_buckets))
+    n_buckets = max(55, min(65, n_buckets))
 
     # Expanded theme list (was 28, now 60) so segments this close together
     # don't hit the same theme label repeatedly — each tagged with a
@@ -4020,6 +4227,17 @@ def get_stage_matched_video(niche, script, audio_duration, topic=""):
         search_terms = [kw]
         if topic_anchor and specific_term != topic_anchor:
             search_terms.append(f"{base_kw} {topic_anchor}")
+        # FIX (direct user report, July 24 2026 — "stock footage...
+        # according to the nation... without fail... main priority"):
+        # nation+subject variants tried early, ahead of the niche-mood-
+        # only fallbacks, so the story's real detected country genuinely
+        # influences which footage gets picked whenever a real hit exists
+        # for it — kept to 2-word queries (nation + one real term) since
+        # 3+ word combined queries return far fewer real hits in practice.
+        if nation_context:
+            if specific_term:
+                search_terms.append(f"{nation_context} {specific_term}")
+            search_terms.append(f"{nation_context} {base_kw}")
         # FIX (direct user report, July 24 2026 — "nonsensical background...
         # random footage"): the chain used to end on the fully generic
         # "cinematic dark atmosphere" query, which is where the completely
@@ -4045,7 +4263,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic=""):
                             with open(clip_path, "wb") as f:
                                 for chunk in dl.iter_content(32768): f.write(chunk)
                         if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                            downloaded = True; continue
+                            if _is_landscape_video(clip_path):
+                                downloaded = True; continue
+                            else:
+                                log(f"    Segment {i+1} Pixabay: rejected portrait clip for '{search_kw[:30]}'")
+                                Path(clip_path).unlink(missing_ok=True)
                     elif r.status_code == 429:
                         log(f"    Segment {i+1} Pixabay: 429 rate limited")
             except Exception as e:
@@ -4071,7 +4293,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic=""):
                                     with open(clip_path, "wb") as f:
                                         for chunk in dl.iter_content(32768): f.write(chunk)
                                 if Path(clip_path).exists() and Path(clip_path).stat().st_size > 50000:
-                                    downloaded = True
+                                    if _is_landscape_video(clip_path):
+                                        downloaded = True
+                                    else:
+                                        log(f"    Segment {i+1} Pexels: rejected portrait clip for '{search_kw[:30]}'")
+                                        Path(clip_path).unlink(missing_ok=True)
                         elif r.status_code == 429:
                             log(f"    Segment {i+1} Pexels: 429 rate limited")
                 except Exception as e:
@@ -4605,40 +4831,48 @@ def load_weekly_strategy():
 
 def select_best_voice(state, niche_name, available_voices):
     """
-    After 5 episodes in a niche, lock in the voice that has produced
-    the highest average scores. Viewers build a relationship with THE voice.
-    Before 5 episodes: rotate to gather data.
+    FIX (direct user report, July 24 2026 — "it should keep rotating.
+    We should not have only one voice"): previously locked permanently
+    onto a single "best" voice after 5 episodes — the exact opposite of
+    what was asked. Now rotates every episode, forever: same epsilon-
+    greedy principle already proven for thumbnail-format selection
+    (thumbnail_formats.select_thumbnail_format) — mostly picks from the
+    best-performing voices once real score data exists, but always
+    keeps sampling the rest of the pool too, and never repeats the
+    immediately previous voice for this niche.
     """
     perf = state.get("performance", {})
     niche_episodes = [ep for ep in state.get("episode_history", [])
                       if ep.get("niche") == niche_name]
-    if len(niche_episodes) < 5:
-        # Not enough data — rotate voices for data gathering
-        ep_count = len(niche_episodes)
-        voice = available_voices[ep_count % len(available_voices)]
+    ep_count = len(niche_episodes)
+
+    last_voice = perf.get(f"last_voice_{niche_name}")
+    candidates = [v for v in available_voices if v != last_voice] or list(available_voices)
+
+    if ep_count < 5:
+        voice = candidates[ep_count % len(candidates)]
         log(f"  Voice (gathering data, ep {ep_count+1}/5): {voice}")
         return voice
 
-    # Score each available voice by average episode score
     voice_scores = {}
-    for ep in niche_episodes:
-        ep_ep = ep.get("episode", 0)
-        # Find voice from performance tracker
-        for key, val in perf.items():
-            if key.startswith("voice_") and isinstance(val, dict):
-                v_name = key.replace("voice_", "")
-                if v_name in available_voices:
-                    scores = val.get("scores", [])
-                    if scores:
-                        voice_scores[v_name] = sum(scores) / len(scores)
+    for key, val in perf.items():
+        if key.startswith("voice_") and isinstance(val, dict):
+            v_name = key.replace("voice_", "")
+            if v_name in candidates:
+                scores = val.get("scores", [])
+                if scores:
+                    voice_scores[v_name] = sum(scores) / len(scores)
 
-    if voice_scores:
+    if voice_scores and random.random() > 0.35:
         best = max(voice_scores, key=voice_scores.get)
-        log(f"  Voice (locked — best avg {voice_scores[best]:.1f}/10): {best}")
+        log(f"  Voice (weighted pick — best avg {voice_scores[best]:.1f}/10): {best}")
         return best
 
-    # Fallback to first voice
-    return available_voices[0]
+    unproven = [v for v in candidates if v not in voice_scores]
+    pool = unproven or candidates
+    voice = pool[ep_count % len(pool)]
+    log(f"  Voice (rotating/exploring, ep {ep_count+1}): {voice}")
+    return voice
 
 def load_pattern_memory(state):
     """
@@ -5534,33 +5768,6 @@ Return ONLY valid JSON:
     return fallback
 
 
-def get_ch1_archive_topic(niche, attempt, used_topics):
-    """
-    Archive fallback: when fresh topics are exhausted (attempt > 8),
-    dig into proven viral stories from 2022-2024.
-    """
-    prompt = f"""Find 6 documented real-world stories from 2022-2024 that fit
-the "{niche['name'].replace('_',' ')}" niche and went viral as documentary YouTube videos.
-Focus: {niche['search_query']}
-Not already used: {[t[:40] for t in used_topics[:4]]}
-Return ONLY a JSON array: ["Story 1","Story 2","Story 3","Story 4","Story 5","Story 6"]"""
-    try:
-        text = ai_generate(prompt, tokens=400)
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','', re.sub(r'```json|```','',text).strip())
-        m = re.search(r'\[[\s\S]*?\]', text)
-        if m:
-            topics = json.loads(m.group())
-            unused = [t for t in topics if t not in used_topics]
-            if unused:
-                chosen = random.choice(unused)
-                log(f"  Archive topic: {chosen[:70]}")
-                return chosen
-    except Exception as e:
-        log(f"  Archive topic err: {e}")
-    unused_seeds = [t for t in niche["topics"] if t not in used_topics]
-    return random.choice(unused_seeds) if unused_seeds else niche["topics"][0]
-
-
 def update_channel_description(token, latest_title, latest_url):
     """[NEW #12] Update channel About with latest episode."""
     try:
@@ -5765,13 +5972,15 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
 
 def run_stage1(state):
     """
-    13-attempt script engine for Ch1 BetrayalDeepDive.
+    8-attempt script engine for Ch1 BetrayalDeepDive.
+    Hard floor {MIN_GATE}/10, no relaxation tiers — if nothing clears it
+    within {MAX_ATTEMPTS} attempts, the day is skipped (no publish).
     Returns (niche_name, niche, topic, script_result, trending_titles).
     """
     log("\n"+"="*65)
-    log("  STAGE 1: BetrayalDeepDive 13-Attempt Script Engine")
-    log(f"  Graduated quality gate: attempts 1-8 require {MIN_GATE} | "
-        f"attempts 9-12 relax to 7.0 | attempt 13 absolute floor {FINAL_GATE}")
+    log(f"  STAGE 1: BetrayalDeepDive {MAX_ATTEMPTS}-Attempt Script Engine")
+    log(f"  Hard quality gate: {MIN_GATE}/10, every attempt, no relaxation — "
+        f"skip the day if unmet after {MAX_ATTEMPTS} attempts")
     log("="*65)
 
     day        = datetime.datetime.now().weekday()
@@ -5826,23 +6035,15 @@ def run_stage1(state):
     except Exception as e:
         log(f"  Topic backlog check (non-fatal): {e}")
 
-    for attempt in range(1, 14):
-        # Graduated 13-level quality gate, per explicit specification:
-        # attempts 1-8 require the high bar (8.5) — this is where the system
-        # should be succeeding under normal conditions; attempts 9-13 relax
-        # to 7.0 as a real fallback, never lower; attempt 13 specifically
-        # allows 6.9 as the absolute last-resort floor, never crossed below.
-        if attempt == 13:
-            gate = FINAL_GATE       # 6.9 — absolute floor, last attempt only
-        elif attempt >= 9:
-            gate = 7.0              # attempts 9-12 — relaxed fallback tier
-        else:
-            gate = 8.5              # attempts 1-8 — the real standard
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        # FIX (direct user report, July 24 2026): flat hard gate, no
+        # relaxation tiers — every attempt must clear MIN_GATE (8.5).
+        gate = MIN_GATE
 
         # Get fresh topic each attempt
         if _approved_topic_entry and attempt == 1:
             topic = _approved_topic_entry["topic_text"]
-        elif attempt <= 8:
+        else:
             fresh = intel.get("fresh_topic_ideas", niche["topics"])
             unused = [t for t in fresh if t not in used_topics]
             topic = unused[0] if unused else random.choice(niche["topics"])
@@ -5852,8 +6053,6 @@ def run_stage1(state):
                                      lambda p, tokens=200: ai_generate(p, tokens=tokens))
             except Exception as e:
                 log(f"  Topic scoring (non-fatal): {e}")
-        else:
-            topic = get_ch1_archive_topic(niche, attempt, used_topics)
         used_topics.append(topic)
 
         # Research real cases for this topic
@@ -5864,7 +6063,7 @@ def run_stage1(state):
         # has many call sites elsewhere.
         research_ctx, real_cases = get_research_context(niche_name, topic)
 
-        log(f"\nAttempt {attempt}/13 (gate:{gate})...")
+        log(f"\nAttempt {attempt}/{MAX_ATTEMPTS} (gate:{gate})...")
         log(f"Topic: {topic[:80]}")
 
         try:
@@ -5901,6 +6100,7 @@ def run_stage1(state):
             score, _, _ = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
+            notify_stage_score("Script", attempt, MAX_ATTEMPTS, score, gate, extra=f"{wc} words | {topic[:60]}")
 
             if score > best_score:
                 best_score   = score
@@ -5924,19 +6124,20 @@ def run_stage1(state):
             log(f"  Error: {str(e)[:80]}")
             time.sleep(15)
 
-    if best_result and best_score >= FINAL_GATE:
-        log(f"\nUsing best: {best_score}/10 after 13 attempts")
-        tg(f"Note: Publishing {best_score}/10 after 13 attempts.")
-        best_result["attempt"] = 13  # fires only after all 13 attempts are exhausted
-        return niche_name, niche, best_topic, best_result, best_trending
-
-    tg(f"Ch1 Day Skipped\nBest: {best_score}/10 after 13 attempts")
+    # FIX (direct user report, July 24 2026 — explicit policy decision):
+    # no fallback-publish tier anymore. If nothing cleared MIN_GATE
+    # (8.5) within MAX_ATTEMPTS attempts, the day is skipped —
+    # never publish a script that didn't genuinely earn the real bar,
+    # even as a "best available" compromise.
+    tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 after {MAX_ATTEMPTS} attempts "
+       f"(best: {best_score}/10). Per your standing instruction, nothing under {MIN_GATE} "
+       f"gets published.")
     sys.exit(0)
 
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
-    available = VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
+    available = VOICES.get(niche_name, EXTENDED_VOICES)
     return select_best_voice(state, niche_name, available)
 
 
@@ -6248,7 +6449,7 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 
 _last_video_fallback_flags = {}  # FIX (final re-audit): see collapse_index_pipeline.py for full rationale
 
-def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, ass_path=None):
+def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, ass_path=None, title=""):
     """Assemble final video: background footage + narration + ambient music
     + kinetic text overlays at key story beats (dark/atmospheric style,
     matched to niche — mix approach: animation for key beats, stock
@@ -6260,7 +6461,10 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # working) existed in this same file and was never wired in. That's
     # exactly why the video showed "only one background the whole time."
     search_kw   = ""  # only used by the single-clip fallback below
-    bg_path     = get_stage_matched_video(niche, script, audio_duration, topic=topic)
+    # FIX (direct user report, July 24 2026): title threaded through so
+    # get_stage_matched_video can detect the real nation/setting of the
+    # story from it, not just the shorter topic string.
+    bg_path     = get_stage_matched_video(niche, script, audio_duration, topic=topic, title=title)
     if not bg_path:
         log("  Stage-matched video unavailable — falling back to single looped clip")
         bg_path = get_background_video(niche, audio_duration, search_kw)
@@ -6328,39 +6532,36 @@ def generate_thumbnail_text(niche, topic, title=""):
     but the function never actually received the title at all — thumbnail
     and title registers could genuinely clash (e.g. sympathy title, dread
     thumbnail) since they were chosen completely independently."""
-    fallback_bank = {
-        "dark_horror":        ["LAST TAPE FOUND", "ROOM 307 SEALED", "SECOND VOICE HEARD",
-                                "SHE LIED ALWAYS", "NOBODY EVER LISTENED"],
-        "seduction_dark":     ["SEVEN WARNING SIGNS", "ONE TRAP CLOSED", "TWENTY EIGHT DAYS",
-                                "ALL SHE WANTED", "COST HER EVERYTHING"],
-        "psychological_trap": ["SIX STAGES FOUND", "NO EXIT EXISTS", "DOCUMENTED MIND CONTROL",
-                                "EVERYONE BLAMED HIM", "TRUTH WAS WORSE"],
-        "supernatural_real":  ["WITNESSES CONFIRMED THIS", "NINE NIGHTS RECORDED", "STILL UNEXPLAINED TODAY",
-                                "ALONE THE WHOLE", "NOBODY CAME BACK"],
-        "obsession_dark":     ["FOUR YEARS TRACKED", "EIGHT HUNDRED MESSAGES", "ONE PERSON KNEW",
-                                "SHE WAS ALONE", "LAST DAYS UNSEEN"],
-    }
     title_context = (
         f"\nTHE ACTUAL VIDEO TITLE (match its register exactly — if it's dread-driven,\n"
         f"the thumbnail must be dread-driven too; if it's sympathy/woeful, match that.\n"
         f"Do not clash with this title's tone): \"{title}\"\n"
         if title else ""
     )
+    # FIX (direct user report, July 24 2026 — "it should be questioning
+    # the audience... not some big typing letters"): the old prompt only
+    # ever produced a NUMBER+NOUN statement, and the sanitizer below
+    # stripped "?" from anything the AI did produce, making a genuine
+    # question format literally impossible to ever get through. Now
+    # explicitly offers a direct QUESTION format as an equally valid
+    # alternative to the number+noun style, and the sanitizer/length
+    # rules below allow it through.
     prompt = (
-        f"Generate the most psychologically compelling 3-word thumbnail text "
+        f"Generate the most psychologically compelling short thumbnail text "
         f"for a dark documentary video.\n"
         f"NICHE: {niche['name']} | TOPIC: {topic[:100]}\n"
         f"{title_context}\n"
-        f"USE THESE TRIGGERS (pick ONE register, don't mix — and it MUST match\n"
-        f"the title's register above if one is given):\n"
-        f"1. CURIOSITY GAP: creates an unanswerable question\n"
-        f"2. DREAD register: implies something disturbing was confirmed\n"
-        f"3. SYMPATHY/WOEFUL register: implies someone was failed, ignored, or alone —\n"
-        f"   equally valid as dread, use this roughly half the time\n"
-        f"4. SPECIFICITY: a number or concrete detail, not vague\n"
-        f"5. PATTERN INTERRUPT: unexpected — makes viewer stop scrolling\n\n"
-        f"Rules: EXACTLY 3 words. ALL CAPS. Dark and specific. Never generic.\n"
-        f"Return ONLY 3 words. Example: FOUND INSIDE WALLS or NOBODY EVER LISTENED"
+        f"Pick ONE of these two formats — whichever creates the strongest real\n"
+        f"curiosity gap for THIS specific topic (must match the title's register\n"
+        f"above if one is given):\n"
+        f"A. NUMBER+NOUN: a specific number + a concrete, visceral noun\n"
+        f"   (e.g. FOUND INSIDE WALLS, 4380 DAYS HIDDEN)\n"
+        f"B. DIRECT QUESTION: a short, unsettling question aimed straight at the\n"
+        f"   viewer, tied to the real topic — not generic clickbait\n"
+        f"   (e.g. WHO WAS WATCHING?, WHY DID SHE STOP?)\n\n"
+        f"Rules: 2-4 words. ALL CAPS. Dark and specific. Never generic.\n"
+        f"If format B, end with a single '?' and nothing else.\n"
+        f"Return ONLY the text, nothing else."
     )
     # FIX (found on direct user request, July 23 2026 — real gate gap
     # matching Ch5's already-proven fix): a real scoring function for
@@ -6374,46 +6575,52 @@ def generate_thumbnail_text(niche, topic, title=""):
     except Exception:
         score_thumbnail_text = lambda t: 5.0  # neutral score if the module truly isn't available
 
-    # FIX (direct user report, July 23 2026 — "for everything, there should
-    # be specific scores that it should pass. If it doesn't pass, I want
-    # you to rework that stage without fail"): picking the best of 3 was
-    # still accepting whatever that best happened to be, even if all 3 were
-    # weak. Now a real bar (THUMB_TEXT_MIN) is enforced — a second round of
-    # 3 fresh candidates is generated if nothing clears it, same
-    # rework-not-silently-proceed discipline as the script/audio gates.
-    THUMB_TEXT_MIN = 7.9
-    THUMB_TEXT_EXCELLENT = 8.8  # aspirational tier, logged but not a hard requirement
+    # FIX (direct user report, July 24 2026 — explicit policy decision,
+    # "every stage... thumbnails... quality score minimum of 8.5... hard
+    # time for it to remake is 8 attempts... if it is less than that, I
+    # don't want it to produce that"): hard floor raised from 7.9 to 8.5,
+    # and this no longer "best-effort" publishes the best candidate found
+    # if nothing ever cleared the bar (the old fallback_bank/best-effort
+    # path silently violated exactly that instruction). Now generates up
+    # to 8 real candidates one at a time, stopping the moment one clears
+    # the gate; returns None (real failure) if none of the 8 do — the
+    # caller must treat that as a stage failure, not substitute a
+    # placeholder or an unscored fallback bank phrase.
+    THUMB_TEXT_MIN = 8.5
+    THUMB_TEXT_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
     candidates = []
-    for _round in range(2):
+    for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
         try:
-            for _ in range(3):
-                result = ai_generate(prompt, tokens=15)
-                if result:
-                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-                    words = result.split()[:3]
-                    if len(words) == 3:
-                        candidates.append(' '.join(words))
+            result = ai_generate(prompt, tokens=15)
+            if result:
+                # FIX (direct user report, July 24 2026): this used to strip
+                # EVERY non-letter character including "?", which made a
+                # genuine question-format thumbnail text impossible to ever
+                # produce regardless of what the AI returned. Now preserves
+                # a single trailing "?" and allows 2-4 words (was a rigid
+                # exactly-3), since a real question often needs 3-4 words.
+                has_question = result.strip().endswith("?")
+                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                words = result.split()[:4]
+                if 2 <= len(words) <= 4:
+                    text = ' '.join(words) + ("?" if has_question else "")
+                    candidates.append(text)
         except Exception as e:
-            log(f"  Thumbnail text (non-fatal): {e}")
+            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS} (non-fatal): {e}")
 
         if candidates:
             scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
             best_text, best_score = max(scored, key=lambda pair: pair[1])
+            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: best so far "
+                f"'{best_text}' ({best_score}/10)")
+            notify_stage_score("Thumbnail text", attempt, THUMB_TEXT_MAX_ATTEMPTS, best_score,
+                                THUMB_TEXT_MIN, extra=f"'{best_text}'")
             if best_score >= THUMB_TEXT_MIN:
-                _tier = " [EXCELLENT tier >=8.8]" if best_score >= THUMB_TEXT_EXCELLENT else ""
-                log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10, passed {THUMB_TEXT_MIN} bar){_tier}")
+                log(f"  Thumbnail text cleared {THUMB_TEXT_MIN}/10 on attempt {attempt}.")
                 return best_text
-            log(f"  Thumbnail candidates scored: {scored} -> best '{best_text}' ({best_score}/10) "
-                f"BELOW {THUMB_TEXT_MIN} bar — reworking (round {_round + 1}/2)")
 
-    if not candidates:
-        candidates = [random.choice(fallback_bank.get(niche.get("name", "dark_horror"), fallback_bank["dark_horror"]))]
-
-    scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]  # de-dupe, keep order
-    best_text, best_score = max(scored, key=lambda pair: pair[1])
-    log(f"  Thumbnail candidates scored: {scored} -> chose '{best_text}' ({best_score}/10) "
-        f"[best-effort after {THUMB_TEXT_MIN} bar unmet across all rounds]")
-    return best_text
+    log(f"  Thumbnail text never cleared {THUMB_TEXT_MIN}/10 after {THUMB_TEXT_MAX_ATTEMPTS} attempts.")
+    return None
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
@@ -6930,8 +7137,18 @@ def main():
         # but state was never being passed in here, so it always saw state=None
         # and always computed the same register, every single episode. The
         # alternation looked implemented but never actually alternated.
+        # FIX (direct user report, July 24 2026 — explicit policy decision):
+        # generate_titles now genuinely returns None if nothing cleared the
+        # 8.5 title gate after 8 attempts. This used to fall back to a bare
+        # "Series Ep12"-style placeholder title regardless of score — a
+        # silent policy violation. Now skips the day instead.
         title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode, state, trending_titles)
-        title        = title_result if title_result else f"{niche['series']} Ep{episode}"
+        if not title_result:
+            tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after 8 attempts. Per your standing "
+               f"instruction, nothing under 8.5 gets published.")
+            log("  Title gate never cleared 8.5 after 8 attempts. Skipping.")
+            sys.exit(0)
+        title = title_result
 
         # v9 addition — real title-script alignment check, per direct
         # research confirming spoken-content-to-title matching affects
@@ -7078,98 +7295,55 @@ def main():
             run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
         edge_voice = voice_used
 
-        # STRICTER AUDIO GATE, now with an active retry — explicit decision
-        # made after real discussion about voice quality: gTTS/espeak are
-        # noticeably robotic, and previously the pipeline would auto-publish
-        # them anyway. Rather than holding immediately and waiting a full
-        # day for the next scheduled run, this now RE-ATTEMPTS the whole
-        # audio stage up to twice more, 2 hours apart — giving edge-tts and
-        # Fish Audio (the two real, natural-sounding tiers) a genuine chance
-        # to have their rate limits refresh before falling back further.
-        # Only holds for manual review if every attempt still lands on the
-        # two robotic tiers. ElevenLabs, edge-tts, and Fish Audio all still
-        # auto-publish immediately and normally — only gTTS/espeak trigger
-        # this retry-then-hold behavior.
-        _audio_retry_count = 0
-        _MAX_AUDIO_RETRIES = 2
-        # FIX (found on final re-audit, prompted by a direct question
-        # about the real job-timeline math): 2 retries x 2h each = up
-        # to 4 real hours silently spent HERE, before the audio+video
-        # review checkpoint is even reached — inside a 6-hour job that
-        # also has a 4.5h review-time budget shared across every other
-        # checkpoint. In the worst case this single wait-and-retry
-        # could consume most of the entire job's time before a human
-        # ever sees anything to review. It also doesn't achieve what
-        # its own name claims: provider DAILY quotas reset roughly
-        # every 24h, not every 2h, so this wait was never actually
-        # long enough to "wait for providers to refresh" from a daily
-        # limit anyway -- only genuinely helpful for clearing a brief,
-        # short-lived rate limit, which resolves in minutes, not hours.
-        # Shortened to a realistic wait for that actual case.
-        _AUDIO_RETRY_WAIT_SECONDS = 10 * 60  # 10 minutes
-        while edge_voice in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
-              _audio_retry_count < _MAX_AUDIO_RETRIES:
-            _audio_retry_count += 1
-            log(f"  Audio tier {edge_voice} is below the auto-publish bar — "
-                f"waiting 2h for providers to refresh (retry {_audio_retry_count}/{_MAX_AUDIO_RETRIES})...")
-            tg(f"⏳ Ch1: audio fell back to {edge_voice} — waiting 2h and retrying "
-               f"({_audio_retry_count}/{_MAX_AUDIO_RETRIES}) before holding for review.")
-            time.sleep(_AUDIO_RETRY_WAIT_SECONDS)
-            audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
-                run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
-            edge_voice = voice_used
-
-        if edge_voice in ("gtts-fallback", "espeak-offline-LASTRESORT"):
-            tg(f"🛑 Ch1 HOLD — audio still fell back to {edge_voice} after "
-               f"{_MAX_AUDIO_RETRIES} retries over {_MAX_AUDIO_RETRIES * 2}h, below the stated "
-               f"voice-quality bar. This episode is NOT being published automatically. Review the "
-               f"audio, or manually approve if it's acceptable, then re-run.\n\nTitle: {title}")
-            log(f"  HOLD: audio tier {edge_voice} is still below the auto-publish bar "
-                f"after {_MAX_AUDIO_RETRIES} retries. Stopping here.")
-            sys.exit(0)
-
-        # FIX: check_audio_quality existed fully built (validates real file
-        # size AND real measured duration against what the script's word
-        # count implies) but was never called anywhere — a truncated or
-        # corrupted audio file could silently reach video assembly undetected.
-        #
-        # FIX (found on direct user request, July 23 2026 — real gate gap):
-        # this only ever sent a Telegram warning and then proceeded anyway
-        # with the same corrupted/truncated audio -- exactly the "silently
-        # push it forward" behavior the user explicitly said they don't
-        # want. Now genuinely regenerates on a real failure (up to 2 real
-        # attempts) before ever falling through to a hold -- never
-        # publishes a corrupted/truncated narration automatically.
+        # FIX (direct user report, July 24 2026 — explicit policy decision,
+        # "every stage... audio, video, thumbnails, title... quality score
+        # minimum of 8.5... hard time for it to remake is 8 attempts...
+        # if it is less than that, I don't want it to produce that"):
+        # replaces the old two-track system (a voice-tier-name retry
+        # capped at 2, plus a separate duration-only integrity check
+        # capped at 2, plus a 10-minute sleep between attempts) with one
+        # real, numerically scored gate: score_audio_quality() (voice
+        # tier + duration match + silence integrity + file integrity),
+        # hard floor 8.5, up to 8 attempts, voice-swapped each retry, no
+        # artificial waiting between attempts. If nothing clears 8.5
+        # within 8 attempts, the day is skipped entirely — no publish.
+        from quality_scoring import score_audio_quality as _score_audio_quality_gate
+        _AUDIO_MIN_GATE = 8.5
+        _AUDIO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
         _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
-        _audio_quality_retries = 0
-        while not check_audio_quality(audio_path, _expected_dur) and _audio_quality_retries < 2:
-            _audio_quality_retries += 1
-            # FIX (real production loop, run 30056439412): regenerating with
-            # the SAME script + SAME voice reproduces a deterministic TTS
-            # render — if the failure came from that specific synthesis
-            # (not a transient network blip), both retries hit the exact
-            # identical failure and burn 2 attempts for nothing. Swapping
-            # to a different voice from the niche pool actually changes
-            # what gets synthesized, giving each retry a real chance.
-            _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
+        _audio_attempt = 1
+        while True:
+            _integrity_ok = check_audio_quality(audio_path, _expected_dur)
+            if _integrity_ok:
+                _audio_score, _ = _score_audio_quality_gate(
+                    audio_path, audio_duration, len(script_clean.split()), edge_voice)
+            else:
+                _audio_score = 0.0
+            log(f"  Audio attempt {_audio_attempt}/{_AUDIO_MAX_ATTEMPTS}: {_audio_score}/10 "
+                f"(voice {edge_voice}, integrity {'OK' if _integrity_ok else 'FAILED'})")
+            notify_stage_score("Audio", _audio_attempt, _AUDIO_MAX_ATTEMPTS, _audio_score,
+                                _AUDIO_MIN_GATE, extra=f"voice {edge_voice}")
+            if _audio_score >= _AUDIO_MIN_GATE:
+                break
+            if _audio_attempt >= _AUDIO_MAX_ATTEMPTS:
+                tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 after {_AUDIO_MAX_ATTEMPTS} "
+                   f"attempts (last: {_audio_score}/10, voice {edge_voice}) — skipping today's "
+                   f"episode. Per your standing instruction, nothing under {_AUDIO_MIN_GATE} "
+                   f"gets published.")
+                log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} after "
+                    f"{_AUDIO_MAX_ATTEMPTS} attempts. Skipping.")
+                sys.exit(0)
+            _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
                            if v != edge_voice]
             _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
-            tg(f"🔄 Ch1: audio quality check failed (expected ~{_expected_dur:.0f}s, got "
-               f"{audio_duration:.0f}s) — regenerating audio (attempt {_audio_quality_retries}/2, "
-               f"voice {edge_voice} → {_retry_voice}) instead of publishing it as-is.")
-            log(f"  Audio quality gate failed — regenerating (attempt {_audio_quality_retries}/2) "
-                f"with voice {edge_voice} -> {_retry_voice}")
+            tg(f"🔄 Ch1: audio scored {_audio_score}/10 (below {_AUDIO_MIN_GATE}) — regenerating "
+               f"(attempt {_audio_attempt + 1}/{_AUDIO_MAX_ATTEMPTS}, voice {edge_voice} → "
+               f"{_retry_voice}) instead of publishing it as-is.")
             edge_voice = _retry_voice
+            _audio_attempt += 1
             audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
                 run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
             edge_voice = voice_used
-        if not check_audio_quality(audio_path, _expected_dur):
-            tg(f"🛑 Ch1 HOLD — audio quality check still failing after 2 regeneration "
-               f"attempts (expected ~{_expected_dur:.0f}s, got {audio_duration:.0f}s). This "
-               f"episode is NOT being published automatically. Review manually, then re-run.\n\n"
-               f"Title: {title}")
-            log("  HOLD: audio quality gate still failing after 2 regeneration attempts. Stopping here.")
-            sys.exit(0)
 
         log("\nSTAGE 4: Video")
         # v1 addition — real, word-level synced captions, per explicit
@@ -7184,7 +7358,42 @@ def main():
         if not generate_real_synced_ass(audio_path, ass_path):
             ass_path = None
         video_path = run_stage_with_retry(
-            assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, ass_path)
+            assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, ass_path, title=title)
+
+        # FIX (direct user report, July 24 2026 — explicit policy decision,
+        # same as the audio gate above): real numeric 8.5/10 gate via
+        # score_video_quality() (A/V sync + stream/resolution integrity +
+        # file-size sanity + pipeline completeness), up to 8 reassembly
+        # attempts, BEFORE the human review below. If nothing clears 8.5
+        # within 8 attempts, the day is skipped entirely — no publish.
+        from quality_scoring import score_video_quality as _score_video_quality_gate, \
+            get_media_duration as _get_media_duration_gate
+        _VIDEO_MIN_GATE = 8.5
+        _VIDEO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
+        _video_attempt = 1
+        while True:
+            _v_dur = _get_media_duration_gate(video_path)
+            _video_gate_score, _ = _score_video_quality_gate(
+                video_path, _v_dur, audio_duration, content_type="stock_footage",
+                fallback_flags=_last_video_fallback_flags)
+            log(f"  Video attempt {_video_attempt}/{_VIDEO_MAX_ATTEMPTS}: {_video_gate_score}/10")
+            notify_stage_score("Video", _video_attempt, _VIDEO_MAX_ATTEMPTS, _video_gate_score, _VIDEO_MIN_GATE)
+            if _video_gate_score >= _VIDEO_MIN_GATE:
+                break
+            if _video_attempt >= _VIDEO_MAX_ATTEMPTS:
+                tg(f"🛑 Ch1: video never cleared {_VIDEO_MIN_GATE}/10 after {_VIDEO_MAX_ATTEMPTS} "
+                   f"attempts (last: {_video_gate_score}/10) — skipping today's episode. Per your "
+                   f"standing instruction, nothing under {_VIDEO_MIN_GATE} gets published.")
+                log(f"  Video gate never cleared {_VIDEO_MIN_GATE} after "
+                    f"{_VIDEO_MAX_ATTEMPTS} attempts. Skipping.")
+                sys.exit(0)
+            tg(f"🔄 Ch1: video scored {_video_gate_score}/10 (below {_VIDEO_MIN_GATE}) — "
+               f"reassembling (attempt {_video_attempt + 1}/{_VIDEO_MAX_ATTEMPTS}) instead of "
+               f"publishing it as-is.")
+            _video_attempt += 1
+            video_path = run_stage_with_retry(
+                assemble_video, "Video", niche_name, audio_path, audio_duration,
+                topic, script_clean, episode, real_cases, ass_path, title=title)
 
         # COMBINED AUDIO + VIDEO REVIEW — one review window, two distinct
         # decisions (audio: 4 real options; video: 5, the 5th being SWAP
@@ -7192,7 +7401,6 @@ def main():
         # same script/audio — since nothing in this file seeds Python's
         # random state, clip selection is genuinely different each call,
         # not a coin-flip disguised as a fix.
-        _remade_av = False
         # FIX (found on direct user request, July 23 2026): the review below
         # can only send a short local preview clip through Telegram, which
         # routinely exceeds Telegram's real ~50MB bot upload limit for a
@@ -7263,31 +7471,58 @@ def main():
                 _check_ins_used_av += 1
 
                 _a_dec = _av_review["audio_decision"]["decision"]
-                if _a_dec in ("reject", "remake"):
+                if _a_dec == "reject":
                     if _prerendered_yt_vid_id:
                         delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
-                    if _a_dec == "remake":
-                        tg("🔄 Ch1: REMAKE requested at audio review — this episode is being "
-                           "scrapped. A fresh episode will be generated on the next scheduled run.")
-                        log("  REMAKE requested during audio review — clearing pending, exiting.")
-                        _remade_av = True
-                    else:
-                        log("Rejected during audio review.")
+                    log("Rejected during audio review.")
                     break
+                # FIX (direct user report, July 24 2026 — "I told you
+                # specifically to remake it, and it didn't even send me a
+                # notification that it is working on the remake"): REMAKE
+                # used to be treated identically to REJECT here — scrapping
+                # the WHOLE episode instead of actually regenerating the
+                # audio and sending it back for another look, unlike SWAP
+                # VOICE/EDIT right below which already did this correctly.
+                # A person tapping REMAKE wants a fresh attempt at THIS
+                # artifact, not to lose the entire episode. Now genuinely
+                # regenerates (voice-swapped, same as SWAP VOICE) and loops
+                # back to review it again.
+                if _a_dec == "remake":
+                    _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
+                                   if v != edge_voice]
+                    _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                    tg(f"🔄 Ch1: REMAKE requested at audio review — regenerating audio now "
+                       f"(voice {edge_voice} → {_new_voice}), same script.")
+                    log(f"  REMAKE requested during audio review — regenerating, voice {edge_voice} -> {_new_voice}")
+                    edge_voice = _new_voice
+                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                        run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+                    edge_voice = voice_used
+                    ass_path = str(WORK_DIR / "main_captions.ass")
+                    if not generate_real_synced_ass(audio_path, ass_path):
+                        ass_path = None
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
+                    continue  # send the newly-generated audio/video for another look
 
                 _v_dec = _av_review["video_decision"]["decision"] if _av_review["video_decision"] else "approve"
                 if _v_dec == "reject":
                     if _prerendered_yt_vid_id:
                         delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
                     log("Rejected during video review."); sys.exit(0)
+                # FIX (direct user report, July 24 2026 — same fix as audio
+                # REMAKE above): REMAKE at the video checkpoint used to
+                # scrap the whole episode too, instead of actually
+                # reassembling the video like SWAP VISUALS already does.
                 if _v_dec == "remake":
-                    if _prerendered_yt_vid_id:
-                        delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
-                    tg("🔄 Ch1: REMAKE requested at video review — this episode is being "
-                       "scrapped. A fresh episode will be generated on the next scheduled run.")
-                    log("  REMAKE requested during video review — clearing pending, exiting.")
-                    _remade_av = True
-                    break
+                    tg("🔄 Ch1: REMAKE requested at video review — reassembling the video now, "
+                       "same script and audio.")
+                    log("  REMAKE requested during video review — reassembling.")
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
+                    continue  # send the newly-assembled video for another look
                 if _v_dec == "swap_visuals":
                     tg(f"🎨 Swapping visuals"
                        f"{' for: ' + _av_review['video_decision']['feedback'] if _av_review['video_decision']['feedback'] else ''}"
@@ -7295,7 +7530,7 @@ def main():
                     log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
-                        topic, script_clean, episode, real_cases, ass_path)
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
                     continue  # send the newly-assembled video for another look
                 if _v_dec == "approve" and _a_dec == "approve":
                     # FIX (found on deep re-audit): score_audio_quality/
@@ -7315,7 +7550,7 @@ def main():
                 # real but more involved change — logged for visibility,
                 # loop continues so the same audio/video get reviewed again)
                 if _a_dec == "swap_voice":
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
+                    _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
@@ -7329,7 +7564,7 @@ def main():
                         ass_path = None
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
-                        topic, script_clean, episode, real_cases, ass_path)
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
                     continue  # send the newly-generated audio/video for another look
                 if _a_dec == "edit":
                     _fb_audio = _av_review["audio_decision"]["feedback"] or ""
@@ -7346,7 +7581,7 @@ def main():
                     # script itself is reviewed separately at the SCRIPT
                     # checkpoint — so EDIT here now actually swaps to a
                     # genuinely different voice, same as SWAP VOICE does.
-                    _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-ThomasNeural"] + EXTENDED_VOICES)
+                    _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
                                    if v != edge_voice]
                     _new_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
                     tg(f"🎙️ Regenerating audio per your feedback: {_fb_audio}\n"
@@ -7369,7 +7604,7 @@ def main():
                     # in regardless of what the human approved here.
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
-                        topic, script_clean, episode, real_cases, ass_path)
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
                     continue  # send the newly-generated audio/video for another look
         except Exception as e:
             log(f"  Audio/Video review (non-fatal, proceeding with generated versions): {e}")
@@ -7377,10 +7612,6 @@ def main():
                f"proceeding with the generated audio/video WITHOUT human review for this "
                f"episode. If human_review_gate.py isn't deployed to this repo yet, that's "
                f"the likely cause.")
-
-        if _remade_av:
-            clear_pending(SCRIPT_DIR)
-            sys.exit(0)
 
         log("\nSTAGE 5: Thumbnail + Description")
         # v1 addition — real learned thumbnail-style preference, closing
@@ -7417,7 +7648,17 @@ def main():
                 state["performance"] = _perf
         except Exception as e:
             log(f"  Thumbnail style tracking (non-fatal): {e}")
+        # FIX (direct user report, July 24 2026 — explicit policy decision):
+        # generate_thumbnail_text now genuinely returns None if nothing
+        # cleared the 8.5 gate after 8 attempts, instead of silently
+        # publishing a "best-effort" candidate or a fallback-bank phrase
+        # that never earned the bar.
         thumb_text  = generate_thumbnail_text(niche, topic, title)
+        if not thumb_text:
+            tg(f"Ch1 Day Skipped — no thumbnail text cleared 8.5/10 after 8 attempts. Per your "
+               f"standing instruction, nothing under 8.5 gets published.")
+            log("  Thumbnail text gate never cleared 8.5 after 8 attempts. Skipping.")
+            sys.exit(0)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
         # FIX (found on direct user report, July 23 2026 — real gap):
         # score_thumbnail_text() already exists and Ch5 already wires it
@@ -7664,6 +7905,25 @@ def main():
                     _sh_review = review_shorts("BetrayalDeepDive", _real_shorts, TG_TOKEN, TG_CHAT,
                                                check_ins_used=0, gmail_sender=_gmail_sender,
                                                gmail_app_password=_gmail_pass, timeout_minutes=60)
+                    # FIX (direct user report, July 24 2026 — "if I tell it
+                    # reject then it needs to rework on it"): REJECT used to
+                    # be a silent no-op here — the already-published Shorts
+                    # just stayed live regardless, identical to APPROVE.
+                    # Shorts are real YouTube videos, so they CAN actually
+                    # be deleted (unlike the "can't unpublish" constraint
+                    # that applies to edit/remake/swap below) — REJECT now
+                    # genuinely deletes every Short from this batch.
+                    if _sh_review["decision"] == "reject":
+                        _sh_token = get_yt_token()
+                        for _s in _real_shorts:
+                            _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
+                            if _m:
+                                try:
+                                    delete_yt_video(_m.group(1), token=_sh_token)
+                                    log(f"  Deleted rejected Short: {_s['name']}")
+                                except Exception as e:
+                                    log(f"  Failed to delete rejected Short {_s['name']} (non-fatal): {e}")
+                        tg("🗑️ Ch1: Shorts REJECTED — all of this episode's Shorts have been deleted.")
                     if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
                         log(f"  Shorts {_sh_review['decision']} requested: "
                             f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")

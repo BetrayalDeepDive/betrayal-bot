@@ -1090,8 +1090,16 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
     regenerates the thumbnail with that feedback folded into the real
     AI image prompt — not a cosmetic re-roll, an actual instructed retry.
     """
-    caption = f"🖼️ {channel_name} — THUMBNAIL REVIEW\nTitle: {title}\n\nReply APPROVE, REJECT, or EDIT: what to change"
-    _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption)
+    # FIX (direct user report, July 24 2026 — "the Telegram options and
+    # buttons... are not clickable right now"): this checkpoint sent a
+    # plain photo with instructions to TYPE a reply and never mentioned
+    # REMAKE at all — no real tappable buttons, unlike the script/audio/
+    # video checkpoints which all have them. If this was the checkpoint
+    # the user was on, there was no button to tap in the first place.
+    # Now uses the same real inline-keyboard buttons as everywhere else.
+    caption = f"🖼️ {channel_name} — THUMBNAIL REVIEW\nTitle: {title}"
+    _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption,
+                   reply_markup=_button_keyboard())
 
     if gmail_app_password:
         send_email_notification(f"[{channel_name}] Thumbnail ready for review",
@@ -1113,11 +1121,14 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
     feedback can reference something concrete ("use option 2 instead" is
     directly actionable) rather than guessing blind.
     """
+    # FIX (direct user report, July 24 2026 — same fix as review_thumbnail
+    # above): this checkpoint had no real buttons either — plain text
+    # only, and REMAKE wasn't even mentioned as an option.
     alt_text = "\n".join(f"  {i+1}. {_esc(t)}" for i, t in enumerate(alternate_titles[:3]))
     text = (f"🏷️ {channel_name} — TITLE REVIEW\n\nSelected: {_esc(title)}\n\n"
             f"Other real options that were scored:\n{alt_text}\n\n"
-            f"Reply APPROVE, REJECT, or EDIT: what to change (e.g. \"use option 2\")")
-    _tg_send_message(tg_token, tg_chat, text)
+            f"Or tap EDIT and reply with which option to use (e.g. \"use option 2\")")
+    _tg_send_message_with_buttons(tg_token, tg_chat, text)
 
     if gmail_app_password:
         send_email_notification(f"[{channel_name}] Title ready for review",

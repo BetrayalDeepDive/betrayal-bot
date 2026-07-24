@@ -46,12 +46,6 @@ FORMAT_LIBRARY = {
         "bg_style_suffix": "split screen before and after comparison dramatic contrast",
         "highlight": None,
     },
-    "bold_text_statement": {
-        "silhouette": False,
-        "composition_override": "text_center",
-        "bg_style_suffix": "minimal dark background bold dramatic atmosphere",
-        "highlight": None,
-    },
     "candid_shot": {
         "silhouette": True,
         "composition_override": "text_lower_third",
@@ -82,29 +76,74 @@ FORMAT_LIBRARY = {
         "bg_style_suffix": "two contrasting scenes side by side grid layout dramatic",
         "highlight": None,
     },
-    "number_countdown": {
-        "silhouette": False,
-        "composition_override": "text_center",
-        "bg_style_suffix": "dark atmospheric clock or countdown or numeric motif dramatic",
-        "highlight": None,
-    },
-    "question_hook_text": {
-        "silhouette": False,
-        "composition_override": "text_center",
-        "bg_style_suffix": "mysterious dark scene with one obscured detail dramatic atmosphere",
-        "highlight": None,
-    },
     "map_diagram_overlay": {
         "silhouette": False,
         "composition_override": "text_lower_third",
         "bg_style_suffix": "map or diagram or timeline overlay dark documentary style",
         "highlight": "arrow",
     },
+    # FIX (direct user report, July 24 2026 — "for Channel 4... the red
+    # circle/arrow highlight and a map-based picture in the back...
+    # that shouldn't be missing, as it goes with Channel 1"): Ch4's
+    # signature composite look — a map/evidence background with BOTH
+    # the red-circle callout and the arrow annotation together, not
+    # just the arrow alone that map_diagram_overlay uses.
+    "map_evidence_highlight": {
+        "silhouette": False,
+        "composition_override": "text_lower_third",
+        "bg_style_suffix": "map or archival document overlay dark documentary style with visible evidence detail",
+        "highlight": "circle_and_arrow",
+    },
 }
 
 ALL_FORMATS = list(FORMAT_LIBRARY.keys())
 MIN_SAMPLES_TO_TRUST = 2   # a format needs at least this many CTR data points before its average is trusted
 EXPLORE_PROBABILITY  = 0.35  # even once formats have proven data, keep sampling untested/weaker ones sometimes
+
+# FIX (direct user report, July 24 2026 — explicit per-channel thumbnail
+# research/direction): each channel's rotation now draws primarily from
+# a curated subset matching the style the user actually asked for,
+# rather than the full 11-format library being equally likely for every
+# channel. The existing no-repeat + CTR-learning logic in
+# select_thumbnail_format() still runs exactly as before, just scoped to
+# each channel's subset — real performance data can still shift which of
+# ITS formats wins over time, this only narrows the starting pool.
+# ASSUMPTION FLAGGED TO USER (not yet confirmed): the user's message was
+# ambiguous about which of Ch2/Ch3 gets "evidential imagery" vs "before/
+# after + curiosity gap + partial reveal". Best-guess assignment below:
+# Ch2 (forensic/crime) = evidence imagery, Ch3 (psychological
+# manipulation) = before/after+curiosity+partial-reveal. Change this
+# dict if that guess is wrong.
+#
+# FIX (direct user report, July 24 2026): "bold_text_statement",
+# "number_countdown", "question_hook_text" removed from the shared
+# FORMAT_LIBRARY entirely — direct instruction "I don't want any
+# text-type thumbnails," and those three were the ones whose visual
+# identity was generic/typographic rather than a real specific scene
+# (bold_text_statement was literally "minimal dark background" — the
+# "blank or generic" the user explicitly said not to use). Every
+# channel's pool below swaps them for a genuinely visual-first format
+# instead, keeping the same 4-per-channel width.
+#
+# FIX (direct user report, July 24 2026 — "for Channel 4... the red
+# circle/arrow highlight and a map-based picture in the back... that
+# shouldn't be missing, as it goes with Channel 1"): Ch4 now leads with
+# "map_evidence_highlight", the new composite format that draws BOTH
+# the red circle and the arrow over a map/evidence background — same
+# highlight-driven attention-grab as Ch1, applied to Ch4's map/archive
+# subject matter.
+CHANNEL_PREFERRED_FORMATS = {
+    "BetrayalDeepDive": ["red_circle_highlight", "big_face_reaction",
+                         "silhouette_dramatic", "candid_shot"],
+    "The Evidence Room": ["object_evidence_closeup", "map_diagram_overlay",
+                          "red_circle_highlight", "comparison_grid"],
+    "The Control Files": ["before_after_split", "silhouette_dramatic",
+                          "candid_shot", "comparison_grid"],
+    "The Archive": ["map_evidence_highlight", "object_evidence_closeup",
+                    "map_diagram_overlay", "red_circle_highlight"],
+    "TheCollapseIndex": ["object_evidence_closeup", "silhouette_dramatic",
+                         "map_diagram_overlay", "comparison_grid"],
+}
 
 
 def _history_file(cache_dir):
@@ -206,20 +245,24 @@ def _format_avg_ctr(history, format_name):
 def select_thumbnail_format(cache_dir, channel_name, niche_name, episode):
     """
     Real, measurable format selection:
-      1. Never repeat the immediately previous format for this channel
+      1. Restricted to this channel's preferred subset (CHANNEL_PREFERRED_
+         FORMATS), if one is defined — the user's explicit per-channel
+         thumbnail-style direction — else the full library.
+      2. Never repeat the immediately previous format for this channel
          (format variety, same principle as the Shorts format-variety rule).
-      2. If enough formats have >=MIN_SAMPLES_TO_TRUST real CTR samples,
+      3. If enough formats have >=MIN_SAMPLES_TO_TRUST real CTR samples,
          mostly (1 - EXPLORE_PROBABILITY) pick the best-performing proven
          format; the rest of the time, explore an unproven/under-sampled
          format so new data keeps coming in.
-      3. With no proven data yet (cold start), rotate through the library
-         round-robin by episode number so all 11 get real exposure.
+      4. With no proven data yet (cold start), rotate round-robin by
+         episode number so every format in the pool gets real exposure.
     """
     history = load_format_history(cache_dir)
     channel_history = [e for e in history if e.get("channel") == channel_name]
 
+    pool_formats = CHANNEL_PREFERRED_FORMATS.get(channel_name, ALL_FORMATS)
     last_format = channel_history[-1]["format"] if channel_history else None
-    candidates = [f for f in ALL_FORMATS if f != last_format] or list(ALL_FORMATS)
+    candidates = [f for f in pool_formats if f != last_format] or list(pool_formats)
 
     proven = {}
     for f in candidates:

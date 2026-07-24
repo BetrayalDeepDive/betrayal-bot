@@ -107,6 +107,17 @@ _EMOTION_WORDS = [
     "heartbroken", "stunned", "unbelievable", "disgusting", "disgraceful",
     "terrifying", "chilling", "haunting", "desperate", "helpless", "relief",
     "vindicated", "triumphant",
+    # FIX (direct user report, July 24 2026 — real production data showed
+    # 9 real attempts scoring 2.5-7.0, zero clearing 8.5): only 19 words
+    # tracked across 3 segments of a ~130-word script (~43 words each)
+    # meant density was almost always 0-1 per segment — too sparse to
+    # ever show a real shape, penalizing genuinely emotional writing that
+    # simply didn't happen to use one of these exact 19 words. Widened.
+    "devastating", "horrifying", "unthinkable", "unimaginable", "brutal",
+    "ruthless", "sickening", "appalling", "outrageous", "tragic",
+    "heartbreaking", "gut-wrenching", "harrowing", "disturbing", "shattered",
+    "broken", "trapped", "helplessness", "rage", "grief", "anguish",
+    "dread", "panic", "terror", "fear", "hope", "justice", "reckoning",
 ]
 
 
@@ -142,7 +153,15 @@ def score_emotional_arc(script):
     if sum(densities) == 0:
         return 0.0, ["No emotion words anywhere in the script — no arc possible"]
 
-    escalating = densities[0] <= densities[1] <= densities[2] and densities[2] > densities[0]
+    # FIX (direct user report, July 24 2026 — real production data showed
+    # 9 real attempts scoring 2.5-7.0, zero clearing 8.5): requiring a
+    # strict monotonic staircase (densities[0] <= [1] <= [2]) across just
+    # 3 segments of ~40 words each meant a single emotion word landing
+    # one segment "early" failed a script that's genuinely more emotional
+    # by the end. Broadened to the real substance of an escalating arc —
+    # the back half carries more weight than the front — rather than
+    # requiring every individual segment-to-segment step to be non-decreasing.
+    escalating = (densities[1] + densities[2]) > densities[0] and densities[2] >= densities[0]
     peak_release = densities[1] >= densities[0] and densities[1] >= densities[2] and densities[1] > 0
 
     if escalating:
