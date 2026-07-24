@@ -125,7 +125,23 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ch1-pending-video
-          path: /tmp/deepdive/*
+          # FIX (real production failure, run 30082874147): this used to be
+          # /tmp/deepdive/* -- the ENTIRE work directory, including every
+          # raw/scaled stock-footage clip fetched for stage-matched video
+          # assembly. The first run that ever got far enough to actually
+          # populate that directory produced a 4.65GB artifact -- and
+          # dawidd6/action-download-artifact's Node.js download step has a
+          # hard ~4GiB buffer limit, so the upload phase crashed with
+          # "The value of length is out of range" before it could even look
+          # at pending_upload.json. Confirmed by reading both phases: the
+          # upload phase only ever reads pending["video_path"] (final*.mp4)
+          # and pending["thumbnail_path"] (thumbnail.jpg, written by the
+          # shared thumbnail_engine_v2) -- audio files and Shorts clips are
+          # never read back (Shorts are already uploaded during THIS
+          # generate phase; only their URLs are reused for reporting).
+          path: |
+            /tmp/deepdive/final*.mp4
+            /tmp/deepdive/thumbnail*
           retention-days: 2
           if-no-files-found: warn
 
