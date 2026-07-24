@@ -15,12 +15,20 @@
     "voice_en-GB-ThomasNeural": {
       "scores": [
         10.0,
-        9.4
+        9.4,
+        8.6
       ]
     },
     "elite_betrayal_infighting": {
       "scores": [
         9.4
+      ],
+      "streak_below": 0,
+      "last_episode": 69
+    },
+    "mesopotamian_lost_civilizations": {
+      "scores": [
+        8.6
       ],
       "streak_below": 0,
       "last_episode": 69

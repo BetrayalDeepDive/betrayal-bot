@@ -1,19 +1,19 @@
 {
   "episode": 69,
-  "title": "The Archive: Elite Betrayal: The Investigation That Changed Everything",
+  "title": "The Archive: Lost Civilizations: The Investigation That Changed Everything",
   "artifacts": {
-    "topic": "Part 1: The Ides of March \u2014 the documented senators, the real conspiracy, and why they miscalculated",
-    "niche_name": "elite_betrayal_infighting"
+    "topic": "2023 Unearthing of a 4,000-Year-Old Trading Post in Iraq\u2019s Kurdistan Region",
+    "niche_name": "mesopotamian_lost_civilizations"
   },
-  "checkpoint": "DONE",
+  "checkpoint": "AUDIO_VIDEO",
   "check_ins_used": 1,
-  "started_at": "2026-07-23T03:58:02.591194",
-  "last_updated": "2026-07-23T04:28:28.435572",
+  "started_at": "2026-07-24T04:19:45.340374",
+  "last_updated": "2026-07-24T07:20:33.172355",
   "history": [
     {
-      "decision": "remake",
+      "decision": "approve",
       "feedback": null,
-      "at": "2026-07-23T04:28:27.335928",
+      "at": "2026-07-24T07:20:33.172355",
       "checkpoint_at_time": "SCRIPT"
     }
   ]

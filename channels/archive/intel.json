@@ -80,5 +80,46 @@
       "The Wars of the Roses' Battle of Towton \u2014 England's bloodiest documented day of aristocratic civil war"
     ],
     "last_run": "2026-07-23T03:54:56.765984"
+  },
+  "mesopotamian_lost_civilizations": {
+    "top_hook_formulas": [
+      "The evidence was there the entire time. Nobody looked at it correctly.",
+      "This document changed everything. It had been sitting in a drawer for 11 years.",
+      "The number on page 3 did not match the number on page 3 of a different filing. That was the beginning."
+    ],
+    "winning_title_patterns": [
+      "The [DOCUMENT/DATA] That Proved [CRIME] Had Been [DURATION]",
+      "[NUMBER] [DOCUMENTS/ACCOUNTS] \u2014 The Investigation That Changed Everything"
+    ],
+    "thumbnail_text_examples": [
+      "LOST FOR 4,000 YEARS",
+      "THEY VANISHED",
+      "NOBODY KNOWS WHY",
+      "FIRST EVER FOUND"
+    ],
+    "emotional_arc": "Methodical discovery then growing horror then full documented exposure",
+    "retention_hooks": [
+      "What the next document revealed changed the entire investigation",
+      "The pattern only became visible when all 847 records were laid side by side",
+      "The final piece of evidence was the most ordinary thing imaginable"
+    ],
+    "niche_specific_power_words": [
+      "documented",
+      "evidence",
+      "pattern",
+      "records",
+      "exposed",
+      "concealed",
+      "verified"
+    ],
+    "what_makes_videos_viral": "Methodical evidence revelation that builds to an undeniable conclusion",
+    "fresh_topic_ideas": [
+      "The Sumerian King List's documented reigns, and the flood narrative it records centuries before Genesis",
+      "Hammurabi's Code: 282 laws carved in basalt, revealing a real system of documented justice and its limits",
+      "The Late Bronze Age Collapse \u2014 how five interconnected civilizations fell within 50 documented years",
+      "The Indus Valley's Great Bath at Mohenjo-daro and the still-undeciphered script found on 4,000 seals",
+      "Ashurbanipal's Library at Nineveh \u2014 the systematic collection project that preserved Gilgamesh for 2,600 years"
+    ],
+    "last_run": "2026-07-24T03:54:06.678153"
   }
 }
