@@ -4448,6 +4448,14 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
     Niche-specific documentary-grade audio processing via FFmpeg.
     Uses NICHE_AUDIO_PROFILES to select the right EQ chain per niche.
     Falls back to default chain if niche not found.
+
+    FIX (same root cause confirmed live on Ch1, run 30056439412):
+    libmp3lame's VBR psymodel (-q:a) has a known assertion bug —
+    "psymodel.c:576: calc_energy: Assertion 'el >= 0' failed" —
+    triggered by the wide loudnorm LRA + heavy EQ boosts in these
+    profiles producing near-silent passages. Switching to CBR avoids
+    this specific lame codepath entirely (documented workaround for
+    this exact assertion).
     """
     try:
         af = NICHE_AUDIO_PROFILES.get(niche_name,
@@ -4462,10 +4470,19 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
         run_ffmpeg([
             "ffmpeg", "-y", "-i", input_path,
             "-af", af,
-            "-c:a", "mp3", "-q:a", "2", output_path
+            "-c:a", "mp3", "-b:a", "192k", output_path
         ], label=f"audio-{niche_name or 'default'}", timeout=300)
 
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
+            # A 0-exit ffmpeg run can still leave a short/corrupted file
+            # (near-miss of the same lame edge case, or a truncated
+            # loudnorm two-pass run) — verify duration before trusting it.
+            in_dur  = get_media_duration(input_path)
+            out_dur = get_media_duration(output_path)
+            if in_dur > 0 and out_dur < in_dur * 0.9:
+                log(f"  Audio post-processing produced a short/corrupted file "
+                    f"({out_dur:.0f}s vs {in_dur:.0f}s input) — using unprocessed audio instead")
+                return input_path
             log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
@@ -7506,10 +7523,39 @@ def main():
         # size AND real measured duration against what the script's word
         # count implies) but was never called anywhere — a truncated or
         # corrupted audio file could silently reach video assembly undetected.
+        #
+        # FIX (parity with Ch1, same real gate gap): this only ever sent a
+        # Telegram warning and then proceeded anyway with the same
+        # corrupted/truncated audio. Now genuinely regenerates on a real
+        # failure (up to 2 real attempts) before ever falling through to a
+        # hold — never publishes a corrupted/truncated narration
+        # automatically. Each retry swaps to a different voice rather than
+        # reusing the same one — same script + same voice is a
+        # deterministic TTS render, so retrying unchanged just reproduces
+        # an identical failure (confirmed live on Ch1, run 30056439412).
         _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
+        _audio_quality_retries = 0
+        while not check_audio_quality(audio_path, _expected_dur) and _audio_quality_retries < 2:
+            _audio_quality_retries += 1
+            _voice_pool = [v for v in VOICES.get(niche_name, ["en-GB-RyanNeural", "en-GB-ThomasNeural"] + EXTENDED_VOICES)
+                           if v != edge_voice]
+            _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+            tg(f"🔄 Ch5: audio quality check failed (expected ~{_expected_dur:.0f}s, got "
+               f"{audio_duration:.0f}s) — regenerating audio (attempt {_audio_quality_retries}/2, "
+               f"voice {edge_voice} → {_retry_voice}) instead of publishing it as-is.")
+            log(f"  Audio quality gate failed — regenerating (attempt {_audio_quality_retries}/2) "
+                f"with voice {edge_voice} -> {_retry_voice}")
+            edge_voice = _retry_voice
+            audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+            edge_voice = voice_used
         if not check_audio_quality(audio_path, _expected_dur):
-            tg(f"⚠️ Ch5 audio quality check failed — expected ~{_expected_dur:.0f}s, "
-               f"got {audio_duration:.0f}s. Proceeding, but this episode's audio needs review.")
+            tg(f"🛑 Ch5 HOLD — audio quality check still failing after 2 regeneration "
+               f"attempts (expected ~{_expected_dur:.0f}s, got {audio_duration:.0f}s). This "
+               f"episode is NOT being published automatically. Review manually, then re-run.\n\n"
+               f"Title: {title}")
+            log("  HOLD: audio quality gate still failing after 2 regeneration attempts. Stopping here.")
+            sys.exit(0)
 
         log("\nSTAGE 4: Video")
         # v1 addition — real, word-level synced captions, per explicit

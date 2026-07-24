@@ -3644,11 +3644,22 @@ def apply_audio_post_processing(input_path, output_path=None, niche_name=None):
         if output_path == input_path:
             output_path = input_path + ".eq.mp3"
         af = NICHE_AUDIO_PROFILES.get(niche_name, DEFAULT_AUDIO_PROFILE)
+        # FIX (same root cause confirmed live on Ch1, run 30056439412):
+        # libmp3lame's VBR psymodel (-q:a) has a known assertion bug —
+        # "psymodel.c:576: calc_energy: Assertion 'el >= 0' failed" —
+        # triggered by the loudnorm/EQ chain producing near-silent
+        # passages. CBR avoids this specific lame codepath entirely.
         subprocess.run([
             "ffmpeg", "-y", "-i", input_path,
-            "-af", af, "-c:a", "mp3", "-q:a", "2", output_path
+            "-af", af, "-c:a", "mp3", "-b:a", "192k", output_path
         ], capture_output=True, timeout=300, check=True)
         if Path(output_path).exists() and Path(output_path).stat().st_size > 500000:
+            in_dur  = get_media_duration(input_path)
+            out_dur = get_media_duration(output_path)
+            if in_dur > 0 and out_dur < in_dur * 0.9:
+                log(f"  Audio post-processing produced a short/corrupted file "
+                    f"({out_dur:.0f}s vs {in_dur:.0f}s input) — using unprocessed audio instead")
+                return input_path
             log(f"  Audio post-processed ({niche_name}): {Path(output_path).stat().st_size//(1024*1024)}MB")
             return output_path
     except Exception as e:
