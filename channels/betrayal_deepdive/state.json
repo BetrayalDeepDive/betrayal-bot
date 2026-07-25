@@ -111,6 +111,42 @@
         "A person who dedicated a decade to watching someone they had never spoken a word to"
       ],
       "last_run": "2026-07-24T01:08:09.103682"
+    },
+    "dark_horror": {
+      "top_hook_formulas": [
+        "the slow realisation something was wrong long before anyone understood it",
+        "the moment the ordinary became permanently broken",
+        "the detail that made everything before it feel like a lie"
+      ],
+      "winning_title_patterns": [
+        "NUMBER + NOUN format",
+        "The [THING] That Changed Everything"
+      ],
+      "thumbnail_text_examples": [
+        "A FAMILY DISCOVERED SOMETHING HAD BEEN LIVING INSIDE THEIR WALLS FOR THREE YEARS \u2014 THEY FOUND OUT WHEN THE CHILD STOPPED SLEEPING",
+        "A NIGHT-SHIFT NURSE DOCUMENTED 14 INCIDENTS NOBODY BELIEVED \u2014 UNTIL THE THIRD PATIENT DIED THE SAME WAY",
+        "A HIKER SURVIVED SOMETHING IN THOSE MOUNTAINS THAT THREE SEARCH TEAMS STILL CANNOT EXPLAIN"
+      ],
+      "retention_hooks": [
+        "The next detail is the one that changes everything",
+        "What was found at this point made investigators stop",
+        "The final revelation is the one nobody expected"
+      ],
+      "niche_power_words": [
+        "documented",
+        "witnessed",
+        "concealed",
+        "discovered",
+        "classified",
+        "permanent"
+      ],
+      "fresh_topic_ideas": [
+        "A family discovered something had been living inside their walls for three years \u2014 they found out when the child stopped sleeping",
+        "A night-shift nurse documented 14 incidents nobody believed \u2014 until the third patient died the same way",
+        "A hiker survived something in those mountains that three search teams still cannot explain",
+        "A woman received a letter from herself \u2014 postmarked the day after she was reported missing"
+      ],
+      "last_run": "2026-07-25T08:11:38.008548"
     }
   },
   "last_title_register": "sympathy",
