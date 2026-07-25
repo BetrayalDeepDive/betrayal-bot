@@ -121,12 +121,27 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
 
 
 def score_title_v2(title):
+    # FIX (direct user report, July 24 2026 — real production data, run
+    # 30126085986: 13 real title attempts, capped at 7.5/10, zero
+    # clearing 8.5, killed the entire day): same root-cause class as the
+    # Shorts scoring miscalibration fixed earlier — two entire scoring
+    # dimensions (curiosity_gap, revelation) required one of a tiny set
+    # of exact literal phrases, so a genuinely strong title like "They
+    # Knew Exactly What This Would Cost: The 7-Year Collapse" scored
+    # WEAK on curiosity_gap (doesn't contain "nobody knew" etc. verbatim)
+    # and ABSENT on revelation (doesn't contain "exposed"/"revealed"
+    # etc. verbatim), capping it near 7.5 no matter how many times it
+    # regenerated. Widened both phrase lists with real natural synonyms
+    # rather than only the original narrow set.
     t  = title.lower()
     sc = 3.0
     bd = {}
     # Curiosity gap
     cg = ["nobody knew","never told","what was hidden","the real reason",
-          "kept secret","concealed","covered up","went unnoticed","was ignored"]
+          "kept secret","concealed","covered up","went unnoticed","was ignored",
+          "what nobody expected","truth about","hidden for years","no one saw",
+          "what really happened","the untold","never expected","didn't see it coming",
+          "what this would cost","before anyone noticed","too late"]
     cg_hits = sum(1 for s in cg if s in t)
     if cg_hits >= 2:   sc += 2.5; bd["curiosity_gap"] = "STRONG"
     elif cg_hits == 1: sc += 1.5; bd["curiosity_gap"] = "OK"
@@ -139,11 +154,14 @@ def score_title_v2(title):
     elif has_num or has_dollar or has_name:  sc += 1.2; bd["specificity"] = "OK"
     else:                                    bd["specificity"] = "WEAK"
     # Revelation
-    rev = ["exposed","revealed","documented","proved","evidence","classified","traced"]
+    rev = ["exposed","revealed","documented","proved","evidence","classified","traced",
+           "uncovered","confirmed","discovered","records show","files show","real story",
+           "true story","the record","collapse","fallout","aftermath","reckoning"]
     if any(s in t for s in rev): sc += 1.5; bd["revelation"] = "PRESENT"
     else:                        bd["revelation"] = "ABSENT"
     # Pattern interrupt
-    pi = ["they knew","it was allowed","it was ignored","still happening","went unpunished"]
+    pi = ["they knew","it was allowed","it was ignored","still happening","went unpunished",
+          "nobody stopped","no one stopped","allowed to happen","let it happen"]
     if any(s in t for s in pi): sc += 1.5; bd["pattern_interrupt"] = "PRESENT"
     else:                       bd["pattern_interrupt"] = "ABSENT"
     # Length
@@ -484,6 +502,29 @@ ELEVENLABS_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 COHERE_KEY     = os.environ.get("COHERE_API_KEY", "")
 MISTRAL_KEY    = os.environ.get("MISTRAL_API_KEY", "")
 SAMBANOVA_KEY  = os.environ.get("SAMBANOVA_API_KEY", "")
+# FIX (direct user report, July 24 2026 — "look for other providers
+# which are free and can be used"): GitHub Models — genuinely free,
+# OpenAI-compatible inference API, and needs ZERO new signup/secret:
+# every GitHub Actions run already has a GITHUB_TOKEN, and granting it
+# the "models: read" permission (added to ch1_generate.yml) is enough
+# to call it. Real models available: GPT-4o family, Llama, DeepSeek-R1,
+# Mistral, Phi. Falls back to a Personal Access Token env var too, for
+# local/non-Actions runs.
+GITHUB_MODELS_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_MODELS_TOKEN", "")
+# FIX (direct user report, July 24 2026 — "add everything that is free
+# and doesn't have any hidden billings"): two more real, verified,
+# no-credit-card-required free tiers.
+# Cloudflare Workers AI — 10,000 free "Neurons"/day (real Cloudflare
+# doc: "a credit card is only needed to EXCEED the daily allocation" —
+# without one on file, hitting the limit just errors, never silently
+# bills). Needs a free Cloudflare account + API token + account ID.
+CLOUDFLARE_API_TOKEN   = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID  = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+# NVIDIA build.nvidia.com (NIM API Catalog) — confirmed no credit card
+# required at all for the free developer tier, real OpenAI-compatible
+# endpoint, 100+ models. Rate-limited (not credit-metered), so it just
+# slows down rather than bills when busy.
+NVIDIA_NIM_KEY = os.environ.get("NVIDIA_API_KEY", "")
 GEMINI_KEY_2   = os.environ.get("GEMINI_API_KEY_2", "")  # backup Gemini key
 YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID", "")
 YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
@@ -969,14 +1010,17 @@ def call_cerebras(prompt, tokens=8000):
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
         return None
     _url    = "https://api.cerebras.ai/v1/chat/completions"
-    # FIX (direct user report, July 24 2026 — "find if there are any
-    # expired LLMs... I want them to take up the job and work diligently
-    # without fail"): zai-glm-4.7 is confirmed scheduled for retirement
-    # Aug 17 2026 — still alive today but close enough to add real
-    # redundancy ahead of it rather than wait for it to start failing.
-    # qwen-3-32b/qwen-3-235b-a22b added — confirmed on Cerebras's free
-    # tier alongside gpt-oss-120b as of an April 2026 catalog snapshot.
-    _models = ["gpt-oss-120b", "qwen-3-32b", "zai-glm-4.7", "qwen-3-235b-a22b",
+    # FIX (direct user report, July 24 2026 — real live-run data, run
+    # 30126085986): "qwen-3-32b"/"qwen-3-235b-a22b" both 404'd for real —
+    # confirmed wrong slugs, removed rather than left as wasted attempts.
+    # HONEST FLAG: zai-glm-4.7 ALSO 404'd in that same run, despite being
+    # verified working as recently as June 2026 — the whole provider
+    # returned "NO RESPONSE" across every model tried. That pattern (a
+    # previously-working model suddenly 404ing across the board) matches
+    # an account/key-level issue more than a naming issue — same shape
+    # as Gemini's confirmed 403 project-denial in the same run. Worth
+    # checking the Cerebras dashboard/key directly, not just code.
+    _models = ["gpt-oss-120b", "zai-glm-4.7",
                "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
@@ -1017,10 +1061,10 @@ def call_groq(prompt, tokens=8000):
     # this is a genuinely dead model now, not just an old fallback).
     # Removed entirely rather than kept as dead weight. Groq's own
     # recommended replacements — openai/gpt-oss-120b, qwen/qwen3.6-27b,
-    # openai/gpt-oss-20b — are what's tried now, plus qwen3-32b (also
-    # confirmed live on Groq) for extra redundancy.
-    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b",
-                  "openai/gpt-oss-20b", "qwen/qwen3-32b"]:
+    # openai/gpt-oss-20b — are what's tried now.
+    # FIX (real live-run data, run 30126085986): qwen/qwen3-32b confirmed
+    # "404 (model gone)" for real — removed.
+    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"]:
         try:
             r = requests.post(GROQ_URL,
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
@@ -1029,7 +1073,14 @@ def call_groq(prompt, tokens=8000):
                       "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100: log(f"OK Groq ({model})"); return t
+                if t and len(t.strip()) > 100:
+                    log(f"OK Groq ({model})"); return t
+                # FIX (found on live-run investigation, July 24 2026): a
+                # 200 with a too-short response fell through every
+                # branch below with ZERO log line — genuinely
+                # indistinguishable from "never tried this model at
+                # all" when reading the log. Real gap, now visible.
+                log(f"Groq {model}: 200 but response too short ({len(t.strip()) if t else 0} chars) — trying next")
             elif r.status_code in (400, 404):
                 log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
             else:
@@ -1177,6 +1228,136 @@ def call_cohere(prompt, tokens=8000):
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 
 
+# ================================================================
+# GITHUB MODELS — free, OpenAI-compatible, zero new signup required
+# ================================================================
+GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions"
+
+def call_github_models(prompt, tokens=8000):
+    """
+    Free tier, no new account/key needed on GitHub Actions — the
+    workflow's own GITHUB_TOKEN works once granted "models: read"
+    permission (see ch1_generate.yml). Rate limits are real but low
+    (single-digit RPM per model) — same self-healing multi-model
+    fallback pattern as every other provider here, so a model at its
+    per-minute cap just falls through to the next one instead of
+    blocking the whole chain.
+    """
+    if not GITHUB_MODELS_TOKEN:
+        log("  GitHub Models: no GITHUB_TOKEN available — skipping")
+        return None
+    for model in ["openai/gpt-4o-mini", "openai/gpt-4o", "meta/Llama-3.3-70B-Instruct",
+                  "mistral-ai/Mistral-Large-2411", "deepseek/DeepSeek-R1"]:
+        try:
+            r = requests.post(GITHUB_MODELS_URL,
+                headers={"Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
+                         "Content-Type": "application/json",
+                         "Accept": "application/vnd.github+json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if t and len(t.strip()) > 100:
+                    log(f"OK GitHub Models ({model})")
+                    return t
+                log(f"GitHub Models {model}: 200 but response too short — trying next")
+            elif r.status_code in (400, 404):
+                log(f"GitHub Models {model}: {r.status_code} (wrong model name) — trying next")
+            elif r.status_code == 429:
+                log(f"GitHub Models {model}: 429 rate limited — trying next")
+            elif r.status_code == 403:
+                log(f"GitHub Models {model}: 403 — GITHUB_TOKEN likely missing 'models: read' "
+                    f"permission in the workflow")
+                return None  # a permissions problem won't fix itself on the next model
+            else:
+                log(f"GitHub Models {model}: {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            log(f"GitHub Models {model}: {e}")
+    return None
+
+
+def call_cloudflare(prompt, tokens=8000):
+    """
+    Cloudflare Workers AI — 10,000 free Neurons/day, no credit card
+    required to start (Cloudflare's own docs: a card is only needed to
+    exceed the daily allocation, never to use it). Needs a free
+    Cloudflare account: dash.cloudflare.com -> My Profile -> API Tokens
+    -> create a token with "Workers AI" edit permission, plus the
+    account ID shown on any zone's Overview page.
+    """
+    if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID):
+        log("  Cloudflare: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not set — skipping")
+        return None
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions"
+    for model in ["@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+                  "@cf/google/gemma-3-12b-it"]:
+        try:
+            r = requests.post(url,
+                headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if t and len(t.strip()) > 100:
+                    log(f"OK Cloudflare ({model})")
+                    return t
+                log(f"Cloudflare {model}: 200 but response too short — trying next")
+            elif r.status_code in (400, 404):
+                log(f"Cloudflare {model}: {r.status_code} (wrong model name) — trying next")
+            elif r.status_code == 429:
+                log(f"Cloudflare {model}: 429 — daily 10k Neuron allocation likely used up")
+            else:
+                log(f"Cloudflare {model}: {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            log(f"Cloudflare {model}: {e}")
+    return None
+
+
+def call_nvidia_nim(prompt, tokens=8000):
+    """
+    NVIDIA build.nvidia.com (NIM API Catalog) — confirmed no credit card
+    required for the free developer tier, real OpenAI-compatible
+    endpoint, 100+ models. Rate-limited rather than credit-metered, so
+    it slows down instead of billing when busy. Free key:
+    build.nvidia.com -> sign in -> any model page -> "Get API Key".
+    """
+    if not NVIDIA_NIM_KEY:
+        log("  NVIDIA NIM: NVIDIA_API_KEY not set — skipping")
+        return None
+    url = "https://integrate.api.nvidia.com/v1/chat/completions"
+    for model in ["meta/llama-3.3-70b-instruct", "mistralai/mixtral-8x7b-instruct-v0.1",
+                  "meta/llama-3.1-70b-instruct"]:
+        try:
+            r = requests.post(url,
+                headers={"Authorization": f"Bearer {NVIDIA_NIM_KEY}",
+                         "Content-Type": "application/json"},
+                json={"model": model,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                timeout=90)
+            if r.status_code == 200:
+                t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                if t and len(t.strip()) > 100:
+                    log(f"OK NVIDIA NIM ({model})")
+                    return t
+                log(f"NVIDIA NIM {model}: 200 but response too short — trying next")
+            elif r.status_code in (400, 404):
+                log(f"NVIDIA NIM {model}: {r.status_code} (wrong model name) — trying next")
+            elif r.status_code == 429:
+                log(f"NVIDIA NIM {model}: 429 rate limited — trying next")
+            else:
+                log(f"NVIDIA NIM {model}: {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            log(f"NVIDIA NIM {model}: {e}")
+    return None
+
+
 def call_sambanova(prompt, tokens=8000):
     """
     SambaNova Cloud — free tier, no daily quota wall, llama-3.3-70b.
@@ -1266,12 +1447,24 @@ def _strip_reasoning(text):
 
 def ai_generate(prompt, tokens=8000):
     """
-    Provider order: Cerebras -> SambaNova -> Gemini -> Groq -> OpenRouter -> Cohere -> Mistral
+    Provider order: Cerebras -> GitHub Models -> Cloudflare -> NVIDIA NIM ->
+    SambaNova -> Gemini -> Groq -> OpenRouter -> Cohere -> Mistral
     FIX (July 14 2026 audit): providers that fail once are skipped for the
     rest of this run instead of being retried from scratch on every call
     (this alone was responsible for a large share of multi-hour runtimes).
+    FIX (direct user report, July 24 2026 — real live-run data showed
+    Cerebras/Gemini/SambaNova/OpenRouter all down or account-limited in
+    the same run, leaving only Mistral to carry almost the entire
+    pipeline; then "add everything that is free and doesn't have any
+    hidden billings"): GitHub Models, Cloudflare Workers AI, and NVIDIA
+    NIM added — all three confirmed genuinely free with no credit card
+    required, and none share a quota/account with any provider already
+    here, so a bad day for one provider group no longer starves the
+    whole chain down to a single survivor.
     """
-    providers = [("cerebras", call_cerebras), ("sambanova", call_sambanova),
+    providers = [("cerebras", call_cerebras), ("github_models", call_github_models),
+                 ("cloudflare", call_cloudflare), ("nvidia_nim", call_nvidia_nim),
+                 ("sambanova", call_sambanova),
                  ("gemini", call_gemini), ("groq", call_groq),
                  ("openrouter", call_openrouter), ("cohere", call_cohere),
                  ("mistral", call_mistral)]
@@ -5840,13 +6033,16 @@ def run_provider_health_check():
     results = {}
 
     checks = [
-        ("Cerebras",    call_cerebras),
-        ("SambaNova",   call_sambanova),
-        ("Gemini",      call_gemini),
-        ("Groq",        call_groq),
-        ("OpenRouter",  call_openrouter),
-        ("Cohere",      call_cohere),
-        ("Mistral",     call_mistral),
+        ("Cerebras",      call_cerebras),
+        ("GitHubModels",  call_github_models),
+        ("Cloudflare",    call_cloudflare),
+        ("NvidiaNIM",     call_nvidia_nim),
+        ("SambaNova",     call_sambanova),
+        ("Gemini",        call_gemini),
+        ("Groq",          call_groq),
+        ("OpenRouter",    call_openrouter),
+        ("Cohere",        call_cohere),
+        ("Mistral",       call_mistral),
     ]
     working = []
     for name, fn in checks:
@@ -5869,7 +6065,7 @@ def run_provider_health_check():
     elif len(working) < 3:
         tg(f"⚠️ Only {len(working)} AI provider(s) working:\n{status_lines}")
     else:
-        log(f"  {len(working)}/7 providers working — OK to proceed")
+        log(f"  {len(working)}/{len(checks)} providers working — OK to proceed")
 
     return working
 
@@ -7144,9 +7340,9 @@ def main():
         # silent policy violation. Now skips the day instead.
         title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode, state, trending_titles)
         if not title_result:
-            tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after 8 attempts. Per your standing "
-               f"instruction, nothing under 8.5 gets published.")
-            log("  Title gate never cleared 8.5 after 8 attempts. Skipping.")
+            tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after {MAX_ATTEMPTS} attempts. Per your "
+               f"standing instruction, nothing under 8.5 gets published.")
+            log(f"  Title gate never cleared 8.5 after {MAX_ATTEMPTS} attempts. Skipping.")
             sys.exit(0)
         title = title_result
 
@@ -7655,9 +7851,9 @@ def main():
         # that never earned the bar.
         thumb_text  = generate_thumbnail_text(niche, topic, title)
         if not thumb_text:
-            tg(f"Ch1 Day Skipped — no thumbnail text cleared 8.5/10 after 8 attempts. Per your "
+            tg(f"Ch1 Day Skipped — no thumbnail text cleared 8.5/10 after 13 attempts. Per your "
                f"standing instruction, nothing under 8.5 gets published.")
-            log("  Thumbnail text gate never cleared 8.5 after 8 attempts. Skipping.")
+            log("  Thumbnail text gate never cleared 8.5 after 13 attempts. Skipping.")
             sys.exit(0)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
         # FIX (found on direct user report, July 23 2026 — real gap):

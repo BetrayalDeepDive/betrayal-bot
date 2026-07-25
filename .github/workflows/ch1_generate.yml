@@ -51,6 +51,11 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: write
+      # FIX (direct user report, July 24 2026 — "look for other providers
+      # which are free and can be used"): grants the job's own GITHUB_TOKEN
+      # read access to GitHub Models (models.github.ai) — a genuinely free,
+      # OpenAI-compatible inference API that needs no new secret at all.
+      models: read
 
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +88,27 @@ jobs:
 
       - name: Generate video (no upload)
         env:
+          # FIX (direct user report, July 24 2026): job-level GITHUB_TOKEN,
+          # scoped to "models: read" above — powers call_github_models()'s
+          # free AI-provider fallback, no separate secret needed.
+          GITHUB_TOKEN:          ${{ github.token }}
+          # FIX (direct user report, July 24 2026 — "add everything that
+          # is free and doesn't have any hidden billings"): two more
+          # confirmed no-credit-card-required free providers. Both are
+          # optional — call_cloudflare()/call_nvidia_nim() just skip
+          # themselves (log a line, return None) if these secrets aren't
+          # set yet, same as every other optional provider here. Add
+          # real values in repo Settings -> Secrets -> Actions once
+          # you've signed up (2 minutes each, no card):
+          #   Cloudflare: dash.cloudflare.com -> My Profile -> API
+          #     Tokens -> create with "Workers AI: Edit" permission
+          #     (CLOUDFLARE_API_TOKEN); account ID from any zone's
+          #     Overview page (CLOUDFLARE_ACCOUNT_ID)
+          #   NVIDIA: build.nvidia.com -> sign in -> any model page ->
+          #     "Get API Key" (NVIDIA_API_KEY)
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NVIDIA_API_KEY:        ${{ secrets.NVIDIA_API_KEY }}
           CEREBRAS_API_KEY:      ${{ secrets.CEREBRAS_API_KEY }}
           SAMBANOVA_API_KEY:     ${{ secrets.SAMBANOVA_API_KEY }}
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
