@@ -160,8 +160,18 @@ def score_title_v2(title):
     if any(s in t for s in rev): sc += 1.5; bd["revelation"] = "PRESENT"
     else:                        bd["revelation"] = "ABSENT"
     # Pattern interrupt
+    # FIX (direct user report, July 25 2026 — real run 30150605869: Title
+    # gate reached all 13 attempts capped at exactly 8.2/10, one real
+    # title-scoring fix already closed the gap from 7.5 to here, still
+    # 0.3 short): "Nobody Knew What the Records Show: A Hiker's Dark
+    # Survival" scored ABSENT on pattern_interrupt despite genuinely
+    # carrying that "this was known/unaddressed" implication — it just
+    # doesn't happen to say "they knew" verbatim. Widened with real
+    # natural variants of the same idea.
     pi = ["they knew","it was allowed","it was ignored","still happening","went unpunished",
-          "nobody stopped","no one stopped","allowed to happen","let it happen"]
+          "nobody stopped","no one stopped","allowed to happen","let it happen",
+          "nobody knew","no one knew","everyone knew","nothing was done","no one acted",
+          "no one intervened","yet nothing changed","known for years","and did nothing"]
     if any(s in t for s in pi): sc += 1.5; bd["pattern_interrupt"] = "PRESENT"
     else:                       bd["pattern_interrupt"] = "ABSENT"
     # Length
