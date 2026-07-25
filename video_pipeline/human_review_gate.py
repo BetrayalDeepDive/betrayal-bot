@@ -621,7 +621,15 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
                         _tg_send_message(tg_token, tg_chat,
                                          "✏️ EDIT tapped — reply with what you'd like changed.")
                         continue
-                    if cb_data in ("approve", "reject", "remake", "swap_visuals", "swap_voice"):
+                    # "resume"/"restart_scratch"/"redo_audio_only": the
+                    # real checkpoint-resume gate's own decisions (see
+                    # review_resume_checkpoint below) — added to this
+                    # same whitelist rather than a separate poll loop so
+                    # that gate gets the same proven reminders/email-
+                    # fallback/time-budget handling every other checkpoint
+                    # already relies on.
+                    if cb_data in ("approve", "reject", "remake", "swap_visuals", "swap_voice",
+                                   "resume", "restart_scratch", "redo_audio_only"):
                         return cb_data, None
                     continue
 
@@ -1525,6 +1533,88 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     video_decision = {"decision": d, "feedback": fb}
 
     return {"audio_decision": audio_decision, "video_decision": video_decision}
+
+
+def review_resume_checkpoint(channel_name, title, script_clean, score, niche_name,
+                              audio_path, tool_used, voice_used, audio_duration,
+                              tg_token, tg_chat, gmail_sender=None, gmail_app_password=None,
+                              timeout_minutes=30):
+    """
+    Real human-in-the-loop gate for a checkpoint RESUME (workflow re-
+    triggered with is_makeup=true after a cancelled/failed run). Per
+    direct user request ("I need to check and find out if I am okay
+    with that kind of script, the audio, or the title... I want a
+    notification asking for my explicit permission"): a resume is never
+    silent. This sends the real checkpointed script (as a PDF, same
+    export_script_to_pdf already used for the normal script review) and
+    the real accepted audio file (if a audio checkpoint exists too), then
+    asks for one of three genuine decisions rather than just picking up
+    automatically:
+      - "resume": skip whatever already passed, continue to the next stage
+      - "redo_audio_only": keep the checkpointed script+title, but
+        discard the checkpointed audio and regenerate it fresh (only
+        offered when an audio checkpoint exists)
+      - "restart_scratch": discard the whole checkpoint, generate a
+        brand new episode from Stage 1
+
+    On timeout, defaults to "resume" — the least destructive option
+    (keeps whatever already genuinely passed its own quality gate,
+    consistent with every other gate in this file defaulting toward not
+    discarding already-approved work).
+    """
+    has_audio = bool(audio_path and Path(audio_path).exists())
+    lines = [
+        f"⏸️ <b>{channel_name} — RESUMING FROM A PREVIOUS RUN</b>",
+        "",
+        "The last run got this far before stopping:",
+        f"• Script + title: PASSED ({score}/10) — \"{title}\"",
+    ]
+    if has_audio:
+        lines.append(f"• Audio: PASSED — tool: {tool_used}, voice: {voice_used}, "
+                      f"{(audio_duration or 0)/60:.1f} min")
+        lines.append("")
+        lines.append("Review the script (PDF below) and audio (file below), then choose:")
+    else:
+        lines.append("")
+        lines.append("Review the script (PDF below), then choose:")
+    text = "\n".join(lines)
+
+    pdf_path = None
+    try:
+        pdf_path = export_script_to_pdf(channel_name, title, niche_name, score, script_clean)
+    except Exception as e:
+        print(f"  Resume-checkpoint PDF export failed (non-fatal): {e}")
+    if pdf_path and Path(pdf_path).exists():
+        _tg_send_document(tg_token, tg_chat, pdf_path, caption=f"Checkpointed script: {title[:80]}")
+    if has_audio:
+        _tg_send_audio(tg_token, tg_chat, audio_path,
+                       caption=f"Checkpointed audio — {tool_used}, voice {voice_used}")
+
+    buttons = [[{"text": "▶️ RESUME (skip passed stages)", "callback_data": "resume"}]]
+    if has_audio:
+        buttons.append([{"text": "🎙️ REDO AUDIO ONLY (keep script+title)", "callback_data": "redo_audio_only"}])
+    buttons.append([{"text": "🔄 RESTART FROM SCRATCH", "callback_data": "restart_scratch"}])
+
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                          json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
+                                "reply_markup": {"inline_keyboard": buttons}}, timeout=15)
+        if r.status_code != 200:
+            print(f"  Resume-checkpoint message failed: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"  Resume-checkpoint message failed: {e}")
+
+    d, _ = _poll_for_decision(tg_token, tg_chat, timeout_minutes, max_attempts=2,
+                              gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if d == "timeout":
+        _tg_send_message(tg_token, tg_chat,
+                         f"⏱️ No decision within the review window — resuming automatically "
+                         f"from the checkpoint (the least destructive option) so this "
+                         f"doesn't sit stalled indefinitely.")
+        return "resume"
+    if d not in ("resume", "restart_scratch", "redo_audio_only"):
+        return "resume"  # shouldn't happen given the whitelist, but fail safe
+    return d
 
 
 def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,

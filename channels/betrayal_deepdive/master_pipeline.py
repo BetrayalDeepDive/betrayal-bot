@@ -563,6 +563,12 @@ WORK_DIR   = Path("/tmp/deepdive")
 WORK_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = SCRIPT_DIR / "state.json"
 CKPT_FILE  = SCRIPT_DIR / "checkpoint.json"  # in repo — survives runner restarts
+# FIX (direct user request, July 25 2026 — real resume-from-last-passed-
+# stage): the accepted narration audio itself (not just its metadata)
+# has to be committed too -- GitHub Actions runners are fully ephemeral,
+# so /tmp is gone on a resumed run's fresh runner. Small enough (a single
+# episode's MP3) to commit safely, unlike the full rendered video.
+CKPT_AUDIO_FILE = SCRIPT_DIR / "checkpoint_audio.mp3"
 
 # ================================================================
 # CONFIG
@@ -994,6 +1000,8 @@ def ckpt_load(key):
 
 def ckpt_clear():
     try: CKPT_FILE.unlink(missing_ok=True)
+    except: pass
+    try: CKPT_AUDIO_FILE.unlink(missing_ok=True)
     except: pass
 
 # ================================================================
@@ -3559,21 +3567,37 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     log(f"  Words: {len(script.split())} | ElevenLabs: {'yes' if ELEVENLABS_KEY else 'no'}")
 
-    # Try ElevenLabs premium voice first
-    el_ok = call_elevenlabs(script, niche_name, audio_path)
+    # FIX (direct user request, July 25 2026 — "I know this was a free
+    # version, which is not even working. What I want you to do is let
+    # our Edge-TTS be the main provider"): ElevenLabs was tried FIRST,
+    # ahead of Edge-TTS SSML, despite being confirmed dead on the free
+    # tier (real 402 in production logs: "Free users cannot use library
+    # voices via the API"). Edge-TTS SSML (7 stage-matched delivery
+    # rates, genuinely documentary-grade) is now the real primary path.
+    # ElevenLabs is only attempted afterward, as an opportunistic
+    # upgrade in case the account is ever moved to a paid tier — it
+    # never blocks or delays audio generation on its own.
+    el_ok = False
+
+    # Try SSML multi-rate audio (7 delivery speeds across 7 stages) — PRIMARY
+    log("  Trying SSML dynamic-rate audio (primary)...")
+    # Truncate script to MAX_WORDS before SSML to prevent long audio failures
+    _ssml_words = script.split()
+    if len(_ssml_words) > MAX_WORDS:
+        script = " ".join(_ssml_words[:MAX_WORDS])
+        log(f"  Script truncated to {MAX_WORDS}w before SSML")
+    ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
+    ssml_ok = bool(ssml_path and ssml_dur > 60 and ssml_dur < 1800)  # 30-min max sanity cap
+    if not ssml_ok:
+        # SSML failed — give ElevenLabs a shot before falling further
+        # down the chain (plain edge-tts loop -> Kokoro -> Fish Audio).
+        log("  SSML failed — trying ElevenLabs as opportunistic backup...")
+        el_ok = call_elevenlabs(script, niche_name, audio_path)
 
     if el_ok:
         pass  # ElevenLabs doesn't support SSML rate — use as-is
     else:
-        # Try SSML multi-rate audio (7 delivery speeds across 7 stages)
-        log("  Trying SSML dynamic-rate audio...")
-        # Truncate script to MAX_WORDS before SSML to prevent long audio failures
-        _ssml_words = script.split()
-        if len(_ssml_words) > MAX_WORDS:
-            script = " ".join(_ssml_words[:MAX_WORDS])
-            log(f"  Script truncated to {MAX_WORDS}w before SSML")
-        ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
-        if ssml_path and ssml_dur > 60 and ssml_dur < 1800:  # 30-min max sanity cap
+        if ssml_ok:
             import shutil
             if str(ssml_path) != str(audio_path):
                 shutil.copy(ssml_path, audio_path)
@@ -3599,7 +3623,7 @@ def run_audio_stage(script, niche_name, edge_voice):
             processed_path = str(WORK_DIR / "narration_processed.mp3")
             audio_path = apply_audio_post_processing(audio_path, processed_path, niche_name=niche_name)
             generate_fallback_ass(script, duration, ass_path)
-            return audio_path, duration, ass_path, edge_voice
+            return audio_path, duration, ass_path, edge_voice, "Edge-TTS (SSML multi-rate)"
 
     if not el_ok:
         # FIX (July 24 2026, direct user request): AU>GB>US>rest priority
@@ -3639,10 +3663,21 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     if not Path(audio_path).exists() or Path(audio_path).stat().st_size < 10000:
         # ── FALLBACK CHAIN: every edge-tts voice failed today. Try alternate
-        # providers before giving up entirely. Ordered by quality: Fish Audio
-        # (natural, free tier via API key) -> gTTS (free, no key, noticeably
-        # more robotic but reliable) -> offline espeak-ng (guaranteed local
-        # synthesis, most robotic, true last resort).
+        # providers before giving up entirely.
+        # FIX (direct user report, July 25 2026 — "find out 4-5 backups
+        # that are human voices, not robotic"): reordered so Kokoro
+        # (local, zero quota/billing risk, genuinely natural-sounding —
+        # ranks 1st among browser-runnable models on the public TTS
+        # Arena) comes BEFORE Fish Audio, not after. Fish Audio's free
+        # tier is personal/non-commercial-use only per its own ToS (a
+        # real conflict for a monetized channel — see the July 24
+        # decision to leave FISH_AUDIO_API_KEY unset), so it stays in
+        # the chain only as an opportunistic extra if that key is ever
+        # added, never depended on. Real order now: edge-tts (SSML,
+        # primary) -> edge-tts (plain, per-voice fallback, above this
+        # block) -> Kokoro (local, human-quality) -> Fish Audio (only if
+        # configured) -> gTTS (free, more robotic but reliable) ->
+        # espeak-ng (offline, most robotic, true last resort).
         log("  All edge-tts voices exhausted — trying backup TTS providers...")
         script_clean = script
         dur_expected = min((len(script_clean.split()) / 125.0) * 60.0, 1080.0)  # matches 18-min hard cap
@@ -3650,49 +3685,42 @@ def run_audio_stage(script, niche_name, edge_voice):
             f"gate validates the real result against this once a tier succeeds)")
         fallback_ok = False
 
-        fish_key = os.environ.get("FISH_AUDIO_API_KEY", "")
-        if fish_key:
-            try:
-                r = requests.post("https://api.fish.audio/v1/tts",
-                    headers={"Authorization": f"Bearer {fish_key}",
-                             "Content-Type": "application/json",
-                             "model": "s2-pro"},
-                    json={"text": script_clean, "format": "mp3",
-                          "normalize": True, "prosody": {"speed": 1.0}},
-                    timeout=180)
-                if r.status_code == 200 and len(r.content) > 50000:
-                    with open(audio_path, "wb") as f: f.write(r.content)
-                    log(f"  ACCEPTED: Fish Audio backup | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
-                    tg("⚠️ Ch1: all edge-tts voices failed today — used Fish Audio backup instead (still natural-sounding)")
-                    fallback_ok = True
-                    edge_voice = "fish-audio-backup"
-                else:
-                    log(f"  Fish Audio: {r.status_code}")
-            except Exception as e:
-                log(f"  Fish Audio backup failed: {e}")
-        else:
-            log("  FISH_AUDIO_API_KEY not set — skipping Fish Audio backup")
-
-        # NEW TIER: Kokoro (local, open-weight, Apache 2.0) — inserted here
-        # per explicit research and decision: genuinely natural-sounding
-        # (ranks 1st among browser-runnable models on the public TTS Arena,
-        # "Grade A voices produce natural narration suitable for YouTube"),
-        # and critically runs LOCALLY — no API rate limit to hit, unlike
-        # every tier before or after it. This should mean the pipeline
-        # rarely if ever needs to fall further to gTTS/espeak at all.
         if not fallback_ok:
             try:
                 from kokoro import KPipeline
                 import soundfile as sf
                 import numpy as np
                 log("  Trying Kokoro (local, natural-sounding, no rate limit)...")
-                _kokoro_pipeline = KPipeline(lang_code="a")
-                # FIX (July 23 2026, direct user request): default changed from
-                # an American Kokoro voice to a British one -- edge_voice is
-                # now always GB/AU per the VOICES policy above, so falling
-                # back to an American-sounding voice here would silently
-                # reintroduce the exact thing that was just removed.
-                _kokoro_voice = {"en-GB-RyanNeural": "bm_george"}.get(edge_voice, "bm_george")
+                # FIX (direct user report, July 25 2026 — "find out 4-5
+                # backups... human voices, not robotic"): the old mapping
+                # was a single-entry dict that resolved to "bm_george" for
+                # literally every edge_voice — same one Kokoro voice every
+                # single episode regardless of niche/gender, AND paired
+                # with lang_code="a" (American phonemizer) even though
+                # bm_george is a BRITISH voice — a real language/voice
+                # mismatch that likely degraded or broke pronunciation.
+                # Real Kokoro voice catalog (confirmed against the model's
+                # own published voice pack), gender-matched to whichever
+                # real voice this episode was actually supposed to use,
+                # and the pipeline's lang_code now matches the voice
+                # picked instead of being hardcoded to American.
+                _KOKORO_GB_FEMALE = ["bf_alice", "bf_emma", "bf_isabella", "bf_lily"]
+                _KOKORO_GB_MALE   = ["bm_daniel", "bm_fable", "bm_george", "bm_lewis"]
+                _KOKORO_US_FEMALE = ["af_heart", "af_bella", "af_nicole", "af_aoede",
+                                      "af_kore", "af_sarah", "af_nova", "af_sky"]
+                _KOKORO_US_MALE   = ["am_adam", "am_echo", "am_eric", "am_fenrir",
+                                      "am_liam", "am_michael", "am_onyx", "am_puck"]
+                _is_gb_family = edge_voice.startswith(("en-GB", "en-IE"))
+                _is_female = edge_voice in (_AU_FEMALE + _GB_FEMALE + _US_FEMALE + _REST_FEMALE)
+                if _is_gb_family:
+                    _kokoro_pool = _KOKORO_GB_FEMALE if _is_female else _KOKORO_GB_MALE
+                    _kokoro_lang = "b"
+                else:
+                    _kokoro_pool = _KOKORO_US_FEMALE if _is_female else _KOKORO_US_MALE
+                    _kokoro_lang = "a"
+                _kokoro_voice = _kokoro_pool[hash(edge_voice) % len(_kokoro_pool)]
+                _kokoro_pipeline = KPipeline(lang_code=_kokoro_lang)
+                log(f"  Kokoro voice: {_kokoro_voice} (lang={_kokoro_lang}, matched from {edge_voice})")
                 _generator = _kokoro_pipeline(script_clean, voice=_kokoro_voice, speed=1.0)
                 _all_audio = []
                 for _, _, _audio_chunk in _generator:
@@ -3707,12 +3735,35 @@ def run_audio_stage(script, niche_name, edge_voice):
                                    capture_output=True, timeout=120)
                     if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
                         log(f"  ACCEPTED: Kokoro (local) | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
-                        tg("⚠️ Ch1: edge-tts and Fish Audio both failed today — used Kokoro "
-                           "(local, natural-sounding, no rate limit)")
+                        tg("⚠️ Ch1: edge-tts failed today — used Kokoro (local, "
+                           "natural-sounding, no rate limit) instead")
                         fallback_ok = True
                         edge_voice = "kokoro-local"
             except Exception as e:
                 log(f"  Kokoro backup failed (non-fatal, falling further): {e}")
+
+        fish_key = os.environ.get("FISH_AUDIO_API_KEY", "")
+        if not fallback_ok and fish_key:
+            try:
+                r = requests.post("https://api.fish.audio/v1/tts",
+                    headers={"Authorization": f"Bearer {fish_key}",
+                             "Content-Type": "application/json",
+                             "model": "s2-pro"},
+                    json={"text": script_clean, "format": "mp3",
+                          "normalize": True, "prosody": {"speed": 1.0}},
+                    timeout=180)
+                if r.status_code == 200 and len(r.content) > 50000:
+                    with open(audio_path, "wb") as f: f.write(r.content)
+                    log(f"  ACCEPTED: Fish Audio backup | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
+                    tg("⚠️ Ch1: edge-tts and Kokoro both failed today — used Fish Audio backup instead")
+                    fallback_ok = True
+                    edge_voice = "fish-audio-backup"
+                else:
+                    log(f"  Fish Audio: {r.status_code}")
+            except Exception as e:
+                log(f"  Fish Audio backup failed: {e}")
+        elif not fallback_ok:
+            log("  FISH_AUDIO_API_KEY not set — skipping Fish Audio backup")
 
         if not fallback_ok:
             try:
@@ -3799,7 +3850,27 @@ def run_audio_stage(script, niche_name, edge_voice):
         generate_fallback_ass(script, duration, ass_path)
         has_ass = True
 
-    return audio_path, duration, ass_path if has_ass else None, edge_voice
+    # FIX (direct user request, July 25 2026 — "I am not getting
+    # notifications... which audio tool it has taken"): infer which real
+    # tool actually produced the accepted file. The fallback tiers each
+    # set edge_voice to a distinct sentinel on success (kokoro-local,
+    # fish-audio-backup, gtts-fallback, espeak-offline-LASTRESORT) —
+    # reused here rather than threading a separate flag through every
+    # branch above.
+    if edge_voice == "kokoro-local":
+        tool_used = "Kokoro (local)"
+    elif edge_voice == "fish-audio-backup":
+        tool_used = "Fish Audio"
+    elif edge_voice == "gtts-fallback":
+        tool_used = "gTTS"
+    elif edge_voice == "espeak-offline-LASTRESORT":
+        tool_used = "espeak (offline, last resort)"
+    elif el_ok:
+        tool_used = "ElevenLabs"
+    else:
+        tool_used = "Edge-TTS (standard)"
+
+    return audio_path, duration, ass_path if has_ass else None, edge_voice, tool_used
 
 # ================================================================
 # VIDEO DOWNLOAD
@@ -7246,6 +7317,57 @@ def main():
     if not IS_MAKEUP:
         ckpt_clear()
 
+    # FIX (direct user request, July 25 2026 — "I don't want it to start
+    # from scratch if we are re-triggering... if it passes some stage,
+    # with the next stage, if it fails in the further stage, it starts
+    # with the last passed stage"): ckpt_save/ckpt_load existed as pure
+    # dead scaffolding before this — defined but never called anywhere
+    # in the file. On a workflow_dispatch re-run with is_makeup=true,
+    # this restores whichever stages already cleared their gate on the
+    # cancelled/failed run instead of regenerating them from scratch.
+    _resume_script = ckpt_load("script_stage") if IS_MAKEUP else None
+    _resume_audio  = ckpt_load("audio_stage") if IS_MAKEUP else None
+    if _resume_audio and not CKPT_AUDIO_FILE.exists():
+        log("  [ckpt] audio checkpoint metadata found but the audio file "
+            "itself is missing on this runner — discarding, audio will "
+            "be regenerated")
+        _resume_audio = None
+
+    # FIX (direct user request, July 25 2026 — "I want a notification
+    # asking for my explicit permission: should it go with the third
+    # stage or fourth stage, or should it start from scratch? I need to
+    # check and find out if I am okay with that kind of script, the
+    # audio, or the title"): a resume is never silent. Before picking up
+    # from a checkpoint, send the real checkpointed script (PDF) and
+    # audio (file) and wait for an explicit decision.
+    if _resume_script:
+        try:
+            from human_review_gate import review_resume_checkpoint
+            _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+            _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+            _resume_decision = review_resume_checkpoint(
+                "BetrayalDeepDive",
+                _resume_script["title"], _resume_script["script_clean"], _resume_script["score_val"],
+                _resume_script["niche_name"],
+                str(CKPT_AUDIO_FILE) if _resume_audio else None,
+                _resume_audio.get("tool_used") if _resume_audio else None,
+                _resume_audio.get("edge_voice") if _resume_audio else None,
+                _resume_audio.get("audio_duration") if _resume_audio else None,
+                TG_TOKEN, TG_CHAT, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                timeout_minutes=30)
+            log(f"  [ckpt] resume-checkpoint decision: {_resume_decision}")
+            if _resume_decision == "restart_scratch":
+                tg("🔄 Ch1: starting completely fresh per your decision — the checkpoint is discarded.")
+                ckpt_clear()
+                _resume_script, _resume_audio = None, None
+            elif _resume_decision == "redo_audio_only":
+                tg("🎙️ Ch1: keeping the checkpointed script + title, regenerating audio fresh.")
+                _resume_audio = None
+            else:
+                tg("▶️ Ch1: resuming — skipping whatever already passed.")
+        except Exception as e:
+            log(f"  Resume-checkpoint gate unavailable (non-fatal, resuming without asking): {e}")
+
     try:
         # FIX: run_provider_health_check existed fully built (tests all 7
         # providers, hard-stops if all fail, alerts if fewer than 3 work)
@@ -7256,300 +7378,381 @@ def main():
 
         # token obtained at upload time — not needed for script generation
 
-        log("\nSTAGE 1: Script")
-        niche_name, niche, topic, script_result, trending_titles = run_stage1(state)
+        if _resume_script:
+            log("  [ckpt] RESUMING: script + title already passed — skipping Stage 1 + review")
+            niche_name       = _resume_script["niche_name"]
+            niche            = _resume_script["niche"]
+            topic            = _resume_script["topic"]
+            script_result    = _resume_script["script_result"]
+            trending_titles  = _resume_script["trending_titles"]
+            script_clean     = _resume_script["script_clean"]
+            wc               = _resume_script["wc"]
+            score_val        = _resume_script["score_val"]
+            edge_voice       = _resume_script["edge_voice"]
+            real_cases       = _resume_script["real_cases"]
+            title            = _resume_script["title"]
+            episode          = _resume_script["episode"]
+            _approved_topic_id_for_pending = _resume_script.get("approved_topic_id_for_pending")
+            tg(f"▶ Ch1: resuming from checkpoint — script + title already "
+               f"passed ({wc}w, {score_val}/10, \"{title[:60]}\"). Skipping straight to "
+               f"{'video (audio also passed)' if _resume_audio else 'audio'}.")
+        else:
+            log("\nSTAGE 1: Script")
+            niche_name, niche, topic, script_result, trending_titles = run_stage1(state)
 
-        # Find the backlog ID for this topic, if it came from an approved
-        # entry — looked up by matching topic text rather than changing
-        # run_stage1's return signature (safer, avoids touching every
-        # call site of an already-established function).
-        _approved_topic_id_for_pending = None
-        try:
-            from topic_scoring import load_topic_database
-            for _t in load_topic_database(SCRIPT_DIR):
-                if _t.get("topic_text") == topic and _t.get("status") == "approved":
-                    _approved_topic_id_for_pending = _t["topic_id"]
-                    break
-        except Exception as e:
-            log(f"  Topic ID lookup (non-fatal): {e}")
-        script_clean = script_result["script"]
-        wc           = script_result["words"]
-        score_val, _score_issues, _score_subscores = score_result(script_result, topic)
+            # Find the backlog ID for this topic, if it came from an approved
+            # entry — looked up by matching topic text rather than changing
+            # run_stage1's return signature (safer, avoids touching every
+            # call site of an already-established function).
+            _approved_topic_id_for_pending = None
+            try:
+                from topic_scoring import load_topic_database
+                for _t in load_topic_database(SCRIPT_DIR):
+                    if _t.get("topic_text") == topic and _t.get("status") == "approved":
+                        _approved_topic_id_for_pending = _t["topic_id"]
+                        break
+            except Exception as e:
+                log(f"  Topic ID lookup (non-fatal): {e}")
+            script_clean = script_result["script"]
+            wc           = script_result["words"]
+            score_val, _score_issues, _score_subscores = score_result(script_result, topic)
 
-        # FIX (direct user report, July 23 2026 — "sync Claude Code into
-        # the script as a main interceptor for quality... if it generates
-        # a script, I want you to read that script and generate the
-        # quality audit... minimum is 6.8... if it is less than that,
-        # remake it without fail, even before it comes to me as a manual
-        # in Telegram"): the 13-attempt loop above already gates on a
-        # rule-based rubric (keyword/pattern signals), but that is not
-        # the same as an independent AI actually reading the whole script
-        # and judging it holistically. This is that second, independent
-        # read -- an AI-judge audit with its own 6.8 floor, reworking
-        # (a fresh run_stage1 attempt) before this ever reaches Telegram.
-        # See video_pipeline/quality_auditor.py for the honest technical
-        # note on why this uses the pipeline's existing AI providers
-        # rather than literally invoking Claude Code from a cron job.
-        try:
-            from quality_auditor import enforce_quality_gate
-            # NOTE: run_stage1 re-picks niche+topic fresh on every call (its
-            # own rotation/backlog logic) -- a rework could legitimately come
-            # back as a different niche/topic than the original attempt. If
-            # only script_clean were replaced here while niche_name/niche/
-            # topic/trending_titles/script_result stayed pointed at the OLD
-            # attempt, every downstream stage (title, thumbnail, audio) would
-            # describe a different story than the script actually being
-            # narrated. enforce_quality_gate keeps whichever rework attempt
-            # scored best, which is not necessarily the LAST one tried -- so
-            # every attempt (including the original) is recorded here, and
-            # after the gate returns, the matching full tuple is looked up
-            # by script text rather than assumed to be the most recent call.
-            _rework_history = [{"niche_name": niche_name, "niche": niche, "topic": topic,
-                                 "script_result": script_result, "trending_titles": trending_titles}]
-            def _rescript():
-                _n2, _ni2, _t2, _res2, _tr2 = run_stage1(state)
-                _rework_history.append({"niche_name": _n2, "niche": _ni2, "topic": _t2,
-                                         "script_result": _res2, "trending_titles": _tr2})
-                return _res2["script"]
-            _audit = enforce_quality_gate(
-                "script", script_clean, "", ai_generate,
-                _rescript, tg_fn=tg, topic=topic, max_reworks=2)
-            for _entry in reversed(_rework_history):
-                if _entry["script_result"]["script"] == _audit["content"]:
-                    niche_name, niche, topic = _entry["niche_name"], _entry["niche"], _entry["topic"]
-                    script_result = _entry["script_result"]
-                    trending_titles = _entry["trending_titles"]
-                    wc = script_result["words"]
-                    score_val, _score_issues, _score_subscores = score_result(script_result, topic)
-                    break
-            script_clean = _audit["content"]
-            log(f"  Quality audit (script): {_audit['score']}/10 "
-                f"(passed={_audit['passed']}, reworked={_audit['reworked']}, "
-                f"fallback={_audit['used_fallback']})")
-        except Exception as e:
-            log(f"  Quality audit unavailable (non-fatal, proceeding with existing script): {e}")
+            # FIX (direct user report, July 23 2026 — "sync Claude Code into
+            # the script as a main interceptor for quality... if it generates
+            # a script, I want you to read that script and generate the
+            # quality audit... minimum is 6.8... if it is less than that,
+            # remake it without fail, even before it comes to me as a manual
+            # in Telegram"): the 13-attempt loop above already gates on a
+            # rule-based rubric (keyword/pattern signals), but that is not
+            # the same as an independent AI actually reading the whole script
+            # and judging it holistically. This is that second, independent
+            # read -- an AI-judge audit with its own 6.8 floor, reworking
+            # (a fresh run_stage1 attempt) before this ever reaches Telegram.
+            # See video_pipeline/quality_auditor.py for the honest technical
+            # note on why this uses the pipeline's existing AI providers
+            # rather than literally invoking Claude Code from a cron job.
+            try:
+                from quality_auditor import enforce_quality_gate
+                # NOTE: run_stage1 re-picks niche+topic fresh on every call (its
+                # own rotation/backlog logic) -- a rework could legitimately come
+                # back as a different niche/topic than the original attempt. If
+                # only script_clean were replaced here while niche_name/niche/
+                # topic/trending_titles/script_result stayed pointed at the OLD
+                # attempt, every downstream stage (title, thumbnail, audio) would
+                # describe a different story than the script actually being
+                # narrated. enforce_quality_gate keeps whichever rework attempt
+                # scored best, which is not necessarily the LAST one tried -- so
+                # every attempt (including the original) is recorded here, and
+                # after the gate returns, the matching full tuple is looked up
+                # by script text rather than assumed to be the most recent call.
+                _rework_history = [{"niche_name": niche_name, "niche": niche, "topic": topic,
+                                     "script_result": script_result, "trending_titles": trending_titles}]
+                def _rescript():
+                    _n2, _ni2, _t2, _res2, _tr2 = run_stage1(state)
+                    _rework_history.append({"niche_name": _n2, "niche": _ni2, "topic": _t2,
+                                             "script_result": _res2, "trending_titles": _tr2})
+                    return _res2["script"]
+                _audit = enforce_quality_gate(
+                    "script", script_clean, "", ai_generate,
+                    _rescript, tg_fn=tg, topic=topic, max_reworks=2)
+                for _entry in reversed(_rework_history):
+                    if _entry["script_result"]["script"] == _audit["content"]:
+                        niche_name, niche, topic = _entry["niche_name"], _entry["niche"], _entry["topic"]
+                        script_result = _entry["script_result"]
+                        trending_titles = _entry["trending_titles"]
+                        wc = script_result["words"]
+                        score_val, _score_issues, _score_subscores = score_result(script_result, topic)
+                        break
+                script_clean = _audit["content"]
+                log(f"  Quality audit (script): {_audit['score']}/10 "
+                    f"(passed={_audit['passed']}, reworked={_audit['reworked']}, "
+                    f"fallback={_audit['used_fallback']})")
+            except Exception as e:
+                log(f"  Quality audit unavailable (non-fatal, proceeding with existing script): {e}")
 
-        edge_voice   = pick_voice(niche_name, state)
-        # v6 addition — real citation system: the actual sources used
-        # during research (if any were found), carried through for the
-        # description's Sources block and the end-of-video credits scene.
-        real_cases   = script_result.get("real_cases", [])
+            edge_voice   = pick_voice(niche_name, state)
+            # v6 addition — real citation system: the actual sources used
+            # during research (if any were found), carried through for the
+            # description's Sources block and the end-of-video credits scene.
+            real_cases   = script_result.get("real_cases", [])
 
-        tg(f"Ch1 Script ready: {niche_name} | {wc}w | {score_val}/10\n{topic[:80]}")
+            tg(f"Ch1 Script ready: {niche_name} | {wc}w | {score_val}/10\n{topic[:80]}")
 
-        # Approval gate
-        # FIX: generate_titles's dread/sympathy alternation reads
-        # state["last_title_register"] to decide which register to use next —
-        # but state was never being passed in here, so it always saw state=None
-        # and always computed the same register, every single episode. The
-        # alternation looked implemented but never actually alternated.
-        # FIX (direct user report, July 24 2026 — explicit policy decision):
-        # generate_titles now genuinely returns None if nothing cleared the
-        # 8.5 title gate after 8 attempts. This used to fall back to a bare
-        # "Series Ep12"-style placeholder title regardless of score — a
-        # silent policy violation. Now skips the day instead.
-        title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode, state, trending_titles)
-        if not title_result:
-            tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after {MAX_ATTEMPTS} attempts. Per your "
-               f"standing instruction, nothing under 8.5 gets published.")
-            log(f"  Title gate never cleared 8.5 after {MAX_ATTEMPTS} attempts. Skipping.")
-            sys.exit(0)
-        title = title_result
-
-        # v9 addition — real title-script alignment check, per direct
-        # research confirming spoken-content-to-title matching affects
-        # both search relevance and satisfaction signals. generate_titles
-        # writes the title from the topic description alone — it never
-        # actually reads the final script text, creating real drift risk.
-        _title_distinctive_words = {
-            w.strip(".,!?:;\"'").lower() for w in title.split()
-            if len(w) > 4 and w.lower() not in
-            {"about","after","before","their","there","which","would","could","should"}
-        }
-        if _title_distinctive_words:
-            _script_words_lower = set(script_clean.lower().split())
-            _matched = sum(1 for w in _title_distinctive_words if w in _script_words_lower)
-            if _matched == 0:
-                tg(f"⚠️ Ch1: none of the title's distinctive words appear in the script — "
-                   f"\"{title[:70]}\" may not match what the video actually says. "
-                   f"Worth checking the title still fits before this publishes.")
-
-        # FULL SCRIPT REVIEW + EDIT LOOP — replaces the old approval gate,
-        # which only ever showed a 400-character preview. This sends the
-        # REAL, COMPLETE script for review, and genuinely regenerates
-        # whichever section real feedback identifies (or the whole script,
-        # for whole-script feedback) — never silently ignores an EDIT
-        # reply. Loops until APPROVE, REJECT, or a timeout auto-approval.
-        try:
-            from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
-            _stage_names_ch1 = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
-                                 "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
-            _stage_texts_ch1 = script_result.get("stage_texts", [])
-            _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
-            _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-            _script_was_edited = False
-
-            while True:
-                try:
-                    _hook_penalty, _hook_issues = _validate_retention_hooks_ch1(script_clean)
-                    _hook_score = round(min(max(10.0 + _hook_penalty, 0), 10), 1)
-                    _hook_note = _hook_issues[0] if _hook_issues else "all hook checkpoints present"
-                except Exception as e:
-                    log(f"  Hook scoring (non-fatal): {e}")
-                    _hook_score, _hook_note = None, None
-
-                # FIX (found on live Ch1 test run — real bug): score_result()
-                # was computing real rubric subscores (Craft, Clarity) and
-                # real issues (repeated phrases, missing rehook, weak
-                # escalation) and then discarding them — a reviewer only
-                # ever saw the bare number plus this older "Hook strength"
-                # metric, never why a 10.0/10 script might still have a
-                # real narrative-craft problem worth reading before
-                # approving. Merged in now that score_result() actually
-                # returns them.
-                _review_sub_scores = {"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else {}
-                if _score_subscores:
-                    _craft_note = next((i for i in _score_issues if any(
-                        k in i.lower() for k in ("escalation", "resolution", "rhythm", "repeats", "rehook"))), None)
-                    _clarity_note = next((i for i in _score_issues if "topic" in i.lower() or "keyword" in i.lower()), None)
-                    _review_sub_scores["Narrative craft"] = (_score_subscores.get("narrative_craft"), _craft_note or "no issues found")
-                    _review_sub_scores["Topic clarity"] = (_score_subscores.get("topic_clarity"), _clarity_note or "no issues found")
-
-                # FIX (July 14 2026 audit): now passes stage_texts/stage_names
-                # so the script review is sent stage-by-stage with clear
-                # headers instead of one undifferentiated wall of text.
-                _review = review_script("BetrayalDeepDive", title, script_clean, score_val,
-                                        niche_name, TG_TOKEN, TG_CHAT,
-                                        gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
-                                        timeout_minutes=60,
-                                        stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
-                                        sub_scores=_review_sub_scores or None)
-                if _review["decision"] == "reject":
-                    log("Rejected during full script review."); sys.exit(0)
-                # FIX (found on deep re-audit): REMAKE was never handled
-                # here at all — it fell through every branch and the loop
-                # just re-sent the identical unedited script for review
-                # again, silently ignoring a human's explicit "scrap this
-                # episode" request. Ch2/Ch3/Ch4 all already treat REMAKE
-                # at the script checkpoint as ending the episode.
-                if _review["decision"] == "remake":
-                    tg("🔄 Ch1: REMAKE requested at script review — scrapping this episode entirely.")
-                    log("  REMAKE requested during script review — clearing pending, exiting.")
-                    clear_pending(SCRIPT_DIR)
-                    sys.exit(0)
-                if _review["decision"] == "approve":
-                    break
-                if _review["decision"] == "edit" and _stage_texts_ch1:
-                    _targets = identify_target_sections(_review["feedback"], _stage_names_ch1)
-                    if len(_stage_texts_ch1) != len(_stage_names_ch1):
-                        _targets = []  # a prior whole-script edit collapsed this list — avoid an IndexError
-                    log(f"  Script EDIT requested: '{_review['feedback']}' -> sections: {_targets or 'WHOLE SCRIPT'}")
-                    try:
-                        script_clean, _updated_sections = regenerate_script_sections(
-                            script_clean, _stage_texts_ch1, _stage_names_ch1, _targets,
-                            _review["feedback"], niche, topic, ai_generate)
-                        # FIX (found on final re-audit): refresh each
-                        # changed section's real new text, not just leave
-                        # the list untouched — otherwise a second edit
-                        # targeting the same section searches for text
-                        # that's already been replaced once and silently
-                        # finds nothing to change.
-                        if not _targets:
-                            _stage_texts_ch1 = [script_clean]
-                        else:
-                            for _sec_name, _new_text in _updated_sections.items():
-                                _idx = _stage_names_ch1.index(_sec_name)
-                                _stage_texts_ch1[_idx] = _new_text
-                        # FIX (found via a final expert-level re-audit): the
-                        # ORIGINAL script_result["stage_texts"] (used later
-                        # by the authenticity check's fingerprint) would go
-                        # stale the moment the script is edited here —
-                        # silently feeding wrong per-stage word counts into
-                        # the structural-variation comparison against past
-                        # episodes. Flagged so that check can be told to
-                        # degrade gracefully (skip stale data) instead of
-                        # silently using it.
-                        _script_was_edited = True
-                        tg(f"✅ Script updated per your feedback — sending the revised version for another look.")
-                    except Exception as e:
-                        tg(f"🚨 Ch1: your script edit could NOT be applied — {e}. "
-                           f"The script is UNCHANGED. Please try again or approve as-is.")
-                        log(f"  Script edit failed, feedback NOT applied: {e}")
-                    # Loop back and send the (possibly updated) script again
-                elif _review["decision"] == "edit":
-                    tg("⚠️ Can't apply section-targeted edits — no stage breakdown available for this "
-                       "script. Approve, reject, or the script proceeds as generated.")
-        except Exception as e:
-            # FIX (same real production issue diagnosed from a Telegram
-            # screenshot, identical fallback pattern in Ch2): this only
-            # logged to stdout before — invisible unless watching the
-            # Actions run live. The bare "30 min expired — auto-approved"
-            # messages you saw were this fallback firing silently, most
-            # likely because human_review_gate.py genuinely isn't
-            # deployed to the live repo yet. Now alerts visibly.
-            log(f"  Full script review (non-fatal, falling back to quick gate): {e}")
-            tg(f"⚠️ Ch1: the full review system failed to load ({str(e)[:150]}) — falling back "
-               f"to the older, simpler approval gate for this episode. If human_review_gate.py "
-               f"and review_queue.py haven't been deployed to this repo yet, that's the likely "
-               f"cause; once they are, this fallback should stop firing.")
-            decision = run_approval_gate(title, niche_name, script_clean, edge_voice, score_val)
-            if decision == "rejected":
-                log("Rejected by approval gate."); sys.exit(0)
-
-        log("\nSTAGE 3: Audio")
-        audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
-            run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
-        edge_voice = voice_used
-
-        # FIX (direct user report, July 24 2026 — explicit policy decision,
-        # "every stage... audio, video, thumbnails, title... quality score
-        # minimum of 8.5... hard time for it to remake is 8 attempts...
-        # if it is less than that, I don't want it to produce that"):
-        # replaces the old two-track system (a voice-tier-name retry
-        # capped at 2, plus a separate duration-only integrity check
-        # capped at 2, plus a 10-minute sleep between attempts) with one
-        # real, numerically scored gate: score_audio_quality() (voice
-        # tier + duration match + silence integrity + file integrity),
-        # hard floor 8.5, up to 8 attempts, voice-swapped each retry, no
-        # artificial waiting between attempts. If nothing clears 8.5
-        # within 8 attempts, the day is skipped entirely — no publish.
-        from quality_scoring import score_audio_quality as _score_audio_quality_gate
-        _AUDIO_MIN_GATE = 8.5
-        _AUDIO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
-        _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
-        _audio_attempt = 1
-        while True:
-            _integrity_ok = check_audio_quality(audio_path, _expected_dur)
-            if _integrity_ok:
-                _audio_score, _ = _score_audio_quality_gate(
-                    audio_path, audio_duration, len(script_clean.split()), edge_voice)
-            else:
-                _audio_score = 0.0
-            log(f"  Audio attempt {_audio_attempt}/{_AUDIO_MAX_ATTEMPTS}: {_audio_score}/10 "
-                f"(voice {edge_voice}, integrity {'OK' if _integrity_ok else 'FAILED'})")
-            notify_stage_score("Audio", _audio_attempt, _AUDIO_MAX_ATTEMPTS, _audio_score,
-                                _AUDIO_MIN_GATE, extra=f"voice {edge_voice}")
-            if _audio_score >= _AUDIO_MIN_GATE:
-                break
-            if _audio_attempt >= _AUDIO_MAX_ATTEMPTS:
-                tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 after {_AUDIO_MAX_ATTEMPTS} "
-                   f"attempts (last: {_audio_score}/10, voice {edge_voice}) — skipping today's "
-                   f"episode. Per your standing instruction, nothing under {_AUDIO_MIN_GATE} "
-                   f"gets published.")
-                log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} after "
-                    f"{_AUDIO_MAX_ATTEMPTS} attempts. Skipping.")
+            # Approval gate
+            # FIX: generate_titles's dread/sympathy alternation reads
+            # state["last_title_register"] to decide which register to use next —
+            # but state was never being passed in here, so it always saw state=None
+            # and always computed the same register, every single episode. The
+            # alternation looked implemented but never actually alternated.
+            # FIX (direct user report, July 24 2026 — explicit policy decision):
+            # generate_titles now genuinely returns None if nothing cleared the
+            # 8.5 title gate after 8 attempts. This used to fall back to a bare
+            # "Series Ep12"-style placeholder title regardless of score — a
+            # silent policy violation. Now skips the day instead.
+            title_result = run_stage_with_retry(generate_titles, "Titles", niche, topic, episode, state, trending_titles)
+            if not title_result:
+                tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after {MAX_ATTEMPTS} attempts. Per your "
+                   f"standing instruction, nothing under 8.5 gets published.")
+                log(f"  Title gate never cleared 8.5 after {MAX_ATTEMPTS} attempts. Skipping.")
                 sys.exit(0)
-            _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
-                           if v != edge_voice]
-            _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
-            tg(f"🔄 Ch1: audio scored {_audio_score}/10 (below {_AUDIO_MIN_GATE}) — regenerating "
-               f"(attempt {_audio_attempt + 1}/{_AUDIO_MAX_ATTEMPTS}, voice {edge_voice} → "
-               f"{_retry_voice}) instead of publishing it as-is.")
-            edge_voice = _retry_voice
-            _audio_attempt += 1
-            audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+            title = title_result
+
+            # v9 addition — real title-script alignment check, per direct
+            # research confirming spoken-content-to-title matching affects
+            # both search relevance and satisfaction signals. generate_titles
+            # writes the title from the topic description alone — it never
+            # actually reads the final script text, creating real drift risk.
+            _title_distinctive_words = {
+                w.strip(".,!?:;\"'").lower() for w in title.split()
+                if len(w) > 4 and w.lower() not in
+                {"about","after","before","their","there","which","would","could","should"}
+            }
+            if _title_distinctive_words:
+                _script_words_lower = set(script_clean.lower().split())
+                _matched = sum(1 for w in _title_distinctive_words if w in _script_words_lower)
+                if _matched == 0:
+                    tg(f"⚠️ Ch1: none of the title's distinctive words appear in the script — "
+                       f"\"{title[:70]}\" may not match what the video actually says. "
+                       f"Worth checking the title still fits before this publishes.")
+
+            # FULL SCRIPT REVIEW + EDIT LOOP — replaces the old approval gate,
+            # which only ever showed a 400-character preview. This sends the
+            # REAL, COMPLETE script for review, and genuinely regenerates
+            # whichever section real feedback identifies (or the whole script,
+            # for whole-script feedback) — never silently ignores an EDIT
+            # reply. Loops until APPROVE, REJECT, or a timeout auto-approval.
+            try:
+                from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
+                _stage_names_ch1 = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
+                                     "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
+                _stage_texts_ch1 = script_result.get("stage_texts", [])
+                _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+                _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+                _script_was_edited = False
+
+                while True:
+                    try:
+                        _hook_penalty, _hook_issues = _validate_retention_hooks_ch1(script_clean)
+                        _hook_score = round(min(max(10.0 + _hook_penalty, 0), 10), 1)
+                        _hook_note = _hook_issues[0] if _hook_issues else "all hook checkpoints present"
+                    except Exception as e:
+                        log(f"  Hook scoring (non-fatal): {e}")
+                        _hook_score, _hook_note = None, None
+
+                    # FIX (found on live Ch1 test run — real bug): score_result()
+                    # was computing real rubric subscores (Craft, Clarity) and
+                    # real issues (repeated phrases, missing rehook, weak
+                    # escalation) and then discarding them — a reviewer only
+                    # ever saw the bare number plus this older "Hook strength"
+                    # metric, never why a 10.0/10 script might still have a
+                    # real narrative-craft problem worth reading before
+                    # approving. Merged in now that score_result() actually
+                    # returns them.
+                    _review_sub_scores = {"Hook strength": (_hook_score, _hook_note)} if _hook_score is not None else {}
+                    if _score_subscores:
+                        _craft_note = next((i for i in _score_issues if any(
+                            k in i.lower() for k in ("escalation", "resolution", "rhythm", "repeats", "rehook"))), None)
+                        _clarity_note = next((i for i in _score_issues if "topic" in i.lower() or "keyword" in i.lower()), None)
+                        _review_sub_scores["Narrative craft"] = (_score_subscores.get("narrative_craft"), _craft_note or "no issues found")
+                        _review_sub_scores["Topic clarity"] = (_score_subscores.get("topic_clarity"), _clarity_note or "no issues found")
+
+                    # FIX (July 14 2026 audit): now passes stage_texts/stage_names
+                    # so the script review is sent stage-by-stage with clear
+                    # headers instead of one undifferentiated wall of text.
+                    _review = review_script("BetrayalDeepDive", title, script_clean, score_val,
+                                            niche_name, TG_TOKEN, TG_CHAT,
+                                            gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                                            timeout_minutes=60,
+                                            stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
+                                            sub_scores=_review_sub_scores or None)
+                    if _review["decision"] == "reject":
+                        log("Rejected during full script review."); sys.exit(0)
+                    # FIX (found on deep re-audit): REMAKE was never handled
+                    # here at all — it fell through every branch and the loop
+                    # just re-sent the identical unedited script for review
+                    # again, silently ignoring a human's explicit "scrap this
+                    # episode" request. Ch2/Ch3/Ch4 all already treat REMAKE
+                    # at the script checkpoint as ending the episode.
+                    if _review["decision"] == "remake":
+                        tg("🔄 Ch1: REMAKE requested at script review — scrapping this episode entirely.")
+                        log("  REMAKE requested during script review — clearing pending, exiting.")
+                        clear_pending(SCRIPT_DIR)
+                        sys.exit(0)
+                    if _review["decision"] == "approve":
+                        break
+                    if _review["decision"] == "edit" and _stage_texts_ch1:
+                        _targets = identify_target_sections(_review["feedback"], _stage_names_ch1)
+                        if len(_stage_texts_ch1) != len(_stage_names_ch1):
+                            _targets = []  # a prior whole-script edit collapsed this list — avoid an IndexError
+                        log(f"  Script EDIT requested: '{_review['feedback']}' -> sections: {_targets or 'WHOLE SCRIPT'}")
+                        try:
+                            script_clean, _updated_sections = regenerate_script_sections(
+                                script_clean, _stage_texts_ch1, _stage_names_ch1, _targets,
+                                _review["feedback"], niche, topic, ai_generate)
+                            # FIX (found on final re-audit): refresh each
+                            # changed section's real new text, not just leave
+                            # the list untouched — otherwise a second edit
+                            # targeting the same section searches for text
+                            # that's already been replaced once and silently
+                            # finds nothing to change.
+                            if not _targets:
+                                _stage_texts_ch1 = [script_clean]
+                            else:
+                                for _sec_name, _new_text in _updated_sections.items():
+                                    _idx = _stage_names_ch1.index(_sec_name)
+                                    _stage_texts_ch1[_idx] = _new_text
+                            # FIX (found via a final expert-level re-audit): the
+                            # ORIGINAL script_result["stage_texts"] (used later
+                            # by the authenticity check's fingerprint) would go
+                            # stale the moment the script is edited here —
+                            # silently feeding wrong per-stage word counts into
+                            # the structural-variation comparison against past
+                            # episodes. Flagged so that check can be told to
+                            # degrade gracefully (skip stale data) instead of
+                            # silently using it.
+                            _script_was_edited = True
+                            tg(f"✅ Script updated per your feedback — sending the revised version for another look.")
+                        except Exception as e:
+                            tg(f"🚨 Ch1: your script edit could NOT be applied — {e}. "
+                               f"The script is UNCHANGED. Please try again or approve as-is.")
+                            log(f"  Script edit failed, feedback NOT applied: {e}")
+                        # Loop back and send the (possibly updated) script again
+                    elif _review["decision"] == "edit":
+                        tg("⚠️ Can't apply section-targeted edits — no stage breakdown available for this "
+                           "script. Approve, reject, or the script proceeds as generated.")
+            except Exception as e:
+                # FIX (same real production issue diagnosed from a Telegram
+                # screenshot, identical fallback pattern in Ch2): this only
+                # logged to stdout before — invisible unless watching the
+                # Actions run live. The bare "30 min expired — auto-approved"
+                # messages you saw were this fallback firing silently, most
+                # likely because human_review_gate.py genuinely isn't
+                # deployed to the live repo yet. Now alerts visibly.
+                log(f"  Full script review (non-fatal, falling back to quick gate): {e}")
+                tg(f"⚠️ Ch1: the full review system failed to load ({str(e)[:150]}) — falling back "
+                   f"to the older, simpler approval gate for this episode. If human_review_gate.py "
+                   f"and review_queue.py haven't been deployed to this repo yet, that's the likely "
+                   f"cause; once they are, this fallback should stop firing.")
+                decision = run_approval_gate(title, niche_name, script_clean, edge_voice, score_val)
+                if decision == "rejected":
+                    log("Rejected by approval gate."); sys.exit(0)
+
+            # FIX (direct user request, July 25 2026 — real checkpoint/resume:
+            # "if it passes some stage... it starts with the last passed
+            # stage"): script + title have now cleared their gates and
+            # review. Persist everything a resumed run needs so a re-trigger
+            # (IS_MAKEUP=true) never has to re-run the 13-attempt script
+            # engine, the AI-judge quality audit, or wait through the human
+            # review window again.
+            try:
+                ckpt_save("script_stage", {
+                    "niche_name": niche_name, "niche": niche, "topic": topic,
+                    "script_result": script_result, "trending_titles": trending_titles,
+                    "script_clean": script_clean, "wc": wc, "score_val": score_val,
+                    "edge_voice": edge_voice, "real_cases": real_cases,
+                    "title": title, "episode": episode,
+                    "approved_topic_id_for_pending": _approved_topic_id_for_pending,
+                })
+            except Exception as _e:
+                log(f"  [ckpt] script checkpoint save failed (non-fatal): {_e}")
+
+        if _resume_audio:
+            log("  [ckpt] RESUMING: audio already passed — skipping Stage 3")
+            audio_path     = str(CKPT_AUDIO_FILE)
+            audio_duration = _resume_audio["audio_duration"]
+            edge_voice     = _resume_audio["edge_voice"]
+            tool_used      = _resume_audio.get("tool_used", "unknown (resumed from an older checkpoint)")
+        else:
+            log("\nSTAGE 3: Audio")
+            audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
                 run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
             edge_voice = voice_used
+
+            # FIX (direct user report, July 24 2026 — explicit policy decision,
+            # "every stage... audio, video, thumbnails, title... quality score
+            # minimum of 8.5... hard time for it to remake is 8 attempts...
+            # if it is less than that, I don't want it to produce that"):
+            # replaces the old two-track system (a voice-tier-name retry
+            # capped at 2, plus a separate duration-only integrity check
+            # capped at 2, plus a 10-minute sleep between attempts) with one
+            # real, numerically scored gate: score_audio_quality() (voice
+            # tier + duration match + silence integrity + file integrity),
+            # hard floor 8.5, up to 8 attempts, voice-swapped each retry, no
+            # artificial waiting between attempts. If nothing clears 8.5
+            # within 8 attempts, the day is skipped entirely — no publish.
+            from quality_scoring import score_audio_quality as _score_audio_quality_gate
+            _AUDIO_MIN_GATE = 8.5
+            _AUDIO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
+            _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
+            _audio_attempt = 1
+            while True:
+                _integrity_ok = check_audio_quality(audio_path, _expected_dur)
+                if _integrity_ok:
+                    _audio_score, _ = _score_audio_quality_gate(
+                        audio_path, audio_duration, len(script_clean.split()), edge_voice)
+                else:
+                    _audio_score = 0.0
+                log(f"  Audio attempt {_audio_attempt}/{_AUDIO_MAX_ATTEMPTS}: {_audio_score}/10 "
+                    f"(voice {edge_voice}, integrity {'OK' if _integrity_ok else 'FAILED'})")
+                notify_stage_score("Audio", _audio_attempt, _AUDIO_MAX_ATTEMPTS, _audio_score,
+                                    _AUDIO_MIN_GATE, extra=f"voice {edge_voice}")
+                if _audio_score >= _AUDIO_MIN_GATE:
+                    break
+                if _audio_attempt >= _AUDIO_MAX_ATTEMPTS:
+                    tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 after {_AUDIO_MAX_ATTEMPTS} "
+                       f"attempts (last: {_audio_score}/10, voice {edge_voice}) — skipping today's "
+                       f"episode. Per your standing instruction, nothing under {_AUDIO_MIN_GATE} "
+                       f"gets published.")
+                    log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} after "
+                        f"{_AUDIO_MAX_ATTEMPTS} attempts. Skipping.")
+                    sys.exit(0)
+                _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
+                               if v != edge_voice]
+                _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
+                tg(f"🔄 Ch1: audio scored {_audio_score}/10 (below {_AUDIO_MIN_GATE}) — regenerating "
+                   f"(attempt {_audio_attempt + 1}/{_AUDIO_MAX_ATTEMPTS}, voice {edge_voice} → "
+                   f"{_retry_voice}) instead of publishing it as-is.")
+                edge_voice = _retry_voice
+                _audio_attempt += 1
+                audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
+                    run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
+                edge_voice = voice_used
+
+            # FIX (direct user request, July 25 2026 — "I am not getting
+            # notifications in Telegram with regard to which audio tool
+            # it has taken and which voice it is using... once the audio
+            # is generated, I want to know the audio file as well"): the
+            # only existing audio notification (review_audio_and_video)
+            # fires AFTER Stage 4: Video succeeds -- in the exact run
+            # that got cancelled at Stage 4, it never fired at all, so
+            # nothing about the audio ever reached Telegram. This fires
+            # the moment audio clears its own 8.5 gate, independent of
+            # whether Video ever completes.
+            try:
+                from human_review_gate import _tg_send_audio
+                _tg_send_audio(TG_TOKEN, TG_CHAT, audio_path,
+                    caption=f"🎙️ Ch1 Audio ready — passed {_AUDIO_MIN_GATE}/10 gate "
+                            f"(attempt {_audio_attempt}/{_AUDIO_MAX_ATTEMPTS})\n"
+                            f"Tool: {tool_used}\nVoice: {edge_voice}\n"
+                            f"Duration: {audio_duration/60:.1f} min | Score: {_audio_score}/10")
+            except Exception as _e:
+                log(f"  Audio-ready Telegram notification failed (non-fatal): {_e}")
+
+            # FIX (direct user request, July 25 2026 — real checkpoint/resume):
+            # audio has now cleared its 8.5 gate. Copy the actual accepted
+            # audio file into a checkpoint path (the runner is ephemeral —
+            # /tmp is gone on a fresh runner, so the file itself, not just
+            # its metadata, has to be committed) and persist duration/voice
+            # so a resumed run can skip straight to Stage 4: Video.
+            import shutil as _ckpt_shutil
+            try:
+                _ckpt_shutil.copy(audio_path, CKPT_AUDIO_FILE)
+                ckpt_save("audio_stage", {
+                    "audio_duration": audio_duration, "edge_voice": edge_voice,
+                    "tool_used": tool_used,
+                })
+            except Exception as _e:
+                log(f"  [ckpt] audio checkpoint save failed (non-fatal): {_e}")
 
         log("\nSTAGE 4: Video")
         # v1 addition — real, word-level synced captions, per explicit
@@ -7701,7 +7904,7 @@ def main():
                        f"(voice {edge_voice} → {_new_voice}), same script.")
                     log(f"  REMAKE requested during audio review — regenerating, voice {edge_voice} -> {_new_voice}")
                     edge_voice = _new_voice
-                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                    audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
                     ass_path = str(WORK_DIR / "main_captions.ass")
@@ -7762,7 +7965,7 @@ def main():
                     tg(f"🎙️ Swapping voice: {edge_voice} → {_new_voice} — regenerating audio now, same script.")
                     log(f"  SWAP VOICE requested: {edge_voice} -> {_new_voice}")
                     edge_voice = _new_voice
-                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                    audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
                     ass_path = str(WORK_DIR / "main_captions.ass")
@@ -7795,7 +7998,7 @@ def main():
                     log(f"  Audio EDIT requested: '{_fb_audio}' — swapping voice {edge_voice} -> {_new_voice} "
                         f"(the audio checkpoint's only real lever; script changes belong at the script checkpoint).")
                     edge_voice = _new_voice
-                    audio_path, audio_duration, audio_size, voice_used = run_stage_with_retry(
+                    audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
                     # Captions must be regenerated for the new audio too —
@@ -8228,6 +8431,13 @@ def main():
         })
         if _pending_result.get("overwrite_warning"):
             tg(f"🚨 Ch1 Generate: {_pending_result['overwrite_warning']}")
+
+        # Generate phase reached the finish line — the whole episode is
+        # queued in pending_upload.json now, so any script/audio
+        # checkpoint from getting here is done being useful. Clear it so
+        # the NEXT day's run starts genuinely fresh instead of resuming
+        # into a stale, already-published episode's script/audio.
+        ckpt_clear()
 
         state["episode_count"] = episode
         save_state(state)

@@ -20,7 +20,15 @@ on:
   workflow_dispatch:
     inputs:
       is_makeup:
-        description: 'Resume from checkpoint'
+        # FIX (direct user request, July 25 2026 — real resume-from-last-
+        # passed-stage): this input already existed and was already wired
+        # to IS_MAKEUP below, but master_pipeline.py never actually read
+        # a checkpoint back -- ckpt_save/ckpt_load were defined and never
+        # called. Now genuinely real: set to 'true' after a cancelled/
+        # failed run and the next run skips whichever of script+title /
+        # audio already cleared their gate on the previous attempt,
+        # picking up from the next stage instead of starting over.
+        description: 'true = resume from last passed stage (script/title/audio), skip what already passed'
         required: false
         default: 'false'
         type: choice
@@ -207,6 +215,16 @@ jobs:
           # state file above.
           git add channels/betrayal_deepdive/thumb_format_history.json || true
           git add channels/betrayal_deepdive/shorts_format_history.json || true
+          # FIX (direct user request, July 25 2026 — real resume-from-last-
+          # passed-stage): without committing these, ckpt_save() in
+          # master_pipeline.py writes to a checkout that's destroyed the
+          # moment this runner finishes -- a resumed run (is_makeup=true)
+          # would find nothing to resume from. if: always() on this whole
+          # step (see above) means these are committed even when the
+          # Generate step above was cancelled or failed partway through,
+          # which is exactly the case this exists for.
+          git add channels/betrayal_deepdive/checkpoint.json || true
+          git add channels/betrayal_deepdive/checkpoint_audio.mp3 || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
