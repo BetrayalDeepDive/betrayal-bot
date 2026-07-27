@@ -1853,8 +1853,15 @@ Write all 3 now. Zero markdown."""
     def score_cold_open(text):
         s = 0.0
         words = text.lower()
-        # Specific numbers/dates signal
-        if re.search(r'\d', text): s += 2.0
+        # FIX (direct user report, July 27 2026 — "I don't want the cold
+        # open to start with a date... start with an open question"): a
+        # bare digit used to be the only way to earn these 2 points,
+        # directly fighting the new cold-open contract (below) that
+        # forbids a date/number in sentence 1 -- a compliant, question-led
+        # variant lost this reward for doing exactly what was mandated.
+        # Concreteness now also counts an early open question, which is
+        # what every compliant variant actually has instead of a number.
+        if re.search(r'\d', text) or "?" in text[:200]: s += 2.0
         # Short punchy sentences
         sentences = [x.strip() for x in re.split(r'(?<=[.!?])\s+', text) if x.strip()]
         if sentences:

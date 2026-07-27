@@ -259,10 +259,18 @@ def score_killer_hook(script_text):
     score = 2.0
     issues = []
 
-    if re.search(r'\d', hook_zone):
+    # FIX (direct user report, July 27 2026 — "I don't want the cold open
+    # to start with a date or something... start with an open question"):
+    # a bare digit used to be the ONLY way to earn these points, directly
+    # fighting the new cold-open contract that forbids a date/number in
+    # sentence 1 -- a compliant, question-led hook lost this reward for
+    # doing exactly what was asked. validate_first_15_seconds already
+    # treated digit-OR-question as equivalent; this brings killer_hook in
+    # line with that same leniency instead of penalizing the new format.
+    if re.search(r'\d', hook_zone) or "?" in hook_zone[:200]:
         score += 1.8
     else:
-        issues.append("No specific number/date in the hook")
+        issues.append("No concrete number or open question early in the hook")
 
     if any(w in hook_lower for w in _WEAK_OPENERS):
         score -= 2.0
