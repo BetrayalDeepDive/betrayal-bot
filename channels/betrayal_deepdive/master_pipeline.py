@@ -613,11 +613,23 @@ NICHES = [
         "search_query": "dark horror true story documentary",
         "dread_style": "physical dread — something real in shared space without anyone knowing",
         "implication": "the listener has almost certainly been somewhere wrong was happening without ever sensing it",
+        # FIX (direct user report, July 27 2026 -- "it keeps giving the same
+        # thing... for the last 4.5 to 5 days"): expanded from 4 to 10.
+        # This list is the last-resort fallback when the AI-generated
+        # fresh_topic_ideas fails or runs out mid-episode -- with only 4
+        # entries, every attempt past the first few (or an entire day when
+        # the AI call failed) recycled the exact same 4 topics verbatim.
         "topics": [
             "A family discovered something had been living inside their walls for three years — they found out when the child stopped sleeping",
             "A night-shift nurse documented 14 incidents nobody believed — until the third patient died the same way",
             "A hiker survived something in those mountains that three search teams still cannot explain",
             "A woman received a letter from herself — postmarked the day after she was reported missing",
+            "A landlord found a locked room behind a bricked-over wall that every previous tenant had somehow never mentioned",
+            "A family's new smart home camera recorded the same silhouette standing in the hallway on 11 separate nights",
+            "A radio operator picked up the same distress call, word for word, on the same frequency for six straight years",
+            "An entire street lost power for four minutes every night at the same exact time — no utility company could explain why",
+            "A demolition crew found something bricked into a wall that made them stop work and call the police instead",
+            "A family inherited a house where every single smoke detector had been quietly disconnected by the previous owner",
         ],
         "dread_triggers": [
             "the slow realisation something was wrong long before anyone understood it",
@@ -636,6 +648,12 @@ NICHES = [
             "A relationship revealed to have been planned in complete detail three years before they ever met",
             "How one person convinced seven strangers to cut off their entire families within a single month",
             "The manipulation blueprint used to drain targets of their finances, identity, and sense of reality",
+            "A dating profile that was reverse-engineered from a psychological profile of the target, built weeks before the first message",
+            "A partner who kept a private file on every target's fears, ranked by how effectively each one had been used",
+            "A single phrase, used on 40 different targets over a decade, that reliably ended every argument in their favor",
+            "A relationship that survived three public exposures because each victim was convinced they were the one exception",
+            "A support group founded by the very person its members were trying to recover from",
+            "A love-bombing campaign so precisely timed that four separate targets described the identical turning point down to the day",
         ],
         "dread_triggers": [
             "the moment the target realised the relationship had never been real",
@@ -654,6 +672,12 @@ NICHES = [
             "How sustained gaslighting over 18 months made a clinical psychologist unable to trust her own memory",
             "The psychological trap that claimed over 4,000 documented victims across 12 countries",
             "The social media campaign that systematically dismantled a person's entire sense of identity",
+            "A workplace where new hires were secretly rotated through the exact same manufactured crisis, one at a time",
+            "A journal that proved a person's own memories had been rewritten in small increments over five years",
+            "A support system that convinced its members every external relationship was the actual source of their problems",
+            "A family structure that quietly rewrote the youngest child's version of events every single year until nothing matched",
+            "A therapist's notes revealing a client's reality had been reshaped by someone she trusted completely",
+            "A recorded confrontation where the target realized, in real time, that the discussion itself had been staged",
         ],
         "dread_triggers": [
             "the stage where the target stops trusting their own memory",
@@ -672,6 +696,12 @@ NICHES = [
             "Every occupant of the building reported the identical auditory experience — confirmed by instruments",
             "A medical case where the patient described events they could not have witnessed from their location",
             "A location where 11 of 300 tourists reported the exact same vision on the same afternoon",
+            "A research station's instruments recorded the same anomalous reading at the same hour on 40 consecutive days",
+            "A pilot's black-box recording captured something the entire crew separately described identically in their statements",
+            "A town where every household's compass pointed the same wrong direction for exactly six weeks",
+            "A hospital ward where three unrelated patients, on different nights, described the same detailed vision down to the color",
+            "A sealed archive of a case the investigating agency itself admitted it had never closed",
+            "A camera crew's raw, unedited footage that contains eleven seconds neither the crew nor the equipment log can account for",
         ],
         "dread_triggers": [
             "the evidence no rational explanation can account for",
@@ -690,6 +720,12 @@ NICHES = [
             "A stalker who embedded as a trusted friend for three years before a single person noticed",
             "An obsession that removed every relationship, asset, and ambition the subject built over seven years",
             "A person who dedicated a decade to watching someone they had never spoken a word to",
+            "A neighbor who kept a detailed log of a family's schedule for nine years before anyone realized why the timing always worked",
+            "An employee who engineered a decade of career moves solely to stay near one specific coworker",
+            "A collection of photographs spanning 15 years that the subject never once knew were being taken",
+            "A person whose entire online identity was built, over six years, to mirror a stranger they had never met in person",
+            "A fan letter archive revealing a decade-long pattern the recipient's own family had dismissed as harmless",
+            "A private investigator hired by someone who had never once spoken to the person they were paying to be watched",
         ],
         "dread_triggers": [
             "the detail revealing how long the observation had actually been happening",
@@ -6321,17 +6357,32 @@ def run_ch1_viral_intelligence(niche):
         except: pass
 
     log(f"  Running Ch1 viral intelligence: {name}...")
+    # FIX (direct user report, July 27 2026 -- "it keeps giving the same
+    # thing... for the last 4.5 to 5 days"): fresh_topic_ideas used to ask
+    # for only 6 topics, but each episode makes up to 13 script attempts
+    # -- every attempt past the 6th exhausted the fresh list and fell back
+    # to the tiny 4-item static niche["topics"] list. Raised to 15 so a
+    # genuinely successful call rarely runs out within one episode.
     prompt = f"""Analyze the TOP 20 most viral dark documentary YouTube videos (2M+ views) in the
 "{niche['search_query']}" niche.
+fresh_topic_ideas must contain exactly 15 DISTINCT, specific, real-feeling topic
+premises (not generic) in this niche's style, each 15-30 words, each naming a
+concrete specific detail (a number, a role, a place) -- not near-duplicates of
+each other.
 Return ONLY valid JSON:
 {{"top_hook_formulas":["Hook 1","Hook 2","Hook 3"],
 "winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
 "thumbnail_text_examples":["3 WORD 1","3 WORD 2","3 WORD 3","3 WORD 4","3 WORD 5"],
 "retention_hooks":["30pct","60pct","80pct"],
 "niche_power_words":["word1","word2","word3","word4","word5","word6"],
-"fresh_topic_ideas":["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6"]}}"""
+"fresh_topic_ideas":["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6",
+"Topic 7","Topic 8","Topic 9","Topic 10","Topic 11","Topic 12","Topic 13","Topic 14","Topic 15"]}}"""
     try:
-        text = ai_generate(prompt, tokens=400)
+        # FIX: token budget raised from 400 -- 15 topics at 15-30 words
+        # each plus the other fields genuinely needs more room; 400 was
+        # truncating the JSON before the fresh_topic_ideas list count was
+        # even raised, and would truncate far worse now.
+        text = ai_generate(prompt, tokens=1400)
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','', re.sub(r'```json|```','',text).strip())
         m = re.search(r'\{[\s\S]*\}', text)
         if m:
@@ -6345,7 +6396,20 @@ Return ONLY valid JSON:
     except Exception as e:
         log(f"  Ch1 viral intel err: {e}")
 
-    fallback = {
+    # FIX (direct user report, July 27 2026 -- "it keeps giving the same
+    # thing... for the last 4.5 to 5 days"): this fallback used to be
+    # persisted into the SAME 7-day cache as a genuine AI-sourced result
+    # (intel[name] = fallback; save_state(...)). A single transient
+    # AI-provider failure -- routine given the heavy GitHub Models rate-
+    # limiting seen live today -- then locked the tiny 4-item static
+    # niche["topics"] list in as "this week's fresh topics" for a full
+    # week, and every attempt past the first few exhausted it too,
+    # producing exactly the repeated-topic pattern reported. The fallback
+    # is now used for THIS run only and never written to state -- the
+    # very next generation call retries the real AI request instead of
+    # being stuck on the same 4 topics for days.
+    log("  Ch1 viral intel: AI call failed -- using uncached fallback (will retry next run)")
+    return {
         "top_hook_formulas": niche.get("dread_triggers", [])[:3],
         "winning_title_patterns": ["NUMBER + NOUN format", "The [THING] That Changed Everything"],
         "thumbnail_text_examples": [t.upper() for t in niche.get("topics", [])[:3]],
@@ -6354,12 +6418,8 @@ Return ONLY valid JSON:
                             "The final revelation is the one nobody expected"],
         "niche_power_words": ["documented","witnessed","concealed","discovered","classified","permanent"],
         "fresh_topic_ideas": niche.get("topics", []),
-        "last_run": datetime.datetime.now().isoformat()
+        "last_run": datetime.datetime.now().isoformat(),
     }
-    intel[name] = fallback
-    state["viral_intel"] = intel
-    save_state(state)
-    return fallback
 
 
 def update_channel_description(token, latest_title, latest_url):
