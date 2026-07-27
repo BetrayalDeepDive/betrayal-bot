@@ -108,7 +108,18 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull --rebase origin main || true
+          # FIX (found live this session, run 30274723439 — real crash
+          # AFTER the fetch-depth fix above): this and the final commit
+          # step's `git push origin main` were both hardcoded to "main",
+          # so a manual workflow_dispatch run on a feature branch (this
+          # branch is checked out, not main) failed the final push with
+          # "src refspec main does not match any" -- 5 retries, all
+          # failed, the generated video/state never reached GitHub even
+          # though generation itself succeeded. GITHUB_REF_NAME is the
+          # actual checked-out branch (main on schedule, the given ref
+          # on workflow_dispatch), so this now targets whatever branch
+          # genuinely triggered the run instead of a hardcoded guess.
+          git pull --rebase origin "$GITHUB_REF_NAME" || true
 
       - name: Generate video (no upload)
         env:
@@ -247,13 +258,13 @@ jobs:
           # near the same time) was swallowed with zero indication — the
           # commit would exist locally on that dead runner and nowhere else.
           for i in 1 2 3 4 5; do
-            if git push origin main; then
+            if git push origin "HEAD:$GITHUB_REF_NAME"; then
               echo "Push succeeded on attempt $i"
               break
             fi
             echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
             sleep $((i*5))
-            git pull --rebase origin main || true
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
               exit 1

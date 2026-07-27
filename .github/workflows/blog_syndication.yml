@@ -39,7 +39,7 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull --rebase origin main || true
+          git pull --rebase origin "$GITHUB_REF_NAME" || true
 
       - name: Run blog syndication
         working-directory: video_pipeline
@@ -59,4 +59,4 @@ jobs:
           git config user.name "GitHub Actions"
           git add video_pipeline/syndicated_episodes.json || true
           git diff --staged --quiet || git commit -m "chore: update syndication tracking [skip ci]"
-          git push origin main || echo "nothing to push"
+          git push origin "HEAD:$GITHUB_REF_NAME" || echo "nothing to push"

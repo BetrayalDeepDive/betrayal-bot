@@ -55,7 +55,7 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull --rebase origin main || true
+          git pull --rebase origin "$GITHUB_REF_NAME" || true
 
       - name: Run weekly report
         env:
@@ -149,13 +149,13 @@ jobs:
           # exact "|| true" silent-failure pattern is what broke Ch1's
           # uploads for two weeks earlier in this project.
           for i in 1 2 3 4 5; do
-            if git push origin main; then
+            if git push origin "HEAD:$GITHUB_REF_NAME"; then
               echo "Push succeeded on attempt $i"
               break
             fi
             echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
             sleep $((i*5))
-            git pull --rebase origin main || true
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
             fi
