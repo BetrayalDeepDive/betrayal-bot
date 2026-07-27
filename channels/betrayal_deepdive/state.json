@@ -1,5 +1,57 @@
 {
-  "viral_intel": {},
+  "viral_intel": {
+    "dark_horror": {
+      "top_hook_formulas": [
+        "What happened to the 5 missing campers?",
+        "The chilling truth behind the 3 unsolved murders.",
+        "Discover the 7 secrets of the haunted asylum."
+      ],
+      "winning_title_patterns": [
+        "The Shocking Story of [Event/Person]",
+        "You Won't Believe What Happened to [Subject]",
+        "Uncovering the Dark History of [Place/Incident]"
+      ],
+      "thumbnail_text_examples": [
+        "MYSTERY SOLVED",
+        "REAL LIFE HORROR",
+        "DARK TRUTHS REVEALED",
+        "UNEXPLAINED PHENOMENA",
+        "HAUNTED SPOTS 2023"
+      ],
+      "retention_hooks": [
+        "30pct",
+        "60pct",
+        "80pct"
+      ],
+      "niche_power_words": [
+        "haunted",
+        "unexplained",
+        "terrifying",
+        "forbidden",
+        "mysterious",
+        "dark"
+      ],
+      "fresh_topic_ideas": [
+        "The eerie legacy of the 12 disappeared in the Bermuda Triangle.",
+        "The 9 chilling details of the unsolved Zodiac Killer case in California.",
+        "Exploring the ghost town where 50 residents vanished overnight.",
+        "The 6 haunting events that took place in abandoned hospitals.",
+        "Unveiling the truth behind the 17-year-old's mysterious disappearance.",
+        "The gruesome tale of 4 friends lost in the Alaskan wilderness.",
+        "Inside the mind of a cult leader who brainwashed 30 followers.",
+        "The 3 unspeakable acts that led to a town's dark downfall.",
+        "What really happened to the 15 victims of the infamous serial killer?",
+        "The 8 unexplained deaths surrounding a cursed film set.",
+        "The dark history behind the 21 haunted locations in New Orleans.",
+        "The terrifying connection of 11 unsolved cases across the Midwest.",
+        "A deep dive into the 14-year-old girl who escaped a kidnapping.",
+        "The 5 most horrifying true stories of child abductions in the 1990s.",
+        "The chilling legend of the 3 cursed objects in a local museum.",
+        "The forgotten tale of the 10 lives lost in a haunted shipwreck."
+      ],
+      "last_run": "2026-07-27T21:25:03.851397"
+    }
+  },
   "last_title_register": "sympathy",
   "performance": {
     "thumbnail_style_A": {
