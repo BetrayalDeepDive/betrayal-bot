@@ -66,7 +66,23 @@ jobs:
       models: read
 
     steps:
+      # FIX (found live this session, a real crash on run 30273984049):
+      # actions/checkout@v4 defaults to fetch-depth 1 (a single commit,
+      # no history). "Pull latest state" below then does a cross-ref
+      # `git pull --rebase origin main` -- with no shared history in the
+      # shallow clone, git can't compute a real merge base, so it treats
+      # every file that differs from main as an "add/add" conflict, even
+      # when the two sides touched completely disjoint files/lines. The
+      # conflict markers get left in the working tree, and the very next
+      # step executes master_pipeline.py containing literal
+      # "<<<<<<< HEAD" text, producing a nonsense SyntaxError with no
+      # relation to the actual code change. fetch-depth: 0 (full history)
+      # lets git compute the real merge base so genuinely non-conflicting
+      # changes on a feature branch vs. main merge cleanly, same fix
+      # applied to all 14 workflows in this repo.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
