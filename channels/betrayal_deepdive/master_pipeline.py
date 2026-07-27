@@ -4694,8 +4694,33 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # its pick() is called once per segment below, in narration order,
     # so the realized mix converges on this exact 40/25/20/10/5 split
     # regardless of how this episode's own script happens to be worded.
-    from scene_register import new_quota, STICKMAN, SILHOUETTE, BOARD, MOTION, TEXT
-    register_quota = new_quota(n_buckets)
+    from scene_register import new_quota, STICKMAN, SILHOUETTE, BOARD, MOTION, TEXT, RECREATION, MAP
+
+    # FIX (direct user follow-up request, this session — "I don't just
+    # want you to use this stickman... use Cinematic Stick Man,
+    # Silhouette Animation, Investigation Mode, Motion Graphics, Text
+    # Animation, Minimal Scene Re-creation... Animated Maps as well and
+    # Timelines... build everything... it should be based on a specific
+    # topic and specific niche, not random or something out of scope"):
+    # MAP is only eligible when this episode's real content actually
+    # names a real place -- nation_context is already computed above via
+    # _detect_nation_context, the same real detector footage-matching
+    # uses. The one known name mismatch between that detector's demonym
+    # map and this dataset's own naming ("United States" vs "United
+    # States of America") is resolved here so the lookup doesn't
+    # silently fail on the single most common real case.
+    _MAP_NAME_ALIASES = {"United States": "United States of America"}
+    _map_country_feature = None
+    _map_all_features = []
+    if nation_context:
+        _map_data = _load_world_map_data_footage()
+        _map_all_features = _map_data.get("features", [])
+        _lookup_name = _MAP_NAME_ALIASES.get(nation_context, nation_context)
+        _map_country_feature = next(
+            (f for f in _map_all_features if f.get("name") == _lookup_name), None)
+    map_eligible = _map_country_feature is not None
+    log(f"  MAP register: {'eligible (' + nation_context + ')' if map_eligible else 'not eligible this episode (no real place named) -- quota redistributed'}")
+    register_quota = new_quota(n_buckets, map_eligible=map_eligible)
 
     # FIX (direct user spec, this session — "switches should align with
     # real audio cues... not be purely visually arbitrary"): reuses the
@@ -4793,7 +4818,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                          else (specific_term or nation_context or base_kw))
         seg_start_t, seg_end_t = i * segment_dur, (i + 1) * segment_dur
         audio_cue_hit = any(seg_start_t <= t < seg_end_t for t in audio_cue_times)
-        register = register_quota.pick(stage_text, audio_cue_hit=audio_cue_hit)
+        # A location_hit anchors the MAP register to the specific segment
+        # that's actually naming the place, the same "real content, not
+        # an arbitrary switch" principle audio_cue_hit already applies.
+        location_hit = bool(map_eligible and nation_context and nation_context.lower() in stage_text)
+        register = register_quota.pick(stage_text, audio_cue_hit=audio_cue_hit, location_hit=location_hit)
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) [{register}] animated: '{display_text[:40]}'")
         try:
             if register == BOARD:
@@ -4808,6 +4837,13 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
             elif register == SILHOUETTE:
                 from stickman_animation import generate_silhouette_segment
                 ok = generate_silhouette_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            elif register == RECREATION:
+                from scene_recreation import generate_recreation_segment
+                ok = generate_recreation_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            elif register == MAP:
+                from map_animation import generate_map_segment
+                ok = generate_map_segment(niche["name"], _map_country_feature, _map_all_features,
+                                           display_text, segment_dur, i, clip_path, log_fn=log)
             else:
                 from stickman_animation import generate_stickman_segment
                 ok = generate_stickman_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
