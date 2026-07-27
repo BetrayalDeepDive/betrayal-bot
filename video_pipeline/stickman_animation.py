@@ -222,8 +222,20 @@ def _draw_walk_run(draw, cx, cy, phase, color, scale, running=False, filled=True
         shin_len = 34*s
         knee = (hip_pt[0] + knee_len*math.cos(thigh_ang),
                 hip_pt[1] + knee_len*math.sin(thigh_ang))
-        bend_deg = 90 + ((40 if running else 25) if lead_val < -0.2 else (-10 if lead_val > 0.2 else 5))
-        bend = math.radians(bend_deg)
+        # FIX (found via real render + frame inspection at t=400s of the
+        # full integration-test video): the shin used to bend to an
+        # ABSOLUTE world angle (90 +/- offset), disconnected from the
+        # thigh's own angle. At the extremes of the stride (thigh swung
+        # far to one side), that absolute shin angle pointed back across
+        # the body's centerline, crossing the other leg into a broken-
+        # looking diamond/tangled pose. The shin must continue in the
+        # thigh's own direction with a small knee-bend offset (bigger
+        # when trailing, smaller when leading) so it never reverses
+        # across the centerline.
+        thigh_deg = math.degrees(thigh_ang)
+        knee_bend = ((36 if running else 22) if lead_val < -0.2
+                     else (-6 if lead_val > 0.2 else 4))
+        bend = math.radians(thigh_deg + knee_bend)
         foot = (knee[0] + shin_len*math.cos(bend), knee[1] + shin_len*math.sin(bend))
         return knee, foot
 
