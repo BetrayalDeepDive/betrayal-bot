@@ -625,7 +625,7 @@ def get_real_youtube_trending_signal(niche_hint=""):
         return []
 
 
-def get_trending_short_topic(mode: str) -> dict:
+def get_trending_short_topic(mode: str, feedback_block: str = "") -> dict:
     """
     Find viral-worthy topic for standalone Shorts.
     Uses real YouTube trending signal + NewsAPI for real events + LLM
@@ -704,6 +704,7 @@ Rules for YouTube Shorts 2026:
 - Replay rate is the #1 metric — end must loop back to start naturally
 - Share rate matters most — people share what shocks or moves them
 - One emotion only: shock, disbelief, outrage, or fear
+{SHORTS_RUBRIC_BLOCK}{feedback_block}
 
 Return JSON:
 {{"title": "60 chars max, curiosity gap title",
@@ -727,6 +728,80 @@ Return JSON:
 
 
 # ── SCRIPT QUALITY SCORING ────────────────────────────────────────────────────
+# FIX (root-cause investigation, this session — real production data
+# showed Shorts scoring 3.9-4.4/10 against the 8.5 bar across 6 real
+# attempts, never budging, even AFTER the individual axis thresholds
+# below were recalibrated on July 24): traced this to the generation
+# prompt (get_trending_short_topic / produce_video_topic_short's inline
+# prompt) never once mentioning what score_short_script() actually
+# checks for -- the AI was asked in prose to write "shocking, looping"
+# content, but never told the exact mechanical requirements (120-160
+# words, a title with a real digit AND one of a specific ~20-word list,
+# an ending that reuses a real word from the opening). And on a failed
+# attempt, the retry loop just called get_trending_short_topic() again
+# for a BRAND NEW blind topic with zero information about what was weak
+# in the previous one -- 13 independent blind rolls at a 5-axis AND-gate,
+# not 13 genuine improvement passes. This is the real, structural reason
+# the "fix" that only touched the scoring thresholds never actually
+# closed the gap: the generator was never told the rubric it's graded
+# against. SHORTS_RUBRIC_BLOCK makes every single attempt (including the
+# first) target the real mechanical bar; _shorts_feedback_block() turns
+# a failed attempt's specific weak axes into real, targeted instructions
+# for the next attempt, so retries are corrective, not blind re-rolls.
+SHORTS_RUBRIC_BLOCK = """
+This script will be mechanically scored on these EXACT criteria (write
+to hit all of them, don't just aim for "good"):
+- Word count: script must be 120-160 words (not shorter, not longer).
+- Hook: the hook_text + first ~15 words of the script must contain at
+  least 3 of these words (verbatim): shocking, betrayal, secret, exposed,
+  truth, destroyed, lied, hidden, never, suddenly, revealed, discovered,
+  stolen, fraud, murdered, arrested, collapsed, billion, affair, caught.
+- Title: must be under 60 characters, contain a real number/digit
+  somewhere, AND contain one of: SHOCKING, SECRET, TRUTH, EXPOSED,
+  BETRAYAL, CAUGHT (any case).
+- Ending/loop: the final 2-3 sentences must reuse a real, specific noun
+  or name from the opening sentence (a genuine callback, not a generic
+  word like "today" or "happened").
+- Emotional escalation: emotion words (devastated, shocked, horrified,
+  betrayed, furious, heartbroken, stunned, chilling, terrifying, etc.)
+  must appear MORE in the back half of the script than the front half —
+  a real escalating arc, not front-loaded or flat.
+- First 3 seconds (~8 words): must NOT start with "hi guys"/"so
+  today"/"welcome back"/similar throat-clearing, and MUST contain one of
+  the hook words listed above.
+"""
+
+
+def _shorts_feedback_block(prev_score):
+    """
+    Converts a failed attempt's score dict into specific, targeted
+    corrective instructions for the NEXT generation attempt -- real
+    closed-loop feedback instead of a blind re-roll. Returns "" when
+    there's no previous attempt (first try) or nothing to flag.
+    """
+    if not prev_score:
+        return ""
+    notes = []
+    if prev_score.get("hook", 2.0) < 1.4:
+        notes.append("- Your last attempt's hook was weak: use at least 3 of the required "
+                      "shock words in the hook_text/opening line, not just 1-2.")
+    if prev_score.get("length") is not None and prev_score["length"] < 2.0:
+        notes.append("- Your last attempt's script length missed the 120-160 word target — hit it exactly this time.")
+    if prev_score.get("loop", 2.0) < 2.0:
+        notes.append("- Your last attempt's ending didn't genuinely call back to a specific "
+                      "word/name from the opening — make the last 2-3 sentences reuse a real "
+                      "noun or name from the very first sentence.")
+    if prev_score.get("emotion", 2.0) < 1.6:
+        notes.append("- Your last attempt's emotion words were flat or front-loaded — put MORE "
+                      "emotion words in the back half of the script than the front half.")
+    if prev_score.get("title", 2.0) < 1.5:
+        notes.append("- Your last attempt's title was missing a real digit/number and/or one of "
+                      "the required shock words — the title MUST have both.")
+    if not notes:
+        return ""
+    return "\n\nFEEDBACK FROM YOUR LAST ATTEMPT (fix these specific gaps):\n" + "\n".join(notes)
+
+
 def score_short_script(script: str, title: str, hook: str,
                         for_reels: bool = False) -> dict:
     """
@@ -1676,11 +1751,12 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
     cfg = get_active_channel_config()
     log.info("=== PRODUCING STANDALONE SHORT: %s (%s) ===", mode, cfg["display_name"])
 
+    prev_score = None  # feeds _shorts_feedback_block() so retries target real gaps, not blind re-rolls
     for attempt in range(MAX_ATTEMPTS):
         log.info("Attempt %d/%d", attempt + 1, MAX_ATTEMPTS)
 
         # 1. Get topic
-        topic_data = get_trending_short_topic(mode)
+        topic_data = get_trending_short_topic(mode, feedback_block=_shorts_feedback_block(prev_score))
         title  = topic_data["title"]
         script = topic_data["script"]
         hook   = topic_data["hook_text"]
@@ -1693,6 +1769,7 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
         notify_short_score(f"{mode} pre-score", attempt + 1, MAX_ATTEMPTS, pre_score["total"], QUALITY_MIN, extra=title[:60])
         if pre_score["total"] < QUALITY_MIN:
             log.info("Pre-score too low, retrying topic")
+            prev_score = pre_score
             continue
 
         # FIX (direct user report, July 23 2026 — "the quality interceptor...
@@ -1832,7 +1909,14 @@ def produce_instagram_reel(mode: str) -> dict:
     """
     log.info("=== PRODUCING INSTAGRAM REEL: %s ===", mode)
 
-    for attempt in range(3):
+    # FIX (found this session alongside the same rubric-blindness bug in
+    # get_trending_short_topic/produce_video_topic_short): this loop only
+    # ever tried 3 attempts, not MAX_ATTEMPTS (13) like every other
+    # Shorts/Reels producer in this file -- inconsistent with the user's
+    # explicit "raise every attempt count to 13, hard embedded" directive
+    # that was already applied everywhere else.
+    prev_score = None
+    for attempt in range(MAX_ATTEMPTS):
         # 1. Generate Hinglish script
         niche_seed = random.choice([
             "betrayal story India", "shocking family secret", "true crime India",
@@ -1854,6 +1938,7 @@ Rules:
 - End with call to action in Hindi + English
 - Bilingual captions get 27% more engagement (research-backed)
 - Research shows Instagram auto-translates Hindi/English to 9+ languages = global reach
+{SHORTS_RUBRIC_BLOCK}{_shorts_feedback_block(prev_score)}
 
 Return JSON:
 {{"title": "English title 60 chars",
@@ -1875,6 +1960,7 @@ Return JSON:
         # 2. Pre-score
         pre_score = score_short_script(script, title, hook, for_reels=True)
         if pre_score["total"] < QUALITY_MIN:
+            prev_score = pre_score
             continue
 
         # 3. Voice (bilingual rotation)
@@ -2007,6 +2093,7 @@ def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str
     # attempt and retries up to 3 times below a 7.0 bar. That meant the
     # 3-second-hook check genuinely ran for only 2 of every channel's 4
     # daily Shorts. Wired in the same pre-score-and-retry pattern here.
+    prev_score = None  # feeds _shorts_feedback_block() so retries target real gaps, not blind re-rolls
     for attempt in range(MAX_ATTEMPTS):
         log.info("produce_video_topic_short attempt %d/%d", attempt + 1, MAX_ATTEMPTS)
 
@@ -2028,6 +2115,7 @@ Rules:
   ending as the main video, not an independently invented angle
 - Must resolve with the SAME actual twist/payoff shown in the ending slice
   above — not a different or softer resolution, and not a cliffhanger
+{SHORTS_RUBRIC_BLOCK}{_shorts_feedback_block(prev_score)}
 
 Return JSON:
 {{"title": "under 55 chars, curiosity-gap title, no 'part 1' or 'full video' language",
@@ -2044,6 +2132,7 @@ Return JSON:
                             pre_score["total"], QUALITY_MIN, extra=script_data["title"][:60])
         if pre_score["total"] < QUALITY_MIN:
             log.info("Pre-score too low, retrying topic")
+            prev_score = pre_score
             continue
 
         # FIX (direct user report, July 23 2026 — quality interceptor for
