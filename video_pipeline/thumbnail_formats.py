@@ -125,16 +125,24 @@ EXPLORE_PROBABILITY  = 0.35  # even once formats have proven data, keep sampling
 # channel's pool below swaps them for a genuinely visual-first format
 # instead, keeping the same 4-per-channel width.
 #
-# FIX (direct user report, July 24 2026 — "for Channel 4... the red
-# circle/arrow highlight and a map-based picture in the back... that
-# shouldn't be missing, as it goes with Channel 1"): Ch4 now leads with
-# "map_evidence_highlight", the new composite format that draws BOTH
-# the red circle and the arrow over a map/evidence background — same
-# highlight-driven attention-grab as Ch1, applied to Ch4's map/archive
-# subject matter.
+# FIX (direct user report, July 27 2026 — real rated samples requested
+# and generated for all 4 of Ch1's formats + 3 alternates, scored on
+# text (score_thumbnail_text) + a real visual-pop heuristic (contrast/
+# saturation/edge-density) + niche-fit judgment call, composite /10):
+# red_circle_highlight 7.8, map_diagram_overlay 7.9, object_evidence_
+# closeup 5.5, silhouette_dramatic 5.5 (was 5.5 dragged down by the
+# real silhouette-invisibility bug fixed the same session; now that
+# it's fixed this should read closer to its intended ~7+), comparison_
+# grid 5.2, candid_shot 4.9, big_face_reaction 4.6 (weakest fit --
+# "extreme close-up reaction shocked expression" reads as vlog/reaction
+# content, tonally off for a faceless atmospheric true-crime channel).
+# Dropped big_face_reaction and candid_shot from the pool; added
+# map_diagram_overlay (the single highest-scoring format, ties directly
+# to a real case detail via its arrow annotation, matching Ch1's new
+# investigation-board visual identity from this session's animation work).
 CHANNEL_PREFERRED_FORMATS = {
-    "BetrayalDeepDive": ["red_circle_highlight", "big_face_reaction",
-                         "silhouette_dramatic", "candid_shot"],
+    "BetrayalDeepDive": ["red_circle_highlight", "map_diagram_overlay",
+                         "silhouette_dramatic", "object_evidence_closeup"],
     "The Evidence Room": ["object_evidence_closeup", "map_diagram_overlay",
                           "red_circle_highlight", "comparison_grid"],
     "The Control Files": ["before_after_split", "silhouette_dramatic",

@@ -766,11 +766,22 @@ NICHES = [
 # throughout rather than front-loading one gender. Per-niche rotation
 # offset keeps the 5 niches from being identical lists while never
 # breaking the AU>GB>US>rest block order.
+# FIX (direct user request, July 25 2026 — real, explicit voice-roster
+# rebuild, replacing the July 24 AU>GB>US>rest priority above):
+# "female voices are less robotic and sound good, so we can go with
+# it... let's start using female voices for New Zealand, the U.S., the
+# UK, and Singapore voices... The first thing I wanted... should be the
+# Ireland female voice, because it sounds really good. I want to try
+# with that at the start... For the male voices, we can go with
+# Ireland as well as some other voices."
+# en-SG-LunaNeural/en-SG-WayneNeural confirmed as the real Microsoft
+# Edge neural voice IDs for Singapore English (verified July 25 2026).
 _AU_MALE   = ["en-AU-WilliamNeural", "en-AU-DarrenNeural", "en-AU-DuncanNeural",
               "en-AU-KenNeural", "en-AU-NeilNeural", "en-AU-TimNeural"]
-_AU_FEMALE = ["en-AU-NatashaNeural", "en-AU-AnnetteNeural", "en-AU-CarlyNeural",
-              "en-AU-ElsieNeural", "en-AU-FreyaNeural", "en-AU-JoanneNeural",
-              "en-AU-KimNeural", "en-AU-TinaNeural"]
+# "For Australia I don't want you to use a female voice" — emptied,
+# never selected. Kept (not deleted) since it's still summed into a
+# gender-membership check elsewhere (the Kokoro fallback voice match).
+_AU_FEMALE = []
 _GB_MALE   = ["en-GB-ThomasNeural", "en-GB-AlfieNeural", "en-GB-ElliotNeural",
               "en-GB-EthanNeural", "en-GB-OliverNeural"]
 _GB_FEMALE = ["en-GB-SoniaNeural", "en-GB-LibbyNeural", "en-GB-AbbiNeural",
@@ -779,8 +790,13 @@ _US_MALE   = ["en-US-AndrewNeural", "en-US-BrianNeural", "en-US-GuyNeural",
               "en-US-EricNeural", "en-US-RogerNeural", "en-US-ChristopherNeural"]
 _US_FEMALE = ["en-US-AriaNeural", "en-US-JennyNeural", "en-US-MichelleNeural",
               "en-US-EmmaNeural", "en-US-AvaNeural", "en-US-SaraNeural"]
-_REST_MALE   = ["en-IE-ConnorNeural", "en-NZ-MitchellNeural", "en-ZA-LukeNeural", "en-CA-LiamNeural"]
-_REST_FEMALE = ["en-IE-EmilyNeural", "en-NZ-MollyNeural", "en-ZA-LeahNeural", "en-CA-ClaraNeural"]
+# Index 0 of _REST_FEMALE is always en-IE-EmilyNeural — _build_voice_pool
+# below pulls it out specifically so it is ALWAYS the very first voice
+# tried, for every niche, unaffected by rotation_offset.
+_REST_MALE   = ["en-IE-ConnorNeural", "en-NZ-MitchellNeural", "en-SG-WayneNeural",
+                "en-ZA-LukeNeural", "en-CA-LiamNeural"]
+_REST_FEMALE = ["en-IE-EmilyNeural", "en-NZ-MollyNeural", "en-SG-LunaNeural",
+                "en-ZA-LeahNeural", "en-CA-ClaraNeural"]
 
 def _interleave_genders(male, female):
     out = []
@@ -790,15 +806,28 @@ def _interleave_genders(male, female):
     return out
 
 def _rotate(lst, n):
+    if not lst:
+        return lst
     n = n % len(lst)
     return lst[n:] + lst[:n]
 
 def _build_voice_pool(rotation_offset):
-    au   = _rotate(_interleave_genders(_AU_MALE, _AU_FEMALE), rotation_offset)
-    gb   = _rotate(_interleave_genders(_GB_MALE, _GB_FEMALE), rotation_offset)
-    us   = _rotate(_interleave_genders(_US_MALE, _US_FEMALE), rotation_offset)
-    rest = _rotate(_interleave_genders(_REST_MALE, _REST_FEMALE), rotation_offset)
-    return au + gb + us + rest  # AU > GB > US > remaining, always
+    # Ireland female: hard-pinned to position 0, every niche, no
+    # rotation can ever move it out of first place.
+    ie_female_first = _REST_FEMALE[0]
+    # Female priority pool (NZ, US, GB, Singapore) — rotates per niche
+    # for variety, same principle as the old block rotation, but always
+    # female-led and never interleaved with male voices ahead of it.
+    female_priority = [_REST_FEMALE[1]] + _US_FEMALE + _GB_FEMALE + [_REST_FEMALE[2]]
+    female_priority = _rotate(female_priority, rotation_offset)
+    # Male fallback — only reached once every female voice above has
+    # been tried/failed. Ireland male leads it (explicit "we can go
+    # with Ireland as well" for male), then the other researched good
+    # male locales.
+    male_fallback = [_REST_MALE[0]] + _US_MALE + _GB_MALE + _AU_MALE + \
+                    [_REST_MALE[1], _REST_MALE[2]] + _REST_MALE[3:]
+    male_fallback = _rotate(male_fallback, rotation_offset)
+    return [ie_female_first] + female_priority + male_fallback
 
 EXTENDED_VOICES = _build_voice_pool(0)
 
@@ -2703,12 +2732,33 @@ def _inject_ctas_ch1(script_clean, niche_name):
     c60   = pool["60pct"][seed]
     c80   = pool["80pct"][seed]
 
+    # FIX (direct user report, July 25 2026 — real evidence pulled from a
+    # published episode's actual script_clean: "...an unsigned note left
+    # on Dr. \n\nSubscribe to BetrayalDeepDive...\n\n Voss's desk warning
+    # him about..."): this claimed "sentence boundary detection so CTAs
+    # never split mid-sentence" but only checked whether a word ended in
+    # ".", "?", or "!" — "Dr." ends in a period too, and isn't a sentence
+    # boundary at all. The CTA landed directly between an abbreviated
+    # title and the name it belongs to, reading exactly like a script
+    # glitch rather than a human narrator. Real fix: a blocklist of
+    # common abbreviations that end in "." but never actually end a
+    # sentence, plus stripping a trailing quote/paren before checking so
+    # "...today.\"" is still recognized as a real boundary.
+    _SENTENCE_ABBREVIATIONS = {
+        "dr.", "mr.", "mrs.", "ms.", "jr.", "sr.", "prof.", "rev.", "st.",
+        "ave.", "blvd.", "vs.", "etc.", "no.", "vol.", "gen.", "col.", "lt.",
+        "capt.", "sgt.", "gov.", "rep.", "sen.", "u.s.", "u.k.", "a.m.", "p.m.",
+        "inc.", "ltd.", "co.", "corp.", "e.g.", "i.e.", "approx.", "ph.d.",
+    }
+
     def nearest_boundary(words, target, window=25):
         for delta in range(window):
             for d in [1, -1]:
                 idx = target + delta * d
                 if 0 <= idx < len(words):
-                    if words[idx].rstrip().endswith((".", "?", "!")):
+                    w_bare = words[idx].rstrip().rstrip("\"')’”")
+                    if (w_bare.endswith((".", "?", "!"))
+                            and w_bare.lower() not in _SENTENCE_ABBREVIATIONS):
                         return idx + 1
         return target
 
@@ -2996,7 +3046,14 @@ those are added separately afterward."""
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
-        desc += "\n\n✨ Real stories, brought to life with next-generation AI narration and production craft."
+        # FIX (direct user request, July 25 2026 — "I don't want to have
+        # that kind of thing in my description page"): removed. This was
+        # voluntary marketing copy, not YouTube's actual mandated
+        # disclosure mechanism (the "Altered or synthetic content"
+        # toggle set via the Data API's containsSyntheticMedia field in
+        # upload_yt() below) -- that field is a separate, compliance-
+        # relevant decision left untouched here pending the user's own
+        # review of YouTube's current Creator Studio guidance.
         desc += f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
         desc += citations_block
         desc += f"\n\n{hashtags}"
@@ -3010,8 +3067,7 @@ those are added separately afterward."""
             f"Subscribe for new investigations every week.\n\n"
             f"{chapters_text or '0:00 Introduction'}"
             f"{cross_promo_txt}\n\n"
-            f"✨ Real stories, brought to life with next-generation AI narration and production craft."
-            f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
+            f"📧 Business inquiries: {BUSINESS_EMAIL}"
             f"{citations_block}\n\n"
             f"{hashtags}")
 
@@ -4350,6 +4406,18 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         "lake","river","ocean","cabin","motel","hotel","hospital","clinic","church","school",
         "classroom","library","warehouse","factory","truck","van","bus","bicycle","motorcycle",
         "footprint","footprints","shadow","shadows","light","lights","lamp","lamps",
+        # FIX (direct user report, July 25 2026, real screenshots): a
+        # hiker/wilderness story ("Nobody Knew the Documented Horror a
+        # Hiker Exposed Up There") had no concrete anchor in this set at
+        # all -- every outdoor/wilderness term was missing, pushing more
+        # segments than necessary into the weaker abstract theme_cycle-
+        # only fallback where the mismatched-footage bug above actually
+        # originates. Real subjects for outdoor/wilderness stories now
+        # get the same first-priority treatment as indoor ones.
+        "trail","trails","mountain","mountains","hiking","hiker","hikers",
+        "wilderness","campsite","tent","ranger","cliff","cliffs","ridge",
+        "summit","cave","caves","ravine","canyon","trailhead","backcountry",
+        "campfire","fog","wildfire",
     }
     _topic_words = [w.strip(".,!?;:\"'()") for w in topic.lower().split()
                     if len(w) > 4 and w.strip(".,!?;:\"'()") not in _topic_stopwords]
@@ -4417,6 +4485,78 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                   "it","its","he","she","they","their","his","her","be","been",
                   "not","no","so","as","if","then","than","when","what","who"}
 
+    # FIX (found on direct user report, July 15 2026): top_nouns pulled
+    # ANY sufficiently long word straight out of the actual narration
+    # with zero check on whether it's visually compatible with a dark
+    # aesthetic — a completely ordinary sentence like "she left flowers
+    # at the grave" or "it had been raining that morning" handed
+    # "flowers" or "raining" straight to Pexels/Pixabay as a search
+    # term. Stock APIs match on whatever's most strongly tagged, so
+    # "flowers" reliably returns bright wedding/garden footage no
+    # matter what dark-mood word rides along with it in the same query.
+    # FIX (direct user report, July 25 2026, real screenshots): even
+    # with this list blocking narration WORDS, real fetched clips still
+    # came back as a butterfly on flowers, a swarm of insects, and a
+    # misty green valley for a hiker/crime story — because nothing ever
+    # checked what Pixabay/Pexels actually RETURNED, only what was
+    # SEARCHED for. An abstract theme_cycle mood phrase like "final
+    # silence" or "quiet unease" has no horror-specific anchor, so
+    # Pixabay's own ranking can surface generic serene nature/wildlife
+    # content for it — hoisted to function scope (was rebuilt every
+    # loop iteration for no reason) and widened with the exact terms
+    # from the real bad hits, then reused below as a genuine POST-FETCH
+    # relevance filter on each candidate's own tags/description, not
+    # just on the outgoing query.
+    BRIGHT_MUNDANE_BLOCKLIST = {
+        "flowers","flower","garden","wedding","birthday","party","parties",
+        "sunshine","sunny","picnic","vacation","holiday","holidays","beach",
+        "celebration","celebrate","smiling","smile","laughing","laughter",
+        "balloons","cake","gift","gifts","present","presents","rainbow",
+        "puppy","kitten","baby","babies","wedding","graduation","summer",
+        "playground","festival","carnival","circus","confetti",
+        "butterfly","butterflies","insect","insects","bug","bugs","bee","bees",
+        "dragonfly","ladybug","wildlife","macro","bloom","blossom","blossoms",
+        "petal","petals","meadow","daisy","daisies","tulip","tulips","pollen",
+    }
+
+    def _hit_looks_mismatched(*text_fields):
+        """Real post-fetch relevance check: rejects a candidate clip whose
+        own tags/description/URL slug hit the same bright-mundane
+        blocklist, regardless of what search term found it."""
+        combined = " ".join(t for t in text_fields if t).lower()
+        return any(w in combined for w in BRIGHT_MUNDANE_BLOCKLIST)
+
+    # FIX (direct user spec, this session — "a betrayal story might
+    # start with cinematic stickman characters, switch to an
+    # investigation board as evidence is introduced, use kinetic text
+    # for a key quote, and end with motion graphics summarizing the
+    # timeline... 40% cinematic stickman, 25% silhouette, 20%
+    # investigation board, 10% motion graphics, 5% text animation. I
+    # don't want you to miss it."): a single register for the entire
+    # episode was exactly the "only two things, boring/stagnant"
+    # complaint. register_quota is fresh per-episode (not persisted
+    # across episodes -- this is a per-video mix, not a rotation) and
+    # its pick() is called once per segment below, in narration order,
+    # so the realized mix converges on this exact 40/25/20/10/5 split
+    # regardless of how this episode's own script happens to be worded.
+    from scene_register import new_quota, STICKMAN, SILHOUETTE, BOARD, MOTION, TEXT
+    register_quota = new_quota(n_buckets)
+
+    # FIX (direct user spec, this session — "switches should align with
+    # real audio cues... not be purely visually arbitrary"): reuses the
+    # SAME real stinger-timing detector content_sfx.py already runs for
+    # this episode's sound design (detect_content_sfx_cues), instead of
+    # inventing a second, disconnected notion of "a dramatic moment" --
+    # a segment whose time window contains one of these real cue
+    # timestamps gets audio_cue_hit=True passed to the quota picker below.
+    audio_cue_times = []
+    try:
+        from content_sfx import detect_content_sfx_cues
+        audio_cue_times = [t for _cat, t in detect_content_sfx_cues(
+            script, audio_duration, niche_name=niche["name"], topic=topic)]
+    except Exception as e:
+        log(f"  Audio-cue detection for register sync (non-fatal): {e}")
+
     for i in range(n_buckets):
         base_kw = theme_cycle[i % len(theme_cycle)]
         start = i * bucket_words
@@ -4425,27 +4565,6 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
 
         stage_words= [w.strip(".,!?;:") for w in stage_text.split()
                       if len(w) > 4 and w not in stopwords]
-        # FIX (found on direct user report, July 15 2026): top_nouns pulled
-        # ANY sufficiently long word straight out of the actual narration
-        # with zero check on whether it's visually compatible with a dark
-        # aesthetic — a completely ordinary sentence like "she left
-        # flowers at the grave" or "it had been raining that morning"
-        # handed "flowers" or "raining" straight to Pexels/Pixabay as a
-        # search term. Stock APIs match on whatever's most strongly
-        # tagged, so "flowers" reliably returns bright wedding/garden
-        # footage no matter what dark-mood word rides along with it in
-        # the same query — which is exactly what showed up in a real
-        # generated episode. Blocked here at the source: words strongly
-        # associated with bright/ordinary/celebratory visuals never
-        # become a search keyword, dark-compatible words still do.
-        BRIGHT_MUNDANE_BLOCKLIST = {
-            "flowers","flower","garden","wedding","birthday","party","parties",
-            "sunshine","sunny","picnic","vacation","holiday","holidays","beach",
-            "celebration","celebrate","smiling","smile","laughing","laughter",
-            "balloons","cake","gift","gifts","present","presents","rainbow",
-            "puppy","kitten","baby","babies","wedding","graduation","summer",
-            "playground","festival","carnival","circus","confetti",
-        }
         from collections import Counter
         # Prefer a concrete, stock-footage-matchable noun from this segment's
         # own narration (same fix/rationale as the topic_anchors change above)
@@ -4491,8 +4610,59 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         kw = f"{base_kw} {specific_term}" if specific_term else base_kw
 
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
-        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
 
+        # FIX (direct user request, July 25 2026 — "move channel 1 and
+        # channel 5 to the animations... it should also be based on the
+        # niche... not random... specifically adjustable to the topic"):
+        # real screenshots showed stock footage returning irrelevant
+        # clips (butterflies, misty valleys) despite the nation/topic-
+        # matching logic above already being real and working on the
+        # SEARCH side — the fundamental problem is depending on a stock
+        # library to happen to have the right real-world clip at all.
+        # Real stick-figure character animation (video_pipeline/
+        # stickman_animation.py) replaces that dependency entirely:
+        # nothing is fetched, so nothing can mismatch. The action
+        # (walk/run/sit-writing/alert/shock) is chosen by real keyword
+        # detection on THIS segment's own narration text, and the same
+        # specific_term/nation_context already computed for the old
+        # stock-footage query is burned in as on-screen text — the
+        # visual is genuinely topic-adjusted, not arbitrary.
+        # FIX (direct user request, July 25 2026, second round): the
+        # FIRST animation system built here (niche_animation.py) was
+        # explicitly rejected as "abstract glow/grain... doesn't draw
+        # attention" — replaced with this real jointed-figure system,
+        # verified by actually rendering and visually inspecting every
+        # action (walk/run/sit-write/alert/shock) before wiring it in.
+        display_text = (f"{nation_context.title()} — {specific_term}"
+                         if nation_context and specific_term
+                         else (specific_term or nation_context or base_kw))
+        seg_start_t, seg_end_t = i * segment_dur, (i + 1) * segment_dur
+        audio_cue_hit = any(seg_start_t <= t < seg_end_t for t in audio_cue_times)
+        register = register_quota.pick(stage_text, audio_cue_hit=audio_cue_hit)
+        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) [{register}] animated: '{display_text[:40]}'")
+        try:
+            if register == BOARD:
+                from investigation_board import generate_board_segment
+                ok = generate_board_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            elif register == MOTION:
+                from motion_graphics import generate_motion_segment
+                ok = generate_motion_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            elif register == TEXT:
+                from kinetic_text import generate_text_segment
+                ok = generate_text_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            elif register == SILHOUETTE:
+                from stickman_animation import generate_silhouette_segment
+                ok = generate_silhouette_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            else:
+                from stickman_animation import generate_stickman_segment
+                ok = generate_stickman_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+            if ok:
+                fetched_clips.append(clip_path)
+                continue
+        except Exception as e:
+            log(f"  Segment {i+1} {register} animation failed (non-fatal, falling back to stock footage): {e}")
+
+        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
         downloaded = False
         # topic_anchor (alone, paired with the niche's fallback mood word)
         # is tried before falling all the way back to fully generic terms,
@@ -4530,7 +4700,18 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                         params={"key": PIXABAY_KEY, "q": search_kw, "per_page": 5,
                                 "video_type": "film", "orientation": "horizontal"}, timeout=25)
                     if r.status_code == 200 and r.json().get("hits"):
-                        hit = max(r.json()["hits"], key=lambda h: h.get("duration", 0))
+                        # FIX (direct user report, July 25 2026, real
+                        # screenshots): candidates were picked by longest
+                        # duration alone, with no check on whether Pixabay's
+                        # own tags for that specific clip actually matched
+                        # the dark mood being searched for — real relevance
+                        # filter against the clip's own tags now runs before
+                        # duration is even considered; only falls back to the
+                        # unfiltered set if every single hit is mismatched
+                        # (still better than a hard skip to the next tier).
+                        _hits = r.json()["hits"]
+                        _relevant_hits = [h for h in _hits if not _hit_looks_mismatched(h.get("tags", ""))]
+                        hit = max(_relevant_hits or _hits, key=lambda h: h.get("duration", 0))
                         url = hit["videos"]["medium"]["url"]
                         with requests.get(url, timeout=45, stream=True) as dl:
                             dl.raise_for_status()
@@ -4556,7 +4737,14 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                             timeout=25)
                         if r.status_code == 200 and r.json().get("videos"):
                             vids  = r.json()["videos"]
-                            best  = max(vids, key=lambda v: v.get("duration", 0))
+                            # FIX (same real relevance gap as the Pixabay
+                            # branch above): Pexels doesn't return a tags
+                            # field, but its video page "url" is a real,
+                            # human-readable descriptive slug (e.g.
+                            # ".../a-butterfly-on-a-flower-1234567/") — the
+                            # best free relevance signal available here.
+                            _relevant_vids = [v for v in vids if not _hit_looks_mismatched(v.get("url", ""))]
+                            best  = max(_relevant_vids or vids, key=lambda v: v.get("duration", 0))
                             files_ = sorted(best.get("video_files", []),
                                             key=lambda vf: vf.get("width", 0), reverse=True)
                             url = next((vf["link"] for vf in files_ if vf.get("width", 0) <= 1920), None) \
@@ -4599,6 +4787,17 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # Trim/pad each clip to EXACTLY its segment's duration and scale — this
     # keeps every clip aligned to the real timestamp it was matched against,
     # so clip N plays while segment N's narration is actually being spoken.
+    # FIX (direct user spec, this session — animated segments should
+    # "feel like a video," not 55-65 hard-stitched cuts): a true xfade
+    # crossfade between EVERY pair of the 55-65 clips would require
+    # restructuring the whole concat step from a stream-copy concat
+    # demuxer into one giant chained filter_complex, which risks real
+    # audio/video drift across that many joins for a cinematic-polish
+    # item the user didn't explicitly name — too much risk for the
+    # benefit. A same-clip fade-in/fade-out (softens every cut without
+    # touching cross-clip timing, duration, or the existing -c copy
+    # concat path at all) is the safe version of the same idea.
+    fade_dur = min(0.15, segment_dur / 4)
     parts = []
     for i, clip in enumerate(fetched_clips):
         scaled = str(WORK_DIR / f"seg_{i}_scaled.mp4")
@@ -4610,7 +4809,9 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         # audio sample-rate mismatch found and fixed in this same review.
         run_ffmpeg(["ffmpeg","-y","-stream_loop","2","-i",clip,
             "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
-                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24",
+                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,"
+                  f"fade=t=in:st=0:d={fade_dur:.2f},"
+                  f"fade=t=out:st={segment_dur-fade_dur:.2f}:d={fade_dur:.2f}",
             "-t",f"{segment_dur:.2f}","-c:v","libx264","-preset","ultrafast",
             "-pix_fmt","yuv420p","-an", scaled], label=f"seg-scale-{i}")
         if Path(scaled).exists():
@@ -6414,6 +6615,23 @@ def run_stage1(state):
 
 def pick_voice(niche_name, state):
     """Select best voice for this niche based on performance history."""
+    # FIX (direct user request, July 25 2026 — "I want to try with that
+    # [Ireland female] at the start... I don't want anything by
+    # chance"): select_best_voice's learned rotation only guarantees a
+    # brand-new voice gets tried on the FIRST 5 episodes of a niche's
+    # own history -- every one of Ch1's 5 niches already has real
+    # episode history, so en-IE-EmilyNeural (freshly re-prioritized to
+    # position 0) would otherwise land in the "unproven" pool and only
+    # get picked with real but non-certain odds. This is a genuine,
+    # one-time, deterministic override -- the very next episode
+    # (whichever niche is picked that day) uses Ireland female for
+    # real, no chance involved. Once used, state["ie_female_trial_done"]
+    # is set (by the caller, right after this returns) so every episode
+    # after that goes back to the normal learned rotation, matching "if
+    # it doesn't work well, then we'll go with some other female voices".
+    if not state.get("ie_female_trial_done"):
+        log("  Voice (one-time forced trial, per direct request): en-IE-EmilyNeural")
+        return "en-IE-EmilyNeural"
     available = VOICES.get(niche_name, EXTENDED_VOICES)
     return select_best_voice(state, niche_name, available)
 
@@ -6699,8 +6917,20 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             f"sine=frequency=45:duration={drone_duration:.2f},"
             f"volume=0.06[drone];"
             f"{stinger_chain};"
+            # FIX (direct user report, July 25 2026 — "the content match
+            # SFX... it was blank... just like an AI talking, and it was
+            # random"): confirmed via `ffmpeg -h filter=amix` that
+            # normalize defaults to true, and this call never set
+            # normalize=0. With up to ~16 simultaneous inputs here (base
+            # 4 + up to 12 content-cue layers), ffmpeg was auto-dividing
+            # EVERY input's volume by the input count to prevent
+            # clipping — silently burying the already-brief SFX cues
+            # (and quietly reducing the narration itself) by an amount
+            # that varied episode-to-episode depending on how many cues
+            # fired. normalize=0 respects the volume= already set
+            # explicitly on each layer instead of ffmpeg re-scaling them.
             f"[1:a][riser][impact][drone]{stinger_inputs}amix=inputs={n_mix_inputs}:"
-            f"duration=first:dropout_transition=0[mixedaudio]"
+            f"duration=first:dropout_transition=0:normalize=0[mixedaudio]"
         )
 
         run_ffmpeg([
@@ -7452,9 +7682,18 @@ def main():
                     _rework_history.append({"niche_name": _n2, "niche": _ni2, "topic": _t2,
                                              "script_result": _res2, "trending_titles": _tr2})
                     return _res2["script"]
+                # FIX (direct user request, July 25 2026 — "it just attempts
+                # two times. I need this to be attempted a minimum of 13
+                # times, just like for the script... hard embedded, I don't
+                # want anything by chance"): this independent AI-judge audit
+                # used to cap at 2 reworks regardless of MAX_ATTEMPTS, so a
+                # script could pass the rubric gate's full 13 attempts but
+                # this second, holistic check only ever got 2 real tries at
+                # fixing what it found before giving up. Now shares the same
+                # real attempt budget as the rubric gate.
                 _audit = enforce_quality_gate(
                     "script", script_clean, "", ai_generate,
-                    _rescript, tg_fn=tg, topic=topic, max_reworks=2)
+                    _rescript, tg_fn=tg, topic=topic, max_reworks=MAX_ATTEMPTS)
                 for _entry in reversed(_rework_history):
                     if _entry["script_result"]["script"] == _audit["content"]:
                         niche_name, niche, topic = _entry["niche_name"], _entry["niche"], _entry["topic"]
@@ -7471,6 +7710,7 @@ def main():
                 log(f"  Quality audit unavailable (non-fatal, proceeding with existing script): {e}")
 
             edge_voice   = pick_voice(niche_name, state)
+            state["ie_female_trial_done"] = True  # one-time forced trial above only ever fires once
             # v6 addition — real citation system: the actual sources used
             # during research (if any were found), carried through for the
             # description's Sources block and the end-of-video credits scene.

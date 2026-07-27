@@ -1196,7 +1196,21 @@ Return ONLY the complete rewritten script, no commentary, no markdown."""
         if not new_script or len(new_script.split()) < 50:
             raise RuntimeError("Whole-script regeneration failed or returned too little content — "
                                "feedback was NOT applied, this must be surfaced, not hidden.")
-        return new_script.strip(), {}
+        # FIX (direct user report, July 25 2026 — real bug found via
+        # fingerprint_history.json: a past episode's logged opening
+        # sentence was literally "Stage 4: The Investigation Deepens...").
+        # The normal Stage 1 generation path (master_pipeline.py's
+        # run_stage1) always strips leaked "Stage N: <title>" headers via
+        # strip_all_leaked_stage_headers before script_clean is used
+        # anywhere -- this human-feedback EDIT path never did, because it
+        # returns the AI's raw rewrite untouched. An LLM asked to "rewrite
+        # the entire script" from a script that itself still shows visible
+        # stage structure readily echoes a header back verbatim, and here
+        # nothing ever caught it -- a genuinely broken, generic-sounding
+        # opening could reach the real narration whenever a whole-script
+        # EDIT was used.
+        from script_scoring import strip_all_leaked_stage_headers
+        return strip_all_leaked_stage_headers(new_script.strip()), {}
 
     updated_script = full_script
     updated_sections = {}
@@ -1220,7 +1234,12 @@ Return ONLY the rewritten section text, no commentary, no markdown, no section l
             raise RuntimeError(f"Section rewrite for '{section_name}' failed or returned too "
                                f"little content — feedback was NOT applied, this must be "
                                f"surfaced, not hidden.")
-        new_section = new_section.strip()
+        # FIX (direct user report, July 25 2026 — same real leaked-header
+        # bug as the whole-script path above): a per-section rewrite is
+        # just as capable of echoing "SECTION BEING REWRITTEN: Stage 4"
+        # back into its own output as the whole-script path is.
+        from script_scoring import strip_all_leaked_stage_headers
+        new_section = strip_all_leaked_stage_headers(new_section.strip())
         updated_script = updated_script.replace(original_section, new_section, 1)
         updated_sections[section_name] = new_section
 

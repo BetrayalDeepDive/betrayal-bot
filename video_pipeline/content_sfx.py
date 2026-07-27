@@ -159,7 +159,11 @@ def _procedural_sfx_params(category_name):
     """
     h = int(hashlib.md5(category_name.encode()).hexdigest(), 16)
     freq = 60 + (h % 2500)                          # 60-2560 Hz
-    dur = round(0.08 + ((h >> 8) % 35) / 100, 2)     # 0.08-0.42s
+    # FIX (direct user report, July 25 2026): 0.08s is below normal
+    # human perceptibility as an intentional sound cue, especially once
+    # mixed under sustained narration + ambient music — raised the floor
+    # so even the shortest procedural cue reads as a real audio event.
+    dur = round(0.15 + ((h >> 8) % 35) / 100, 2)     # 0.15-0.49s
     fade_st = round(dur * 0.15, 2)
     fade_d = round(dur * 0.8, 2)
     vol = round(0.8 + ((h >> 16) % 15) / 10, 2)      # 0.8-2.3
@@ -324,8 +328,13 @@ def apply_audio_only_content_sfx(video_path, script, audio_duration, niche_name,
         stinger_chain = ";".join(stinger_filters)
         stinger_inputs = "".join(stinger_labels)
         n_mix = 1 + len(stinger_labels)
+        # FIX (direct user report, July 25 2026 — same real bug as the
+        # Ch1-specific horror-FX mixer): amix defaults normalize=true,
+        # auto-dividing every input's volume by input count. Never set
+        # here either, so this channel-agnostic SFX layer (used by
+        # Ch2/3/4/5) had the identical silent-SFX problem.
         filter_complex = (f"{stinger_chain};[0:a]{stinger_inputs}amix=inputs={n_mix}:"
-                           f"duration=first:dropout_transition=0[mixedaudio]")
+                           f"duration=first:dropout_transition=0:normalize=0[mixedaudio]")
 
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", video_path,

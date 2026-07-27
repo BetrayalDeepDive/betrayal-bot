@@ -1491,10 +1491,22 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
                 # Position: right-centre
                 sil_x = TW - sil_w - 20
                 sil_y = 0
-                # Apply silhouette at 45% opacity
-                sil_dark = ImageEnhance.Brightness(sil.convert("RGB")).enhance(0.3)
-                sil_dark = sil_dark.convert("RGBA")
-                sil_dark.putalpha(115)  # ~45% opacity
+                # FIX (found this session via real render + frame
+                # inspection, cross-checked against the same bug fixed
+                # in stickman_animation.py's new SILHOUETTE register):
+                # enhance(0.3) darkened the figure AGAIN on top of an
+                # already-dark niche background (dark_horror renders at
+                # brightness=0.18), then 45% opacity blended that
+                # doubly-dark shape into near-black -- confirmed
+                # reproducible: the figure was essentially invisible in
+                # a real generated sample. A "dramatic silhouette" format
+                # needs the cutout to actually read; no longer darkening
+                # it further and raising opacity to 85% preserves the
+                # backlit contrast the AI image itself was prompted for
+                # (fetch_silhouette's prompt already asks for "dramatic
+                # backlit... atmospheric") instead of erasing it twice.
+                sil_dark = sil.convert("RGBA")
+                sil_dark.putalpha(217)  # ~85% opacity
                 img.paste(sil_dark.convert("RGB"),
                           (sil_x, sil_y),
                           mask=sil_dark.split()[3])
