@@ -161,22 +161,36 @@ def generate_board_segment(niche_name, segment_text, text_overlay, duration, seg
             _draw_evidence_card(draw, cx, cy, 130, 90, f"EXHIBIT {i+1}", accent, font_lbl,
                                  style=card_style, seed=seg_index * 31 + i)
 
-        # Red string connecting the cards in sequence.
-        for i in range(len(card_positions) - 1):
-            draw.line([card_positions[i], card_positions[i+1]], fill=(180, 20, 20), width=3)
-
-        # The segment's own key phrase, pinned as a centered note card.
-        note_text = (text_overlay or segment_text or "")[:40]
-        note_cx, note_cy = OW // 2, int(OH * 0.78)
-        _draw_evidence_card(draw, note_cx, note_cy, 420, 110, "", accent, None, style="plain")
-        if font_note and note_text:
-            bbox = draw.textbbox((0, 0), note_text, font=font_note)
-            tw = bbox[2] - bbox[0]
-            draw.text((note_cx - tw/2, note_cy - 14), note_text, fill=(20, 20, 20), font=font_note)
+        # FIX (direct user report, this session — "the board, I don't know
+        # what was in motion" + "there were subtitles as well as a text
+        # overlay, two things happening"): the string used to be drawn
+        # once, fully connected, into the static base image, with no
+        # real motion, AND a pinned "note card" duplicated the spoken
+        # narration as on-screen text (the same double-text bug as the
+        # other registers). Real fix: the red string is now drawn frame-
+        # by-frame, progressively connecting one card to the next as the
+        # segment plays -- a genuine, trackable motion beat -- and no
+        # narration text is drawn anywhere on the board. The extra card
+        # slot that used to be the text note card is now a real 4th/5th
+        # exhibit connected by the string instead.
+        if len(card_positions) < n_cards + 1:
+            for _try in range(25):
+                cx = rnd.randint(int(OW*0.15), int(OW*0.85))
+                cy = rnd.randint(int(OH*0.55), int(OH*0.85))
+                if all(math.hypot(cx - px, cy - py) >= min_dist for px, py in card_positions):
+                    card_positions.append((cx, cy))
+                    break
+            else:
+                card_positions.append((OW // 2, int(OH * 0.78)))
+            _draw_evidence_card(draw, card_positions[-1][0], card_positions[-1][1], 130, 90,
+                                f"EXHIBIT {len(card_positions)}", accent, font_lbl,
+                                style="photo" if len(card_positions) % 2 == 0 else "doc",
+                                seed=seg_index * 31 + len(card_positions))
 
         # Ken Burns: slow zoom+pan crop window sliding across the oversized board.
         zoom_start, zoom_end = 1.0, 1.12
         pan_dx = rnd.choice([-1, 1]) * (OW - width) * 0.5
+        n_links = len(card_positions) - 1
         for f in range(n_frames):
             t = f / max(1, n_frames - 1)
             zoom = zoom_start + (zoom_end - zoom_start) * t
@@ -185,7 +199,19 @@ def generate_board_segment(niche_name, segment_text, text_overlay, duration, seg
             cy0 = (OH - crop_h) / 2 * 0.6
             cx0 = max(0, min(OW - crop_w, cx0))
             cy0 = max(0, min(OH - crop_h, cy0))
-            frame = base.crop((int(cx0), int(cy0), int(cx0) + crop_w, int(cy0) + crop_h))
+            # Real, progressive motion: the string draws itself across
+            # the board as the segment plays, one link at a time.
+            frame_board = base.copy()
+            fdraw = ImageDraw.Draw(frame_board)
+            string_progress = t * n_links
+            for i in range(n_links):
+                if string_progress <= i:
+                    break
+                p0, p1 = card_positions[i], card_positions[i + 1]
+                seg_t = min(1.0, string_progress - i)
+                p_end = (p0[0] + (p1[0] - p0[0]) * seg_t, p0[1] + (p1[1] - p0[1]) * seg_t)
+                fdraw.line([p0, p_end], fill=(180, 20, 20), width=3)
+            frame = frame_board.crop((int(cx0), int(cy0), int(cx0) + crop_w, int(cy0) + crop_h))
             frame = frame.resize((width, height), Image.LANCZOS)
             frame.save(tmp_dir / f"f_{f:04d}.png")
 

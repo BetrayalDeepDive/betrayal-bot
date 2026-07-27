@@ -54,10 +54,14 @@ def generate_motion_segment(niche_name, segment_text, text_overlay, duration, se
     n_frames = max(1, int(round(duration * fps)))
     tmp_dir = Path(output_path).parent / f"motion_{seg_index}"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    font_label = _font(30)
     font_small = _font(20, bold=False)
 
-    label = (text_overlay or segment_text or "")[:44]
+    # FIX (direct user report, this session — "two things happening... hard
+    # to read"): this used to burn the segment's own narration text (label)
+    # directly under the timeline, duplicating the real word-synced
+    # subtitles rendered elsewhere in the pipeline. Removed -- the real
+    # subtitles are the only text that should appear on screen. The
+    # "TIMELINE" tag stays (a fixed UI label, not narration).
     active_idx = seg_index % n_markers
     line_y = int(height * 0.52)
     x0, x1 = int(width * 0.1), int(width * 0.9)
@@ -65,8 +69,15 @@ def generate_motion_segment(niche_name, segment_text, text_overlay, duration, se
     try:
         for f in range(n_frames):
             t = f / max(1, n_frames - 1)
+            # Subtle vertical gradient instead of a flat void -- real
+            # motion-graphics/infographic pieces read as a clean designed
+            # panel, not a scene, so a gradient (not an illustrated
+            # background) is the genre-appropriate real background here.
             img = Image.new("RGB", (width, height), bg)
             draw = ImageDraw.Draw(img)
+            for y in range(0, height, 4):
+                shade = tuple(min(255, int(c + (accent[i] - c) * 0.05 * (y / height))) for i, c in enumerate(bg))
+                draw.line([(0, y), (width, y)], fill=shade)
 
             # base timeline
             draw.line([(x0, line_y), (x1, line_y)], fill=(90, 90, 100), width=4)
@@ -83,16 +94,6 @@ def generate_motion_segment(niche_name, segment_text, text_overlay, duration, se
             draw.polygon([(head_x, line_y - 16), (head_x - 10, line_y - 32), (head_x + 10, line_y - 32)],
                          fill=accent)
 
-            if font_label and label:
-                words = label.split()
-                mid = max(1, len(words) // 2) if len(words) > 5 else len(words)
-                lines = [" ".join(words[:mid]), " ".join(words[mid:])] if len(words) > 5 else [label]
-                for li, ln in enumerate(lines):
-                    bbox = draw.textbbox((0, 0), ln, font=font_label)
-                    tw = bbox[2] - bbox[0]
-                    draw.text(((width - tw) / 2, line_y + 50 + li * 40), ln,
-                              fill=(240, 240, 240), font=font_label,
-                              stroke_width=2, stroke_fill=(0, 0, 0))
             if font_small:
                 tag = "TIMELINE"
                 bbox = draw.textbbox((0, 0), tag, font=font_small)

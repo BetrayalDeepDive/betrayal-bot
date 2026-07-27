@@ -2033,6 +2033,34 @@ def get_research_context(niche_name, topic):
         f"Build the narrative around documented reality."
     ), cases
 
+_COLD_OPEN_MANDATORY_INSTR = (
+    "A MANDATORY COLD OPEN is provided above in RESEARCH CONTEXT — it already "
+    "previews this exact story's specific twist/irony and was scored as the "
+    "strongest of 3 real variants. Use it AS-IS for Stage 1 (only light edits "
+    "for grammar/flow into what follows), do NOT write a new, generic cold "
+    "open from scratch here. The rules below describe what that mandatory "
+    "text already satisfies -- they are not a second, separate cold open to "
+    "write instead of it."
+)
+# FIX (direct user report, this session — "I don't want the cold open to
+# start with a date or something... start with an open question so that it
+# intrigues the audience. I don't want any dates or timings as such."):
+# previously required "Sentence 1 must contain an exact number, date, or
+# duration" -- the literal source of every episode opening on a date. Kept
+# as a module-level constant (not inline in the f-string below) purely
+# because the quoted user request contains an apostrophe that can't safely
+# nest inside an f-string expression's own quoting.
+_COLD_OPEN_QUESTION_INSTR = (
+    "Sentence 1 must be an intriguing, open QUESTION that hooks the listener "
+    "into wanting the answer -- never a date, timestamp, year, or duration. "
+    "No numeric dates/years/durations anywhere in sentence 1. Sentence 2 "
+    "places the listener somewhere recognisable. Sentence 3 opens a loop the "
+    "script must close. The opening must preview the real, specific "
+    "twist/irony of THIS topic (state or strongly imply the actual outcome) "
+    "-- not a generic disturbing mood that could belong to any episode."
+)
+
+
 def build_script_prompt(niche, topic, episode, attempt,
                         trending_titles=None, research_context=""):
     """
@@ -2113,14 +2141,19 @@ relationship explicitly (sister/sister, patient/doctor, mother/son) and keep
 the entire narrative anchored to that one fracture rather than drifting into
 a vague atmosphere piece.
 
-FICTION LABELING (non-negotiable, real policy-safety requirement): if any
-part of this story is dramatized, composited from multiple cases, or not
-independently verifiable as reported fact, the script MUST include a clear,
-natural spoken acknowledgment of this — e.g. "names and details in this
-account have been changed" or "this account draws on patterns from multiple
-documented cases." This is not a disclaimer to bury — say it plainly,
-early, without breaking the tone. Never present invented specifics as
-verified fact.
+FICTION LABELING (non-negotiable, real policy-safety requirement, but NEVER
+spoken in the narration — direct user instruction: "I keep seeing that
+whenever the audio starts, it keeps telling me the things have been
+changed... I don't want that to happen"): if any part of this story is
+dramatized, composited from multiple cases, or not independently verifiable
+as reported fact, do NOT write any acknowledgment of this into the script
+itself — the narration should read as a pure, uninterrupted story with zero
+meta-commentary about its own factuality. This disclosure is instead added
+automatically to the video's written description (see generate_seo_
+description below), never spoken. Never present invented specifics as
+verified fact within the story, but handle that through how the story is
+told (careful, plausible, non-defamatory framing), not through a spoken
+disclaimer breaking the narration.
 
 RETENTION CHECKPOINTS (precise timing, not just word count — this is where
 most viewers actually drop off if nothing happens):
@@ -2134,9 +2167,9 @@ most viewers actually drop off if nothing happens):
   an incomplete number, a named person whose role isn't yet explained.
 
 STAGE 1 — COLD OPEN ({stage_targets[1]} words)
-{"A MANDATORY COLD OPEN is provided above in RESEARCH CONTEXT — it already previews this exact story's specific twist/irony and was scored as the strongest of 3 real variants. Use it AS-IS for Stage 1 (only light edits for grammar/flow into what follows), do NOT write a new, generic cold open from scratch here. The rules below describe what that mandatory text already satisfies -- they are not a second, separate cold open to write instead of it." if "MANDATORY COLD OPEN" in research_context else "Sentence 1 must contain an exact number, date, or duration. Sentence 2 places the listener somewhere recognisable. Sentence 3 opens a loop the script must close. The opening must preview the real, specific twist/irony of THIS topic (state or strongly imply the actual outcome) -- not a generic disturbing mood that could belong to any episode."}
+{_COLD_OPEN_MANDATORY_INSTR if "MANDATORY COLD OPEN" in research_context else _COLD_OPEN_QUESTION_INSTR}
 Forbidden: "welcome back", "today we", "in this video", "join me"
-Trigger: DETAIL (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
+Trigger: QUESTION HOOK (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
 
 STAGE 2 — THE BEFORE ({stage_targets[2]} words)
 Establish the subject as completely ordinary. Specific routine, specific place.
@@ -2623,32 +2656,24 @@ def generate_script_content(niche, topic, episode, attempt,
     except Exception as e:
         log(f"  Targeted craft rewrite (non-fatal): {e}")
 
-    # FIX: fiction-labeling was only a prompt INSTRUCTION with zero code-level
-    # verification — meaning it was hoped-for, not guaranteed, every single
-    # run. Since this is a real policy-safety requirement (not a creative
-    # nicety), this follows the exact same reliable "guard" pattern already
-    # used for the subscribe CTA below: check for it, and if the AI didn't
-    # include it, force it in rather than trust compliance.
+    # FIX (direct user report, this session — "whenever the audio starts,
+    # it keeps telling me the things have been changed, the names are not
+    # real, all those things. I don't want that to happen"): this used to
+    # force-insert a spoken disclosure sentence ("Some names and
+    # identifying details in this account have been changed.") directly
+    # onto the end of the script's FIRST sentence -- i.e. right at the
+    # very start of the cold open, every single episode, breaking the
+    # narration exactly where retention matters most. The real policy-
+    # safety need (never presenting invented specifics as verified fact)
+    # doesn't require this to be SPOKEN -- moved to a written-only
+    # disclosure appended to the video description instead (see
+    # generate_seo_description), which is where documentaries/true-crime
+    # media conventionally put this, not read aloud. needs_fiction_
+    # disclosure is threaded through to the description generator below.
     fiction_signals = ["names and details", "names have been changed", "composite",
                         "dramatiz", "reconstruct", "multiple documented cases",
                         "account draws on", "identifying details"]
-    if not any(sig in script.lower() for sig in fiction_signals):
-        sentences = [s for s in re.split(r"(?<=[.!?])\s+", script) if s.strip()]
-        disclosure = " Some names and identifying details in this account have been changed."
-        if len(sentences) > 1:
-            sentences[0] = sentences[0].rstrip() + disclosure
-            script = " ".join(sentences)
-        else:
-            # FIX (found in Pass 3 re-check): if the script has only 0 or 1
-            # "sentences" (e.g. missing end punctuation, or some upstream
-            # issue produced a single run-on blob), the sentence-based
-            # insertion above silently did nothing — no disclosure, no log,
-            # no fallback. Since this guard exists to GUARANTEE the
-            # disclosure appears, not just usually, it now always adds it
-            # regardless of how the script is shaped.
-            script = script.rstrip() + disclosure
-        wc = len(script.split())
-        log("  Fiction-labeling: AI didn't include it — force-inserted (guaranteed, not hoped-for)")
+    needs_fiction_disclosure = not any(sig in script.lower() for sig in fiction_signals)
 
     # Step 5: CTA injection
     if len(script.split()) >= 400:
@@ -2659,7 +2684,8 @@ def generate_script_content(niche, topic, episode, attempt,
         wc     = len(script.split())
         log(f"  CTAs injected — final: {wc}w")
 
-    return {"script": script, "words": wc, "violations": violations, "stage_texts": stage_texts}
+    return {"script": script, "words": wc, "violations": violations, "stage_texts": stage_texts,
+            "needs_fiction_disclosure": needs_fiction_disclosure}
 
 
 def _inject_ctas_ch1(script_clean, niche_name):
@@ -2998,7 +3024,8 @@ def format_citations_block(real_cases):
     return "\n\n" + "\n".join(lines)
 
 
-def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block=""):
+def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block="",
+                              needs_fiction_disclosure=True):
     dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
     prompt = f"""Write a YouTube video description for a dark investigative documentary.
 Title: {title} | Series: {niche["series"]}, Episode {episode}
@@ -3043,6 +3070,19 @@ those are added separately afterward."""
     raw = ai_generate(prompt, tokens=1000)
     # v12: three-channel cross-promo in every description
     cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
+    # FIX (direct user report, this session — "whenever the audio starts,
+    # it keeps telling me the things have been changed... I don't want
+    # that to happen"): the fiction/dramatization disclosure used to be
+    # force-inserted as SPOKEN text at the start of the narration itself.
+    # Moved here instead -- written-only, in the description, exactly
+    # where documentaries/true-crime media conventionally disclose this,
+    # never read aloud. Still a real, present disclosure (not deleted),
+    # just relocated to not interrupt the story.
+    fiction_disclosure_txt = (
+        "\n\nNote: some names and identifying details in this account have "
+        "been changed or composited from multiple documented cases."
+        if needs_fiction_disclosure else ""
+    )
     if raw:
         desc  = seo_first_line + "\n\n" + strip_md(raw)
         desc += cross_promo_txt
@@ -3054,6 +3094,7 @@ those are added separately afterward."""
         # upload_yt() below) -- that field is a separate, compliance-
         # relevant decision left untouched here pending the user's own
         # review of YouTube's current Creator Studio guidance.
+        desc += fiction_disclosure_txt
         desc += f"\n\n📧 Business inquiries: {BUSINESS_EMAIL}"
         desc += citations_block
         desc += f"\n\n{hashtags}"
@@ -3066,7 +3107,8 @@ those are added separately afterward."""
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
             f"Subscribe for new investigations every week.\n\n"
             f"{chapters_text or '0:00 Introduction'}"
-            f"{cross_promo_txt}\n\n"
+            f"{cross_promo_txt}"
+            f"{fiction_disclosure_txt}\n\n"
             f"📧 Business inquiries: {BUSINESS_EMAIL}"
             f"{citations_block}\n\n"
             f"{hashtags}")
@@ -7715,6 +7757,12 @@ def main():
             # during research (if any were found), carried through for the
             # description's Sources block and the end-of-video credits scene.
             real_cases   = script_result.get("real_cases", [])
+            # FIX (direct user report, this session): whether this
+            # episode needs the "names/details changed" disclosure is
+            # now decided at script-generation time (generate_script_
+            # content) but the disclosure itself is written-only, added
+            # to the description below -- never spoken in the narration.
+            needs_fiction_disclosure = script_result.get("needs_fiction_disclosure", True)
 
             tg(f"Ch1 Script ready: {niche_name} | {wc}w | {score_val}/10\n{topic[:80]}")
 
@@ -8330,7 +8378,8 @@ def main():
         from human_review_gate import regenerate_description_until_good
         def _desc_gen(n, t, ti, ep, ch, dur):
             return generate_seo_description(n, t, ti, ep, ch, dur,
-                                             citations_block=format_citations_block(real_cases))
+                                             citations_block=format_citations_block(real_cases),
+                                             needs_fiction_disclosure=needs_fiction_disclosure)
         _stage_word_counts = [len(t.split()) for t in _stage_texts_ch1] if _stage_texts_ch1 else None
         _chapters = generate_chapter_timestamps(script_clean, audio_duration, "betrayal_deepdive",
                                                  stage_word_counts=_stage_word_counts)
