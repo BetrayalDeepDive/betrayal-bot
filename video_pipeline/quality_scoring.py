@@ -93,7 +93,12 @@ def score_audio_quality(audio_path, audio_duration, script_word_count, voice_use
 
     # 1. Voice tier
     tier_scores = {
-        "elevenlabs": 10.0, "edge-tts": 9.0, "fish-audio": 8.5,
+        # FIX (direct user request, July 27 2026 — "make Kokoro primary
+        # since it sounds more human"): kokoro-local used to fall through
+        # to the generic 7.0 default, unfairly under-scoring it relative
+        # to edge-tts (9.0) even though it's now the intended primary
+        # voice and rates as more natural-sounding in practice.
+        "elevenlabs": 10.0, "kokoro": 9.5, "edge-tts": 9.0, "fish-audio": 8.5,
         "gtts-fallback": 4.0, "espeak-offline-lastresort": 1.5,
     }
     voice_key = (voice_used or "").lower()

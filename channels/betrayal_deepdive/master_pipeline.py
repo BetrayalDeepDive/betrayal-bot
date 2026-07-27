@@ -3582,6 +3582,133 @@ def run_audio_with_ssml(script, niche_name, edge_voice):
     return out, duration
 
 
+_KOKORO_GB_FEMALE = ["bf_alice", "bf_emma", "bf_isabella", "bf_lily"]
+_KOKORO_GB_MALE   = ["bm_daniel", "bm_fable", "bm_george", "bm_lewis"]
+_KOKORO_US_FEMALE = ["af_heart", "af_bella", "af_nicole", "af_aoede",
+                      "af_kore", "af_sarah", "af_nova", "af_sky"]
+_KOKORO_US_MALE   = ["am_adam", "am_echo", "am_eric", "am_fenrir",
+                      "am_liam", "am_michael", "am_onyx", "am_puck"]
+
+
+def _kokoro_voice_for(edge_voice):
+    """Gender/locale-match a Kokoro voice+lang_code pair from the edge-tts
+    voice this episode was already going to use, so switching TTS engines
+    doesn't also silently swap the narrator's gender or accent family."""
+    is_gb_family = edge_voice.startswith(("en-GB", "en-IE"))
+    is_female = edge_voice in (_AU_FEMALE + _GB_FEMALE + _US_FEMALE + _REST_FEMALE)
+    if is_gb_family:
+        pool = _KOKORO_GB_FEMALE if is_female else _KOKORO_GB_MALE
+        lang = "b"
+    else:
+        pool = _KOKORO_US_FEMALE if is_female else _KOKORO_US_MALE
+        lang = "a"
+    return pool[hash(edge_voice) % len(pool)], lang
+
+
+def run_audio_with_kokoro(script, niche_name, edge_voice):
+    """
+    Kokoro (local neural TTS -- ranks 1st among browser-runnable models on
+    the public TTS Arena, genuinely more human-sounding than edge-tts)
+    as the PRIMARY narrator.
+
+    FIX (direct user request, July 27 2026 -- "make Kokoro primary since
+    it sounds more human"): previously Kokoro only ran if SSML edge-tts,
+    ElevenLabs, AND the entire edge-tts voice fallback loop all failed --
+    which almost never happened, so Kokoro effectively never ran in
+    production despite being the better-sounding voice. Promoting it to
+    primary loses nothing of SSML's stage-matched delivery-rate variation
+    (cold open faster, the reveal slower and weightier, etc.) because it
+    reuses the exact same 7-stage segmentation (inject_ssml_rate) and
+    translates each stage's rate percentage into Kokoro's own `speed`
+    parameter, then crossfade-concatenates the segments the same way the
+    SSML path does.
+    """
+    try:
+        from kokoro import KPipeline
+        import soundfile as sf
+        import numpy as np
+    except Exception as e:
+        log(f"  Kokoro not available ({e}) — cannot use as primary")
+        return None, 0.0
+
+    segments = inject_ssml_rate(script)
+    log(f"  Kokoro segments: {len(segments)} at rates {[r for _, r in segments]}")
+
+    kokoro_voice, kokoro_lang = _kokoro_voice_for(edge_voice)
+    log(f"  Kokoro voice: {kokoro_voice} (lang={kokoro_lang}, matched from {edge_voice})")
+
+    try:
+        pipeline = KPipeline(lang_code=kokoro_lang)
+    except Exception as e:
+        log(f"  Kokoro pipeline init failed: {e}")
+        return None, 0.0
+
+    part_paths = []
+    for i, (text, rate) in enumerate(segments):
+        if not text.strip():
+            continue
+        speed = max(0.7, min(1.3, 1 + int(rate.strip('%')) / 100.0))
+        try:
+            generator = pipeline(text, voice=kokoro_voice, speed=speed)
+            chunks = [audio_chunk for _, _, audio_chunk in generator]
+            if not chunks:
+                log(f"    Kokoro segment {i}: no audio produced — skipping")
+                continue
+            combined = np.concatenate(chunks)
+            wav_path = str(WORK_DIR / f"kokoro_seg_{i}.wav")
+            sf.write(wav_path, combined, 24000)
+            part_path = str(WORK_DIR / f"kokoro_seg_{i}.mp3")
+            subprocess.run(["ffmpeg", "-y", "-i", wav_path, "-codec:a", "libmp3lame",
+                             "-qscale:a", "2", part_path], capture_output=True, timeout=120)
+            if Path(part_path).exists() and Path(part_path).stat().st_size > 5000:
+                part_paths.append(part_path)
+        except Exception as e:
+            log(f"    Kokoro segment {i} (speed={speed:.2f}): {e}")
+
+    if not part_paths:
+        return None, 0.0
+
+    if len(part_paths) == 1:
+        import shutil
+        out = str(WORK_DIR / "kokoro_narration.mp3")
+        shutil.copy(part_paths[0], out)
+        return out, get_media_duration(out)
+
+    out = str(WORK_DIR / "kokoro_narration.mp3")
+    CROSSFADE_S = 0.12
+    try:
+        filter_parts = []
+        inputs = []
+        for p in part_paths:
+            inputs += ["-i", p]
+        n = len(part_paths)
+        prev_label = "0:a"
+        for i in range(1, n):
+            cur_label = f"a{i}"
+            filter_parts.append(
+                f"[{prev_label}][{i}:a]acrossfade=d={CROSSFADE_S}:c1=tri:c2=tri[{cur_label}]"
+            )
+            prev_label = cur_label
+        filter_complex = ";".join(filter_parts)
+        run_ffmpeg(["ffmpeg", "-y", *inputs,
+                    "-filter_complex", filter_complex,
+                    "-map", f"[{prev_label}]", out], label="kokoro-crossfade-concat")
+        if not Path(out).exists() or Path(out).stat().st_size < 5000:
+            raise RuntimeError("crossfade concat produced no usable output")
+    except Exception as e:
+        log(f"  Crossfade concat failed ({e}) — falling back to plain concat")
+        list_file = str(WORK_DIR / "kokoro_seg_list.txt")
+        with open(list_file, "w") as f:
+            for p in part_paths:
+                f.write(f"file '{p}'\n")
+        run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", list_file, "-c", "copy", out], label="kokoro-concat")
+
+    duration = get_media_duration(out)
+    log(f"  Kokoro audio: {duration:.1f}s ({duration/60:.1f} min)")
+    return out, duration
+
+
 def _detect_abnormal_silence(mp3_path, total_duration):
     """
     v1 addition — real, signal-based audio quality check using ffmpeg's
@@ -3665,63 +3792,70 @@ def run_audio_stage(script, niche_name, edge_voice):
 
     log(f"  Words: {len(script.split())} | ElevenLabs: {'yes' if ELEVENLABS_KEY else 'no'}")
 
-    # FIX (direct user request, July 25 2026 — "I know this was a free
-    # version, which is not even working. What I want you to do is let
-    # our Edge-TTS be the main provider"): ElevenLabs was tried FIRST,
-    # ahead of Edge-TTS SSML, despite being confirmed dead on the free
-    # tier (real 402 in production logs: "Free users cannot use library
-    # voices via the API"). Edge-TTS SSML (7 stage-matched delivery
-    # rates, genuinely documentary-grade) is now the real primary path.
-    # ElevenLabs is only attempted afterward, as an opportunistic
-    # upgrade in case the account is ever moved to a paid tier — it
-    # never blocks or delays audio generation on its own.
+    # FIX (direct user request, July 27 2026 — "make Kokoro primary since
+    # it sounds more human"): Kokoro (local, genuinely more natural-
+    # sounding than edge-tts) is now the real primary path, tried before
+    # anything else. It reuses the SSML path's 7-stage rate segmentation
+    # (see run_audio_with_kokoro) so none of the stage-matched delivery-
+    # rate variation is lost by switching engines. Edge-TTS SSML is the
+    # fallback if Kokoro is unavailable/fails, then ElevenLabs, then the
+    # plain edge-tts per-voice loop, then Fish Audio/gTTS/espeak.
     el_ok = False
 
-    # Try SSML multi-rate audio (7 delivery speeds across 7 stages) — PRIMARY
-    log("  Trying SSML dynamic-rate audio (primary)...")
-    # Truncate script to MAX_WORDS before SSML to prevent long audio failures
+    # Truncate script to MAX_WORDS before synthesis to prevent long audio failures
     _ssml_words = script.split()
     if len(_ssml_words) > MAX_WORDS:
         script = " ".join(_ssml_words[:MAX_WORDS])
-        log(f"  Script truncated to {MAX_WORDS}w before SSML")
-    ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
-    ssml_ok = bool(ssml_path and ssml_dur > 60 and ssml_dur < 1800)  # 30-min max sanity cap
-    if not ssml_ok:
-        # SSML failed — give ElevenLabs a shot before falling further
-        # down the chain (plain edge-tts loop -> Kokoro -> Fish Audio).
-        log("  SSML failed — trying ElevenLabs as opportunistic backup...")
-        el_ok = call_elevenlabs(script, niche_name, audio_path)
+        log(f"  Script truncated to {MAX_WORDS}w before audio synthesis")
+
+    log("  Trying Kokoro multi-rate audio (primary)...")
+    kokoro_path, kokoro_dur = run_audio_with_kokoro(script, niche_name, edge_voice)
+    kokoro_ok = bool(kokoro_path and kokoro_dur > 60 and kokoro_dur < 1800)  # 30-min max sanity cap
+
+    ssml_path, ssml_dur, ssml_ok = None, 0.0, False
+    if not kokoro_ok:
+        log("  Kokoro unavailable/failed — trying SSML edge-tts (fallback)...")
+        ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
+        ssml_ok = bool(ssml_path and ssml_dur > 60 and ssml_dur < 1800)  # 30-min max sanity cap
+        if not ssml_ok:
+            # SSML failed too — give ElevenLabs a shot before falling
+            # further down the chain (plain edge-tts loop -> Fish Audio).
+            log("  SSML failed — trying ElevenLabs as opportunistic backup...")
+            el_ok = call_elevenlabs(script, niche_name, audio_path)
 
     if el_ok:
-        pass  # ElevenLabs doesn't support SSML rate — use as-is
+        pass  # ElevenLabs doesn't support rate variation — use as-is
     else:
-        if ssml_ok:
+        if kokoro_ok or ssml_ok:
             import shutil
-            if str(ssml_path) != str(audio_path):
-                shutil.copy(ssml_path, audio_path)
+            chosen_path = kokoro_path if kokoro_ok else ssml_path
+            chosen_dur = kokoro_dur if kokoro_ok else ssml_dur
+            tool_label = "Kokoro (local, multi-rate)" if kokoro_ok else "Edge-TTS (SSML multi-rate)"
+            if str(chosen_path) != str(audio_path):
+                shutil.copy(chosen_path, audio_path)
             else:
-                log("  SSML: skipping self-copy")
-            duration = ssml_dur
-            log(f"  SSML audio OK: {duration:.1f}s")
+                log(f"  {tool_label}: skipping self-copy")
+            duration = chosen_dur
+            log(f"  {tool_label} audio OK: {duration:.1f}s")
             # FIX (found on deep re-audit): this used to return here
             # directly — skipping the 18-min hard cap, the real per-niche
             # EQ chain (apply_audio_post_processing), and caption
-            # generation entirely below. SSML multi-rate is the primary,
-            # best-quality tier, so it was silently publishing with no
-            # captions and no documentary-grade EQ most of the time. Now
-            # runs through the same tail processing every other tier does.
+            # generation entirely below. The primary, best-quality tier,
+            # so it was silently publishing with no captions and no
+            # documentary-grade EQ most of the time. Now runs through the
+            # same tail processing every other tier does.
             if duration > 18 * 60:
-                log(f"  ⚠️ SSML audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+                log(f"  ⚠️ {tool_label} audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
                 trimmed = str(WORK_DIR / "narration_trimmed.mp3")
                 run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(18 * 60),
-                            "-c", "copy", trimmed], label="hard-duration-cap-ssml", timeout=120)
+                            "-c", "copy", trimmed], label="hard-duration-cap-primary", timeout=120)
                 if Path(trimmed).exists() and Path(trimmed).stat().st_size > 50000:
                     audio_path = trimmed
                     duration = get_media_duration(audio_path)
             processed_path = str(WORK_DIR / "narration_processed.mp3")
             audio_path = apply_audio_post_processing(audio_path, processed_path, niche_name=niche_name)
             generate_fallback_ass(script, duration, ass_path)
-            return audio_path, duration, ass_path, edge_voice, "Edge-TTS (SSML multi-rate)"
+            return audio_path, duration, ass_path, edge_voice if not kokoro_ok else "kokoro-local", tool_label
 
     if not el_ok:
         # FIX (July 24 2026, direct user request): AU>GB>US>rest priority
@@ -3760,85 +3894,21 @@ def run_audio_stage(script, niche_name, edge_voice):
             except Exception as e: log(f"  {v}: {e}")
 
     if not Path(audio_path).exists() or Path(audio_path).stat().st_size < 10000:
-        # ── FALLBACK CHAIN: every edge-tts voice failed today. Try alternate
-        # providers before giving up entirely.
-        # FIX (direct user report, July 25 2026 — "find out 4-5 backups
-        # that are human voices, not robotic"): reordered so Kokoro
-        # (local, zero quota/billing risk, genuinely natural-sounding —
-        # ranks 1st among browser-runnable models on the public TTS
-        # Arena) comes BEFORE Fish Audio, not after. Fish Audio's free
-        # tier is personal/non-commercial-use only per its own ToS (a
-        # real conflict for a monetized channel — see the July 24
-        # decision to leave FISH_AUDIO_API_KEY unset), so it stays in
-        # the chain only as an opportunistic extra if that key is ever
-        # added, never depended on. Real order now: edge-tts (SSML,
-        # primary) -> edge-tts (plain, per-voice fallback, above this
-        # block) -> Kokoro (local, human-quality) -> Fish Audio (only if
-        # configured) -> gTTS (free, more robotic but reliable) ->
-        # espeak-ng (offline, most robotic, true last resort).
+        # ── FALLBACK CHAIN: Kokoro (primary), SSML edge-tts, ElevenLabs,
+        # AND the entire plain edge-tts per-voice loop above all failed.
+        # Try remaining alternate providers before giving up entirely.
+        # Real order now: Kokoro (local, primary) -> edge-tts SSML ->
+        # ElevenLabs -> edge-tts (plain, per-voice fallback, above this
+        # block) -> Fish Audio (only if configured) -> gTTS (free, more
+        # robotic but reliable) -> espeak-ng (offline, most robotic, true
+        # last resort). Kokoro already had its shot as primary above, so
+        # it is not retried here.
         log("  All edge-tts voices exhausted — trying backup TTS providers...")
         script_clean = script
         dur_expected = min((len(script_clean.split()) / 125.0) * 60.0, 1080.0)  # matches 18-min hard cap
         log(f"  Fallback tier expected duration: ~{dur_expected:.0f}s (final check_audio_quality "
             f"gate validates the real result against this once a tier succeeds)")
         fallback_ok = False
-
-        if not fallback_ok:
-            try:
-                from kokoro import KPipeline
-                import soundfile as sf
-                import numpy as np
-                log("  Trying Kokoro (local, natural-sounding, no rate limit)...")
-                # FIX (direct user report, July 25 2026 — "find out 4-5
-                # backups... human voices, not robotic"): the old mapping
-                # was a single-entry dict that resolved to "bm_george" for
-                # literally every edge_voice — same one Kokoro voice every
-                # single episode regardless of niche/gender, AND paired
-                # with lang_code="a" (American phonemizer) even though
-                # bm_george is a BRITISH voice — a real language/voice
-                # mismatch that likely degraded or broke pronunciation.
-                # Real Kokoro voice catalog (confirmed against the model's
-                # own published voice pack), gender-matched to whichever
-                # real voice this episode was actually supposed to use,
-                # and the pipeline's lang_code now matches the voice
-                # picked instead of being hardcoded to American.
-                _KOKORO_GB_FEMALE = ["bf_alice", "bf_emma", "bf_isabella", "bf_lily"]
-                _KOKORO_GB_MALE   = ["bm_daniel", "bm_fable", "bm_george", "bm_lewis"]
-                _KOKORO_US_FEMALE = ["af_heart", "af_bella", "af_nicole", "af_aoede",
-                                      "af_kore", "af_sarah", "af_nova", "af_sky"]
-                _KOKORO_US_MALE   = ["am_adam", "am_echo", "am_eric", "am_fenrir",
-                                      "am_liam", "am_michael", "am_onyx", "am_puck"]
-                _is_gb_family = edge_voice.startswith(("en-GB", "en-IE"))
-                _is_female = edge_voice in (_AU_FEMALE + _GB_FEMALE + _US_FEMALE + _REST_FEMALE)
-                if _is_gb_family:
-                    _kokoro_pool = _KOKORO_GB_FEMALE if _is_female else _KOKORO_GB_MALE
-                    _kokoro_lang = "b"
-                else:
-                    _kokoro_pool = _KOKORO_US_FEMALE if _is_female else _KOKORO_US_MALE
-                    _kokoro_lang = "a"
-                _kokoro_voice = _kokoro_pool[hash(edge_voice) % len(_kokoro_pool)]
-                _kokoro_pipeline = KPipeline(lang_code=_kokoro_lang)
-                log(f"  Kokoro voice: {_kokoro_voice} (lang={_kokoro_lang}, matched from {edge_voice})")
-                _generator = _kokoro_pipeline(script_clean, voice=_kokoro_voice, speed=1.0)
-                _all_audio = []
-                for _, _, _audio_chunk in _generator:
-                    _all_audio.append(_audio_chunk)
-                if _all_audio:
-                    _combined = np.concatenate(_all_audio)
-                    _wav_path = str(WORK_DIR / "kokoro_narration.wav")
-                    sf.write(_wav_path, _combined, 24000)
-                    # Convert to mp3 to match the rest of the pipeline's format
-                    subprocess.run(["ffmpeg", "-y", "-i", _wav_path, "-codec:a", "libmp3lame",
-                                     "-qscale:a", "2", audio_path],
-                                   capture_output=True, timeout=120)
-                    if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
-                        log(f"  ACCEPTED: Kokoro (local) | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
-                        tg("⚠️ Ch1: edge-tts failed today — used Kokoro (local, "
-                           "natural-sounding, no rate limit) instead")
-                        fallback_ok = True
-                        edge_voice = "kokoro-local"
-            except Exception as e:
-                log(f"  Kokoro backup failed (non-fatal, falling further): {e}")
 
         fish_key = os.environ.get("FISH_AUDIO_API_KEY", "")
         if not fallback_ok and fish_key:
