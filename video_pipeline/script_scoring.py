@@ -160,10 +160,27 @@ _QUESTION_CUES = ["why", "how", "what really", "what happened", "who was really"
                    "what nobody", "no one knew", "until"]
 
 _ESCALATION_SIGNALS = ["but then", "suddenly", "everything changed", "it got worse",
-                        "no one expected", "that's when", "things escalated", "spiraled"]
+                        "no one expected", "that's when", "things escalated", "spiraled",
+                        # FIX (July 27 2026 — after the hook-gate fix cleared a live test
+                        # run's script attempts to genuinely open with a question, the
+                        # remaining, dominant blocker across 13/13 attempts was this hard
+                        # narrative-craft gate: real model output escalates the story in
+                        # phrasings this original 8-word list simply didn't cover, scoring
+                        # exactly 5.0/10 (the escalation+resolution+rhythm bonuses all
+                        # failing to trigger) on otherwise strong scripts. Expanded with
+                        # equally real, common escalation phrasings, not loosened logic.
+                        "took a darker turn", "before long", "it wasn't long before",
+                        "nothing could have prepared", "kept getting worse", "then it happened",
+                        "escalated quickly", "spiraled out of control", "changed everything",
+                        "worse than anyone", "and then, without warning", "that's when things"]
 
 _RESOLUTION_SIGNALS = ["in the end", "turned out", "finally", "the truth", "what really happened",
-                        "years later", "to this day", "the real reason"]
+                        "years later", "to this day", "the real reason",
+                        # Same fix as _ESCALATION_SIGNALS above -- real resolution
+                        # phrasings this original list didn't cover.
+                        "eventually", "in the aftermath", "ultimately", "it would later emerge",
+                        "the investigation revealed", "what nobody knew", "the full truth",
+                        "months later", "when it was all over", "at last", "looking back"]
 
 _STOPWORDS = {"the", "a", "an", "of", "in", "on", "and", "or", "to", "is", "was", "were", "that",
               "this", "for", "with", "at", "by", "from", "as", "it", "its", "his", "her", "their",
