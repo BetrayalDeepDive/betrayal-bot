@@ -6361,14 +6361,15 @@ def run_ch1_viral_intelligence(niche):
     # thing... for the last 4.5 to 5 days"): fresh_topic_ideas used to ask
     # for only 6 topics, but each episode makes up to 13 script attempts
     # -- every attempt past the 6th exhausted the fresh list and fell back
-    # to the tiny 4-item static niche["topics"] list. Raised to 15 so a
-    # genuinely successful call rarely runs out within one episode.
+    # to the tiny 4-item static niche["topics"] list. Direct user follow-up
+    # request: raised to 18 (minimum) so a genuinely successful call has
+    # more fresh topics than the 13-attempt engine can ever exhaust.
     prompt = f"""Analyze the TOP 20 most viral dark documentary YouTube videos (2M+ views) in the
 "{niche['search_query']}" niche.
-fresh_topic_ideas must contain exactly 15 DISTINCT, specific, real-feeling topic
-premises (not generic) in this niche's style, each 15-30 words, each naming a
-concrete specific detail (a number, a role, a place) -- not near-duplicates of
-each other.
+fresh_topic_ideas must contain a MINIMUM of 18 DISTINCT, specific, real-feeling
+topic premises (not generic) in this niche's style, each 15-30 words, each
+naming a concrete specific detail (a number, a role, a place) -- not
+near-duplicates of each other.
 Return ONLY valid JSON:
 {{"top_hook_formulas":["Hook 1","Hook 2","Hook 3"],
 "winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
@@ -6376,13 +6377,14 @@ Return ONLY valid JSON:
 "retention_hooks":["30pct","60pct","80pct"],
 "niche_power_words":["word1","word2","word3","word4","word5","word6"],
 "fresh_topic_ideas":["Topic 1","Topic 2","Topic 3","Topic 4","Topic 5","Topic 6",
-"Topic 7","Topic 8","Topic 9","Topic 10","Topic 11","Topic 12","Topic 13","Topic 14","Topic 15"]}}"""
+"Topic 7","Topic 8","Topic 9","Topic 10","Topic 11","Topic 12","Topic 13","Topic 14",
+"Topic 15","Topic 16","Topic 17","Topic 18"]}}"""
     try:
-        # FIX: token budget raised from 400 -- 15 topics at 15-30 words
+        # FIX: token budget raised from 400 -- 18 topics at 15-30 words
         # each plus the other fields genuinely needs more room; 400 was
         # truncating the JSON before the fresh_topic_ideas list count was
         # even raised, and would truncate far worse now.
-        text = ai_generate(prompt, tokens=1400)
+        text = ai_generate(prompt, tokens=1600)
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]','', re.sub(r'```json|```','',text).strip())
         m = re.search(r'\{[\s\S]*\}', text)
         if m:
