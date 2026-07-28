@@ -405,7 +405,8 @@ _DRAW_FN = {
 
 
 def _render_common(niche_name, segment_text, duration, seg_index, output_path,
-                    width, height, fps, log_fn, silhouette=False):
+                    width, height, fps, log_fn, silhouette=False,
+                    search_terms=None, pixabay_key="", pexels_key=""):
     action = detect_action(segment_text)
     if silhouette and action == "SIT_WRITE":
         action = "ALERT"
@@ -419,9 +420,34 @@ def _render_common(niche_name, segment_text, duration, seg_index, output_path,
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        background = _draw_scene_background(
-            niche_name, seed=seg_index * 31 + (7 if silhouette else 0), width=width, height=height,
-            force_scene="room_window" if silhouette else None)
+        # FIX (direct user follow-up after reviewing sample renders: "the
+        # pictures look the same... too generic... I want something
+        # based on the specific niche and the topic... can we use real
+        # pictures for it"): try a real, topic-matched photo (Pixabay/
+        # Pexels, same free keys/relevance-check already proven for
+        # stock footage) before falling back to the procedural
+        # silhouette-shape background. search_terms is this segment's
+        # own already-tuned keyword list (topic anchor / concrete noun /
+        # nation context) threaded in by the caller -- a "dark room" or
+        # "forest trail" segment searches for THAT real scene, not a
+        # generic mood phrase.
+        background = None
+        if search_terms and (pixabay_key or pexels_key):
+            try:
+                from photo_background import fetch_photo_background, photo_to_cover_canvas, grade_photo
+                photo_cache = Path(output_path).parent / f"photobg_{tag}_{seg_index}.jpg"
+                photo_path = fetch_photo_background(
+                    search_terms, niche_name, str(photo_cache),
+                    pixabay_key=pixabay_key, pexels_key=pexels_key, log_fn=log_fn)
+                if photo_path:
+                    canvas = photo_to_cover_canvas(photo_path, width, height, oversize=1.0)
+                    background = grade_photo(canvas, niche_name, silhouette=silhouette)
+            except Exception as e:
+                log_fn(f"    Real photo background (non-fatal, falling back to drawn scene): {e}")
+        if background is None:
+            background = _draw_scene_background(
+                niche_name, seed=seg_index * 31 + (7 if silhouette else 0), width=width, height=height,
+                force_scene="room_window" if silhouette else None)
         cycle_speed = 2 * math.pi / (fps * (1.6 if action in ("WALK", "RUN") else 4.0))
         phase_offset = (seg_index * 1.7) % 6.28
         cx_frac = 0.72 if silhouette else 0.30
@@ -457,26 +483,34 @@ def _render_common(niche_name, segment_text, duration, seg_index, output_path,
 
 
 def generate_stickman_segment(niche_name, segment_text, text_overlay, duration, seg_index,
-                               output_path, width=W, height=H, fps=FPS, log_fn=print):
+                               output_path, width=W, height=H, fps=FPS, log_fn=print,
+                               search_terms=None, pixabay_key="", pexels_key=""):
     """
     STICKMAN register (40% of the mix). text_overlay is accepted for
     call-site compatibility but deliberately unused -- the real, word-
     synced subtitles (compose_video()'s .ass burn-in) are the only text
     that should appear on screen; this stopped burning its own separate
     keyword caption per direct user report of two competing text
-    elements on screen at once.
+    elements on screen at once. search_terms/pixabay_key/pexels_key are
+    optional -- when given, this segment's background tries a real,
+    topic-matched photo before falling back to the drawn scene (see
+    photo_background.py).
     """
     return _render_common(niche_name, segment_text, duration, seg_index, output_path,
-                           width, height, fps, log_fn, silhouette=False)
+                           width, height, fps, log_fn, silhouette=False,
+                           search_terms=search_terms, pixabay_key=pixabay_key, pexels_key=pexels_key)
 
 
 def generate_silhouette_segment(niche_name, segment_text, text_overlay, duration, seg_index,
-                                 output_path, width=W, height=H, fps=FPS, log_fn=print):
+                                 output_path, width=W, height=H, fps=FPS, log_fn=print,
+                                 search_terms=None, pixabay_key="", pexels_key=""):
     """
     SILHOUETTE register (25% of the mix) -- same real background scene,
     character rendered as a solid dark cutout in the "room_window"/
     backlit-doorway family of scenes so it reads as a distinct shot, not
     a recolor of the STICKMAN register. No burned-in text (see above).
+    search_terms/pixabay_key/pexels_key: see generate_stickman_segment.
     """
     return _render_common(niche_name, segment_text, duration, seg_index, output_path,
-                           width, height, fps, log_fn, silhouette=True)
+                           width, height, fps, log_fn, silhouette=True,
+                           search_terms=search_terms, pixabay_key=pixabay_key, pexels_key=pexels_key)

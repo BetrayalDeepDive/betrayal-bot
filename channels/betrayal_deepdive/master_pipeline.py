@@ -4789,6 +4789,46 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         # language even when a content noun is also present.
         kw = f"{base_kw} {specific_term}" if specific_term else base_kw
 
+        # search_terms built here (not just at the footage-fallback point
+        # below) so the animated STICKMAN/SILHOUETTE dispatch can ALSO use
+        # it for real photo backgrounds (see photo_background.py) --
+        # direct user follow-up after seeing the procedurally-drawn
+        # sample backgrounds: "the pictures look the same... too
+        # generic... can we use real pictures for it... if it talks
+        # about some kind of dark room, it should show a dark room...
+        # walking in a forest, show that... murderous place, show
+        # that... office, show that." Single list, reused by both the
+        # photo-background fetch and the existing video-footage
+        # fallback below, instead of building it twice.
+        # topic_anchor (alone, paired with the niche's fallback mood word)
+        # is tried before falling all the way back to fully generic terms,
+        # so a query that fails with the local narration word still gets
+        # one more real, topic-specific shot before giving up on specificity.
+        search_terms = [kw]
+        if topic_anchor and specific_term != topic_anchor:
+            search_terms.append(f"{base_kw} {topic_anchor}")
+        # FIX (direct user report, July 24 2026 — "stock footage...
+        # according to the nation... without fail... main priority"):
+        # nation+subject variants tried early, ahead of the niche-mood-
+        # only fallbacks, so the story's real detected country genuinely
+        # influences which footage gets picked whenever a real hit exists
+        # for it — kept to 2-word queries (nation + one real term) since
+        # 3+ word combined queries return far fewer real hits in practice.
+        if nation_context:
+            if specific_term:
+                search_terms.append(f"{nation_context} {specific_term}")
+            search_terms.append(f"{nation_context} {base_kw}")
+        # FIX (direct user report, July 24 2026 — "nonsensical background...
+        # random footage"): the chain used to end on the fully generic
+        # "cinematic dark atmosphere" query, which is where the completely
+        # unrelated forest/ocean/butterfly clips actually came from — a
+        # 2-word aesthetic phrase with no topic or niche grounding at all.
+        # Removed: the niche's own BG_KEYWORDS entry (still niche-mood-
+        # matched, just not story-specific) is now the true last resort
+        # before a neutral black clip, which is a better outcome than
+        # visibly wrong footage.
+        search_terms += [base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]
+
         clip_path  = str(WORK_DIR / f"seg_{i}.mp4")
 
         # FIX (direct user request, July 25 2026 — "move channel 1 and
@@ -4836,17 +4876,20 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                 ok = generate_text_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
             elif register == SILHOUETTE:
                 from stickman_animation import generate_silhouette_segment
-                ok = generate_silhouette_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+                ok = generate_silhouette_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
+                                                  search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
             elif register == RECREATION:
                 from scene_recreation import generate_recreation_segment
-                ok = generate_recreation_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+                ok = generate_recreation_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
+                                                  search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
             elif register == MAP:
                 from map_animation import generate_map_segment
                 ok = generate_map_segment(niche["name"], _map_country_feature, _map_all_features,
                                            display_text, segment_dur, i, clip_path, log_fn=log)
             else:
                 from stickman_animation import generate_stickman_segment
-                ok = generate_stickman_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
+                ok = generate_stickman_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
+                                                search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
             if ok:
                 fetched_clips.append(clip_path)
                 continue
@@ -4855,34 +4898,6 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
 
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
         downloaded = False
-        # topic_anchor (alone, paired with the niche's fallback mood word)
-        # is tried before falling all the way back to fully generic terms,
-        # so a query that fails with the local narration word still gets
-        # one more real, topic-specific shot before giving up on specificity.
-        search_terms = [kw]
-        if topic_anchor and specific_term != topic_anchor:
-            search_terms.append(f"{base_kw} {topic_anchor}")
-        # FIX (direct user report, July 24 2026 — "stock footage...
-        # according to the nation... without fail... main priority"):
-        # nation+subject variants tried early, ahead of the niche-mood-
-        # only fallbacks, so the story's real detected country genuinely
-        # influences which footage gets picked whenever a real hit exists
-        # for it — kept to 2-word queries (nation + one real term) since
-        # 3+ word combined queries return far fewer real hits in practice.
-        if nation_context:
-            if specific_term:
-                search_terms.append(f"{nation_context} {specific_term}")
-            search_terms.append(f"{nation_context} {base_kw}")
-        # FIX (direct user report, July 24 2026 — "nonsensical background...
-        # random footage"): the chain used to end on the fully generic
-        # "cinematic dark atmosphere" query, which is where the completely
-        # unrelated forest/ocean/butterfly clips actually came from — a
-        # 2-word aesthetic phrase with no topic or niche grounding at all.
-        # Removed: the niche's own BG_KEYWORDS entry (still niche-mood-
-        # matched, just not story-specific) is now the true last resort
-        # before a neutral black clip, which is a better outcome than
-        # visibly wrong footage.
-        search_terms += [base_kw, BG_KEYWORDS.get(niche["name"], ["dark shadows"])[i % 3]]
         for search_kw in search_terms:
             if downloaded: break
             try:

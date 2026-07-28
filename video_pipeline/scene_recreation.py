@@ -22,12 +22,17 @@ FPS = 24
 
 
 def generate_recreation_segment(niche_name, segment_text, text_overlay, duration, seg_index,
-                                 output_path, width=W, height=H, fps=FPS, log_fn=print):
+                                 output_path, width=W, height=H, fps=FPS, log_fn=print,
+                                 search_terms=None, pixabay_key="", pexels_key=""):
     """
-    Renders ONE minimal-scene-recreation clip: a real procedural
-    environment (matched to the niche's visual language, varied per
-    segment via the seed) with a slow cinematic Ken Burns zoom/pan.
-    Returns True/False, never raises.
+    Renders ONE minimal-scene-recreation clip: a REAL, topic-matched
+    environment photo when one is found (direct user follow-up: "can we
+    use the real pictures for it so that it feels more entertaining than
+    a made-up background... if it talks about a dark room, it should
+    show a dark room... walking in a forest, show that"), falling back
+    to the procedural environment builder otherwise -- with a slow
+    cinematic Ken Burns zoom/pan either way. Returns True/False, never
+    raises.
     """
     rnd = random.Random(seg_index * 53 + 7)
     n_frames = max(1, int(round(duration * fps)))
@@ -39,7 +44,21 @@ def generate_recreation_segment(niche_name, segment_text, text_overlay, duration
     OW, OH = int(width * 1.35), int(height * 1.35)
 
     try:
-        base = _draw_scene_background(niche_name, seed=seg_index * 97 + 3, width=OW, height=OH)
+        base = None
+        if search_terms and (pixabay_key or pexels_key):
+            try:
+                from photo_background import fetch_photo_background, photo_to_cover_canvas, grade_photo
+                photo_cache = Path(output_path).parent / f"photobg_recreate_{seg_index}.jpg"
+                photo_path = fetch_photo_background(
+                    search_terms, niche_name, str(photo_cache),
+                    pixabay_key=pixabay_key, pexels_key=pexels_key, log_fn=log_fn)
+                if photo_path:
+                    canvas = photo_to_cover_canvas(photo_path, width, height, oversize=1.35)
+                    base = grade_photo(canvas, niche_name, silhouette=False)
+            except Exception as e:
+                log_fn(f"    Recreation real photo (non-fatal, falling back to drawn scene): {e}")
+        if base is None:
+            base = _draw_scene_background(niche_name, seed=seg_index * 97 + 3, width=OW, height=OH)
 
         zoom_start, zoom_end = (1.0, 1.15) if rnd.random() < 0.5 else (1.15, 1.0)
         pan_dx = rnd.choice([-1, 1]) * (OW - width) * 0.5
