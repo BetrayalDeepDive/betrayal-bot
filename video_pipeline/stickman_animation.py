@@ -216,11 +216,22 @@ def _draw_scene_background(niche_name, seed, width=W, height=H, force_scene=None
     ground_shade = tuple(max(0, int(c * 0.6)) for c in glow_band)
     draw.rectangle([0, horizon, width, height], fill=ground_shade)
 
-    # Real, visible silhouette shapes: near-black regardless of the
-    # niche background color, so they always read as solid cutouts
-    # against the lighter glow band above, the same way a real night
-    # skyline/treeline photograph looks.
-    silhouette_shade = (max(0, bg[0] - 4), max(0, bg[1] - 4), max(0, bg[2] - 2))
+    # FIX (found live, July 29 2026 -- direct user report "the background
+    # doesn't even match, stickman is doing nonsense things"): the comment
+    # right above this used to claim silhouette_shade was "near-black
+    # regardless of the niche background color" but the actual value was
+    # bg-4 -- i.e. within 2-4 RGB units of the sky it's supposed to
+    # contrast against. Confirmed live by extracting real rendered frames:
+    # an "alleyway" scene showed a flat black frame with only a thin
+    # hanging-bulb wire and glow visible -- the two flanking building
+    # walls were there in code but functionally invisible, indistinguishable
+    # from both the dark sky and most of the glow gradient. A fixed,
+    # genuinely near-black tone (independent of bg, since bg is often
+    # already near-black itself) is what actually delivers the comment's
+    # original intent: a real dark cutout that only needs to out-contrast
+    # the BRIGHTEST part of the glow band near the horizon to read as a
+    # skyline silhouette, the way a real night photo looks.
+    silhouette_shade = (5, 5, 7)
 
     # FIX (found via real render + frame inspection this session): the
     # SILHOUETTE register MUST land on a backlit scene -- a silhouette
