@@ -359,5 +359,252 @@
     "status": "pending",
     "created_at": "2026-07-27T21:26:56.296762",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "1da8fdcde26b",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The 7-Day Isolation Tactic Used by Cult Leaders in [Specific Location]",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 6.0,
+      "source_depth": 7.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The topic has strong viral potential but may struggle with evergreen value, as cult tactics can be highly context-specific and not universally applicable.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:09:34.544807",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "e5c7c06ba17b",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Analyzing the Gaslighting Techniques of [Famous Personality] in [Specific Incident]",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 6.0,
+      "source_depth": 8.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The topic has strong viral pull but may struggle with long-term relevance and actionable products that extend beyond the specific incident.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:11:33.246473",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "1bedfb99a30d",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "How a 5-Minute Conversation Changed the Lives of 12 People Forever",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 6.0,
+      "source_depth": 5.0,
+      "monetization_fit": 7.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The weakest dimension is source_depth, as while individual stories can be compelling, finding enough verifiable material to sustain a full-length documentary may be challenging.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:13:03.663015",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "2a435d24bdad",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Inside the Mind of a 30-Year-Old Serial Gaslighter in [City Name]",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 4.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 3.0
+    },
+    "composite_score": 5.45,
+    "reasoning": "The concept is intriguing and likely to attract clicks, but the niche focus may limit its lasting appeal and broader applicability.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:14:37.409273",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "aca9c2223291",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Hidden Games Played by [Specific Corporation] Against Their Employees",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 6.0,
+      "source_depth": 7.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The weakest dimension is product_fit, as while the topic is intriguing, it may not easily translate into a reusable framework or product beyond the narrative itself.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:16:15.268818",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "3f303d5697ec",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Exploring the Psychological Impact of [Specific Historical Event] on Survivors",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 5.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 7.05,
+    "reasoning": "The monetization fit is weaker because while the topic can engage viewers, it may not lead to a clear call to action or revenue-generating product.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:18:02.949699",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "c761eb637b33",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Dark Secrets of [Famous Author] and Their Manipulative Relationships",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "Product fit is weak because the topic is likely a standalone narrative and doesn\u2019t naturally lend itself to reusable frameworks or broader lessons.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:19:36.066790",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "8a1ffc79bcc1",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Why [Specific Family] Was Torn Apart by Gaslighting \u2013 A 10-Year Journey",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 6.0,
+      "source_depth": 7.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The topic is compelling and emotionally charged, but its niche appeal may limit broader interest and monetization opportunities.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:21:14.509894",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "601cafd77059",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The 6 Psychological Traps of [Specific Reality Show] Contestants",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 5.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 5.5,
+    "reasoning": "Monetization_fit is the weakest dimension because the specific topic does not naturally align with promoting a product or resource beyond generic psychology or entertainment-related content, limiting strong CTAs.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:22:51.654731",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "ac0985c4e815",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "Gaslighting: The Silent Killer in [Specific Community or Group]",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 9.0,
+      "monetization_fit": 6.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 7.15,
+    "reasoning": "The weakest dimension is product_fit, as while the topic is compelling, it may not easily translate into a reusable framework or product without additional context or resources.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:24:53.749730",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "bfb4b8ce53ef",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Shocking Truth Behind [Specific Number] Unsuspecting Victims of Deceit",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 6.0,
+      "source_depth": 7.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The topic may attract viewers initially, but its reliance on a specific number could limit its lasting relevance and the ability to create reusable frameworks.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:27:23.946274",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "514352197de3",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "How a 15-Year Friendship Was Destroyed by Subtle Gaslighting Techniques",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The weakest dimension is product_fit, as while the topic is engaging, it may not translate into a reusable framework or product appeal beyond the initial narrative.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:29:29.502436",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "6cb496750b44",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Role of Social Media in Modern-Day Gaslighting: A Case Study of [Event]",
+    "niche_name": "psychological_trap",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 5.0,
+      "source_depth": 7.0,
+      "monetization_fit": 6.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.2,
+    "reasoning": "The topic has strong viral potential due to the relevance of social media, but its evergreen value is limited as gaslighting trends could evolve or fade over time.",
+    "product_route": "dark-manipulation-tactics-handbook",
+    "status": "pending",
+    "created_at": "2026-07-29T07:31:10.120214",
+    "produced_episode_number": null
   }
 ]
