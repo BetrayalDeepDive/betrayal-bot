@@ -2,19 +2,20 @@
 Ch1 multi-register scene classifier — decides, per narration segment,
 which visual register the user specified should render it:
 
-    STICKMAN     26%  — default character-scene narration (walk/run/etc,
-                         stickman_animation.py's existing action rig)
-    SILHOUETTE   14%  — suspense/atmosphere beats (alone, silence, dark)
-    BOARD        16%  — evidence/investigation beats (discovered, records,
+    STICKMAN      4%  — genuine action beats only (walk/run/physical
+                         struggle with no evidence/location/quote signal),
+                         stickman_animation.py's existing action rig
+    SILHOUETTE    3%  — suspense/atmosphere beats (alone, silence, dark)
+    BOARD        28%  — evidence/investigation beats (discovered, records,
                          case file) -> corkboard + pinned evidence + red string
-    MOTION        9%  — timeline/recap beats (days later, meanwhile) ->
+    MOTION       10%  — timeline/recap beats (days later, meanwhile) ->
                          animated timeline bar (this IS the "Timelines"
                          register -- same renderer, no separate one needed)
-    TEXT          5%  — a real quoted line -> kinetic word-by-word text
-    RECREATION   18%  — "Minimal Scene Re-creation": a real, niche-matched
+    TEXT          4%  — a real quoted line -> kinetic word-by-word text
+    RECREATION   30%  — "Minimal Scene Re-creation": a real, niche-matched
                          environment shot with no character, Ken Burns
                          pan/zoom -> scene_recreation.py
-    MAP          12%  — "Animated Maps": real-geography clip highlighting
+    MAP          21%  — "Animated Maps": real-geography clip highlighting
                          the story's actual country -> map_animation.py.
                          ONLY eligible for episodes where a real place is
                          actually named (see MAP_ELIGIBLE below) -- its
@@ -48,13 +49,21 @@ STICKMAN, SILHOUETTE, BOARD, MOTION, TEXT, RECREATION, MAP = (
 )
 
 TARGET_MIX = {
-    STICKMAN:   0.26,
-    SILHOUETTE: 0.14,
-    BOARD:      0.16,
-    MOTION:     0.09,
-    TEXT:       0.05,
-    RECREATION: 0.18,
-    MAP:        0.12,
+    # Rebalanced per direct user feedback (29 Jul 2026): the two character
+    # registers were the only ones ever flagged as not working across
+    # every round of review. BOARD/RECREATION/MAP/MOTION/TEXT render real
+    # photos, real documents, and real geography -- none of them have
+    # been the subject of a single complaint -- so they now carry the
+    # mix and STICKMAN/SILHOUETTE are held back for genuine action beats
+    # only (a literal walk/run/physical-struggle line with no evidence,
+    # location, or quote signal), not as the default filler they used to be.
+    STICKMAN:   0.04,
+    SILHOUETTE: 0.03,
+    BOARD:      0.28,
+    MOTION:     0.10,
+    TEXT:       0.04,
+    RECREATION: 0.30,
+    MAP:        0.21,
 }
 
 # When an episode's real content never actually names a place (checked via
