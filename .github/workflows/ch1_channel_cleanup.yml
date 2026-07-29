@@ -1,0 +1,67 @@
+name: Ch1 Channel Cleanup (unlist / delete old videos)
+
+# Manual only — never scheduled. This touches the live YouTube channel, so it
+# only ever runs when a human explicitly starts it.
+#
+# Default mode is "list", which changes nothing and just prints an inventory.
+# Deleting additionally requires typing the exact confirm phrase, so a
+# mis-click produces a listing rather than an irreversible deletion.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "What to do"
+        required: true
+        default: "list"
+        type: choice
+        options:
+          - list      # inventory only, changes nothing
+          - unlist    # hide from the channel — REVERSIBLE
+          - delete    # permanent, cannot be undone
+      confirm:
+        description: "For delete only: type DELETE_MY_VIDEOS exactly"
+        required: false
+        default: ""
+        type: string
+      keep_ids:
+        description: "Optional: comma-separated video IDs to spare"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: ch1-channel-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Show what is about to run
+        run: |
+          echo "mode     = ${{ inputs.mode }}"
+          echo "keep_ids = ${{ inputs.keep_ids }}"
+          if [ "${{ inputs.mode }}" = "delete" ]; then
+            echo "::warning::DELETE mode selected — this is permanent and cannot be undone."
+          fi
+
+      - name: Run cleanup
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          MODE:     ${{ inputs.mode }}
+          CONFIRM:  ${{ inputs.confirm }}
+          KEEP_IDS: ${{ inputs.keep_ids }}
+        run: python -u tools/channel_cleanup.py
