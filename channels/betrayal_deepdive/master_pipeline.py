@@ -613,23 +613,24 @@ NICHES = [
         "search_query": "dark horror true story documentary",
         "dread_style": "physical dread — something real in shared space without anyone knowing",
         "implication": "the listener has almost certainly been somewhere wrong was happening without ever sensing it",
-        # FIX (direct user report, July 27 2026 -- "it keeps giving the same
-        # thing... for the last 4.5 to 5 days"): expanded from 4 to 10.
-        # This list is the last-resort fallback when the AI-generated
-        # fresh_topic_ideas fails or runs out mid-episode -- with only 4
-        # entries, every attempt past the first few (or an entire day when
-        # the AI call failed) recycled the exact same 4 topics verbatim.
+        # FIX (direct user report, July 29 2026 -- "we still have four more
+        # channels... find out what can be done"): replaced with real,
+        # historically documented cases. The previous list (still visible
+        # in git history) was every one of these anonymized as "a family"/
+        # "a hiker"/"a woman" -- real-feeling but AI-invented, exactly the
+        # complaint pattern found and fixed for Ch5's finance niches via
+        # FRED. Every entry below names an actual, independently verifiable
+        # case a viewer could look up -- most still formally unsolved or
+        # unexplained, which is itself the honest hook, not an invented one.
         "topics": [
-            "A family discovered something had been living inside their walls for three years — they found out when the child stopped sleeping",
-            "A night-shift nurse documented 14 incidents nobody believed — until the third patient died the same way",
-            "A hiker survived something in those mountains that three search teams still cannot explain",
-            "A woman received a letter from herself — postmarked the day after she was reported missing",
-            "A landlord found a locked room behind a bricked-over wall that every previous tenant had somehow never mentioned",
-            "A family's new smart home camera recorded the same silhouette standing in the hallway on 11 separate nights",
-            "A radio operator picked up the same distress call, word for word, on the same frequency for six straight years",
-            "An entire street lost power for four minutes every night at the same exact time — no utility company could explain why",
-            "A demolition crew found something bricked into a wall that made them stop work and call the police instead",
-            "A family inherited a house where every single smoke detector had been quietly disconnected by the previous owner",
+            "The Dyatlov Pass incident: nine hikers found dead in Russia's Ural Mountains in 1959, in circumstances still formally unresolved",
+            "The Isdal Woman: an unidentified woman found dead in Norway in 1970, her real identity and cause of death never established",
+            "The Sodder children: five siblings who vanished from a West Virginia house fire in 1945, a case their family spent decades trying to reopen",
+            "The Bennington Triangle: a real cluster of unexplained disappearances in Vermont's Glastenbury Mountain area through the 1940s and 1950s",
+            "The Hinterkaifeck murders: an entire German farming family killed in 1922, in a case that remains formally unsolved a century later",
+            "The Watcher house: a real New Jersey family who received anonymous threatening letters after buying a home in 2014, a case that became real litigation",
+            "The Villisca axe murders: a real 1912 Iowa case in which an entire family and their houseguests were killed, never formally solved",
+            "The Springfield Three: three real Missouri women who vanished from a single home in 1992, a case still formally open",
         ],
         "dread_triggers": [
             "the slow realisation something was wrong long before anyone understood it",
@@ -643,17 +644,16 @@ NICHES = [
         "search_query": "dark psychology manipulation documentary true story",
         "dread_style": "the horror of realising you were chosen, not met — the illusion of connection dismantled",
         "implication": "the listener may have been targeted and interpreted the warning signs as love",
+        # FIX (direct user report, July 29 2026): replaced the anonymized
+        # "a charismatic figure"/"a partner" composites with real, named,
+        # independently verifiable cases -- same fix as dark_horror above.
         "topics": [
-            "A charismatic figure destroyed 23 lives over 8 years using the exact same 14-step method on every target",
-            "A relationship revealed to have been planned in complete detail three years before they ever met",
-            "How one person convinced seven strangers to cut off their entire families within a single month",
-            "The manipulation blueprint used to drain targets of their finances, identity, and sense of reality",
-            "A dating profile that was reverse-engineered from a psychological profile of the target, built weeks before the first message",
-            "A partner who kept a private file on every target's fears, ranked by how effectively each one had been used",
-            "A single phrase, used on 40 different targets over a decade, that reliably ended every argument in their favor",
-            "A relationship that survived three public exposures because each victim was convinced they were the one exception",
-            "A support group founded by the very person its members were trying to recover from",
-            "A love-bombing campaign so precisely timed that four separate targets described the identical turning point down to the day",
+            "Sante Kimes: the real mother-and-son con-artist team whose decades of manipulation and fraud ended in a 1998 murder conviction",
+            "Anna Sorokin, known as Anna Delvey: the real con artist convicted in 2019 of defrauding New York's social and financial elite",
+            "John Meehan, the real man behind 'Dirty John': his extensively documented pattern of courting and controlling partners before his 2016 death",
+            "Robert Hendy-Freegard: the real British con man convicted in 2005 of controlling multiple partners for years by posing as an undercover agent",
+            "Simon Leviev, the real figure behind 'The Tinder Swindler': the documented allegations and Israeli fraud convictions that predated the persona",
+            "Marcus Schrenker: the real 2009 staged plane-crash insurance fraud that unraveled a documented pattern of deception toward his own family",
         ],
         "dread_triggers": [
             "the moment the target realised the relationship had never been real",
@@ -667,17 +667,20 @@ NICHES = [
         "search_query": "psychological trap gaslighting documentary investigation",
         "dread_style": "the horror of a system — chaos was actually a designed process",
         "implication": "the listener may currently be inside a trap and interpreting it as a difficult relationship",
+        # FIX (direct user report, July 29 2026): replaced the anonymized
+        # "a workplace"/"a family structure" composites with real, named
+        # cults/control systems -- same fix as the other niches above.
+        # Subjects are deceased or federally convicted, so every claim
+        # below is on safe, well-documented public record.
         "topics": [
-            "A 9-stage system designed to make targets financially, emotionally, and socially dependent",
-            "How sustained gaslighting over 18 months made a clinical psychologist unable to trust her own memory",
-            "The psychological trap that claimed over 4,000 documented victims across 12 countries",
-            "The social media campaign that systematically dismantled a person's entire sense of identity",
-            "A workplace where new hires were secretly rotated through the exact same manufactured crisis, one at a time",
-            "A journal that proved a person's own memories had been rewritten in small increments over five years",
-            "A support system that convinced its members every external relationship was the actual source of their problems",
-            "A family structure that quietly rewrote the youngest child's version of events every single year until nothing matched",
-            "A therapist's notes revealing a client's reality had been reshaped by someone she trusted completely",
-            "A recorded confrontation where the target realized, in real time, that the discussion itself had been staged",
+            "Jonestown and the Peoples Temple: Jim Jones's real psychological control system, ending in over 900 deaths in Guyana in November 1978",
+            "The Manson Family: Charles Manson's real, documented programming of his followers at Spahn Ranch, 1967-1969",
+            "Synanon: the real California addiction-treatment group Charles Dederich turned into a documented, increasingly violent control system through the 1970s and 80s",
+            "NXIVM: Keith Raniere's real DOS branding and blackmail system, resulting in his 2019 federal conviction",
+            "Heaven's Gate: the real belief system that led to 39 documented deaths in Rancho Santa Fe, California, in March 1997",
+            "The Rajneeshpuram commune: the real, documented 1984 bioterror attack and control system built around Bhagwan Shree Rajneesh in Oregon",
+            "Children of God, later The Family International: the real, documented recruitment and control tactics used across several decades",
+            "Larry Ray: his real, documented psychological control of a group of Sarah Lawrence College students, resulting in a 2022 federal conviction",
         ],
         "dread_triggers": [
             "the stage where the target stops trusting their own memory",
@@ -691,17 +694,17 @@ NICHES = [
         "search_query": "unexplained paranormal evidence documentary classified",
         "dread_style": "the horror of evidence that cannot be explained — the rational framework collapsing",
         "implication": "the listener has probably had an experience they dismissed that deserves to be reconsidered",
+        # FIX (direct user report, July 29 2026): replaced anonymized
+        # "a town"/"a hospital ward" composites with real, named,
+        # independently verifiable investigations. Framed around the real
+        # documented investigation and witness record, not around
+        # asserting the paranormal explanation as settled fact.
         "topics": [
-            "A 2019 incident with 14 unconnected witnesses — classified by three agencies within 72 hours",
-            "Every occupant of the building reported the identical auditory experience — confirmed by instruments",
-            "A medical case where the patient described events they could not have witnessed from their location",
-            "A location where 11 of 300 tourists reported the exact same vision on the same afternoon",
-            "A research station's instruments recorded the same anomalous reading at the same hour on 40 consecutive days",
-            "A pilot's black-box recording captured something the entire crew separately described identically in their statements",
-            "A town where every household's compass pointed the same wrong direction for exactly six weeks",
-            "A hospital ward where three unrelated patients, on different nights, described the same detailed vision down to the color",
-            "A sealed archive of a case the investigating agency itself admitted it had never closed",
-            "A camera crew's raw, unedited footage that contains eleven seconds neither the crew nor the equipment log can account for",
+            "The Enfield Poltergeist: the real 1977-79 London investigation, including recorded witness statements and the Society for Psychical Research's own documented findings",
+            "The Amityville case: the real 1975-76 claims made by the Lutz family, and the hoax later admitted by their own defense attorney",
+            "The Borley Rectory investigations: the real early-20th-century paranormal investigations at an English rectory, later substantially discredited by follow-up research",
+            "The Bell Witch case: the real early-19th-century Tennessee accounts, documented in contemporaneous local records that predate any film or book treatment",
+            "The Hessdalen lights: the real, ongoing scientific instrument-monitored investigation of unexplained lights in a Norwegian valley since the 1980s",
         ],
         "dread_triggers": [
             "the evidence no rational explanation can account for",
@@ -715,17 +718,15 @@ NICHES = [
         "search_query": "obsession stalking dark documentary true crime",
         "dread_style": "the horror of invisible fixation — a life shaped by someone watching from outside",
         "implication": "the listener may have someone in their life whose interest extends far beyond what it appears",
+        # FIX (direct user report, July 29 2026): replaced anonymized
+        # "a stalker"/"a neighbor" composites with real, named cases with
+        # legal outcomes on public record.
         "topics": [
-            "4,380 consecutive days of obsessive behaviour documented in handwritten detail across 47 notebooks",
-            "A stalker who embedded as a trusted friend for three years before a single person noticed",
-            "An obsession that removed every relationship, asset, and ambition the subject built over seven years",
-            "A person who dedicated a decade to watching someone they had never spoken a word to",
-            "A neighbor who kept a detailed log of a family's schedule for nine years before anyone realized why the timing always worked",
-            "An employee who engineered a decade of career moves solely to stay near one specific coworker",
-            "A collection of photographs spanning 15 years that the subject never once knew were being taken",
-            "A person whose entire online identity was built, over six years, to mirror a stranger they had never met in person",
-            "A fan letter archive revealing a decade-long pattern the recipient's own family had dismissed as harmless",
-            "A private investigator hired by someone who had never once spoken to the person they were paying to be watched",
+            "Mark David Chapman's real, documented obsession with John Lennon in the months before the December 1980 murder",
+            "John Hinckley Jr.'s real, documented obsession with actress Jodie Foster before his 1981 assassination attempt on President Reagan",
+            "Robert Bardo's real, documented multi-year obsession with actress Rebecca Schaeffer before her 1989 murder — a case that directly led to new US anti-stalking laws",
+            "Arthur Jackson's real, documented years-long stalking of actress Theresa Saldana, culminating in a 1982 attack",
+            "Margaret Ray's real, extensively documented decade-long obsession with talk-show host David Letterman through the 1980s and 90s",
         ],
         "dread_triggers": [
             "the detail revealing how long the observation had actually been happening",
@@ -2151,6 +2152,15 @@ def build_script_prompt(niche, topic, episode, attempt,
 TOPIC: {topic}
 SERIES: {niche["series"]} — Episode {episode}
 {trend_block}{pattern_block}{research_block}
+
+FACTUAL DISCIPLINE (direct requirement, not optional): this topic names a
+real, historical case. Only state facts that are genuinely, publicly
+documented about it — do not invent a direct quote or dialogue and
+attribute it to a real named person as if they actually said it. Where a
+specific number, date, or detail isn't something you're confident is
+real, describe it in general terms instead of inventing a precise-sounding
+figure. Specificity should come from real documented details already
+known about this case, not from manufacturing new ones.
 
 TOTAL WORD REQUIREMENT: {MIN_WORDS} to {MAX_WORDS} words.
 Each stage must hit its target. If any stage runs short, expand with more specific evidence.
@@ -5673,6 +5683,24 @@ def fetch_case_relevant_image(topic, niche_name, out_path):
     mod = niche_mod.get(niche_name, "dark dramatic")
     full_query = f"{search_kw} {mod}"
 
+    # v1 addition (direct user request, July 29 2026) — try a REAL photo
+    # of the actual named case first via Wikimedia Commons (free, keyless
+    # historical-photo archive) before falling back to generic
+    # mood-keyword stock photos below. Only the raw topic keywords are
+    # used here (no niche mood modifier) since Commons is a real-photo
+    # encyclopedia, not a stock-mood search -- "Jonestown" finds a real
+    # photo, "Jonestown dark corridor abstract" would not. Falls straight
+    # through to the existing Pixabay/Pexels/Pollinations chain,
+    # unchanged, for any topic Commons has nothing real for.
+    try:
+        from real_case_images import search_wikimedia_commons
+        ok, license_short = search_wikimedia_commons(search_kw, out_path)
+        if ok:
+            log(f"  Case image (Wikimedia Commons, real photo, {license_short}): {search_kw}")
+            return True, "photo"
+    except Exception as e:
+        log(f"  Wikimedia Commons (non-fatal): {e}")
+
     # Try Pixabay photos first
     if PIXABAY_KEY:
         try:
@@ -6423,6 +6451,32 @@ def build_three_channel_cross_promo(niche_name, is_short=False):
     )
 
 
+def _is_real_named_topic(t):
+    """
+    Real-case validator (direct user request, July 29 2026): rejects
+    AI-invented anonymized composites ("a family", "a stalker") the same
+    way the bracket-leak check above it already rejects unfilled
+    template placeholders. A topic passes if it names a real year
+    (1800-2029) or contains a proper-noun-looking word after its first
+    word -- catches real names like "Jonestown", "Manson", "NXIVM",
+    "Sante Kimes" while still letting through the occasional false
+    positive, which is fine: the goal is steering the model and
+    filtering the worst offenders, not perfect classification.
+    """
+    if not isinstance(t, str) or not t.strip():
+        return False
+    if re.search(r"\b(18|19|20)\d{2}\b", t):
+        return True
+    generic_starts = {"the", "a", "an"}
+    for i, w in enumerate(t.split()):
+        if i == 0:
+            continue
+        clean = w.strip(",.:;\"'()")
+        if clean and clean[0].isupper() and clean.lower() not in generic_starts:
+            return True
+    return False
+
+
 def run_ch1_viral_intelligence(niche):
     """
     Viral intelligence engine for Ch1 (ported from Ch2).
@@ -6448,12 +6502,27 @@ def run_ch1_viral_intelligence(niche):
     # to the tiny 4-item static niche["topics"] list. Direct user follow-up
     # request: raised to 18 (minimum) so a genuinely successful call has
     # more fresh topics than the 13-attempt engine can ever exhaust.
+    # FIX (direct user report, July 29 2026 -- "find out what can be done"):
+    # this used to ask for topics that merely SOUND real ("real-feeling"),
+    # which is exactly how every static niche["topics"] fallback ended up
+    # as anonymized "a family"/"a stalker" composites instead of actual,
+    # checkable cases -- the same root cause found and fixed for Ch5's
+    # finance niches (AI told to sound documented, never told to BE
+    # documented). Now requires an actual, real, independently verifiable
+    # case by name -- validated below, not just requested.
     prompt = f"""Analyze the TOP 20 most viral dark documentary YouTube videos (2M+ views) in the
 "{niche['search_query']}" niche.
-fresh_topic_ideas must contain a MINIMUM of 18 DISTINCT, specific, real-feeling
-topic premises (not generic) in this niche's style, each 15-30 words, each
-naming a concrete specific detail (a number, a role, a place) -- not
-near-duplicates of each other.
+fresh_topic_ideas must contain a MINIMUM of 18 DISTINCT topic premises, each
+15-30 words, each about a REAL, independently verifiable historical case --
+a real named person, cult, con artist, disappearance, or investigation a
+viewer could look up on Wikipedia and confirm. Every single topic MUST
+literally name the real case (a real person's name, a real place, or a
+real event name) plus, where known, a real year. Never invent an
+anonymized composite like "a family" or "a stalker" -- if you cannot
+recall a real case that fits, name a different real case instead, do not
+fabricate one dressed up to sound real. Prefer cases where the central
+figure is deceased, convicted, or the facts are otherwise settled public
+record, since these are safest to state as fact.
 Return ONLY valid JSON:
 {{"top_hook_formulas":["Hook 1","Hook 2","Hook 3"],
 "winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
@@ -6488,7 +6557,8 @@ Return ONLY valid JSON:
             # lazy placeholder can never enter the 7-day cache at all.
             if isinstance(d.get("fresh_topic_ideas"), list):
                 d["fresh_topic_ideas"] = [t for t in d["fresh_topic_ideas"]
-                                           if isinstance(t, str) and "[" not in t and "]" not in t]
+                                           if isinstance(t, str) and "[" not in t and "]" not in t
+                                           and _is_real_named_topic(t)]
             d["last_run"] = datetime.datetime.now().isoformat()
             intel[name] = d
             state["viral_intel"] = intel
