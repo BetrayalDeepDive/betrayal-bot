@@ -32,6 +32,7 @@ lift, not attempted here until this cheaper pass is verified.
 """
 import math
 import random
+import re
 from pathlib import Path
 from PIL import Image, ImageDraw
 import numpy as np
@@ -116,11 +117,26 @@ _ACTION_PRIORITY = ("SHOCK", "COLLAPSE_KNEEL", "ANGRY_CONFRONT", "CRY_GRIEF",
                     "KNOCK_DOOR", "SEARCH_RUMMAGE", "RUN", "DANCE", "HAPPY",
                     "LOOK_AROUND", "WAIT")
 
+# FIX (found live while building a demo sample, July 29 2026): plain
+# substring matching meant "body" (a SHOCK keyword) matched inside
+# "no**body**", "every**body**", "some**body**" -- ordinary words that
+# appear constantly in narration and have nothing to do with a body
+# being found. Confirmed live: "The investigation uncovered a pattern
+# **nobody** expected" matched SHOCK via "body" before it ever reached
+# SEARCH_RUMMAGE's genuine "investigation"/"uncovered" hits, silently
+# overriding the correct pose. Same risk applies to several of this
+# session's own additions (e.g. "control" inside "controller"). Word-
+# boundary regex matching fixes both without changing any keyword list.
+_ACTION_KEYWORD_PATTERNS = {
+    action: [re.compile(r'\b' + re.escape(kw) + r'\b') for kw in kws]
+    for action, kws in _ACTION_KEYWORDS.items()
+}
+
 
 def detect_action(segment_text):
     text = (segment_text or "").lower()
     for action in _ACTION_PRIORITY:
-        if any(kw in text for kw in _ACTION_KEYWORDS[action]):
+        if any(p.search(text) for p in _ACTION_KEYWORD_PATTERNS[action]):
             return action
     return _DEFAULT_ACTION
 
