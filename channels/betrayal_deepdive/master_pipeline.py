@@ -4574,8 +4574,16 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         "summit","cave","caves","ravine","canyon","trailhead","backcountry",
         "campfire","fog","wildfire",
     }
-    _topic_words = [w.strip(".,!?;:\"'()") for w in topic.lower().split()
-                    if len(w) > 4 and w.strip(".,!?;:\"'()") not in _topic_stopwords]
+    # FIX (found live, Ch1 run 30433881228): stripped punctuation never
+    # included "[" / "]" -- an unfilled "[Specific Reality Show]" template
+    # placeholder that reached `topic` produced the literal token
+    # "[specific" here, which then became the on-screen animation keyword
+    # for 9 of 55 segments ("[STICKMAN] animated: '[specific'"). Topic
+    # generation is now filtered at its source too, but stripped here as
+    # well since a bracket is never a legitimate word fragment regardless
+    # of how it got into `topic`.
+    _topic_words = [w.strip(".,!?;:\"'()[]") for w in topic.lower().split()
+                    if len(w) > 4 and w.strip(".,!?;:\"'()[]") not in _topic_stopwords]
     from collections import Counter as _TopicCounter
     _topic_concrete = []
     for _w in _topic_words:
@@ -6440,6 +6448,22 @@ Return ONLY valid JSON:
         m = re.search(r'\{[\s\S]*\}', text)
         if m:
             d = json.loads(m.group())
+            # FIX (found live, Ch1 run 30433881228 — real production bug):
+            # the prompt above asks for "a concrete specific detail (a
+            # number, a role, a place)" but nothing ever checked the model
+            # actually did that. Confirmed live: fresh_topic_ideas returned
+            # "The 6 Psychological Traps of [Specific Reality Show]
+            # Contestants" verbatim -- the model left its own template
+            # placeholder unfilled, this got selected as the episode topic,
+            # scored 9.5/10 on Topic Clarity, and was approved for publish.
+            # The literal "[specific" token then leaked further, becoming
+            # the on-screen animation keyword for 9 of 55 segments. A
+            # bracket character in a "specific" topic is never legitimate
+            # (real topics don't contain "[" or "]") -- dropped here so a
+            # lazy placeholder can never enter the 7-day cache at all.
+            if isinstance(d.get("fresh_topic_ideas"), list):
+                d["fresh_topic_ideas"] = [t for t in d["fresh_topic_ideas"]
+                                           if isinstance(t, str) and "[" not in t and "]" not in t]
             d["last_run"] = datetime.datetime.now().isoformat()
             intel[name] = d
             state["viral_intel"] = intel
@@ -6751,10 +6775,20 @@ def run_stage1(state):
         gate = MIN_GATE
 
         # Get fresh topic each attempt
-        if _approved_topic_entry and attempt == 1:
+        # FIX (found live, Ch1 run 30433881228): defense-in-depth against
+        # unfilled "[Specific X]" template placeholders reaching `topic` --
+        # the real source (run_ch1_viral_intelligence's AI call) is now
+        # filtered too, but a 7-day-cached intel dict from before that fix,
+        # or any future path that populates fresh_topic_ideas/the backlog,
+        # could still carry one through. A bracket is never legitimate in
+        # a genuinely specific topic.
+        if _approved_topic_entry and attempt == 1 and "[" not in _approved_topic_entry["topic_text"]:
             topic = _approved_topic_entry["topic_text"]
         else:
-            fresh = intel.get("fresh_topic_ideas", niche["topics"])
+            fresh = [t for t in intel.get("fresh_topic_ideas", niche["topics"])
+                     if "[" not in t and "]" not in t]
+            if not fresh:
+                fresh = niche["topics"]
             unused = [t for t in fresh if t not in used_topics]
             topic = unused[0] if unused else random.choice(niche["topics"])
             try:
@@ -8415,6 +8449,28 @@ def main():
                        f"{' for: ' + _av_review['video_decision']['feedback'] if _av_review['video_decision']['feedback'] else ''}"
                        f" — regenerating the video assembly now, same script and audio.")
                     log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
+                    video_path = run_stage_with_retry(
+                        assemble_video, "Video", niche_name, audio_path, audio_duration,
+                        topic, script_clean, episode, real_cases, ass_path, title=title)
+                    continue  # send the newly-assembled video for another look
+                # FIX (found live, Ch1 run 30433881228): EDIT is one of the
+                # real buttons _button_keyboard() sends on the video review
+                # (approve/reject/remake/edit, same default set as audio),
+                # but this loop never had a branch for it — tapping EDIT
+                # matched none of the conditions above or below, so the
+                # loop silently fell through to the top and re-uploaded the
+                # exact same unmodified 449MB video for review again with
+                # no acknowledgment of the feedback at all (confirmed live:
+                # 3 identical re-uploads, ~3-4 minutes apart, no message
+                # ever explaining why). The only real lever at this
+                # checkpoint is a fresh visual assembly (same mechanism as
+                # SWAP VISUALS), so EDIT now does that while actually
+                # echoing back what was asked for.
+                if _v_dec == "edit":
+                    _fb_video = _av_review["video_decision"]["feedback"] or ""
+                    tg(f"🎨 Regenerating visuals per your feedback: {_fb_video}")
+                    log(f"  Video EDIT requested: '{_fb_video}' — reassembling (the video "
+                        f"checkpoint's only real lever; script changes belong at the script checkpoint).")
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
