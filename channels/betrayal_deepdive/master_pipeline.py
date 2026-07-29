@@ -3503,15 +3503,22 @@ def inject_ssml_rate(script):
             return target_idx
         return min(sentence_end_word_idxs, key=lambda x: abs(x - target_idx))
 
-    # Stage word boundaries (proportional to STAGE_WORDS), rates narrowed
+    # FIX (direct user report, July 29 2026 — "the pace was too fast"):
+    # the previous range (-5% to -10%, i.e. 90-95% of normal conversational
+    # speed) is barely slower than default at all -- nowhere near the slow,
+    # weighty delivery of a real investigative documentary narrator. Every
+    # stage moved materially slower here while keeping the same relative
+    # shape (cold open/escalation still the two fastest, the reveal still
+    # the slowest) -- still well within Kokoro's speed clamp (0.7-1.3) and
+    # Edge-TTS's own supported rate range.
     stage_rates = [
-        (100,  "-5%"),   # Cold open: urgent, attention-grabbing
-        (200,  "-7%"),   # The Before: normal documentary pace
-        (250,  "-7%"),   # First Signals: measured, building
-        (400,  "-5%"),   # Escalation: faster, momentum
-        (200,  "-8%"),   # False Resolution: slow, relief
-        (650,  "-10%"),  # Real Reveal: slower, weighty (was -18%)
-        (200,  "-8%"),   # Implication + CTA: deliberate
+        (100,  "-12%"),  # Cold open: urgent, attention-grabbing
+        (200,  "-16%"),  # The Before: measured documentary pace
+        (250,  "-16%"),  # First Signals: measured, building
+        (400,  "-12%"),  # Escalation: faster, momentum
+        (200,  "-18%"),  # False Resolution: slow, relief
+        (650,  "-24%"),  # Real Reveal: slower, weighty
+        (200,  "-18%"),  # Implication + CTA: deliberate
     ]
     segments = []
     idx = 0
@@ -4573,6 +4580,24 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         "wilderness","campsite","tent","ranger","cliff","cliffs","ridge",
         "summit","cave","caves","ravine","canyon","trailhead","backcountry",
         "campfire","fog","wildfire",
+        # FIX (direct user report, July 29 2026 — "the visuals were too
+        # random, not what I specifically asked for"): confirmed live on a
+        # reality-TV/psychological-manipulation episode ("The 6
+        # Psychological Traps of ... Contestants") -- that whole subject
+        # has ZERO matches anywhere above, so every segment fell straight
+        # to the abstract frequency-ranked fallback and searched Pixabay/
+        # Pexels for words like "psychological" and "reality", which
+        # return near-random stock photography (portraits, abstract art)
+        # with no real connection to the actual footage a reality-TV/
+        # manipulation story would show. These are the real, concrete,
+        # photographable subjects of that kind of story.
+        "contestant","contestants","interview","confessional","audition",
+        "audience","spotlight","stage","studio","microphone","cameraman",
+        "producer","contract","contracts","elimination","alliance","alliances",
+        "vote","voting","ballot","competition","dormitory","bunk","mansion",
+        "villa","therapist","therapy","counselor","support","group","hotline",
+        "manipulator","manipulation","texts","messages","voicemail","recording",
+        "recordings","interrogation","polygraph","courtroom","witness","stand",
     }
     # FIX (found live, Ch1 run 30433881228): stripped punctuation never
     # included "[" / "]" -- an unfilled "[Specific Reality Show]" template

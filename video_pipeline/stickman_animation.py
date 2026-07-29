@@ -53,11 +53,27 @@ _ACTION_KEYWORDS = {
     "RUN":            ["ran", "running", "fled", "flee", "chase", "chasing", "escape",
                         "sprint", "sprinted", "raced", "bolted"],
     "SIT_WRITE":      ["wrote", "notebook", "diary", "desk", "writing", "letter",
-                        "journal", "typed", "typing", "logged", "recorded", "documented"],
+                        "journal", "typed", "typing", "logged", "recorded", "documented",
+                        # FIX (direct user report, July 29 2026): analytical/
+                        # planning language never mapped to anything -- fell
+                        # straight to the WALK default.
+                        "analyzed", "analysis", "studied", "researched", "compiled",
+                        "calculated", "plotted", "planned", "schemed", "scheme",
+                        "orchestrated", "engineered", "devised", "strategized"],
     "ALERT":          ["pointed", "warned", "noticed", "spotted", "watched", "realized",
-                        "discovered", "stared", "witnessed", "saw"],
+                        "discovered", "stared", "witnessed", "saw",
+                        # FIX (direct user report, July 29 2026 — "background
+                        # not matching, stickman just moving"): the psychological-
+                        # manipulation/reality-TV vocabulary this niche's own
+                        # scripts actually use (manipulated, gaslit, targeted,
+                        # exploited) had zero coverage anywhere in this table.
+                        "manipulated", "manipulate", "manipulation", "controlled",
+                        "control", "targeted", "target", "exploited", "exploit",
+                        "gaslit", "gaslighting", "deceived", "deceive", "tricked",
+                        "groomed", "conditioned"],
     "SHOCK":          ["found", "dead", "body", "collapsed", "screamed", "shock",
-                        "shocked", "gasped", "horrified", "vanished", "disappeared"],
+                        "shocked", "gasped", "horrified", "vanished", "disappeared",
+                        "betrayed", "betrayal", "exposed", "unraveled", "shattered"],
     "CRY_GRIEF":      ["wept", "cried", "crying", "sobbed", "sobbing", "mourned",
                         "grief", "tears", "heartbroken", "devastated"],
     "ANGRY_CONFRONT": ["confronted", "accused", "argued", "shouted", "screamed at",
@@ -67,15 +83,29 @@ _ACTION_KEYWORDS = {
     "COLLAPSE_KNEEL": ["collapsed", "broke down", "fell to her knees", "fell to his knees",
                         "sank to the floor", "crumpled"],
     "COWER_DEFENSE":  ["cowered", "flinched", "shielded herself", "shielded himself",
-                        "recoiled", "cringed", "braced for"],
+                        "recoiled", "cringed", "braced for",
+                        "isolated", "isolation", "trapped", "cornered", "powerless",
+                        "helpless", "vulnerable"],
     "KNOCK_DOOR":     ["knocked", "opened the door", "entered the", "walked through the door",
                         "answered the door", "let her in", "let him in"],
     "SEARCH_RUMMAGE": ["searched", "rummaged", "dug through", "went through the drawer",
-                        "combed through", "ransacked", "rifled through"],
+                        "combed through", "ransacked", "rifled through",
+                        # FIX (direct user report, July 29 2026 — "when I told
+                        # it about investigative things, just moved"): this
+                        # channel's own scripts say "investigate/investigation"
+                        # constantly (it's even in the SEO hook template,
+                        # "INVESTIGATION: ..."), yet that exact word was
+                        # missing from every single category -- guaranteeing
+                        # the single most common narration beat in this whole
+                        # channel fell straight through to the generic WALK
+                        # default every time.
+                        "investigated", "investigate", "investigation", "investigating",
+                        "uncovered", "uncover", "pieced together", "traced", "examined"],
     "WAIT":           ["waited", "stood there", "watched from", "kept watch",
-                        "lingered", "stayed silent"],
+                        "lingered", "stayed silent", "left alone", "abandoned"],
     "LOOK_AROUND":    ["looked around", "scanned the room", "glanced around",
-                        "surveyed", "searched the room with her eyes", "checked the room"],
+                        "surveyed", "searched the room with her eyes", "checked the room",
+                        "monitored", "observed", "surveilled", "tracked"],
     "HAPPY":          ["laughed", "smiled", "delighted", "overjoyed", "celebrated",
                         "relieved", "grateful"],
     "DANCE":          ["danced", "dancing", "twirled", "swayed to the music"],
