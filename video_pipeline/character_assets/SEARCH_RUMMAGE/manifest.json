@@ -1,0 +1,11 @@
+{
+  "pose": "SEARCH_RUMMAGE",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 540,
+  "crop_y": 223,
+  "crop_w": 200,
+  "crop_h": 398,
+  "fps": 12
+}

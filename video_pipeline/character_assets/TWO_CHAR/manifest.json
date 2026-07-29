@@ -1,0 +1,11 @@
+{
+  "pose": "TWO_CHAR",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 370,
+  "crop_y": 97,
+  "crop_w": 570,
+  "crop_h": 542,
+  "fps": 12
+}

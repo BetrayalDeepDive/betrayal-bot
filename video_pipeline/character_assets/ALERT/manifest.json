@@ -1,0 +1,11 @@
+{
+  "pose": "ALERT",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 510,
+  "crop_y": 103,
+  "crop_w": 322,
+  "crop_h": 518,
+  "fps": 12
+}

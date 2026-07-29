@@ -1,0 +1,11 @@
+{
+  "pose": "CRY_GRIEF",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 540,
+  "crop_y": 151,
+  "crop_w": 200,
+  "crop_h": 470,
+  "fps": 12
+}

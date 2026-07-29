@@ -1,0 +1,11 @@
+{
+  "pose": "WALK",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 550,
+  "crop_y": 111,
+  "crop_w": 187,
+  "crop_h": 510,
+  "fps": 12
+}

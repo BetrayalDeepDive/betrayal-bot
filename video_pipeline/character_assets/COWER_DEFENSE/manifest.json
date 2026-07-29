@@ -1,0 +1,11 @@
+{
+  "pose": "COWER_DEFENSE",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 555,
+  "crop_y": 190,
+  "crop_w": 170,
+  "crop_h": 431,
+  "fps": 12
+}

@@ -1,0 +1,11 @@
+{
+  "pose": "KNOCK_DOOR",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 533,
+  "crop_y": 108,
+  "crop_w": 266,
+  "crop_h": 513,
+  "fps": 12
+}

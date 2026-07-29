@@ -1,0 +1,11 @@
+{
+  "pose": "SIT_WRITE",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 527,
+  "crop_y": 189,
+  "crop_w": 241,
+  "crop_h": 432,
+  "fps": 12
+}

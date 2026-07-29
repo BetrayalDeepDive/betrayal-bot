@@ -1,0 +1,11 @@
+{
+  "pose": "DANCE",
+  "n_frames": 60,
+  "full_w": 1280,
+  "full_h": 720,
+  "crop_x": 506,
+  "crop_y": 83,
+  "crop_w": 268,
+  "crop_h": 538,
+  "fps": 12
+}

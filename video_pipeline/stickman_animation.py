@@ -41,25 +41,55 @@ W, H = 1280, 720
 FPS = 24
 
 # ══════════════════════════════════════════════════════════════════
-# CONTENT -> ACTION mapping (unchanged from v1 -- this part was never
-# the complaint; the complaint was what the action was drawn ONTO).
+# CONTENT -> ACTION mapping -- expanded from the original 5 actions to
+# the full 17-pose library built this session (video_pipeline/
+# character_rig_blender.py), each pose pre-rendered once by
+# tools/build_character_assets.py and composited live by
+# character_loop.py. Order matters: checked most-specific/dramatic
+# first so a segment matching several categories lands on the one that
+# actually drives the story forward (e.g. SHOCK before WALK).
 # ══════════════════════════════════════════════════════════════════
 _ACTION_KEYWORDS = {
-    "RUN":       ["ran", "running", "fled", "flee", "chase", "chasing", "escape",
-                  "sprint", "sprinted", "raced", "bolted"],
-    "SIT_WRITE": ["wrote", "notebook", "diary", "desk", "writing", "letter",
-                  "journal", "typed", "typing", "logged", "recorded", "documented"],
-    "ALERT":     ["pointed", "warned", "noticed", "spotted", "watched", "realized",
-                  "discovered", "stared", "witnessed", "saw"],
-    "SHOCK":     ["found", "dead", "body", "collapsed", "screamed", "shock",
-                  "shocked", "gasped", "horrified", "vanished", "disappeared"],
+    "RUN":            ["ran", "running", "fled", "flee", "chase", "chasing", "escape",
+                        "sprint", "sprinted", "raced", "bolted"],
+    "SIT_WRITE":      ["wrote", "notebook", "diary", "desk", "writing", "letter",
+                        "journal", "typed", "typing", "logged", "recorded", "documented"],
+    "ALERT":          ["pointed", "warned", "noticed", "spotted", "watched", "realized",
+                        "discovered", "stared", "witnessed", "saw"],
+    "SHOCK":          ["found", "dead", "body", "collapsed", "screamed", "shock",
+                        "shocked", "gasped", "horrified", "vanished", "disappeared"],
+    "CRY_GRIEF":      ["wept", "cried", "crying", "sobbed", "sobbing", "mourned",
+                        "grief", "tears", "heartbroken", "devastated"],
+    "ANGRY_CONFRONT": ["confronted", "accused", "argued", "shouted", "screamed at",
+                        "yelled", "furious", "enraged", "demanded answers"],
+    "PHONE_CALL":     ["called", "phone rang", "answered the phone", "picked up the phone",
+                        "dialed", "hung up", "voicemail", "texted"],
+    "COLLAPSE_KNEEL": ["collapsed", "broke down", "fell to her knees", "fell to his knees",
+                        "sank to the floor", "crumpled"],
+    "COWER_DEFENSE":  ["cowered", "flinched", "shielded herself", "shielded himself",
+                        "recoiled", "cringed", "braced for"],
+    "KNOCK_DOOR":     ["knocked", "opened the door", "entered the", "walked through the door",
+                        "answered the door", "let her in", "let him in"],
+    "SEARCH_RUMMAGE": ["searched", "rummaged", "dug through", "went through the drawer",
+                        "combed through", "ransacked", "rifled through"],
+    "WAIT":           ["waited", "stood there", "watched from", "kept watch",
+                        "lingered", "stayed silent"],
+    "LOOK_AROUND":    ["looked around", "scanned the room", "glanced around",
+                        "surveyed", "searched the room with her eyes", "checked the room"],
+    "HAPPY":          ["laughed", "smiled", "delighted", "overjoyed", "celebrated",
+                        "relieved", "grateful"],
+    "DANCE":          ["danced", "dancing", "twirled", "swayed to the music"],
 }
 _DEFAULT_ACTION = "WALK"
+_ACTION_PRIORITY = ("SHOCK", "COLLAPSE_KNEEL", "ANGRY_CONFRONT", "CRY_GRIEF",
+                    "COWER_DEFENSE", "ALERT", "SIT_WRITE", "PHONE_CALL",
+                    "KNOCK_DOOR", "SEARCH_RUMMAGE", "RUN", "DANCE", "HAPPY",
+                    "LOOK_AROUND", "WAIT")
 
 
 def detect_action(segment_text):
     text = (segment_text or "").lower()
-    for action in ("SHOCK", "ALERT", "SIT_WRITE", "RUN"):
+    for action in _ACTION_PRIORITY:
         if any(kw in text for kw in _ACTION_KEYWORDS[action]):
             return action
     return _DEFAULT_ACTION
@@ -68,13 +98,6 @@ def detect_action(segment_text):
 # ══════════════════════════════════════════════════════════════════
 # NICHE -> palette + real background scene
 # ══════════════════════════════════════════════════════════════════
-NICHE_FIGURE_COLOR = {
-    "dark_horror":        (210, 220, 232),
-    "seduction_dark":     (232, 200, 208),
-    "psychological_trap": (204, 232, 216),
-    "supernatural_real":  (224, 232, 244),
-    "obsession_dark":     (232, 220, 176),
-}
 NICHE_BG_COLOR = {
     "dark_horror":        (7, 9, 14),
     "seduction_dark":     (14, 6, 8),
@@ -342,307 +365,29 @@ def _draw_scene_background(niche_name, seed, width=W, height=H, force_scene=None
     return img
 
 
-def _draw_face(draw, head_c, head_r, color, action, mirror=1):
-    """Minimal but real face -- two eyes + a brow -- the direct fix for
-    "it can't tell the story" (a faceless figure reads as an abstract
-    wireframe, not a character with a reaction)."""
-    ex = head_r * 0.35
-    ey = -head_r * 0.05
-    eye_r = max(2, head_r * 0.11)
-    for side in (-1, 1):
-        cx = head_c[0] + side * ex * mirror
-        cy = head_c[1] + ey
-        draw.ellipse([cx - eye_r, cy - eye_r, cx + eye_r, cy + eye_r], fill=color)
-        # brow: angled for alert/shock, flat otherwise
-        brow_y = cy - eye_r * 2.4
-        if action in ("ALERT", "SHOCK"):
-            tilt = eye_r * 1.1 * (1 if side * mirror > 0 else -1)
-        else:
-            tilt = 0
-        draw.line([(cx - eye_r * 1.3, brow_y + tilt * 0.3), (cx + eye_r * 1.3, brow_y - tilt * 0.3)],
-                  fill=color, width=max(2, int(head_r * 0.09)))
-
-
-def _draw_walk_run(draw, cx, cy, phase, color, scale, running=False, filled=True, action="WALK"):
-    s = scale
-    speed = 1.4 if running else 1.0
-    lean = 8 if running else 0
-    hip_y = cy - (26 if running else 14)*s*abs(math.sin(phase*2))
-    hip = (cx, hip_y)
-    neck = (cx + lean*s, hip_y - 55*s)
-    shoulder_w = 15*s
-    l_sh = (neck[0] - shoulder_w, neck[1] + 4*s)
-    r_sh = (neck[0] + shoulder_w, neck[1] + 4*s)
-    head_c = (neck[0] + lean*0.5*s, hip_y - 80*s)
-    head_r = 17*s
-
-    leg_swing = 46 if running else 32
-    r_thigh_ang = math.radians(90 + leg_swing*math.sin(phase*speed))
-    l_thigh_ang = math.radians(90 + leg_swing*math.sin(phase*speed + math.pi))
-
-    def leg_points(hip_pt, thigh_ang, lead_val):
-        knee_len = 34*s
-        shin_len = 34*s
-        knee = (hip_pt[0] + knee_len*math.cos(thigh_ang),
-                hip_pt[1] + knee_len*math.sin(thigh_ang))
-        # FIX (found via real render + frame inspection at t=400s of the
-        # full integration-test video): the shin used to bend to an
-        # ABSOLUTE world angle (90 +/- offset), disconnected from the
-        # thigh's own angle. At the extremes of the stride (thigh swung
-        # far to one side), that absolute shin angle pointed back across
-        # the body's centerline, crossing the other leg into a broken-
-        # looking diamond/tangled pose. The shin must continue in the
-        # thigh's own direction with a small knee-bend offset (bigger
-        # when trailing, smaller when leading) so it never reverses
-        # across the centerline.
-        thigh_deg = math.degrees(thigh_ang)
-        knee_bend = ((36 if running else 22) if lead_val < -0.2
-                     else (-6 if lead_val > 0.2 else 4))
-        bend = math.radians(thigh_deg + knee_bend)
-        foot = (knee[0] + shin_len*math.cos(bend), knee[1] + shin_len*math.sin(bend))
-        return knee, foot
-
-    r_knee, r_foot = leg_points(hip, r_thigh_ang, math.sin(phase*speed))
-    l_knee, l_foot = leg_points(hip, l_thigh_ang, math.sin(phase*speed + math.pi))
-
-    arm_swing = 55 if running else 30
-    arm_base = 95 if running else 115
-    r_arm_ang = math.radians(arm_base + arm_swing*math.sin(phase*speed + math.pi))
-    l_arm_ang = math.radians(180 - arm_base - arm_swing*math.sin(phase*speed + math.pi)*-1)
-
-    def arm_points(sh_pt, ang, side):
-        upper_len = 28*s
-        fore_len = 26*s
-        elbow = (sh_pt[0] + upper_len*math.cos(ang), sh_pt[1] + upper_len*math.sin(ang))
-        fore_ang = ang + (0.4 if side > 0 else -0.4)
-        fore = (elbow[0] + fore_len*math.cos(fore_ang), elbow[1] + fore_len*math.sin(fore_ang))
-        return elbow, fore
-
-    r_elbow, r_hand = arm_points(r_sh, r_arm_ang, 1)
-    l_elbow, l_hand = arm_points(l_sh, math.radians(180) - l_arm_ang, -1)
-
-    lw = max(5, int(9*s)) if filled else max(3, int(5*s))
-    # torso as a filled rounded capsule instead of a bare line -- gives
-    # the character actual body mass instead of reading as a wireframe.
-    _capsule(draw, hip, neck, lw * 1.6, color)
-    _capsule(draw, hip, r_knee, lw, color)
-    _capsule(draw, r_knee, r_foot, lw, color)
-    _capsule(draw, hip, l_knee, lw, color)
-    _capsule(draw, l_knee, l_foot, lw, color)
-    _capsule(draw, neck, head_c, lw, color)
-    _capsule(draw, l_sh, r_sh, lw, color)
-    _capsule(draw, r_sh, r_elbow, lw, color)
-    _capsule(draw, r_elbow, r_hand, lw, color)
-    _capsule(draw, l_sh, l_elbow, lw, color)
-    _capsule(draw, l_elbow, l_hand, lw, color)
-    if filled:
-        draw.ellipse([head_c[0]-head_r, head_c[1]-head_r, head_c[0]+head_r, head_c[1]+head_r], fill=color)
-    else:
-        draw.ellipse([head_c[0]-head_r, head_c[1]-head_r, head_c[0]+head_r, head_c[1]+head_r], outline=color, width=lw)
-    return head_c, head_r
-
-
-def _capsule(draw, p0, p1, width, color):
-    """A thick, round-ended line segment -- the basic unit that turns a
-    bare stick-line rig into something with real body mass."""
-    draw.line([p0, p1], fill=color, width=int(width))
-    r = width / 2
-    draw.ellipse([p0[0]-r, p0[1]-r, p0[0]+r, p0[1]+r], fill=color)
-    draw.ellipse([p1[0]-r, p1[1]-r, p1[0]+r, p1[1]+r], fill=color)
-
-
-def _draw_sit_write(draw, cx, cy, phase, color, scale, filled=True):
-    s = scale
-    hip = (cx, cy)
-    neck = (cx, cy - 50*s)
-    shoulder_w = 15*s
-    l_sh = (neck[0] - shoulder_w, neck[1] + 4*s)
-    r_sh = (neck[0] + shoulder_w, neck[1] + 4*s)
-    head_c = (cx + 6*s, cy - 74*s)
-    head_r = 17*s
-    knee = (cx + 30*s, cy + 4*s)
-    foot = (cx + 30*s, cy + 38*s)
-    l_knee = (cx - 30*s, cy + 4*s)
-    l_foot = (cx - 30*s, cy + 38*s)
-    desk_y = cy + 6*s
-    write_x = cx + 44*s + 4*s*math.sin(phase*6)
-    r_elbow = (cx + 24*s, cy - 20*s)
-    r_hand = (write_x, desk_y)
-    l_elbow = (cx - 20*s, cy - 15*s)
-    l_hand = (cx - 32*s, desk_y - 2*s)
-
-    lw = max(5, int(9*s))
-    _capsule(draw, hip, knee, lw, color)
-    _capsule(draw, knee, foot, lw, color)
-    _capsule(draw, hip, l_knee, lw, color)
-    _capsule(draw, l_knee, l_foot, lw, color)
-    _capsule(draw, hip, neck, lw * 1.6, color)
-    _capsule(draw, neck, head_c, lw, color)
-    _capsule(draw, l_sh, r_sh, lw, color)
-    _capsule(draw, r_sh, r_elbow, lw, color)
-    _capsule(draw, r_elbow, r_hand, lw, color)
-    _capsule(draw, l_sh, l_elbow, lw, color)
-    _capsule(draw, l_elbow, l_hand, lw, color)
-    draw.ellipse([head_c[0]-head_r, head_c[1]-head_r, head_c[0]+head_r, head_c[1]+head_r], fill=color)
-    draw.line([(cx + 10*s, desk_y), (cx + 70*s, desk_y)], fill=color, width=max(3, int(4*s)))
-    return head_c, head_r
-
-
-def _draw_alert(draw, cx, cy, phase, color, scale, filled=True):
-    s = scale
-    sway = 3*s*math.sin(phase*1.2)
-    hip = (cx + sway, cy)
-    neck = (cx + sway, cy - 55*s)
-    shoulder_w = 15*s
-    l_sh = (neck[0] - shoulder_w, neck[1] + 4*s)
-    r_sh = (neck[0] + shoulder_w, neck[1] + 4*s)
-    head_c = (cx + sway*1.5, cy - 78*s)
-    head_r = 17*s
-    knee = (cx + sway*0.5 + 10*s, cy + 34*s)
-    foot = (cx + sway*0.3 + 10*s, cy + 66*s)
-    l_knee = (cx + sway*0.5 - 10*s, cy + 34*s)
-    l_foot = (cx + sway*0.3 - 10*s, cy + 66*s)
-    r_elbow = (r_sh[0] + 20*s, r_sh[1] - 18*s)
-    r_hand = (r_elbow[0] + 30*s, r_elbow[1] - 6*s)
-    l_elbow = (l_sh[0] - 10*s, l_sh[1] + 24*s)
-    l_hand = (l_elbow[0] - 6*s, l_elbow[1] + 22*s)
-
-    lw = max(5, int(9*s))
-    _capsule(draw, hip, knee, lw, color)
-    _capsule(draw, knee, foot, lw, color)
-    _capsule(draw, hip, l_knee, lw, color)
-    _capsule(draw, l_knee, l_foot, lw, color)
-    _capsule(draw, hip, neck, lw * 1.6, color)
-    _capsule(draw, neck, head_c, lw, color)
-    _capsule(draw, l_sh, r_sh, lw, color)
-    _capsule(draw, r_sh, r_elbow, lw, color)
-    _capsule(draw, r_elbow, r_hand, lw, color)
-    _capsule(draw, l_sh, l_elbow, lw, color)
-    _capsule(draw, l_elbow, l_hand, lw, color)
-    draw.ellipse([head_c[0]-head_r, head_c[1]-head_r, head_c[0]+head_r, head_c[1]+head_r], fill=color)
-    return head_c, head_r
-
-
-def _draw_shock(draw, cx, cy, phase, color, scale, filled=True):
-    s = scale
-    tremor = 2*s*math.sin(phase*10)
-    hip = (cx + tremor, cy)
-    neck = (cx - 12*s + tremor, cy - 50*s)
-    shoulder_w = 15*s
-    l_sh = (neck[0] - shoulder_w, neck[1] + 4*s)
-    r_sh = (neck[0] + shoulder_w, neck[1] + 4*s)
-    head_c = (cx - 20*s + tremor, cy - 74*s)
-    head_r = 17*s
-    knee = (cx + 12*s, cy + 34*s)
-    foot = (cx + 20*s, cy + 66*s)
-    l_knee = (cx - 4*s, cy + 34*s)
-    l_foot = (cx - 10*s, cy + 66*s)
-    r_elbow = (r_sh[0] + 22*s, r_sh[1] - 26*s)
-    r_hand = (r_elbow[0] + 10*s, r_elbow[1] - 24*s)
-    l_elbow = (l_sh[0] - 22*s, l_sh[1] - 24*s)
-    l_hand = (l_elbow[0] - 8*s, l_elbow[1] - 24*s)
-
-    lw = max(5, int(9*s))
-    _capsule(draw, hip, knee, lw, color)
-    _capsule(draw, knee, foot, lw, color)
-    _capsule(draw, hip, l_knee, lw, color)
-    _capsule(draw, l_knee, l_foot, lw, color)
-    _capsule(draw, hip, neck, lw * 1.6, color)
-    _capsule(draw, neck, head_c, lw, color)
-    _capsule(draw, l_sh, r_sh, lw, color)
-    _capsule(draw, r_sh, r_elbow, lw, color)
-    _capsule(draw, r_elbow, r_hand, lw, color)
-    _capsule(draw, l_sh, l_elbow, lw, color)
-    _capsule(draw, l_elbow, l_hand, lw, color)
-    draw.ellipse([head_c[0]-head_r, head_c[1]-head_r, head_c[0]+head_r, head_c[1]+head_r], fill=color)
-    return head_c, head_r
-
-
-_DRAW_FN = {
-    "WALK":      lambda d, cx, cy, ph, c, s, **kw: _draw_walk_run(d, cx, cy, ph, c, s, running=False, action="WALK"),
-    "RUN":       lambda d, cx, cy, ph, c, s, **kw: _draw_walk_run(d, cx, cy, ph, c, s, running=True, action="RUN"),
-    "SIT_WRITE": _draw_sit_write,
-    "ALERT":     _draw_alert,
-    "SHOCK":     _draw_shock,
-}
-
-
 def _render_common(niche_name, segment_text, duration, seg_index, output_path,
                     width, height, fps, log_fn, silhouette=False,
                     search_terms=None, pixabay_key="", pexels_key=""):
+    """
+    Delegates to the real Blender-rig character (video_pipeline/
+    character_loop.py), replacing the old thin Pillow stick-figure draw.
+    detect_action()'s expanded 17-way keyword mapping picks which
+    pre-rendered pose asset (built once by tools/build_character_assets.py)
+    to composite -- action names match pose names in
+    character_rig_blender.py's SINGLE_POSE_FUNCS 1:1, no translation
+    needed. SIT_WRITE has no sensible silhouette read in the backlit-
+    doorway family of scenes (a seated figure needs to be see at all,
+    not just a cutout), so it substitutes ALERT for that register only,
+    same behavior as the previous implementation.
+    """
     action = detect_action(segment_text)
     if silhouette and action == "SIT_WRITE":
         action = "ALERT"
-    draw_fn = _DRAW_FN[action]
-    figure_color = NICHE_FIGURE_COLOR.get(niche_name, NICHE_FIGURE_COLOR["dark_horror"])
-    char_color = (10, 10, 12) if silhouette else figure_color
-
-    n_frames = max(1, int(round(duration * fps)))
-    tag = "sil" if silhouette else "stick"
-    tmp_dir = Path(output_path).parent / f"{tag}_{seg_index}"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        # FIX (direct user follow-up after reviewing sample renders: "the
-        # pictures look the same... too generic... I want something
-        # based on the specific niche and the topic... can we use real
-        # pictures for it"): try a real, topic-matched photo (Pixabay/
-        # Pexels, same free keys/relevance-check already proven for
-        # stock footage) before falling back to the procedural
-        # silhouette-shape background. search_terms is this segment's
-        # own already-tuned keyword list (topic anchor / concrete noun /
-        # nation context) threaded in by the caller -- a "dark room" or
-        # "forest trail" segment searches for THAT real scene, not a
-        # generic mood phrase.
-        background = None
-        if search_terms and (pixabay_key or pexels_key):
-            try:
-                from photo_background import fetch_photo_background, photo_to_cover_canvas, grade_photo
-                photo_cache = Path(output_path).parent / f"photobg_{tag}_{seg_index}.jpg"
-                photo_path = fetch_photo_background(
-                    search_terms, niche_name, str(photo_cache),
-                    pixabay_key=pixabay_key, pexels_key=pexels_key, log_fn=log_fn)
-                if photo_path:
-                    canvas = photo_to_cover_canvas(photo_path, width, height, oversize=1.0)
-                    background = grade_photo(canvas, niche_name, silhouette=silhouette)
-            except Exception as e:
-                log_fn(f"    Real photo background (non-fatal, falling back to drawn scene): {e}")
-        if background is None:
-            background = _draw_scene_background(
-                niche_name, seed=seg_index * 31 + (7 if silhouette else 0), width=width, height=height,
-                force_scene="room_window" if silhouette else None)
-        cycle_speed = 2 * math.pi / (fps * (1.6 if action in ("WALK", "RUN") else 4.0))
-        phase_offset = (seg_index * 1.7) % 6.28
-        cx_frac = 0.72 if silhouette else 0.30
-        for f in range(n_frames):
-            phase = phase_offset + f * cycle_speed
-            img = background.copy()
-            draw = ImageDraw.Draw(img)
-            head_c, head_r = draw_fn(draw, width * cx_frac, height * 0.66, phase, char_color, 2.2)
-            if not silhouette:
-                _draw_face(draw, head_c, head_r, tuple(max(0, c - 160) for c in figure_color), action)
-            img.save(tmp_dir / f"f_{f:04d}.png")
-
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-framerate", str(fps), "-i", str(tmp_dir / "f_%04d.png"),
-             "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-             "-pix_fmt", "yuv420p", "-t", f"{duration:.2f}", str(output_path)],
-            capture_output=True, timeout=120)
-        ok = result.returncode == 0 and Path(output_path).exists() and Path(output_path).stat().st_size > 2000
-        if not ok:
-            log_fn(f"    {tag} segment {seg_index}: ffmpeg failed — "
-                   f"{result.stderr.decode(errors='ignore')[-300:]}")
-        return ok
-    except Exception as e:
-        log_fn(f"    {tag} segment {seg_index}: {e}")
-        return False
-    finally:
-        try:
-            for p in tmp_dir.glob("f_*.png"):
-                p.unlink()
-            tmp_dir.rmdir()
-        except Exception:
-            pass
+    from character_loop import generate_character_segment
+    return generate_character_segment(
+        niche_name, action, segment_text, None, duration, seg_index, output_path,
+        width=width, height=height, fps=fps, silhouette=silhouette,
+        search_terms=search_terms, pixabay_key=pixabay_key, pexels_key=pexels_key, log_fn=log_fn)
 
 
 def generate_stickman_segment(niche_name, segment_text, text_overlay, duration, seg_index,
