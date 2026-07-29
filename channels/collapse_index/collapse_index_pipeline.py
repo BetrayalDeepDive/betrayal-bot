@@ -2305,39 +2305,59 @@ def generate_script_content(niche, topic, episode, attempt,
     except Exception as e:
         log(f"  Anchors (non-fatal): {e}")
 
+    # v2 addition (direct user request) — real FRED-sourced data for the
+    # seven finance niches, tried BEFORE the AI-invented chart below.
+    # Confirmed by grep before this existed: every "documented" number
+    # in those niches' seed_topics was AI-invented, never sourced. This
+    # pulls genuinely real Federal Reserve series instead. Falls straight
+    # through to the existing AI-invented path, completely unchanged,
+    # whenever this niche isn't a finance niche, FRED_API_KEY isn't
+    # configured, or the fetch fails for any reason.
+    chart_data = None
+    try:
+        from fred_data import get_real_chart_data, format_narration_block, FINANCE_NICHE_NAMES
+        if niche["name"] in FINANCE_NICHE_NAMES:
+            chart_data = get_real_chart_data(niche["name"])
+            if chart_data:
+                research_context = f"{format_narration_block(chart_data)}\n{research_context}"
+                log(f"  Real FRED data used: {chart_data['series_id']} (as of {chart_data['as_of']})")
+    except Exception as e:
+        log(f"  FRED data (non-fatal): {e}")
+
     # v1 addition — real chart-data extraction, wiring the chart-
     # generation system (built earlier) into the actual script content
     # instead of leaving it disconnected. Asks for a genuine data series
     # grounded in the same real topic the anchors above are grounded in
     # — never fabricated on its own, and skipped entirely (no chart) if
-    # the AI can't produce a real, specific series.
-    chart_data = None
-    try:
-        chart_prompt = (
-            f"For a documentary about: {topic}\n"
-            f"If there is a real, specific numeric trend or before/after "
-            f"transformation relevant to this story (e.g. a stock price "
-            f"over time, a valuation drop, a user count decline, a specific "
-            f"before/after comparison), provide it as real, plausible data.\n"
-            f"Return ONLY valid JSON (no backticks), or exactly the word NONE "
-            f"if no genuine numeric story fits:\n"
-            f'{{"chart_type":"line or bar","title":"short chart title",'
-            f'"y_label":"what the numbers represent","labels":["label1","label2",...],'
-            f'"values":[number1,number2,...]}}'
-        )
-        chart_raw = ai_generate(chart_prompt, tokens=250)
-        if chart_raw and "NONE" not in chart_raw.upper()[:10]:
-            chart_raw = re.sub(r"```json|```", "", chart_raw).strip()
-            m = re.search(r"\{[\s\S]*?\}", chart_raw)
-            if m:
-                candidate = json.loads(m.group())
-                if (candidate.get("labels") and candidate.get("values") and
-                        len(candidate["labels"]) == len(candidate["values"]) and
-                        len(candidate["labels"]) >= 2):
-                    chart_data = candidate
-                    log(f"  Real chart data extracted: {chart_data.get('title', '')}")
-    except Exception as e:
-        log(f"  Chart data extraction (non-fatal): {e}")
+    # the AI can't produce a real, specific series. Only runs when the
+    # real FRED lookup above didn't already provide genuine data.
+    if chart_data is None:
+        try:
+            chart_prompt = (
+                f"For a documentary about: {topic}\n"
+                f"If there is a real, specific numeric trend or before/after "
+                f"transformation relevant to this story (e.g. a stock price "
+                f"over time, a valuation drop, a user count decline, a specific "
+                f"before/after comparison), provide it as real, plausible data.\n"
+                f"Return ONLY valid JSON (no backticks), or exactly the word NONE "
+                f"if no genuine numeric story fits:\n"
+                f'{{"chart_type":"line or bar","title":"short chart title",'
+                f'"y_label":"what the numbers represent","labels":["label1","label2",...],'
+                f'"values":[number1,number2,...]}}'
+            )
+            chart_raw = ai_generate(chart_prompt, tokens=250)
+            if chart_raw and "NONE" not in chart_raw.upper()[:10]:
+                chart_raw = re.sub(r"```json|```", "", chart_raw).strip()
+                m = re.search(r"\{[\s\S]*?\}", chart_raw)
+                if m:
+                    candidate = json.loads(m.group())
+                    if (candidate.get("labels") and candidate.get("values") and
+                            len(candidate["labels"]) == len(candidate["values"]) and
+                            len(candidate["labels"]) >= 2):
+                        chart_data = candidate
+                        log(f"  Real chart data extracted: {chart_data.get('title', '')}")
+        except Exception as e:
+            log(f"  Chart data extraction (non-fatal): {e}")
 
     # Inject anchors into research_context
     if anchors:

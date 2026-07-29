@@ -124,6 +124,10 @@ jobs:
           OPENROUTER_API_KEY:        ${{ secrets.OPENROUTER_API_KEY }}
           PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
           PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
+          # Real FRED economic data for the 7 finance niches — same
+          # optional key as ch5_generate.yml, needed here too since
+          # Shorts also run generate_script_content during this phase.
+          FRED_API_KEY:              ${{ secrets.FRED_API_KEY }}
           # Optional — enables real trending-topic lookup for standalone
           # Shorts via NewsAPI (newsapi.org, free tier). Already correctly
           # gated in shorts_reels_engine.py (skips gracefully if unset) —

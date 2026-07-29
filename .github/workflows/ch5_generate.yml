@@ -109,6 +109,16 @@ jobs:
           MISTRAL_API_KEY:           ${{ secrets.MISTRAL_API_KEY }}
           PIXABAY_KEY:               ${{ secrets.PIXABAY_KEY }}
           PEXELS_API_KEY:            ${{ secrets.PEXELS_API_KEY }}
+          # Real Federal Reserve economic data (video_pipeline/fred_data.py)
+          # for the 7 finance niches (investing_fundamentals, retirement_
+          # planning, personal_finance_mistakes, credit_debt_repair, real_
+          # estate_affordability, stock_market_crashes_history, budgeting_
+          # saving_strategies) — replaces AI-invented "documented" numbers
+          # with genuinely sourced FRED series. Free key: 5-minute signup at
+          # https://fred.stlouisfed.org/docs/api/api_key.html. Optional —
+          # leave the secret unset and those niches simply fall back to the
+          # existing AI-generated chart data, exactly as before this change.
+          FRED_API_KEY:              ${{ secrets.FRED_API_KEY }}
           # Optional — same NewsAPI enhancement as ch3_upload.yml (Shorts
           # get produced/uploaded in both phases).
           NEWS_API_KEY:              ${{ secrets.NEWS_API_KEY }}
