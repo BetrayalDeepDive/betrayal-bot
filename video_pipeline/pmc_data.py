@@ -47,6 +47,18 @@ FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTex
 # degrades gracefully to fewer FIGURE segments rather than breaking a run.
 FIGURE_URL = "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/bin/{fname}"
 
+# Fallbacks, tried in order. The single pattern above was flagged as
+# unverified when this module was written and is still unverified -- the
+# sandbox blocks both hosts, so it has never been exercised against a real
+# article. One unproven URL with no alternative meant a wrong guess would
+# silently cost the FIGURE register 30% of the visual mix on every episode,
+# with nothing in the log to say why. Europe PMC mirrors the same binaries
+# under its own host, so a second pattern is cheap insurance.
+FIGURE_URL_PATTERNS = (
+    "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/bin/{fname}",
+    "https://europepmc.org/articles/{pmcid}/bin/{fname}",
+)
+
 USER_AGENT = ("NoKnownCause-ClinicalPipeline/1.0 "
               "(https://github.com/BetrayalDeepDive/betrayal-bot; automation)")
 
@@ -346,6 +358,7 @@ def extract_figures(xml, pmcid):
         if not re.search(r"\.(jpg|jpeg|png|gif|tif|tiff)$", fname, flags=re.I):
             fname = f"{fname}.jpg"   # JATS often omits the extension
         figures.append({
+            "pmcid": pmcid,
             "label": label,
             "caption": caption,
             "filename": fname,
@@ -356,19 +369,44 @@ def extract_figures(xml, pmcid):
     return figures
 
 
-def download_figure(figure, out_path, min_bytes=15000):
+def download_figure(figure, out_path, min_bytes=15000, log_fn=None):
     """
-    Fetch one screened figure to disk. False on any failure or an
-    implausibly small response (PMC/CDN error pages are tiny).
+    Fetch one screened figure to disk, trying each known URL pattern.
+
+    Returns True on success. Every failure reason is reported through
+    log_fn, because a silent False here is indistinguishable from "this
+    paper had no figures" -- and those two need very different responses.
+
+    Checks Content-Type as well as size: a CDN error page can exceed
+    min_bytes while being HTML, which would land a text file on disk with
+    a .jpg name and fail later inside the renderer instead of here.
     """
-    try:
-        r = requests.get(figure["url"], headers=_headers(), timeout=30)
-        if r.status_code == 200 and len(r.content) > min_bytes:
+    fname = figure.get("filename") or ""
+    pmcid = figure.get("pmcid") or ""
+    urls = [figure["url"]] if figure.get("url") else []
+    for pat in FIGURE_URL_PATTERNS:
+        if pmcid and fname:
+            u = pat.format(pmcid=pmcid, fname=fname)
+            if u not in urls:
+                urls.append(u)
+    for u in urls:
+        try:
+            r = requests.get(u, headers=_headers(), timeout=30)
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            if r.status_code != 200:
+                if log_fn: log_fn(f"    figure {r.status_code} {u[:88]}")
+                continue
+            if "image" not in ctype:
+                if log_fn: log_fn(f"    figure not an image ({ctype or 'no type'}) {u[:70]}")
+                continue
+            if len(r.content) <= min_bytes:
+                if log_fn: log_fn(f"    figure too small ({len(r.content)}B) {u[:70]}")
+                continue
             with open(out_path, "wb") as f:
                 f.write(r.content)
             return True
-    except Exception:
-        pass
+        except Exception as e:
+            if log_fn: log_fn(f"    figure fetch error {type(e).__name__} {u[:70]}")
     return False
 
 

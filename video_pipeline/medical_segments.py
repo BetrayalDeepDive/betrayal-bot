@@ -212,8 +212,13 @@ def render_medical_segment(register, case, segment_text, duration, index,
                 local = work / f"pmcfig_{index % len(figs)}.jpg"
                 if not local.exists():
                     from pmc_data import download_figure
-                    if not download_figure(fig, str(local)):
-                        log_fn(f"  FIGURE {index}: figure download failed")
+                    if not download_figure(fig, str(local), log_fn=log_fn):
+                        # Reasons are already logged per URL attempt above.
+                        # Naming the figure matters: "download failed" alone
+                        # is indistinguishable from "paper had no figures",
+                        # and those need opposite responses.
+                        log_fn(f"  FIGURE {index}: all URL patterns failed for "
+                               f"{fig.get('pmcid','?')} / {fig.get('filename','?')}")
                         return False
                 ok = mfr.render_figure_frame(
                     str(local), str(still),
