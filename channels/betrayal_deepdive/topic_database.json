@@ -682,5 +682,252 @@
     "status": "pending",
     "created_at": "2026-07-29T12:50:47.477703",
     "produced_episode_number": null
+  },
+  {
+    "topic_id": "f72433927eb9",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Case of Mary Mallon (Typhoid Mary) in 1907: The first known asymptomatic carrier of typhoid fever.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 5.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 7.05,
+    "reasoning": "While the topic is intriguing, its appeal may not be strong enough to capture widespread interest compared to other more sensational health stories.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:29:17.887395",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "f322359e5261",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Disappearance of Asha Degree in 2000: A chilling case of a young girl who vanished without a trace.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 9.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.4,
+    "reasoning": "The topic is compelling but lacks strong monetization opportunities and reusable content frameworks beyond the specific case.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:31:05.882116",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "6e451c607106",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Tragic Life of Henrietta Lacks in 1951: Her cancer cells became pivotal to medical breakthroughs without consent.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 9.0,
+      "source_depth": 9.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 7.15,
+    "reasoning": "The weakest dimension is monetization_fit, as while the topic is compelling, it doesn't lend itself easily to commercial products or services beyond educational resources.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:32:48.732166",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "731f6de4d6ba",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Mysterious Illness of the Encephalitis Lethargica epidemic of the 1920s: A neurological condition with unexplained origins.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 5.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 7.05,
+    "reasoning": "The monetization fit is the weakest dimension as the topic, while intriguing, may struggle to connect with specific products or services that can drive consistent revenue.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:34:33.681263",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "6c1a95a044f9",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Case of the Mad Trapper of Rat River in 1931: A manhunt for a fugitive who eluded capture in the wilderness.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 8.0,
+      "source_depth": 7.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 5.7,
+    "reasoning": "Monetization fit is the weakest dimension because the topic is a niche historical manhunt with little natural connection to tangible products or actionable resources.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:36:20.262193",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "ab1d0aab9a1a",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Disappearance of Maura Murray in 2004: A college student who vanished after a car accident in New Hampshire.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.1,
+    "reasoning": "The weakest dimension is monetization_fit, as while the topic is intriguing, it struggles to connect with a specific product or service related to rare disease cases.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:38:35.492080",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "c703510a2ea2",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Mysterious Death of Elisa Lam in 2013: Her case remains unsolved, raising questions about mental health and negligence.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 9.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.75,
+    "reasoning": "The weak dimension is monetization_fit, as while the topic is intriguing, it doesn't naturally lend itself to a strong call-to-action or commercial products.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:40:37.571635",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "f386e7ac9a05",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Rare Disease of Benjamin Button: A historical case study of progeria and its effects on aging.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 7.0,
+      "source_depth": 8.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.05,
+    "reasoning": "The weakest dimension is monetization_fit, as while the topic is fascinating, it lacks a clear call to action or product tie-in that audiences would typically engage with.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:42:03.922948",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "25d9b68b7b2a",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Tragic Story of Vincent van Gogh and his mental illness: The artist\u2019s struggles with depression and psychosis.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 9.0,
+      "monetization_fit": 5.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 6.8,
+    "reasoning": "The weakest dimension is product_fit, as while the story is compelling, it may not easily translate into a reusable framework or product beyond the narrative itself.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:43:49.377418",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "a0cac984a120",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Unsolved Mystery of the Sodder Children in 1945: Five children disappeared after a house fire in West Virginia.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 8.0,
+      "evergreen_value": 7.0,
+      "source_depth": 6.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.15,
+    "reasoning": "The weakest dimension is monetization_fit because while the topic is intriguing, it lacks a clear connection to a product or resource that could drive consistent revenue.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:45:30.757840",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "565b8afc9985",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Bizarre Case of the Cotard Delusion: A historical overview of individuals believing they are dead or non-existent.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 7.0,
+      "source_depth": 8.0,
+      "monetization_fit": 5.0,
+      "product_fit": 6.0
+    },
+    "composite_score": 6.4,
+    "reasoning": "The viral pull is moderate; while intriguing, the niche nature of the Cotard Delusion may not captivate a wide audience immediately.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:47:03.818803",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "f8df5ffc600e",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Ill-Fated Expedition of the Franklin Search in 1845: A tragic journey that faced a mysterious and deadly fate.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 6.0,
+      "evergreen_value": 5.0,
+      "source_depth": 8.0,
+      "monetization_fit": 3.0,
+      "product_fit": 4.0
+    },
+    "composite_score": 5.3,
+    "reasoning": "The topic lacks a strong viral appeal and significant monetization opportunities as it doesn't easily connect to ongoing trends or products.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:48:47.250028",
+    "produced_episode_number": null
+  },
+  {
+    "topic_id": "7464e7c31106",
+    "channel_id": "betrayal_deepdive",
+    "topic_text": "The Enigmatic Life of Sylvia Plath in the 1960s: A look into her struggles with mental illness and its impact on her writing.",
+    "niche_name": "rare_disease_cases",
+    "scores": {
+      "viral_pull": 7.0,
+      "evergreen_value": 8.0,
+      "source_depth": 9.0,
+      "monetization_fit": 4.0,
+      "product_fit": 5.0
+    },
+    "composite_score": 6.7,
+    "reasoning": "While the topic is compelling and has strong historical and literary significance, the monetization fit is weak as it lacks a clear product or resource to promote alongside the documentary.",
+    "product_route": "",
+    "status": "pending",
+    "created_at": "2026-07-30T16:50:20.519667",
+    "produced_episode_number": null
   }
 ]

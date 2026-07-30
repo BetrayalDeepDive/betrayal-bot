@@ -104,6 +104,59 @@
         "How a Small Town in [State Name] Became Ground Zero for Manipulation Tactics"
       ],
       "last_run": "2026-07-29T07:09:31.477744"
+    },
+    "rare_disease_cases": {
+      "top_hook_formulas": [
+        "What You Didn't Know About [Case]",
+        "The Shocking Truth Behind [Person/Event]",
+        "This Rare Disease Changed [Person]'s Life Forever"
+      ],
+      "winning_title_patterns": [
+        "The Dark Story of [Person/Event]",
+        "Uncovering the Mystery of [Rare Disease]",
+        "The Untold Case of [Person] and [Disease/Incident]"
+      ],
+      "thumbnail_text_examples": [
+        "MYSTERIOUS DISEASE",
+        "SHOCKING DISCOVERY",
+        "RARE CASE UNCOVERED",
+        "TRAGIC ENDING",
+        "UNSOLVED MYSTERY"
+      ],
+      "retention_hooks": [
+        "30pct",
+        "60pct",
+        "80pct"
+      ],
+      "niche_power_words": [
+        "Rare",
+        "Shocking",
+        "Mysterious",
+        "Tragic",
+        "Unexplained",
+        "Investigative"
+      ],
+      "fresh_topic_ideas": [
+        "The Case of Mary Mallon (Typhoid Mary) in 1907: The first known asymptomatic carrier of typhoid fever.",
+        "The Disappearance of Asha Degree in 2000: A chilling case of a young girl who vanished without a trace.",
+        "The Tragic Life of Henrietta Lacks in 1951: Her cancer cells became pivotal to medical breakthroughs without consent.",
+        "The Mysterious Illness of the Encephalitis Lethargica epidemic of the 1920s: A neurological condition with unexplained origins.",
+        "The Case of the Mad Trapper of Rat River in 1931: A manhunt for a fugitive who eluded capture in the wilderness.",
+        "The Disappearance of Maura Murray in 2004: A college student who vanished after a car accident in New Hampshire.",
+        "The Mysterious Death of Elisa Lam in 2013: Her case remains unsolved, raising questions about mental health and negligence.",
+        "The Rare Disease of Benjamin Button: A historical case study of progeria and its effects on aging.",
+        "The Tragic Story of Vincent van Gogh and his mental illness: The artist\u2019s struggles with depression and psychosis.",
+        "The Unsolved Mystery of the Sodder Children in 1945: Five children disappeared after a house fire in West Virginia.",
+        "The Bizarre Case of the Cotard Delusion: A historical overview of individuals believing they are dead or non-existent.",
+        "The Ill-Fated Expedition of the Franklin Search in 1845: A tragic journey that faced a mysterious and deadly fate.",
+        "The Enigmatic Life of Sylvia Plath in the 1960s: A look into her struggles with mental illness and its impact on her writing.",
+        "The Rare Disease of Ondine's Curse: A real case of a young boy battling a congenital respiratory condition.",
+        "The Disappearance of Jimmy Hoffa in 1975: The infamous case of a labor leader's unexplained vanishing.",
+        "The Tragic Saga of the Andrea Yates Case in 2001: A mother\u2019s mental breakdown resulting in unspeakable tragedy.",
+        "The Mystery of the Greenbrier Ghost in 1897: An unusual case of a murder solved by a ghost's testimony.",
+        "The Life of Charles Whitman in 1966: The Texas Tower sniper whose mental state deteriorated leading to a mass shooting."
+      ],
+      "last_run": "2026-07-30T16:29:15.251504"
     }
   },
   "last_title_register": "sympathy",
