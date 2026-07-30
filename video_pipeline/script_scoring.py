@@ -188,7 +188,11 @@ _STOPWORDS = {"the", "a", "an", "of", "in", "on", "and", "or", "to", "is", "was"
 
 _REHOOK_MARKERS = [
     "stop for a second", "wait.", "listen.", "stay with me", "if you're still",
-    "if you are still", "if you've made it this far", "you need to understand",
+    "if you are still", "if you've made it this far",
+    # "you need to understand" removed: it is the one marker in this list
+    # that medical_policy_gate blocks (\byou need to\b), so on the clinical
+    # channel it was a trap -- satisfying the rehook check by writing a
+    # sentence that then fails the policy gate and kills the attempt.
     "notice something", "here's what you", "let that sink in", "sit with that",
     "you already sense", "ask yourself", "picture this for a second",
     "still with me", "you're still watching", "you are still watching",

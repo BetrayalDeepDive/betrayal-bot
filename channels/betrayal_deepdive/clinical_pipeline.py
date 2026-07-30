@@ -2690,7 +2690,8 @@ def generate_script_content(niche, topic, episode, attempt,
                       f"reported findings, exact values with their units, the sequence "
                       f"of what was tested and ruled out, and what each result changed. "
                       f"Do not add new claims that are not supported by the case. "
-                      f"Do not summarise or shorten any existing passage.\n\n"
+                      f"Do not summarise or shorten any existing passage. "
+                      f"Preserve the existing mid-video direct-address beat (the short 'stop for a second / if you're still watching' moment around the 55-65% mark) exactly where it is -- do not remove, move or reword it. If there is no such beat, add one there. \n\n"
                       f"Max 13 words per sentence. Zero markdown. Return the COMPLETE "
                       f"script, beginning to end.\n\nSCRIPT:\n{raw}")
                 raw2 = ai_generate(ep, tokens=8000)
@@ -2740,6 +2741,7 @@ def generate_script_content(niche, topic, episode, attempt,
             f"Add the specific reported findings, exact values with units, what was "
             f"tested and ruled out, and what each result changed. Add nothing the "
             f"case does not support. Do not shorten anything already there. "
+            f"Preserve the existing mid-video direct-address beat (the short 'stop for a second / if you're still watching' moment around the 55-65% mark) exactly where it is -- do not remove, move or reword it. If there is no such beat, add one there. "
             f"Max 13 words per sentence. Zero markdown. "
             f"Return the COMPLETE expanded script.\n\nSCRIPT:\n{script}"
         )
