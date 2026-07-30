@@ -433,20 +433,20 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCause",
     },
     # FIX: Ch4/Ch5 entries were entirely missing — this was genuinely a
     # 3-channel cross-promo system despite the empire having 5 channels,
@@ -456,20 +456,20 @@ CROSS_PROMO = {
     # now even though Ch4/Ch5 aren't built yet, since this only changes
     # Ch1/Ch2's own description text.
     "archive": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 
@@ -2929,10 +2929,27 @@ def generate_script_content(niche, topic, episode, attempt,
     # generate_seo_description), which is where documentaries/true-crime
     # media conventionally put this, not read aloud. needs_fiction_
     # disclosure is threaded through to the description generator below.
-    fiction_signals = ["names and details", "names have been changed", "composite",
-                        "dramatiz", "reconstruct", "multiple documented cases",
-                        "account draws on", "identifying details"]
-    needs_fiction_disclosure = not any(sig in script.lower() for sig in fiction_signals)
+    # Always False on this channel, and that is not a shortcut.
+    #
+    # Inherited from the dark-documentary format, this defaulted to True
+    # unless the script itself already said "names have been changed" or
+    # similar. A clinical script never says that, so effectively every
+    # episode would have appended:
+    #
+    #   "Note: some names and identifying details in this account have been
+    #    changed or composited from multiple documented cases."
+    #
+    # which is simply untrue here. Each episode is ONE real published case,
+    # and the description carries "Source: <citation>" a few lines below.
+    # Publishing both would put a claim of compositing directly next to the
+    # citation that disproves it -- destroying the single thing that makes
+    # this channel defensible, in the exact place a sceptical viewer looks.
+    #
+    # The disclosure this channel actually owes is the medical one, built by
+    # medical_policy_gate.build_disclaimer_block() and enforced by a blocking
+    # publish gate; synthetic narration is separately declared to YouTube via
+    # containsSyntheticMedia=True at upload.
+    needs_fiction_disclosure = False
 
     # Step 5: CTA injection
     if len(script.split()) >= 400:

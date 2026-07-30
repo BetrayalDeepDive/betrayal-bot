@@ -366,20 +366,20 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCause",
     },
     # FIX (found on deep re-audit): this dict only ever had 2 keys (self +
     # BetrayalDeepDive) despite the empire having 5 channels — archive's
@@ -389,20 +389,20 @@ CROSS_PROMO = {
     # Ch1's promo block (get_cross_promo's default). Filled out to match
     # the canonical 5-key dict already correct in evidence_room_pipeline.py.
     "archive": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 
@@ -4445,7 +4445,7 @@ def post_creator_comment(token, video_id, niche_name, title, episode):
         f"🧠 {hook}\n\n"
         f"Leave your answer below — every civilization has details that never make the textbooks.\n\n"
         f"🔔 New investigation every weekday\n"
-        f"🩺 Medical cases: youtube.com/@NoKnownCauseTV\n"
+        f"🩺 Medical cases: youtube.com/@NoKnownCause\n"
         f"🔬 Forensic investigations: youtube.com/@TheEvidenceRoom\n\n"
         f"#{niche_name.replace('_','')} #history #documentary #thearchive #episode{episode}"
     )
@@ -4665,11 +4665,11 @@ def build_ch2_cross_promo(is_short=False):
     """Three-channel cross-promotion for Ch4 descriptions."""
     if is_short:
         return (
-            "\n\n🩺 Real medical cases: youtube.com/@NoKnownCauseTV"
+            "\n\n🩺 Real medical cases: youtube.com/@NoKnownCause"
             "\n🧠 Mass manipulation exposed: youtube.com/@TheControlFiles"
         )
     return (
-        "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV"
+        "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause"
         "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
         "\n\n📺 New investigation every weekday on all three channels."
     )
