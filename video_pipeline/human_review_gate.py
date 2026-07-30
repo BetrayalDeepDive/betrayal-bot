@@ -183,7 +183,10 @@ def send_email_notification(subject, html_body, sender_email, app_password, reci
     # account (e.g. Ch2's notifications would go to Ch2's own Gmail
     # sender address if Ch2 ever used a different one) -- now it's
     # always this one address unless a caller explicitly overrides it.
-    recipient_email = recipient_email or "betrayaldeepdive@gmail.com"
+    # Was hardcoded to the retired channel's address. Env first so it is
+    # configurable, then the account actually in use.
+    recipient_email = (recipient_email or os.environ.get("REVIEW_EMAIL")
+                       or "nextlayermediallc@gmail.com")
     # FIX (found on direct user report, July 15 2026): a raw, truncated
     # <think> block reached this function's subject argument and
     # crashed the send entirely — Python's email library correctly

@@ -312,7 +312,7 @@ AFFILIATE_REGISTRY = {
 }
 
 def build_affiliate_block(channel_id, niche_name=""):
-    ch = channel_id.replace("betrayal_deepdive","betrayal_deepdive")
+    ch = channel_id
     lines = ["\n\n— LINKS —"]
     for key, link in AFFILIATE_REGISTRY.items():
         if "all" in link["channels"] or ch in link["channels"]:
@@ -329,6 +329,10 @@ def build_affiliate_block(channel_id, niche_name=""):
 # referenced by the static companion website and the weekly Gumroad-
 # sync job — never mentioned in a single actual video description
 # across any of the 4 channels. Fixed here.
+# GitHub Pages serves from the repo owner's account, so the host name is
+# fixed by the repo, not the channel. Kept accurate rather than aspirational;
+# if the companion page is ever linked publicly it needs a custom domain,
+# because this URL still shows the retired brand to anyone who reads it.
 GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
 
 def build_product_cta(channel_id):
@@ -1824,12 +1828,15 @@ def score_result(r, topic=""):
     # findings a reviewer would actually want to see before approving.
     # Now genuinely returned so callers can surface them.
     if not r: return 0.0, [], {}
-    s = 5.0
+    # Length is no longer scored. See video_pipeline/clinical_quality.py:
+    # word count used to carry a 4.8-point swing on a 10-point scale, which
+    # made it the largest single term and meant padding a script improved
+    # its score. It is now a floor checked once (duration_check) and then
+    # ignored, and its points went to clinical specificity -- real reported
+    # detail per 100 words, which padding actively lowers.
     w = r.get("words", 0)
-    if w >= MIN_WORDS: s += 2.8
-    elif w >= 1600:    s += 0.8
-    else:              s -= 2.0
     v = r.get("violations", 0)
+    s = 5.0
     if v == 0:   s += 2.2
     elif v <= 2: s += 0.8
     else:        s -= 1.5
@@ -1864,6 +1871,32 @@ def score_result(r, topic=""):
                 log(f"  {rehook_issues[0]}")
         except Exception as e:
             log(f"  Script rubric scoring (non-fatal): {e}")
+
+    # ── composite, with length excluded ────────────────────────────────
+    # Falls back to the legacy `s` if anything here raises, so a scoring
+    # bug degrades to the old number rather than failing the attempt.
+    try:
+        from clinical_quality import score_script, DURATION_FLOOR_WORDS
+        _h = subscores.get("killer_hook")
+        _c = subscores.get("narrative_craft")
+        _cl = subscores.get("topic_clarity")
+        if None not in (_h, _c, _cl):
+            _new, _ok, _rep = score_script(w, v, script, _h, _c, _cl)
+            log(f"  Duration: {_rep['duration']}")
+            log(f"  Specificity: {_rep['specificity']}/10 "
+                f"({_rep['specificity_detail'].get('per_100_words')} details/100w)")
+            log(f"  Composite: {_new}/10 (craft {_c} | hook {_h} | clarity {_cl} "
+                f"| spec {_rep['specificity']} | clean {_rep['cleanliness']})")
+            if _rep["gate_notes"]:
+                log(f"  Below target: {', '.join(_rep['gate_notes'])}")
+            if _rep["blocked_on"]:
+                issues.insert(0, "BLOCKED: " + "; ".join(_rep["blocked_on"]))
+                log(f"  BLOCKED: {'; '.join(_rep['blocked_on'])}")
+                return 0.0, issues, subscores
+            subscores["composite_report"] = _rep
+            return min(round(_new, 1), 10.0), issues, subscores
+    except Exception as e:
+        log(f"  Composite scoring (non-fatal, using legacy score): {e}")
     return min(round(s, 1), 10.0), issues, subscores
 
 
@@ -9337,9 +9370,19 @@ def main():
         except Exception as e:
             log(f"  Disclaimer block (non-fatal): {e}")
 
-        affiliate_block = build_affiliate_block("betrayal_deepdive", niche_name)
-        if affiliate_block:
-            description = f"{description}{affiliate_block}"
+        # No affiliate block on this channel. Deliberate, and not a style call.
+        #
+        # build_affiliate_block was still emitting the retired channel's
+        # registry into every description: "BetterHelp therapy", plus two
+        # more, on /deepdive placeholder slugs that 404. A therapy referral
+        # sitting directly beneath a case study -- on a channel whose own
+        # disclaimer says it is not medical advice -- contradicts the
+        # disclaimer in the one place a viewer reads it, and is precisely the
+        # health-adjacent monetisation that draws policy scrutiny. Same
+        # reasoning that removed the psychology-handbook product route.
+        #
+        # Removing the call, not the registry: the other four channels still
+        # use it legitimately.
         product_cta = build_product_cta("betrayal_deepdive")
         if product_cta:
             description = f"{description}{product_cta}"

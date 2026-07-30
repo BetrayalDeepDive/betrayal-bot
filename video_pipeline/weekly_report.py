@@ -36,11 +36,20 @@ YT_TOKEN_URL  = "https://oauth2.googleapis.com/token"
 
 # ── Competitor channels per niche — Ch1 ───────────────────────
 COMPETITOR_SEARCHES = {
-    "dark_horror":        "dark horror documentary narration faceless",
-    "seduction_dark":     "dark psychology manipulation documentary",
-    "psychological_trap": "psychological horror true story faceless",
-    "supernatural_real":  "paranormal evidence documentary narration",
-    "obsession_dark":     "dark obsession true crime faceless documentary",
+    # Ch1's five dark-documentary niches were still listed here after the
+    # channel became No Known Cause, so the weekly report was benchmarking a
+    # clinical channel against "paranormal evidence documentary narration"
+    # and feeding that back into title/thumbnail strategy.
+    "toxicology_cases":         "medical case study poisoning explained",
+    "diagnostic_odyssey":       "misdiagnosis medical mystery documentary",
+    "neurology_cases":          "neurology case study explained",
+    "rare_disease_cases":       "rare disease case report documentary",
+    "senior_health_longevity":  "longevity research explained evidence",
+    "medical_mystery_outbreak": "disease outbreak investigation documentary",
+    "surgical_case_studies":    "surgical case study explained",
+    "medical_history":          "history of medicine documentary",
+    "drug_discovery_stories":   "how drugs were discovered documentary",
+    "sleep_science":            "sleep science case study explained",
 }
 
 # ── Competitor channels per niche — Ch2 ───────────────────────
