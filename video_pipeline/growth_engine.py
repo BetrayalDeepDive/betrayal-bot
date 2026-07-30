@@ -77,7 +77,7 @@ PIXABAY_KEY    = os.environ.get("PIXABAY_KEY", "")
 CHANNELS = {
     "betrayal_deepdive": {
         "name":          "No Known Cause",
-        "handle":        "@NoKnownCause",
+        "handle":        "@NoKnownCauseTV",
         "niche_label":   "published clinical case investigation",
         "client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),

@@ -433,20 +433,20 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCause",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     # FIX: Ch4/Ch5 entries were entirely missing — this was genuinely a
     # 3-channel cross-promo system despite the empire having 5 channels,
@@ -456,20 +456,20 @@ CROSS_PROMO = {
     # now even though Ch4/Ch5 aren't built yet, since this only changes
     # Ch1/Ch2's own description text.
     "archive": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 

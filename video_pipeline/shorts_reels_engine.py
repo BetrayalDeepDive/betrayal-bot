@@ -120,7 +120,7 @@ REEL_MODE   = os.environ.get("REEL_MODE", "reel_1")
 MAIN_TOPIC  = os.environ.get("MAIN_VIDEO_TOPIC", "")
 OUTPUT_DIR  = os.environ.get("OUTPUT_DIR", "/tmp/shorts_output")
 CHANNEL     = "NO KNOWN CAUSE"         # legacy default — see CHANNEL_CONFIGS below
-WATERMARK   = "@NoKnownCause"        # legacy default — see CHANNEL_CONFIGS below
+WATERMARK   = "@NoKnownCauseTV"        # legacy default — see CHANNEL_CONFIGS below
 
 # FIX (direct user report, July 24 2026 — explicit, informed policy
 # decision after being shown the July 24 data below): raised back to 8.5.
@@ -152,7 +152,7 @@ MAX_ATTEMPTS = 13
 CHANNEL_CONFIGS = {
     "betrayal_deepdive": {
         "display_name":   "NO KNOWN CAUSE",
-        "watermark":      "@NoKnownCause",
+        "watermark":      "@NoKnownCauseTV",
         "hashtags_base":  "#noknowncause #shorts",
         "tagline":        "No Known Cause — a new published case every weekday.",
         "bg_search_term": "hospital medical",

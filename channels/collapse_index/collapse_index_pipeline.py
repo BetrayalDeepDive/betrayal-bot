@@ -453,28 +453,28 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCause",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     "archive": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     # FIX (critical, found on thorough dead/live-code review): this key
     # appeared TWICE in the original dict — a genuine Python bug where
@@ -490,12 +490,12 @@ CROSS_PROMO = {
     # for every channel, and this channel's own entry no longer
     # references itself.
     "collapse_index": {
-        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCause\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCause\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 

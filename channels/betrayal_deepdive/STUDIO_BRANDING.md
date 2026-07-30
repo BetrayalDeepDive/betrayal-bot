@@ -15,21 +15,22 @@ Regenerate the art with:
 | Field | Value |
 |---|---|
 | Channel name | `No Known Cause` |
-| Handle | `@NoKnownCause` (fallback if taken: `@NoKnownCauseTV`) |
+| Handle | `@NoKnownCauseTV` — claimed |
 | Category (per video) | Education |
 | Language | English |
 | Country | (your own) |
 | Made for kids | **No** — set at channel level AND leave the per-video default at "No" |
 
-If the handle falls back to `@NoKnownCauseTV`, the code must change too —
-it is referenced in Short watermarks and in all four other channels'
-cross-promo blocks. One command, but it has to happen before the run.
+The handle is not just an About-tab field: it is burned into every Short's
+watermark and printed in all four other channels' cross-promo blocks. If it
+ever changes again, the code has to change in the same commit, or Ch2-Ch5
+start advertising a handle that resolves to nothing.
 
 ---
 
 ## 2. Channel description (About tab)
 
-YouTube's limit is 1000 characters. This is 986.
+YouTube's limit is 1000 characters. This is 988.
 
 ```
 Every episode is one real medical case, taken from a published, peer-reviewed paper in the open-access literature.
@@ -55,7 +56,7 @@ that line. The same wording is enforced per-video by
 
 ## 3. Keywords
 
-Settings → Channel → Basic info → Keywords. 500-character limit; this is 476.
+Settings → Channel → Basic info → Keywords. 500-character limit; this is 435.
 Comma-separated, no hashes.
 
 ```
