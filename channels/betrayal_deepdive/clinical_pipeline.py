@@ -7362,9 +7362,39 @@ def run_stage1(state):
         # a genuinely specific topic.
         attempt_case = None
         if pmc_cases:
-            # One real paper per attempt; its own title is the topic.
+            # One real paper per attempt; the paper IS the topic.
             attempt_case = pmc_cases[(attempt - 1) % len(pmc_cases)]
             topic = case_to_topic(attempt_case) or attempt_case.get("title", "")
+            # ...but a journal title is not a viewer-facing premise.
+            #
+            # Run 30563819566 showed the cost: sourcing topics from papers
+            # fixed the topic/case mismatch, then failed TOPIC CLARITY (needs
+            # 8.8) with titles like "Orodental phenotype and genotype findings
+            # in all subtypes of hypophosphatasia" -- 5.5/10. Precise, and
+            # meaningless to anyone outside the specialty.
+            #
+            # So translate the framing while keeping the paper. The case, the
+            # citation and every sourced fact still come from this exact
+            # document; only the sentence describing it to a viewer changes.
+            # Falls back to the raw title, so a failed AI call costs clarity
+            # rather than breaking the topic/case link.
+            try:
+                _plain = ai_generate(
+                    "Rewrite this published medical case as ONE plain-English "
+                    "sentence a non-medical viewer would understand, 15-25 words.\n"
+                    "Say who the patient was, what happened to them, and what "
+                    "made it unexpected. Use no jargon unless you immediately "
+                    "explain it. Do not name any individual. Do not give advice.\n\n"
+                    f"PAPER TITLE: {topic}\n"
+                    f"CASE TEXT: {(attempt_case.get('narrative') or '')[:1200]}\n\n"
+                    "Return ONLY the sentence.", tokens=120)
+                if _plain:
+                    _plain = _plain.strip().strip('"').split("\n")[0].strip()
+                    if 8 <= len(_plain.split()) <= 45 and "[" not in _plain:
+                        log(f"  Plain-language framing: {_plain[:88]}")
+                        topic = _plain
+            except Exception as _e:
+                log(f"  Plain-language framing (non-fatal): {_e}")
         elif _approved_topic_entry and attempt == 1 and "[" not in _approved_topic_entry["topic_text"]:
             topic = _approved_topic_entry["topic_text"]
         else:

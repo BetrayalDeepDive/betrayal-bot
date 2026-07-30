@@ -71,10 +71,27 @@ _DRUG_CLAIM_PATTERNS = [
 # carries both a policy risk and a factual-accuracy risk this pipeline
 # cannot verify in real time.
 # ---------------------------------------------------------------------------
+# The rule is: do not present a live, unresolved public-health event as if
+# reporting the news. It is NOT "avoid these words".
+#
+# Run 30563819566 lost 3 of 13 attempts to this list matching ordinary
+# clinical prose. \bbreaking\b fires on "breaking down the drug" and
+# "breaking the blood-brain barrier"; \bunfolding\b fires on protein
+# unfolding, which is literally a biochemistry term this channel will use
+# constantly; \bthis week\b fires on a patient's own timeline ("by the end
+# of that week"). Same class of error as the "ct" substring bug in the
+# figure ranker: matching a token instead of the meaning.
+#
+# Each pattern now requires the news framing that actually breaches the
+# rule. The genuinely unambiguous phrases are kept bare.
 _LIVE_CASE_PATTERNS = [
-    r"\bongoing outbreak\b", r"\bcurrent outbreak\b", r"\bunfolding\b",
-    r"\bright now\b", r"\bas of today\b", r"\bthis week\b",
-    r"\bbreaking\b", r"\bdeveloping story\b", r"\bstill spreading\b",
+    r"\bongoing outbreak\b", r"\bcurrent outbreak\b",
+    r"\bas of today\b", r"\bstill spreading\b", r"\bdeveloping story\b",
+    r"\bbreaking news\b", r"\bbreaking story\b",
+    r"\b(?:story|crisis|situation|outbreak|investigation) (?:is )?unfolding\b",
+    r"\bunfolding (?:story|crisis|situation|outbreak|investigation)\b",
+    r"\b(?:is|are) happening right now\b",
+    r"\bhappening as we speak\b",
     r"\bhealth officials are (?:currently )?(?:investigating|warning)\b",
 ]
 
