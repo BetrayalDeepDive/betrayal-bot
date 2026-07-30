@@ -129,7 +129,7 @@ jobs:
           PIPELINE_PHASE:        "upload"
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
-          python -u channels/betrayal_deepdive/master_pipeline.py
+          python -u channels/betrayal_deepdive/clinical_pipeline.py
 
       - name: Commit upload state
         if: always()

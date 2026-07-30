@@ -363,9 +363,18 @@ def build_product_cta(channel_id):
 
 
 CHAPTER_STRUCTURES = {
+    # NON-SPOILER CHAPTER TITLES (retention addition #3).
+    # Chapters correlate with a 2.18-2.8x higher like-to-view ratio, but when
+    # Google surfaces them as Key Moments viewers can jump straight past the
+    # setup -- and for a mystery format the cold open is the single most
+    # retention-critical segment. So these titles mark POSITION without
+    # revealing the answer: "The Wrong Answer" is navigable, "Diagnosis:
+    # Hypernatraemia" would hand over the reveal from the search result.
+    # No chapter title may ever name the final diagnosis.
     "betrayal_deepdive": [
-        (0.00,"The Case Begins"),(0.10,"Before It Happened"),(0.28,"First Warning Signs"),
-        (0.45,"Escalation"),(0.60,"The Revelation"),(0.78,"The Aftermath"),(0.90,"What This Means"),
+        (0.00,"The Presentation"),(0.10,"Before Admission"),(0.28,"First Findings"),
+        (0.45,"Deterioration"),(0.60,"The Wrong Answer"),(0.78,"The Mechanism"),
+        (0.90,"What This Changed"),
     ],
     "evidence_room": [
         (0.00,"Case File Opened"),(0.10,"The Subject"),(0.28,"First Anomalies"),
@@ -2237,6 +2246,26 @@ _COLD_OPEN_QUESTION_INSTR = (
 )
 
 
+# The script prompt's medical rules are imported from the gate that enforces
+# them, so the instruction and the enforcement cannot drift apart. If the
+# import fails the prompt still carries the rules verbatim as a fallback --
+# a script generated without them would be rejected by the gate anyway, but
+# silently dropping the instruction would waste every rework attempt.
+try:
+    from medical_policy_gate import SCRIPT_PROMPT_RULES as _MEDICAL_RULES
+except Exception:
+    _MEDICAL_RULES = """
+MANDATORY MEDICAL CONTENT RULES (non-negotiable):
+1. Third person, past tense, about the documented patient. Never "you should",
+   "if you have", "your symptoms", or "consult your doctor".
+2. Every clinical detail must come from the sourced case text. Invent nothing.
+3. Never compare drugs or claim one treatment is better, safer or proven.
+4. No graphic surgical, wound or post-mortem detail.
+5. Close on what the case changed in medical understanding, never on advice.
+6. Past tense, closed published case only. Never ongoing or breaking.
+"""
+
+
 def build_script_prompt(niche, topic, episode, attempt,
                         trending_titles=None, research_context=""):
     """
@@ -2285,14 +2314,7 @@ TOPIC: {topic}
 SERIES: {niche["series"]} — Episode {episode}
 {trend_block}{pattern_block}{research_block}
 
-FACTUAL DISCIPLINE (direct requirement, not optional): this topic names a
-real, historical case. Only state facts that are genuinely, publicly
-documented about it — do not invent a direct quote or dialogue and
-attribute it to a real named person as if they actually said it. Where a
-specific number, date, or detail isn't something you're confident is
-real, describe it in general terms instead of inventing a precise-sounding
-figure. Specificity should come from real documented details already
-known about this case, not from manufacturing new ones.
+{_MEDICAL_RULES}
 
 TOTAL WORD REQUIREMENT: {MIN_WORDS} to {MAX_WORDS} words.
 Each stage must hit its target. If any stage runs short, expand with more specific evidence.
@@ -2473,34 +2495,86 @@ def generate_script_content(niche, topic, episode, attempt,
     3. Rewrite only the 2 worst-scoring stages with targeted instructions
     4. Inject subscribe CTAs at 30/60/80% marks
     """
-    # Step 1: Generate research anchors to prevent vague AI output
-    anchors = {}
+    # ── Step 1: fetch the REAL published case ─────────────────────────
+    # This replaces the previous "research anchors" step, which asked the AI
+    # to invent a plausible duration / people_count / key_number and fed
+    # those to the script as if sourced. That is precisely the failure mode
+    # already fixed for Ch5's finance niches: telling a model to sound
+    # documented instead of giving it something actually documented.
+    case = {}
     try:
-        anchor_prompt = (
-            f"Generate specific realistic research anchors for a documentary about: {topic}\n"
-            f"Return ONLY valid JSON (no backticks):\n"
-            f'{{"duration":"how long before discovery e.g. 4380 days",'
-            f'"people_count":"number affected e.g. 847 confirmed cases",'
-            f'"first_signal_date":"e.g. a Tuesday in March 2011",'
-            f'"discovery_date":"e.g. October 14 2019",'
-            f'"location":"specific-feeling place e.g. a city of 340000 people",'
-            f'"key_number":"most disturbing specific number",'
-            f'"cost":"what was permanently lost e.g. $2.4 million over eleven years"}}'
-        )
-        anchor_raw = ai_generate(anchor_prompt, tokens=300)
-        if anchor_raw:
-            anchor_raw = re.sub(r"```json|```", "", anchor_raw).strip()
-            m = re.search(r"\{[\s\S]*?\}", anchor_raw)
-            if m:
-                anchors = json.loads(m.group())
-                log(f"  Research anchors loaded: {len(anchors)} fields")
+        from pmc_data import get_real_case, format_script_context, MEDICAL_NICHE_NAMES
+        if niche["name"] in MEDICAL_NICHE_NAMES:
+            case = get_real_case(niche["name"]) or {}
+            if case:
+                research_context = f"{format_script_context(case)}\n{research_context}"
+                log(f"  Real PMC case: {case['pmcid']} — {case['journal']} {case['year']} "
+                    f"({len(case.get('figures') or [])} usable figures)")
+            else:
+                log("  PMC returned no usable CC BY case for this niche — "
+                    "falling back to the niche's real-case topic list")
     except Exception as e:
-        log(f"  Anchors (non-fatal): {e}")
+        log(f"  PMC fetch (non-fatal): {e}")
 
-    # Inject anchors into research_context
-    if anchors:
-        anchor_lines = "\n".join(f"  {k}: {v}" for k, v in anchors.items() if v)
-        research_context = f"USE THESE SPECIFIC DETAILS:\n{anchor_lines}\n{research_context}"
+    # ── Step 2: extract the structures the six visual registers consume ──
+    # All derived FROM the fetched case narrative, so BOARD/TIMELINE/CHART/
+    # ANATOMY/TEXT are populated from the same paper as the script rather
+    # than invented independently. Each is individually optional: a register
+    # with no data simply returns False and the quota redistributes.
+    if case.get("narrative"):
+        try:
+            extract_prompt = (
+                "From this REAL published clinical case text, extract only what is "
+                "actually stated. Use null for anything not present — do NOT invent.\n\n"
+                f"{case['narrative'][:2600]}\n\n"
+                "Return ONLY valid JSON (no backticks):\n"
+                '{"differentials":[["diagnosis name","EXCLUDED|PARTIAL|CONFIRMED","one-line reason"]],'
+                '"timeline":[["Day 0 or a real time label","what happened"]],'
+                '"chart_data":{"chart_type":"bar or line","title":"short title",'
+                '"y_label":"what the numbers are","labels":["label"],"values":[number]},'
+                '"anatomy":{"title":"short mechanism title","explanation":"one or two plain '
+                'sentences explaining the physical mechanism","search":"2-4 word wikimedia '
+                'search for a relevant anatomical or molecular diagram"},'
+                '"quote":"one real sentence quoted verbatim from the text, or null"}'
+            )
+            raw = ai_generate(extract_prompt, tokens=900)
+            if raw:
+                raw = re.sub(r"```json|```", "", raw).strip()
+                m = re.search(r"\{[\s\S]*\}", raw)
+                if m:
+                    ex = json.loads(m.group())
+                    # Normalise to the tuple shapes the renderers expect, and
+                    # drop anything malformed rather than passing it through.
+                    diffs = []
+                    for row in (ex.get("differentials") or []):
+                        if isinstance(row, (list, tuple)) and len(row) >= 2:
+                            diffs.append((str(row[0]), str(row[1]),
+                                          str(row[2]) if len(row) > 2 else ""))
+                    tl = []
+                    for row in (ex.get("timeline") or []):
+                        if isinstance(row, (list, tuple)) and len(row) >= 2:
+                            tl.append((str(row[0]), str(row[1])))
+                    cd = ex.get("chart_data") or {}
+                    if not (isinstance(cd, dict) and cd.get("labels") and cd.get("values")
+                            and len(cd["labels"]) == len(cd["values"]) and len(cd["labels"]) >= 2):
+                        cd = None
+                    case["differentials"] = diffs
+                    case["timeline"] = tl
+                    case["chart_data"] = cd
+                    case["anatomy"] = ex.get("anatomy") or {}
+                    case["quote"] = ex.get("quote") or ""
+                    log(f"  Case structures: {len(diffs)} differentials, {len(tl)} timeline "
+                        f"events, chart={'yes' if cd else 'no'}, "
+                        f"quote={'yes' if case['quote'] else 'no'}")
+        except Exception as e:
+            log(f"  Case structure extraction (non-fatal): {e}")
+
+    # Make the case available to the per-segment renderers deep inside
+    # get_stage_matched_video (see the EPISODE CASE HOLDER note above).
+    set_episode_case(case)
+
+    # (The old anchor-injection block is gone: research_context is now built
+    # from the real PMC case above, not from invented anchors.)
 
     # NEW FEATURE (per explicit request — daily competitive research):
     # real view/like counts and real title-word-frequency patterns from
@@ -4691,6 +4765,36 @@ def _detect_nation_context(title, topic, script):
     return ""
 
 
+# ══════════════════════════════════════════════════════════════════════
+# EPISODE CASE HOLDER
+# The real sourced case (pmc_data.get_real_case + extracted differentials/
+# timeline/anatomy/quote/chart_data) is needed by the per-segment renderers
+# deep inside get_stage_matched_video, but it is produced up in
+# generate_script_content. Threading it through would mean adding a
+# parameter to assemble_video and its 8+ call sites (including every
+# Swap-Visuals rework branch) -- a lot of surface area for one value, and
+# exactly where an easy bug hides when one call site is missed.
+#
+# This process renders exactly one episode, so a module-level holder is
+# safe: set_episode_case() is called once when the script is generated,
+# and get_episode_case() is read by the renderers. Reset defensively at
+# set time so a resumed/reworked run can never inherit a stale case.
+# ══════════════════════════════════════════════════════════════════════
+_EPISODE_CASE = {}
+
+
+def set_episode_case(case):
+    global _EPISODE_CASE
+    _EPISODE_CASE = case or {}
+    if _EPISODE_CASE:
+        log(f"  Episode case set: {_EPISODE_CASE.get('pmcid','?')} "
+            f"({len(_EPISODE_CASE.get('figures') or [])} usable figures)")
+
+
+def get_episode_case():
+    return _EPISODE_CASE
+
+
 def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     """
     Sequential audio-matched footage: the script is split into 55-75
@@ -4919,33 +5023,20 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # its pick() is called once per segment below, in narration order,
     # so the realized mix converges on this exact 40/25/20/10/5 split
     # regardless of how this episode's own script happens to be worded.
-    from scene_register import new_quota, STICKMAN, SILHOUETTE, BOARD, MOTION, TEXT, RECREATION, MAP
+    # Six clinical registers. There is deliberately NO character-animation
+    # register: no stickman, no silhouette. Those were the two registers
+    # repeatedly rejected on this channel, and a published clinical case has
+    # nothing for a character puppet to do -- the drama is in the chemistry.
+    from medical_register import new_quota
 
-    # FIX (direct user follow-up request, this session — "I don't just
-    # want you to use this stickman... use Cinematic Stick Man,
-    # Silhouette Animation, Investigation Mode, Motion Graphics, Text
-    # Animation, Minimal Scene Re-creation... Animated Maps as well and
-    # Timelines... build everything... it should be based on a specific
-    # topic and specific niche, not random or something out of scope"):
-    # MAP is only eligible when this episode's real content actually
-    # names a real place -- nation_context is already computed above via
-    # _detect_nation_context, the same real detector footage-matching
-    # uses. The one known name mismatch between that detector's demonym
-    # map and this dataset's own naming ("United States" vs "United
-    # States of America") is resolved here so the lookup doesn't
-    # silently fail on the single most common real case.
-    _MAP_NAME_ALIASES = {"United States": "United States of America"}
-    _map_country_feature = None
-    _map_all_features = []
-    if nation_context:
-        _map_data = _load_world_map_data_footage()
-        _map_all_features = _map_data.get("features", [])
-        _lookup_name = _MAP_NAME_ALIASES.get(nation_context, nation_context)
-        _map_country_feature = next(
-            (f for f in _map_all_features if f.get("name") == _lookup_name), None)
-    map_eligible = _map_country_feature is not None
-    log(f"  MAP register: {'eligible (' + nation_context + ')' if map_eligible else 'not eligible this episode (no real place named) -- quota redistributed'}")
-    register_quota = new_quota(n_buckets, map_eligible=map_eligible)
+    _case = get_episode_case()
+    _figure_count = len(_case.get("figures") or [])
+    # FIGURE share adapts to how many usable figures this paper actually has.
+    # A 2-figure paper would otherwise be asked for ~20 FIGURE segments and
+    # would show the same image eighteen times.
+    register_quota = new_quota(n_buckets, figure_count=_figure_count)
+    log(f"  Register mix: {_figure_count} usable figure(s) -> "
+        f"FIGURE share {register_quota.mix['FIGURE']*100:.0f}%")
 
     # FIX (direct user spec, this session — "switches should align with
     # real audio cues... not be purely visually arbitrary"): reuses the
@@ -5083,43 +5174,34 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                          else (specific_term or nation_context or base_kw))
         seg_start_t, seg_end_t = i * segment_dur, (i + 1) * segment_dur
         audio_cue_hit = any(seg_start_t <= t < seg_end_t for t in audio_cue_times)
-        # A location_hit anchors the MAP register to the specific segment
-        # that's actually naming the place, the same "real content, not
-        # an arbitrary switch" principle audio_cue_hit already applies.
-        location_hit = bool(map_eligible and nation_context and nation_context.lower() in stage_text)
-        register = register_quota.pick(stage_text, audio_cue_hit=audio_cue_hit, location_hit=location_hit)
-        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) [{register}] animated: '{display_text[:40]}'")
+        # NOTE: the old location_hit / map_eligible anchoring is gone with the
+        # MAP register. Left as a comment rather than silently dropped because
+        # it referenced map_eligible, which no longer exists -- keeping the
+        # line would have been a NameError on the first real segment.
+        # force_switch on a real audio cue, so a stinger never lands with the
+        # same register on both sides of it (no visual change at all).
+        register = register_quota.pick(stage_text, force_switch=audio_cue_hit)
+        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) [{register}]")
         try:
-            if register == BOARD:
-                from investigation_board import generate_board_segment
-                ok = generate_board_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
-            elif register == MOTION:
-                from motion_graphics import generate_motion_segment
-                ok = generate_motion_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
-            elif register == TEXT:
+            if register == "TEXT":
+                # kinetic_text is the one existing renderer that already does
+                # exactly what this register needs, so it is reused directly
+                # rather than reimplemented in medical_segments.
                 from kinetic_text import generate_text_segment
-                ok = generate_text_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path, log_fn=log)
-            elif register == SILHOUETTE:
-                from stickman_animation import generate_silhouette_segment
-                ok = generate_silhouette_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
-                                                  search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
-            elif register == RECREATION:
-                from scene_recreation import generate_recreation_segment
-                ok = generate_recreation_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
-                                                  search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
-            elif register == MAP:
-                from map_animation import generate_map_segment
-                ok = generate_map_segment(niche["name"], _map_country_feature, _map_all_features,
-                                           display_text, segment_dur, i, clip_path, log_fn=log)
+                _q = _case.get("quote") or stage_text
+                ok = generate_text_segment(niche["name"], _q, _q[:60], segment_dur,
+                                            i, clip_path, log_fn=log)
             else:
-                from stickman_animation import generate_stickman_segment
-                ok = generate_stickman_segment(niche["name"], stage_text, display_text, segment_dur, i, clip_path,
-                                                search_terms=search_terms, pixabay_key=PIXABAY_KEY, pexels_key=PEXELS_KEY, log_fn=log)
+                from medical_segments import render_medical_segment
+                ok = render_medical_segment(
+                    register, _case, stage_text, segment_dur, i, clip_path,
+                    work_dir=str(WORK_DIR), niche_label=niche["series"].upper(),
+                    chart_fn=generate_data_chart, run_ffmpeg=run_ffmpeg, log_fn=log)
             if ok:
                 fetched_clips.append(clip_path)
                 continue
         except Exception as e:
-            log(f"  Segment {i+1} {register} animation failed (non-fatal, falling back to stock footage): {e}")
+            log(f"  Segment {i+1} {register} render failed (non-fatal, falling back to stock footage): {e}")
 
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
         downloaded = False
@@ -7218,6 +7300,52 @@ def run_stage1(state):
                 log(f"  Research-usage check: {'genuinely reflected' if _research_used else 'NOT clearly used'}")
             result["_research_used"] = _research_used
 
+            # ── BLOCKING POLICY GATE (rules 1,2,3,6) ─────────────────
+            # Runs BEFORE scoring, because a script that violates health
+            # policy must be rewritten regardless of how well it scores.
+            # 2026 YouTube policy explicitly restricts AI-delivered medical
+            # advice, and a limited-ads label removes the $25-40 CPM band
+            # that is the entire economic case for this niche.
+            try:
+                from medical_policy_gate import check_script, format_violations
+                _pol_ok, _pol_v = check_script(result.get("script", ""),
+                                                citation=get_episode_case().get("citation", ""))
+                if not _pol_ok:
+                    log(f"  POLICY GATE FAILED — rewriting:\n{format_violations(_pol_v)}")
+                    notify_stage_score("Script-Policy", attempt, MAX_ATTEMPTS, 0, 1,
+                                        extra=format_violations(_pol_v)[:300])
+                    time.sleep(3); continue
+                log("  Policy gate: passed")
+            except Exception as e:
+                # A gate that cannot run must not silently pass a script.
+                log(f"  POLICY GATE ERROR — treating as failure: {e}")
+                time.sleep(3); continue
+
+            # ── PROMISE/PAYOFF CONSISTENCY (retention addition #2) ───────
+            # 2026: viewer-satisfaction signals now outweigh raw watch time,
+            # so a title whose specific promise is never resolved is actively
+            # penalised rather than merely neutral. Checks that the concrete
+            # tokens in the title (numbers, units, distinctive long words)
+            # actually appear in the back half of the script, where the
+            # payoff lives.
+            _promise_ok = True
+            try:
+                _t = (result.get("title", "") or "")
+                _script_txt = (result.get("script", "") or "")
+                _half = _script_txt[len(_script_txt) // 2:].lower()
+                _claims = re.findall(r"\d[\d,\.]*\s?\w*|\b[A-Za-z]{9,}\b", _t)
+                _claims = [c.strip().lower() for c in _claims if len(c.strip()) > 2]
+                if _claims:
+                    _hit = sum(1 for c in _claims if c.split()[0] in _half)
+                    _promise_ok = _hit > 0
+                    log(f"  Promise/payoff: {_hit}/{len(_claims)} title claim(s) "
+                        f"resolved in the payoff half — {'OK' if _promise_ok else 'UNRESOLVED'}")
+                    if not _promise_ok:
+                        log("  Title promises something the script never resolves — rewriting")
+                        time.sleep(3); continue
+            except Exception as e:
+                log(f"  Promise/payoff check (non-fatal): {e}")
+
             score, _, _ = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
@@ -9029,12 +9157,59 @@ def main():
         # meaning what got reviewed was genuinely missing content that
         # then got silently added before publish. Moved here so the
         # description shown for review is the real, complete final text.
+        # ── MANDATORY DISCLAIMER + CC BY ATTRIBUTION (rules 4,5) ─────
+        # CC BY reuse is conditional on credit, so a missing citation turns a
+        # licensed use into an unlicensed one. Built by the gate module so the
+        # wording and the check that enforces it cannot drift apart.
+        _clin_block = ""
+        try:
+            from medical_policy_gate import build_disclaimer_block
+            _clin_block = build_disclaimer_block(get_episode_case().get("citation", ""))
+        except Exception as e:
+            log(f"  Disclaimer block (non-fatal): {e}")
+
         affiliate_block = build_affiliate_block("betrayal_deepdive", niche_name)
         if affiliate_block:
             description = f"{description}{affiliate_block}"
         product_cta = build_product_cta("betrayal_deepdive")
         if product_cta:
             description = f"{description}{product_cta}"
+
+        # Disclaimer + CC BY citation go in LAST so nothing appended later can
+        # push them out of the description, and so the publish-time gate below
+        # is checking the text that actually ships.
+        if _clin_block:
+            description = f"{description}{_clin_block}"
+
+        # ── PUBLISH-TIME POLICY GATE (rules 4 + 5) ───────────────────────
+        # Independent re-check of the things that must be true of the final
+        # package: disclaimer present, CC BY attribution present, and no
+        # graphic figure reached the video. Deliberately a SECOND check --
+        # figures were already screened at fetch time in pmc_data, but a
+        # single screen on a licensing/policy matter is not enough.
+        try:
+            from medical_policy_gate import check_publish_package, format_violations
+            _case_now = get_episode_case()
+            _fig_caps = [f.get("caption", "") for f in (_case_now.get("figures") or [])]
+            _pub_ok, _pub_v = check_publish_package(
+                description=description,
+                on_screen_credits=[_case_now.get("citation", "")] if _case_now.get("citation") else [],
+                figure_captions=_fig_caps,
+                citation=_case_now.get("citation", ""))
+            if not _pub_ok:
+                log(f"  PUBLISH POLICY GATE FAILED:\n{format_violations(_pub_v)}")
+                tg(f"🛑 <b>Clinical Files — PUBLISH BLOCKED</b>\n\n"
+                   f"<code>{format_violations(_pub_v)[:600]}</code>\n\n"
+                   f"Not uploading. Fix required.")
+                sys.exit(1)
+            log("  Publish policy gate: passed")
+        except SystemExit:
+            raise
+        except Exception as e:
+            log(f"  PUBLISH POLICY GATE ERROR — blocking to be safe: {e}")
+            tg(f"🛑 <b>Clinical Files — PUBLISH BLOCKED</b>\n\n"
+               f"Policy gate could not run: <code>{str(e)[:300]}</code>")
+            sys.exit(1)
 
         # COMBINED TITLE + THUMBNAIL + DESCRIPTION REVIEW — one message,
         # not three separate ones, per the explicit request. REMAKE here

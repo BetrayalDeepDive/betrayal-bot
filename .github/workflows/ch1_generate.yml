@@ -22,7 +22,7 @@ on:
       is_makeup:
         # FIX (direct user request, July 25 2026 — real resume-from-last-
         # passed-stage): this input already existed and was already wired
-        # to IS_MAKEUP below, but master_pipeline.py never actually read
+        # to IS_MAKEUP below, but clinical_pipeline.py never actually read
         # a checkpoint back -- ckpt_save/ckpt_load were defined and never
         # called. Now genuinely real: set to 'true' after a cancelled/
         # failed run and the next run skips whichever of script+title /
@@ -74,7 +74,7 @@ jobs:
       # every file that differs from main as an "add/add" conflict, even
       # when the two sides touched completely disjoint files/lines. The
       # conflict markers get left in the working tree, and the very next
-      # step executes master_pipeline.py containing literal
+      # step executes clinical_pipeline.py containing literal
       # "<<<<<<< HEAD" text, producing a nonsense SyntaxError with no
       # relation to the actual code change. fetch-depth: 0 (full history)
       # lets git compute the real merge base so genuinely non-conflicting
@@ -179,7 +179,7 @@ jobs:
           IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
-          python -u channels/betrayal_deepdive/master_pipeline.py
+          python -u channels/betrayal_deepdive/clinical_pipeline.py
 
       # ── FIX: persist the rendered video/audio/thumbnail across runners ──
       # GitHub Actions machines are destroyed after each job. /tmp never
@@ -244,7 +244,7 @@ jobs:
           git add channels/betrayal_deepdive/shorts_format_history.json || true
           # FIX (direct user request, July 25 2026 — real resume-from-last-
           # passed-stage): without committing these, ckpt_save() in
-          # master_pipeline.py writes to a checkout that's destroyed the
+          # clinical_pipeline.py writes to a checkout that's destroyed the
           # moment this runner finishes -- a resumed run (is_makeup=true)
           # would find nothing to resume from. if: always() on this whole
           # step (see above) means these are committed even when the
