@@ -158,6 +158,11 @@ class RegisterQuota:
     front-loading there.
     """
 
+    # Registers that can always be rendered from the case's own material, so
+    # they are safe to assign to a segment with no keyword signal. TEXT is
+    # absent by design: it needs a real quotation to display (see _neediest).
+    FILLABLE = (FIGURE, CHART, BOARD, TIMELINE, ANATOMY)
+
     def __init__(self, total_segments, figure_count=0):
         self.total = max(1, total_segments)
         self.figure_count = figure_count
@@ -170,9 +175,24 @@ class RegisterQuota:
         return self.mix[register] * self.total - self.counts[register]
 
     def _neediest(self, exclude=None):
-        eligible = [r for r in self.mix
-                    if self.mix[r] > 0 and r != exclude]
+        """
+        Register with the largest cumulative deficit.
+
+        TEXT is excluded from deficit-filling (FILLABLE below). FIX found by
+        running a real 61-segment episode through this: TEXT was being handed
+        to segments with no quotation in them at all, because it was simply
+        the register furthest behind quota. A kinetic-quote card with nothing
+        to quote is the same class of defect as a FIGURE segment on a paper
+        with no figures -- it would have to invent something to display.
+        TEXT is now only ever reachable via a real quote signal in
+        classify_hint(); its unused share is absorbed by the registers that
+        can always be rendered from the case's own data.
+        """
+        eligible = [r for r in self.FILLABLE
+                    if self.mix.get(r, 0) > 0 and r != exclude]
         if not eligible:
+            eligible = [r for r in self.FILLABLE if self.mix.get(r, 0) > 0]
+        if not eligible:                      # pathological: nothing fillable
             eligible = [r for r in self.mix if self.mix[r] > 0]
         return max(eligible, key=self._deficit)
 
