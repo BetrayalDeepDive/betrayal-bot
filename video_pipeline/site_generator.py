@@ -32,10 +32,10 @@ except ImportError:
 
 CHANNEL_SITE_CONFIG = {
     "betrayal_deepdive": {
-        "slug": "bdd",
-        "display_name": "BetrayalDeepDive",
-        "dir_name": "betrayaldeepdive",
-        "series_default": "Confessions of Betrayal",
+        "slug": "nkc",
+        "display_name": "No Known Cause",
+        "dir_name": "noknowncause",
+        "series_default": "No Known Cause: Published Case Files",
     },
     "evidence_room": {
         "slug": "ter",
@@ -55,11 +55,13 @@ CHANNEL_SITE_CONFIG = {
 }
 
 PRODUCT_ROUTES = {
-    "betrayal_deepdive": {
-        "product_id": "dark-manipulation-tactics-handbook",
-        "headline": "Want the full pattern library behind this?",
-        "cta_button": "Get the Dark Manipulation Tactics Handbook",
-    },
+    # No Known Cause (betrayal_deepdive) deliberately has NO product route.
+    # Its old one sold the "Dark Manipulation Tactics Handbook", which is
+    # both off-brand on a clinical channel and a trust problem: a monetised
+    # medical channel up-selling a psychology handbook reads as exactly the
+    # kind of health-adjacent product pitch YouTube scrutinises. Every
+    # consumer here does .get() and no-ops on a miss, so leaving the key
+    # out cleanly disables the bridge until a real clinical product exists.
     "evidence_room": {
         "product_id": "faceless-documentary-creator-toolkit",
         "headline": "Want the investigative framework behind this case?",

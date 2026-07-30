@@ -31,7 +31,7 @@ from pathlib import Path
 PRODUCTS = {
     "dark-manipulation-tactics-handbook": {
         "title": "Dark Manipulation Tactics Handbook",
-        "feeder_channels": ["betrayal_deepdive", "control_files"],
+        "feeder_channels": ["control_files"],   # No Known Cause dropped -- no product route
         "chapters": [
             "Love Bombing, Mirroring, and Soft Entry Points of Control",
             "Trauma Bonding, Shame, and the Dependency Loop",
@@ -65,7 +65,13 @@ PRODUCTS = {
 }
 
 CHANNEL_TO_PRODUCT = {
-    "betrayal_deepdive": "dark-manipulation-tactics-handbook",
+    # No Known Cause (betrayal_deepdive) deliberately has NO product route.
+    # Its old one sold the "Dark Manipulation Tactics Handbook", which is
+    # both off-brand on a clinical channel and a trust problem: a monetised
+    # medical channel up-selling a psychology handbook reads as exactly the
+    # kind of health-adjacent product pitch YouTube scrutinises. Every
+    # consumer here does .get() and no-ops on a miss, so leaving the key
+    # out cleanly disables the bridge until a real clinical product exists.
     "control_files":     "dark-manipulation-tactics-handbook",
     "evidence_room":      "faceless-documentary-creator-toolkit",
     "archive":            "empire-collapse-atlas",

@@ -76,9 +76,9 @@ PIXABAY_KEY    = os.environ.get("PIXABAY_KEY", "")
 
 CHANNELS = {
     "betrayal_deepdive": {
-        "name":          "BetrayalDeepDive",
-        "handle":        "@BetrayalDeepDive",
-        "niche_label":   "dark horror psychological",
+        "name":          "No Known Cause",
+        "handle":        "@NoKnownCauseTV",
+        "niche_label":   "published clinical case investigation",
         "client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
         "refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
@@ -93,7 +93,7 @@ CHANNELS = {
         # channels/betrayal_deepdive/, where thumbnail_engine_v2.py
         # actually looks for it.
         "state_file":    Path(__file__).parent.parent / "channels" / "betrayal_deepdive" / "state.json",
-        "cta_style":     "dark_horror",
+        "cta_style":     "clinical_case",
     },
     "evidence_room": {
         "name":          "The Evidence Room",
@@ -447,9 +447,38 @@ def ai(prompt, tokens=300):
 # ══════════════════════════════════════════════════════════════════════════════
 
 COMMENT_VOICE = {
+    # Ch1 (No Known Cause). This profile carries a policy obligation the other
+    # four do not: it auto-replies, in public, under medical content. YouTube's
+    # 2026 rules treat an AI giving medical guidance as a restricted "AI doctor"
+    # regardless of intent, so the forbidden list here is not a tone preference
+    # -- it blocks the reply engine from ever answering "what should I do about
+    # my symptoms" with anything but a redirect to a clinician. The hooks are
+    # written so every comment type resolves back to the published paper rather
+    # than to the commenter's own health.
+    "clinical_case": {
+        "tone":     ("precise and calm, like a case presentation -- curious about "
+                     "the medicine, never authoritative about the viewer's health"),
+        "cta":      "Subscribe to No Known Cause — a new published case every weekday.",
+        "hooks": {
+            "question":    ("Answer ONLY about what the published paper reported. "
+                            "If they ask about their own symptoms or treatment, say "
+                            "plainly that this is a documented case study and they "
+                            "should speak to their own doctor."),
+            "praise":      "Acknowledge briefly and specifically. Stay in case-report voice.",
+            "revelation":  ("Connect their point to one finding actually reported in "
+                            "the paper. Never validate a self-diagnosis."),
+            "challenge":   ("Take the challenge seriously. Cite the specific reported "
+                            "finding. If the paper genuinely does not settle it, say so."),
+            "request":     "Note the case type they want covered. End with CTA.",
+            "subscribe":   "Welcome them. One line on the next case, no health claims.",
+        },
+        "forbidden": ["you should", "you need to", "try taking", "i recommend",
+                      "cure", "you probably have", "sounds like you have",
+                      "diagnose", "crazy", "shocking", "amazing", "insane"],
+    },
     "dark_horror": {
         "tone":     "dark, direct, slightly ominous but warm to fans",
-        "cta":      "Subscribe to BetrayalDeepDive — new case every weekday.",
+        "cta":      "Subscribe — new case every weekday.",
         "hooks": {
             "question":    "Ask them one sharper question related to theirs.",
             "praise":      "Acknowledge warmly and uniquely. Never copy-paste.",
@@ -485,6 +514,40 @@ COMMENT_VOICE = {
             "subscribe":   "Welcome. One sentence about the next investigation.",
         },
         "forbidden": ["crazy", "unbelievable", "wow", "shocking", "amazing"],
+    },
+    # FIX (found by integration check during the Ch1 rename): archive and
+    # collapse_index both set a cta_style with no profile here, so
+    # generate_reply's COMMENT_VOICE.get(cta_style, COMMENT_VOICE["dark_horror"])
+    # fell through -- Ch4 and Ch5 have been replying to their viewers in a
+    # "dark, slightly ominous" horror voice on a history channel and a
+    # data/collapse channel respectively, and signing off with Ch1's CTA.
+    # Nothing errored, which is why it never surfaced.
+    "archive": {
+        "tone":     "measured and archival — every claim traceable to a source",
+        "cta":      "Subscribe to The Archive — new history investigation every weekday.",
+        "hooks": {
+            "question":    "Answer with the one documented fact that settles it.",
+            "praise":      "Brief, genuine acknowledgement. Stay in archival voice.",
+            "revelation":  "Validate their point and add one dated detail from the record.",
+            "challenge":   "Take it seriously. Name the source that decides the question.",
+            "request":     "Note the period or event they want covered. End with CTA.",
+            "subscribe":   "Welcome them. One line on the next investigation.",
+        },
+        "forbidden": ["crazy", "insane", "shocking", "wild", "amazing"],
+    },
+    "collapse_index": {
+        "tone":     "dry and specific — numbers first, no doom-mongering",
+        "cta":      "Subscribe to The Collapse Index — new breakdown every weekday.",
+        "hooks": {
+            "question":    "Answer with the actual figure and where it comes from.",
+            "praise":      "Short and genuine. Stay in analytical voice.",
+            "revelation":  "Validate, then add one real number that sharpens their point.",
+            "challenge":   "Concede what is arguable. Cite the specific series or filing.",
+            "request":     "Note the company or event they want covered. End with CTA.",
+            "subscribe":   "Welcome them. One line on what is being tracked next.",
+        },
+        "forbidden": ["crazy", "insane", "shocking", "collapse is coming",
+                      "guaranteed", "amazing"],
     },
 }
 
@@ -673,45 +736,106 @@ def run_comment_engine(channel_id, token, growth_state, video_ids=None):
 # ══════════════════════════════════════════════════════════════════════════════
 
 CTA_BANK = {
-    "dark_horror": {
-        "30": ["Subscribe to BetrayalDeepDive. The worst part is thirty seconds away.",
-               "If what you just heard disturbed you, subscribe. There is more."],
+    # No Known Cause (betrayal_deepdive slot) — 10 niches.
+    #
+    # These replace the five dark-documentary keys that used to live here
+    # (dark_horror / seduction_dark / psychological_trap / supernatural_real /
+    # obsession_dark). Those named niches no longer exist on any channel, so
+    # keeping them would have meant every Ch1 niche missed the bank and fell
+    # through to a CTA speaking a retired channel name aloud. Text mirrors
+    # clinical_pipeline's own _inject_ctas_ch1 bank, which is the source of
+    # truth the pipeline actually calls.
+    "toxicology_cases": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. The quantity involved is the part nobody expects."],
+        "60": ["Subscribe now. What the laboratory found next reframes the whole presentation.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Every case is a real published paper."],
+    },
+    "diagnostic_odyssey": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. The first diagnosis was wrong, and the reason matters."],
+        "60": ["Subscribe now. The test that would have answered this is coming.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Every case is sourced from the literature."],
+    },
+    "neurology_cases": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. What the imaging located is not what the team expected."],
+        "60": ["Subscribe now. The mechanism behind this is stranger than the symptom.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. A new neurological case every weekday."],
+    },
+    "rare_disease_cases": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. Almost nobody has seen a presentation like this."],
+        "60": ["Subscribe now. How this was finally identified is the whole story.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Every case is a documented first report."],
+    },
+    "senior_health_longevity": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. The measured data contradicts the common assumption."],
+        "60": ["Subscribe now. What the long-term follow-up showed is coming next.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Real research, every weekday."],
+    },
+    "medical_mystery_outbreak": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. Nobody had connected these cases yet."],
+        "60": ["Subscribe now. The shared exposure is about to be identified.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Real epidemiological investigations."],
+    },
+    "surgical_case_studies": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. The anatomy made the standard approach impossible."],
+        "60": ["Subscribe now. The decision made before the first incision is coming.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Real published surgical cases."],
+    },
+    "drug_discovery_stories": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. Nobody was looking for what they found."],
+        "60": ["Subscribe now. The failure that became the discovery is next.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. How real medicines were actually found."],
+    },
+    "sleep_science": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. What the sleep study recorded is the answer."],
+        "60": ["Subscribe now. The mechanism behind the symptom is coming.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. Real published sleep cases."],
+    },
+    "medical_history": {
+        "30": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
+               "Subscribe. This was standard practice for decades."],
+        "60": ["Subscribe now. The evidence that ended it had been available all along.",
+               "Subscribe to No Known Cause before the mechanism is revealed."],
+        "80": ["Subscribe. A new published case every weekday.",
+               "Subscribe to No Known Cause. How medicine actually changed its mind."],
+    },
+    # Brand-neutral last resort. The old fallback pointed at dark_horror, which
+    # meant an unrecognised niche on ANY channel spoke a retired channel name
+    # out loud in the finished audio. Nothing here names a channel, so a miss
+    # is now merely generic instead of wrong.
+    "_default": {
+        "30": ["Subscribe. The part that explains this is thirty seconds away.",
+               "Subscribe — the detail that changes this is coming up."],
         "60": ["Subscribe now. What comes next is why this channel exists.",
-               "Subscribe to BetrayalDeepDive before the next revelation."],
-        "80": ["Subscribe. New investigation every weekday.",
-               "Subscribe to BetrayalDeepDive if you want the rest of them."],
-    },
-    "seduction_dark": {
-        "30": ["Subscribe. The psychology behind this gets darker from here.",
-               "Subscribe to BetrayalDeepDive. The pattern you are seeing repeats."],
-        "60": ["Subscribe before the mechanism is fully revealed.",
-               "Subscribe to BetrayalDeepDive. The next section changes the whole story."],
-        "80": ["Subscribe. The final layer is thirty seconds away.",
-               "Subscribe to BetrayalDeepDive — new case every weekday."],
-    },
-    "psychological_trap": {
-        "30": ["Subscribe. The trap is about to be fully visible.",
-               "Subscribe to BetrayalDeepDive. Every step was deliberate."],
-        "60": ["Subscribe before the final mechanism is shown.",
-               "Subscribe. What is documented next changes everything."],
-        "80": ["Subscribe every weekday. A new case that redefines what you thought you knew.",
-               "Subscribe to BetrayalDeepDive if you want the forty-seven other cases."],
-    },
-    "supernatural_real": {
-        "30": ["Subscribe. The documented evidence arrives in thirty seconds.",
-               "Subscribe to BetrayalDeepDive. The explanation is not what you expect."],
-        "60": ["Subscribe before the final evidence is shown.",
-               "Subscribe. This is the part that has no rational explanation."],
-        "80": ["Subscribe. What was documented here has never been explained.",
-               "Subscribe to BetrayalDeepDive — new investigation every weekday."],
-    },
-    "obsession_dark": {
-        "30": ["Subscribe. The escalation documented next is why this case is different.",
-               "Subscribe to BetrayalDeepDive. Every detail here was deliberate."],
-        "60": ["Subscribe before the final revelation.",
-               "Subscribe. The next sixty seconds reframe everything."],
-        "80": ["Subscribe. New case every weekday. You will not regret it.",
-               "Subscribe to BetrayalDeepDive if you want to understand what drove this."],
+               "Subscribe before the rest of this is revealed."],
+        "80": ["Subscribe. A new investigation every weekday.",
+               "Subscribe if you want the rest of them."],
     },
     # FIX: this bank previously had only 7 keys total — the 5 real
     # betrayal_deepdive niches above, plus two generic placeholder keys
@@ -955,7 +1079,7 @@ def inject_subscribe_ctas(script_clean, niche_name):
     if total < 400:
         return script_clean
 
-    pool = CTA_BANK.get(niche_name, CTA_BANK["dark_horror"])
+    pool = CTA_BANK.get(niche_name, CTA_BANK["_default"])
     seed = abs(hash(script_clean[:80])) % 2
     c30  = pool["30"][seed % len(pool["30"])]
     c60  = pool["60"][seed % len(pool["60"])]
@@ -1922,7 +2046,7 @@ def run_post_upload_sprint():
     video_url   = os.environ.get("SPRINT_VIDEO_URL", "")
     video_title = os.environ.get("SPRINT_VIDEO_TITLE", "")
     channel_id  = os.environ.get("SPRINT_CHANNEL_ID", "betrayal_deepdive")
-    niche_name  = os.environ.get("SPRINT_NICHE", "dark_horror")
+    niche_name  = os.environ.get("SPRINT_NICHE", "_default")
     shorts_raw  = os.environ.get("SPRINT_SHORTS_URLS", "")
     score       = os.environ.get("SPRINT_SCORE", "")
     playlist_id = os.environ.get("SPRINT_PLAYLIST_ID", "")

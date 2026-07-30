@@ -47,7 +47,7 @@ FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTex
 # degrades gracefully to fewer FIGURE segments rather than breaking a run.
 FIGURE_URL = "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/bin/{fname}"
 
-USER_AGENT = ("BetrayalDeepDive-ClinicalPipeline/1.0 "
+USER_AGENT = ("NoKnownCause-ClinicalPipeline/1.0 "
               "(https://github.com/BetrayalDeepDive/betrayal-bot; automation)")
 
 # Licenses that actually permit a monetised derivative work. Anything else

@@ -21,7 +21,7 @@ is never required for the pipeline to keep working.
 import requests
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
-USER_AGENT = ("BetrayalDeepDive-VideoPipeline/1.0 "
+USER_AGENT = ("NoKnownCause-VideoPipeline/1.0 "
               "(https://github.com/BetrayalDeepDive/betrayal-bot; automation)")
 
 

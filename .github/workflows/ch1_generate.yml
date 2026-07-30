@@ -1,5 +1,5 @@
 # ============================================================
-# BETRAYAL DEEPDIVE — Ch1 Generation Workflow
+# NO KNOWN CAUSE — Ch1 Generation Workflow
 # Phase 1: GENERATE only (no upload)
 # Runs: Mon-Fri 8:30 PM IST = 15:00 UTC
 # Stores video + script + thumbnail via pending_upload.json in repo
@@ -8,7 +8,7 @@
 #           pattern memory, A/B thumbnails, 4 Shorts/day (2 on-topic +
 #           2 real-trend-researched, teaser/recap removed per explicit request)
 # ============================================================
-name: Ch1 BetrayalDeepDive — Generate
+name: Ch1 No Known Cause — Generate
 
 on:
   # PAUSED (2026-07-24, explicit user request): all automations disabled

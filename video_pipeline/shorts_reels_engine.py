@@ -119,8 +119,8 @@ SHORT_MODE  = os.environ.get("SHORT_MODE", "standalone_1")
 REEL_MODE   = os.environ.get("REEL_MODE", "reel_1")
 MAIN_TOPIC  = os.environ.get("MAIN_VIDEO_TOPIC", "")
 OUTPUT_DIR  = os.environ.get("OUTPUT_DIR", "/tmp/shorts_output")
-CHANNEL     = "BETRAYAL DEEPDIVE"      # legacy default — see CHANNEL_CONFIGS below
-WATERMARK   = "@BetrayalDeepDive"      # legacy default — see CHANNEL_CONFIGS below
+CHANNEL     = "NO KNOWN CAUSE"         # legacy default — see CHANNEL_CONFIGS below
+WATERMARK   = "@NoKnownCauseTV"        # legacy default — see CHANNEL_CONFIGS below
 
 # FIX (direct user report, July 24 2026 — explicit, informed policy
 # decision after being shown the July 24 data below): raised back to 8.5.
@@ -151,11 +151,11 @@ MAX_ATTEMPTS = 13
 # ══════════════════════════════════════════════════════════════════
 CHANNEL_CONFIGS = {
     "betrayal_deepdive": {
-        "display_name":   "BETRAYAL DEEPDIVE",
-        "watermark":      "@BetrayalDeepDive",
-        "hashtags_base":  "#betrayaldeepdive #shorts",
-        "tagline":        "Betrayal DeepDive — New betrayal story every day.",
-        "bg_search_term": "betrayal",
+        "display_name":   "NO KNOWN CAUSE",
+        "watermark":      "@NoKnownCauseTV",
+        "hashtags_base":  "#noknowncause #shorts",
+        "tagline":        "No Known Cause — a new published case every weekday.",
+        "bg_search_term": "hospital medical",
         # FIX (v7 rebuild, per explicit correction): these used to be
         # "standalone_1"/"standalone_2" pools that were STILL same-niche
         # as the channel (just different specific angles on betrayal/
@@ -174,7 +174,7 @@ CHANNEL_CONFIGS = {
                 "surprising history fact", "unexpected food trend", "viral challenge explained"
             ],
         },
-        "default_niche": "betrayal",
+        "default_niche": "hospital medical",
     },
     "evidence_room": {
         "display_name":   "THE EVIDENCE ROOM",
@@ -820,7 +820,13 @@ def score_short_script(script: str, title: str, hook: str,
     # strong hook) reaches the cap, not 5.
     shock_words = ["shocking","betrayal","secret","exposed","truth","destroyed","lied",
                    "hidden","never","suddenly","revealed","discovered","stolen","fraud",
-                   "murdered","arrested","collapsed","billion","affair","caught"]
+                   "murdered","arrested","collapsed","billion","affair","caught",
+                   # Clinical-register equivalents, added for Ch1. These carry
+                   # the same "something is wrong and unresolved" weight without
+                   # crime vocabulary, so a well-written medical hook can reach
+                   # the cap on its writing rather than on its subject matter.
+                   "misdiagnosed","missed","wrong","fatal","undetected","overlooked",
+                   "symptom","diagnosis","collapse","untreated","rare","unexplained"]
     hook_hits = sum(1 for w in shock_words if w in hook.lower() or w in script[:80].lower())
     scores["hook"] = min(2.0, hook_hits * 0.7)
 
@@ -1210,6 +1216,12 @@ def download_background_clip(niche: str, output_path: str, topic: str = "") -> b
     isn't just "cinematic dark drama" for every Short in the category,
     regardless of what the Short is actually about."""
     niche_keywords = {
+        # No Known Cause (Ch1). Deliberately clinical settings and equipment,
+        # never patients or anything that could read as a real person's
+        # medical footage -- the paper's own CC BY figures are the only
+        # patient imagery this channel is licensed to show.
+        "hospital medical": ["hospital corridor night", "medical scan monitor",
+                             "laboratory microscope work", "empty operating theatre"],
         "betrayal":     ["dramatic shadow person","mystery dark room","emotional confrontation"],
         "crime":        ["police lights night","detective crime scene","dark thriller"],
         "finance":      ["money falling dramatic","businessman shadow dark","greed wealth"],
@@ -1465,7 +1477,7 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
 # systematically lose up to ~2.7 of 10 possible points purely for not
 # containing Ch1's keywords — not because the content was actually worse.
 SHOCK_WORDS_BY_CHANNEL = {
-    "betrayal_deepdive": ["shocking","betrayal","secret","exposed","truth","destroyed","lied"],
+    "betrayal_deepdive": ["documented","published","diagnosis","case","finding","reported","confirmed"],
     "evidence_room":     ["shocking","evidence","secret","exposed","truth","proof","confession"],
     "control_files":     ["documented","control","exposed","truth","manipulation","pattern","confirmed"],
     # FIX (critical, found on full re-audit): "archive" (Ch4) was missing
@@ -1476,7 +1488,7 @@ SHOCK_WORDS_BY_CHANNEL = {
     "collapse_index":    ["documented","real","collapsed","exposed","specific","evidence","numbers"],
 }
 TITLE_WORDS_BY_CHANNEL = {
-    "betrayal_deepdive": ["SHOCKING","SECRET","TRUTH","EXPOSED","BETRAYAL","CAUGHT","FRAUD","LIED"],
+    "betrayal_deepdive": ["DOCUMENTED","PUBLISHED","DIAGNOSIS","CASE","FINDING","REPORTED","MISSED","REAL"],
     "evidence_room":     ["SHOCKING","SECRET","TRUTH","EXPOSED","EVIDENCE","CAUGHT","PROOF","CONFESSION"],
     "control_files":     ["DOCUMENTED","TRUTH","EXPOSED","CONTROL","PATTERN","MANIPULATION","CONFIRMED","SYSTEM"],
     "archive":           ["DOCUMENTED","ANCIENT","DISCOVERED","TRUTH","REAL","HISTORY","LOST","REVEALED"],

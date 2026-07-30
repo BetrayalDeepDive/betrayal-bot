@@ -453,28 +453,28 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     "archive": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI/tech & finance collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     # FIX (critical, found on thorough dead/live-code review): this key
     # appeared TWICE in the original dict — a genuine Python bug where
@@ -490,12 +490,12 @@ CROSS_PROMO = {
     # for every channel, and this channel's own entry no longer
     # references itself.
     "collapse_index": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ Empire history: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 
@@ -6834,7 +6834,7 @@ def run_approval_gate(title, niche_name, script_clean, edge_voice, score):
     preview      = script_clean[:400].replace("<","").replace(">","")
 
     approval_text = (
-        f"🌑 <b>BETRAYAL DEEPDIVE — APPROVAL NEEDED</b>\n\n"
+        f"📉 <b>THE COLLAPSE INDEX — APPROVAL NEEDED</b>\n\n"
         f"📌 <b>Title:</b> {title}\n\n"
         f"🎯 <b>Niche:</b> {niche_name} | ${niche['rpm']} RPM\n"
         f"🎙️ <b>Voice:</b> {edge_voice}\n"
@@ -7260,7 +7260,7 @@ def main():
 
     phase = get_pipeline_phase()
     log("=" * 70)
-    log(f"BETRAYAL DEEPDIVE v14.0 — Phase: {phase.upper()}")
+    log(f"THE COLLAPSE INDEX v14.0 — Phase: {phase.upper()}")
     log(f"Time (IST): {datetime.datetime.now().strftime('%a %d %b %Y %I:%M %p')}")
     log("=" * 70)
 

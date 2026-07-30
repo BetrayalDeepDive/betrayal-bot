@@ -372,38 +372,38 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@BetrayalDeepDive",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     # FIX: same gap found and fixed in Ch1 — Ch4/Ch5 entries were entirely
     # missing, a genuinely 3-channel system despite the empire having 5.
     "archive": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@BetrayalDeepDive\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 
@@ -4024,7 +4024,7 @@ def post_creator_comment(token, video_id, niche_name, title, episode):
         f"🔬 {hook}\n\n"
         f"Leave your answer below — every case has details that never make the news.\n\n"
         f"🔔 New forensic investigation every weekday\n"
-        f"🌑 Dark horror investigations: youtube.com/@BetrayalDeepDive\n\n"
+        f"🩺 Real medical cases: youtube.com/@NoKnownCauseTV\n\n"
         f"#{niche_name.replace('_','')} #forensic #investigation #documentary #episode{episode}"
     )
     try:
@@ -4115,7 +4115,7 @@ def post_short_creator_comment_ch2(token, video_id, niche_name, main_title):
         f"🔬 {hook}\n\n"
         f"Full forensic investigation ↑ above.\n"
         f"🔔 New case every weekday → subscribe\n"
-        f"🌑 Dark horror: youtube.com/@BetrayalDeepDive\n"
+        f"🩺 Medical cases: youtube.com/@NoKnownCauseTV\n"
         f"🧠 Mass manipulation: youtube.com/@TheControlFiles\n\n"
         f"#{niche_name.replace('_','')} #shorts #forensic #investigation"
     )
@@ -4137,11 +4137,11 @@ def build_ch2_cross_promo(is_short=False):
     """Three-channel cross-promotion for Ch2 descriptions."""
     if is_short:
         return (
-            "\n\n🌑 Dark horror investigations: youtube.com/@BetrayalDeepDive"
+            "\n\n🩺 Real medical cases: youtube.com/@NoKnownCauseTV"
             "\n🧠 Mass manipulation exposed: youtube.com/@TheControlFiles"
         )
     return (
-        "\n\n🌑 Dark psychological horror: youtube.com/@BetrayalDeepDive"
+        "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV"
         "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
         "\n\n📺 New investigation every weekday on all three channels."
     )

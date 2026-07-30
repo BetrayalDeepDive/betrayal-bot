@@ -42,22 +42,32 @@ PIXABAY_KEY = os.environ.get("PIXABAY_KEY", "")
 # person's identity is tied across 5 tonally different channels.
 # ══════════════════════════════════════════════════════════════════
 CHANNEL_AVATARS = {
-    "BetrayalDeepDive": {
+    # No Known Cause (Ch1). Key must match the channel_name string
+    # clinical_pipeline passes down, or get_channel_avatar_prompt returns
+    # None and the channel loses its consistent figure entirely.
+    #
+    # The figure is a scrub-wearing observer, never a doctor treating anyone
+    # and never a patient. That distinction is load-bearing: an illustrated
+    # "doctor" figure recurring across a monetised medical channel is the
+    # visual form of the same authority claim the narration is barred from
+    # making. Every pose below is someone reading, not someone treating.
+    "No Known Cause": {
         "avatar_description": (
-            "stylized illustrated figure in a dark hooded cloak, minimalist "
-            "flat-shaded digital illustration style, faint red glow where eyes "
-            "would be, no photorealistic face, no real person, graphic novel "
-            "aesthetic, consistent character design"
+            "stylized illustrated figure in plain dark teal scrubs, minimalist "
+            "flat-shaded digital illustration style, face turned away or in "
+            "shadow, no photorealistic face, no real person, no stethoscope, "
+            "no white coat, clinical documentary aesthetic, consistent "
+            "character design"
         ),
         "pose_variations": [
-            "standing in a doorway looking into the room",
-            "reaching a hand toward the viewer",
-            "seated in an armchair examining an old photograph",
-            "walking away down a corridor, looking back over one shoulder",
-            "standing behind a curtain, half-visible",
-            "holding an old cassette tape up to the light",
-            "silhouetted against a window at night",
-            "crouched beside a closed door, listening",
+            "standing before an illuminated scan lightbox, back to the viewer",
+            "seated at a desk reading an open case file under a single lamp",
+            "holding a printed scan up toward a window",
+            "walking down a dim hospital corridor, seen from behind",
+            "standing at a wall of pinned case notes, studying one",
+            "seated beside a monitor of waveform traces at night",
+            "silhouetted in a doorway of an empty ward",
+            "leaning over a laboratory bench examining a slide",
         ],
     },
     "The Evidence Room": {
@@ -140,7 +150,194 @@ def get_font(size):
 # ═══════════════════════════════════════════════════════════════════
 
 NICHE_PROFILES = {
-    # BetrayalDeepDive niches
+    # ── No Known Cause (Ch1) — 10 clinical niches ────────────────────
+    # These were entirely absent, so all ten fell through to
+    # FALLBACK_PROFILE's dark-horror-red styling: every thumbnail on a
+    # medical channel would have been rendered as blood-red horror art
+    # with "abandoned dark location ominous fog" imagery. Palette below
+    # matches medical_figure_render's in-video colours exactly (BG
+    # 14/18/22, ACCENT teal 95/168/160) so the thumbnail and the first
+    # frame of the video read as the same channel.
+    #
+    # pollinations_style deliberately never depicts a patient, a body, or
+    # a wound. Clinical settings and equipment only. Real patient imagery
+    # on this channel comes solely from the paper's own CC BY figures,
+    # which are licensed and attributed; a generated approximation of a
+    # sick person is neither, and would be the exact "AI medical imagery"
+    # that 2026 policy treats as misleading.
+    "toxicology_cases": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark laboratory bench amber sample vials backlit analytical instrument atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a gloved hand holding a sample vial clinical backlight no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "diagnostic_odyssey": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dim hospital corridor with a lightbox of scans glowing at the far end atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure standing before an illuminated scan lightbox no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "neurology_cases": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark reading room single illuminated brain MRI lightbox teal glow atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure studying an illuminated brain scan clinical backlight no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "rare_disease_cases": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark archive of medical case files one folder open under a desk lamp atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure at a desk of open case files single lamp no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "senior_health_longevity": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (198, 156, 72),
+        "shadow_color":    (56, 40, 8),
+        "badge_color":     (120, 92, 34),
+        "glow_color":      (238, 196, 110),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark desk with long-term study charts and a stethoscope warm lamp atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure reading a chart under a single warm lamp no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "medical_mystery_outbreak": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark epidemiology map wall with pinned case markers dim teal glow atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure before a wall map of pinned case markers no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "surgical_case_studies": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "empty operating theatre single overhead surgical lamp lit dark room atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a gowned figure beneath a surgical lamp clinical backlight no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "drug_discovery_stories": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (198, 156, 72),
+        "shadow_color":    (56, 40, 8),
+        "badge_color":     (120, 92, 34),
+        "glow_color":      (238, 196, 110),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark laboratory glassware and handwritten research notebook warm lamp atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure at a laboratory bench writing notes single lamp no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "sleep_science": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (95, 168, 160),
+        "shadow_color":    (0, 42, 40),
+        "badge_color":     (38, 96, 92),
+        "glow_color":      (130, 210, 200),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark sleep laboratory polysomnography traces glowing on a monitor atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure watching a monitor of sleep traces at night no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    "medical_history": {
+        "bg_color":        (14, 18, 22),
+        "primary_text":    (232, 238, 240),
+        "accent_text":     (198, 156, 72),
+        "shadow_color":    (56, 40, 8),
+        "badge_color":     (120, 92, 34),
+        "glow_color":      (238, 196, 110),
+        "vignette_strength": 0.78,
+        "brightness":      0.22,
+        "pollinations_style": (
+            "dark shelf of antique medical volumes one open under a warm lamp atmospheric no people no patients no text cinematic 8k"
+        ),
+        "silhouette_style": (
+            "dark silhouette of a figure before a shelf of old medical volumes single lamp no face visible clinical atmospheric cinematic"
+        ),
+        "composition":     "text_lower_third",
+    },
+    # Retired dark-documentary niches (Ch1 pre-repurpose). Kept only so
+    # any stale state.json niche string still resolves to a real profile
+    # instead of the fallback; nothing schedules them any more.
     "dark_horror": {
         "bg_color":        (2, 2, 8),
         "primary_text":    (255, 255, 255),

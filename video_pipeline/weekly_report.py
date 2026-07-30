@@ -121,7 +121,7 @@ COMPETITOR_SEARCHES_CH5 = {
 CHANNELS = [
     {
         "channel_id":       "betrayal_deepdive",
-        "display_name":     "BetrayalDeepDive",
+        "display_name":     "No Known Cause",
         "yt_client_id":     os.environ.get("YOUTUBE_CLIENT_ID", ""),
         "yt_client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", ""),
         "yt_refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
@@ -187,7 +187,10 @@ CHANNELS = [
 # single channel's own distinct earnings, and is called out in the
 # report text itself.
 PRODUCT_TITLE_BY_CHANNEL = {
-    "betrayal_deepdive": "Dark Manipulation Tactics Handbook",
+    # No product for No Known Cause -- see the note in
+    # site_generator.PRODUCT_ROUTES. Absent so the weekly report does
+    # not credit this channel with revenue from a product it does not
+    # and should not sell.
     "evidence_room":     "Dark Manipulation Tactics Handbook",
     "control_files":     "Dark Manipulation Tactics Handbook",
     "archive":            "The Empire Collapse Atlas",
@@ -519,8 +522,9 @@ def map_retention_to_stage(elapsed_ratio, channel_id="betrayal_deepdive"):
         "control_files":     [120, 200, 280, 480, 150, 520, 150],  # matches control_files_pipeline.py's real stage_targets
     }
     channel_stage_names = {
-        "betrayal_deepdive": ["Cold Open", "The Before", "First Signals",
-                               "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"],
+        "betrayal_deepdive": ["The Presentation", "Before Admission", "First Findings",
+                               "Deterioration", "The Wrong Answer", "The Mechanism",
+                               "What This Changed"],
         "evidence_room":     ["Cold Open", "The Before", "First Signals",
                                "Escalation", "False Resolution", "Real Reveal", "Implication + CTA"],
         "control_files":     ["The System", "How It Was Built", "Documented Cases",

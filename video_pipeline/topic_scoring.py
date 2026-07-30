@@ -36,7 +36,13 @@ SCORING_WEIGHTS = {
 }
 
 PRODUCT_ROUTES = {
-    "betrayal_deepdive": "dark-manipulation-tactics-handbook",
+    # No Known Cause (betrayal_deepdive) deliberately has NO product route.
+    # Its old one sold the "Dark Manipulation Tactics Handbook", which is
+    # both off-brand on a clinical channel and a trust problem: a monetised
+    # medical channel up-selling a psychology handbook reads as exactly the
+    # kind of health-adjacent product pitch YouTube scrutinises. Every
+    # consumer here does .get() and no-ops on a miss, so leaving the key
+    # out cleanly disables the bridge until a real clinical product exists.
     "evidence_room":     "faceless-documentary-creator-toolkit",
     # FIX (found on re-audit): this is a SEPARATE dict from
     # site_generator.py's own PRODUCT_ROUTES (already fixed earlier this

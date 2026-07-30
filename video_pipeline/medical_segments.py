@@ -77,7 +77,7 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True):
 
 
 # ── BOARD ──────────────────────────────────────────────────────────────────
-def render_board_still(differentials, out_path, niche_label="CLINICAL FILES"):
+def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE"):
     """
     differentials: list of (name, verdict, reason). verdict drives the colour:
     anything containing 'confirm' reads teal, 'partial' amber, else red.
@@ -187,7 +187,7 @@ def render_text_still(quote, out_path, attribution="From the source paper",
 
 # ── dispatch ───────────────────────────────────────────────────────────────
 def render_medical_segment(register, case, segment_text, duration, index,
-                           out_path, work_dir, niche_label="CLINICAL FILES",
+                           out_path, work_dir, niche_label="NO KNOWN CAUSE",
                            chart_fn=None, run_ffmpeg=None, log_fn=print):
     """
     Render one segment. Returns True on success.

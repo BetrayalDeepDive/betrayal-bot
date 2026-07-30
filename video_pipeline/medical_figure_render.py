@@ -83,7 +83,7 @@ def _wrap(draw, text, font, max_width):
 
 
 def render_figure_frame(figure_path, out_path, caption="", label="",
-                        citation="", niche_label="CLINICAL FILES"):
+                        citation="", niche_label="NO KNOWN CAUSE"):
     """
     Compose one FIGURE frame.
 
@@ -166,7 +166,7 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
 
 
 def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
-                          niche_label="CLINICAL FILES"):
+                          niche_label="NO KNOWN CAUSE"):
     """
     TIMELINE register: the case's real chronology.
 

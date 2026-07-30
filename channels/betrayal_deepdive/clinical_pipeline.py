@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLINICAL FILES — published-case documentary pipeline (Ch1 slot)
+NO KNOWN CAUSE — published-case documentary pipeline (Ch1 slot)
 ================================================================
 Replaces the dark-documentary pipeline that previously occupied this slot.
 Derived from it deliberately, so the ~80% of machinery that is not
@@ -214,7 +214,7 @@ def _record_title_history(niche_name, episode, title, score):
     # thumb_format_history's proven pattern exactly.
     try:
         from title_scoring_history import record_title_used
-        record_title_used(str(SCRIPT_DIR), "Clinical Files", niche_name, episode, title, score)
+        record_title_used(str(SCRIPT_DIR), "No Known Cause", niche_name, episode, title, score)
     except Exception as e:
         log(f"  Title history record (non-fatal): {e}")
 
@@ -433,20 +433,20 @@ CROSS_PROMO = {
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@Clinical Files\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@Clinical Files\n🧠 Psychology: youtube.com/@TheControlFiles",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
         "main":  "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
-                 "🌑 Dark psychological horror: youtube.com/@Clinical Files\n"
+                 "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🌑 Dark horror: youtube.com/@Clinical Files",
+        "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     # FIX: Ch4/Ch5 entries were entirely missing — this was genuinely a
     # 3-channel cross-promo system despite the empire having 5 channels,
@@ -456,20 +456,20 @@ CROSS_PROMO = {
     # now even though Ch4/Ch5 aren't built yet, since this only changes
     # Ch1/Ch2's own description text.
     "archive": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@Clinical Files\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@Clinical Files\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
-        "main":  "\n\n🌑 Dark psychological horror: youtube.com/@Clinical Files\n"
+        "main":  "\n\n🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
                  "📺 New investigation every weekday.",
-        "short": "\n\n🌑 Dark horror: youtube.com/@Clinical Files\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
+        "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
 
@@ -1385,7 +1385,7 @@ def call_openrouter(prompt, tokens=8000):
             r = requests.post(OPENROUTER_URL,
                 headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
                          "Content-Type": "application/json",
-                         "HTTP-Referer": "https://github.com/Clinical Files/betrayal-bot"},
+                         "HTTP-Referer": "https://github.com/BetrayalDeepDive/betrayal-bot"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
                       "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
@@ -2949,7 +2949,7 @@ def generate_script_content(niche, topic, episode, attempt,
 
 def _inject_ctas_ch1(script_clean, niche_name):
     """
-    Inject subscribe CTAs at 30%/60%/80% marks for Ch1 (Clinical Files).
+    Inject subscribe CTAs at 30%/60%/80% marks for Ch1 (No Known Cause).
     Uses sentence boundary detection so CTAs never split mid-sentence.
     """
     words = script_clean.split()
@@ -2971,84 +2971,84 @@ def _inject_ctas_ch1(script_clean, niche_name):
     # not by chance.
     cta_pool = {
         "toxicology_cases": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. The quantity involved is the part nobody expects."],
             "60pct": ["Subscribe now. What the laboratory found next reframes the whole presentation.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Every case is a real published paper."],
+                      "Subscribe to No Known Cause. Every case is a real published paper."],
         },
         "diagnostic_odyssey": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. The first diagnosis was wrong, and the reason matters."],
             "60pct": ["Subscribe now. The test that would have answered this is coming.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Every case is sourced from the literature."],
+                      "Subscribe to No Known Cause. Every case is sourced from the literature."],
         },
         "neurology_cases": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. What the imaging located is not what the team expected."],
             "60pct": ["Subscribe now. The mechanism behind this is stranger than the symptom.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. A new neurological case every weekday."],
+                      "Subscribe to No Known Cause. A new neurological case every weekday."],
         },
         "rare_disease_cases": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. Almost nobody has seen a presentation like this."],
             "60pct": ["Subscribe now. How this was finally identified is the whole story.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Every case is a documented first report."],
+                      "Subscribe to No Known Cause. Every case is a documented first report."],
         },
         "senior_health_longevity": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. The measured data contradicts the common assumption."],
             "60pct": ["Subscribe now. What the long-term follow-up showed is coming next.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Real research, every weekday."],
+                      "Subscribe to No Known Cause. Real research, every weekday."],
         },
         "medical_mystery_outbreak": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. Nobody had connected these cases yet."],
             "60pct": ["Subscribe now. The shared exposure is about to be identified.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Real epidemiological investigations."],
+                      "Subscribe to No Known Cause. Real epidemiological investigations."],
         },
         "surgical_case_studies": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. The anatomy made the standard approach impossible."],
             "60pct": ["Subscribe now. The decision made before the first incision is coming.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Real published surgical cases."],
+                      "Subscribe to No Known Cause. Real published surgical cases."],
         },
         "drug_discovery_stories": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. Nobody was looking for what they found."],
             "60pct": ["Subscribe now. The failure that became the discovery is next.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. How real medicines were actually found."],
+                      "Subscribe to No Known Cause. How real medicines were actually found."],
         },
         "sleep_science": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. What the sleep study recorded is the answer."],
             "60pct": ["Subscribe now. The mechanism behind the symptom is coming.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. Real published sleep cases."],
+                      "Subscribe to No Known Cause. Real published sleep cases."],
         },
         "medical_history": {
-            "30pct": ["Subscribe to Clinical Files. The finding that explains this is thirty seconds away.",
+            "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
                       "Subscribe. This was standard practice for decades."],
             "60pct": ["Subscribe now. The evidence that ended it had been available all along.",
-                      "Subscribe to Clinical Files before the mechanism is revealed."],
+                      "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to Clinical Files. How medicine actually changed its mind."],
+                      "Subscribe to No Known Cause. How medicine actually changed its mind."],
         },
     }
     pool  = cta_pool.get(niche_name, cta_pool["toxicology_cases"])
@@ -3059,7 +3059,7 @@ def _inject_ctas_ch1(script_clean, niche_name):
 
     # FIX (direct user report, July 25 2026 — real evidence pulled from a
     # published episode's actual script_clean: "...an unsigned note left
-    # on Dr. \n\nSubscribe to Clinical Files...\n\n Voss's desk warning
+    # on Dr. \n\nSubscribe to No Known Cause...\n\n Voss's desk warning
     # him about..."): this claimed "sentence boundary detection so CTAs
     # never split mid-sentence" but only checked whether a word ended in
     # ".", "?", or "!" — "Dr." ends in a period too, and isn't a sentence
@@ -3447,7 +3447,7 @@ def generate_episode_hashtags(niche, topic):
         topic_tags = [t for t in raw_tags.split() if t.startswith("#") and len(t) < 30][:2]
     except Exception:
         topic_tags = []
-    all_tags = category_tags + topic_tags + ["#Clinical Files"]
+    all_tags = category_tags + topic_tags + ["#NoKnownCause"]
     seen = set(); final_tags = []
     for t in all_tags:
         if t.lower() not in seen:
@@ -6115,7 +6115,7 @@ def composite_thumbnail(bg_path, bg_type, thumb_text, title, ab_style, niche_nam
             thumb_text   = thumb_text,
             niche_name   = niche_name,
             topic        = topic or title,
-            channel_name = "Clinical Files",
+            channel_name = "No Known Cause",
             episode      = episode,
             work_dir     = str(WORK_DIR),
             ab_variant   = ab_style,
@@ -7165,13 +7165,13 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
 
 def run_stage1(state):
     """
-    8-attempt script engine for Ch1 Clinical Files.
+    8-attempt script engine for Ch1 No Known Cause.
     Hard floor {MIN_GATE}/10, no relaxation tiers — if nothing clears it
     within {MAX_ATTEMPTS} attempts, the day is skipped (no publish).
     Returns (niche_name, niche, topic, script_result, trending_titles).
     """
     log("\n"+"="*65)
-    log(f"  STAGE 1: Clinical Files {MAX_ATTEMPTS}-Attempt Script Engine")
+    log(f"  STAGE 1: No Known Cause {MAX_ATTEMPTS}-Attempt Script Engine")
     log(f"  Hard quality gate: {MIN_GATE}/10, every attempt, no relaxation — "
         f"skip the day if unmet after {MAX_ATTEMPTS} attempts")
     log("="*65)
@@ -7415,7 +7415,7 @@ def run_approval_gate(title, niche_name, script_clean, edge_voice, score):
     preview      = script_clean[:400].replace("<","").replace(">","")
 
     approval_text = (
-        f"🌑 <b>CLINICAL FILES — APPROVAL NEEDED</b>\n\n"
+        f"🌑 <b>NO KNOWN CAUSE — APPROVAL NEEDED</b>\n\n"
         f"📌 <b>Title:</b> {title}\n\n"
         f"🎯 <b>Niche:</b> {niche_name} | ${niche['rpm']} RPM\n"
         f"🎙️ <b>Voice:</b> {edge_voice}\n"
@@ -7963,7 +7963,7 @@ def main():
 
     phase = get_pipeline_phase()
     log("=" * 70)
-    log(f"CLINICAL FILES v14.0 — Phase: {phase.upper()}")
+    log(f"NO KNOWN CAUSE v14.0 — Phase: {phase.upper()}")
     log(f"Time (IST): {datetime.datetime.now().strftime('%a %d %b %Y %I:%M %p')}")
     log("=" * 70)
 
@@ -8039,7 +8039,7 @@ def main():
         _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
         _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
         _final_gate = review_final_video_before_publish(
-            "Ch1 Clinical Files", yt_url, thumb_path,
+            "Ch1 No Known Cause", yt_url, thumb_path,
             TG_TOKEN, TG_CHAT, check_ins_used=0,
             gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
         if _final_gate["decision"] != "approve":
@@ -8063,7 +8063,7 @@ def main():
         try:
             from post_upload_reporter import send_post_upload_report
             send_post_upload_report(
-                "Clinical Files", yt_url, vid_id, token,
+                "No Known Cause", yt_url, vid_id, token,
                 TG_TOKEN, TG_CHAT, gumroad_token=os.environ.get("GUMROAD_ACCESS_TOKEN"), tg_fn=tg)
         except Exception as e:
             log(f"  Post-upload report (non-fatal): {e}")
@@ -8074,7 +8074,7 @@ def main():
         # below, despite being correctly wired, never actually fired.
         if not playlist_id:
             try:
-                playlist_id = ensure_niche_playlist(token, niche_name, "Clinical Files")
+                playlist_id = ensure_niche_playlist(token, niche_name, "No Known Cause")
                 if playlist_id:
                     state.setdefault("playlists", {})[niche_name] = playlist_id
             except Exception as e:
@@ -8311,9 +8311,9 @@ def main():
             log(f"  Growth engine sprint (non-fatal): {ge}")
 
         # v15: Hype notification — free Explore leaderboard push
-        send_hype_push(yt_url, title, "Clinical Files", day=0)
+        send_hype_push(yt_url, title, "No Known Cause", day=0)
 
-        tg(f"✅ <b>Clinical Files — LIVE</b>\n\n"
+        tg(f"✅ <b>No Known Cause — LIVE</b>\n\n"
            f"<b>{title}</b>\n🔗 {yt_url}\n\n"
            f"Niche: {niche_name} | Score: {score}/10\n"
            f"Ep{episode} | {len(short_urls)} Shorts uploaded\n"
@@ -8357,7 +8357,7 @@ def main():
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
             _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
             _resume_decision = review_resume_checkpoint(
-                "Clinical Files",
+                "No Known Cause",
                 _resume_script["title"], _resume_script["script_clean"], _resume_script["score_val"],
                 _resume_script["niche_name"],
                 str(CKPT_AUDIO_FILE) if _resume_audio else None,
@@ -8586,7 +8586,7 @@ def main():
                     # FIX (July 14 2026 audit): now passes stage_texts/stage_names
                     # so the script review is sent stage-by-stage with clear
                     # headers instead of one undifferentiated wall of text.
-                    _review = review_script("Clinical Files", title, script_clean, score_val,
+                    _review = review_script("No Known Cause", title, script_clean, score_val,
                                             niche_name, TG_TOKEN, TG_CHAT,
                                             gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
                                             timeout_minutes=60,
@@ -8898,7 +8898,7 @@ def main():
                     _video_score, _video_breakdown = None, None
 
                 _av_review = review_audio_and_video(
-                    "Clinical Files", audio_path, edge_voice, video_path, None,
+                    "No Known Cause", audio_path, edge_voice, video_path, None,
                     TG_TOKEN, TG_CHAT, _check_ins_used_av,
                     gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
                     audio_score=_audio_score, audio_score_breakdown=_audio_breakdown,
@@ -8999,7 +8999,7 @@ def main():
                     # thumb_format_history's proven write-side pattern.
                     try:
                         from quality_score_history import record_quality_scores
-                        record_quality_scores(str(SCRIPT_DIR), "Clinical Files", episode, _audio_score, _video_score)
+                        record_quality_scores(str(SCRIPT_DIR), "No Known Cause", episode, _audio_score, _video_score)
                     except Exception as e:
                         log(f"  Quality score history record (non-fatal): {e}")
                     break
@@ -9198,7 +9198,7 @@ def main():
                 citation=_case_now.get("citation", ""))
             if not _pub_ok:
                 log(f"  PUBLISH POLICY GATE FAILED:\n{format_violations(_pub_v)}")
-                tg(f"🛑 <b>Clinical Files — PUBLISH BLOCKED</b>\n\n"
+                tg(f"🛑 <b>No Known Cause — PUBLISH BLOCKED</b>\n\n"
                    f"<code>{format_violations(_pub_v)[:600]}</code>\n\n"
                    f"Not uploading. Fix required.")
                 sys.exit(1)
@@ -9207,7 +9207,7 @@ def main():
             raise
         except Exception as e:
             log(f"  PUBLISH POLICY GATE ERROR — blocking to be safe: {e}")
-            tg(f"🛑 <b>Clinical Files — PUBLISH BLOCKED</b>\n\n"
+            tg(f"🛑 <b>No Known Cause — PUBLISH BLOCKED</b>\n\n"
                f"Policy gate could not run: <code>{str(e)[:300]}</code>")
             sys.exit(1)
 
@@ -9226,7 +9226,7 @@ def main():
 
             while True:
                 _ttd_review = review_title_thumbnail_description(
-                    "Clinical Files", title, thumb_path, description, _desc_result["score"],
+                    "No Known Cause", title, thumb_path, description, _desc_result["score"],
                     TG_TOKEN, TG_CHAT, _check_ins_used_ttd,
                     gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
                     thumbnail_score=_thumb_score)
@@ -9313,11 +9313,11 @@ def main():
             _auth_score = auth_result["composite_score"]
             if _auth_score < 6.0:
                 tg(f"🚨 Ch1 AUTHENTICITY RISK — score {_auth_score}/10, below the safe threshold.\n"
-                   f"{format_authenticity_report(auth_result, 'Clinical Files')}\n"
+                   f"{format_authenticity_report(auth_result, 'No Known Cause')}\n"
                    f"Recommend manual review before this publishes.")
             elif _auth_score < 7.5:
                 tg(f"⚠️ Ch1 authenticity check: {_auth_score}/10 — one dimension is weak, publishing "
-                   f"but flagging for awareness.\n{format_authenticity_report(auth_result, 'Clinical Files')}")
+                   f"but flagging for awareness.\n{format_authenticity_report(auth_result, 'No Known Cause')}")
             # Fingerprint gets saved to history only in the upload phase, after
             # a real publish is confirmed — see phase="upload" section below.
             _pending_auth_fingerprint = auth_result["_fingerprint_to_log"]
@@ -9408,7 +9408,7 @@ def main():
                 _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
                                 for s in shorts if s.get("url")]
                 if _real_shorts:
-                    _sh_review = review_shorts("Clinical Files", _real_shorts, TG_TOKEN, TG_CHAT,
+                    _sh_review = review_shorts("No Known Cause", _real_shorts, TG_TOKEN, TG_CHAT,
                                                check_ins_used=0, gmail_sender=_gmail_sender,
                                                gmail_app_password=_gmail_pass, timeout_minutes=60)
                     # FIX (direct user report, July 24 2026 — "if I tell it
@@ -9447,7 +9447,7 @@ def main():
                     _cp_draft = draft_community_post(topic, niche["name"], title,
                                                       lambda p, tokens=200: ai_generate(p, tokens=tokens))
                     _cp_result = review_community_tab(
-                        "Clinical Files", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                        "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
                         check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
                     log(f"  Community Tab: {_cp_result['decision']}")
                 except Exception as e:

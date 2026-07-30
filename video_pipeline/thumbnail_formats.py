@@ -141,8 +141,14 @@ EXPLORE_PROBABILITY  = 0.35  # even once formats have proven data, keep sampling
 # to a real case detail via its arrow annotation, matching Ch1's new
 # investigation-board visual identity from this session's animation work).
 CHANNEL_PREFERRED_FORMATS = {
-    "BetrayalDeepDive": ["red_circle_highlight", "map_diagram_overlay",
-                         "silhouette_dramatic", "object_evidence_closeup"],
+    # No Known Cause (clinical cases). Rebuilt off the old dark-documentary
+    # pool: silhouette_dramatic and map_diagram_overlay were chosen when this
+    # slot ran psychological horror, and neither has anything to point at in a
+    # case report. The four below all frame a real artefact from the paper --
+    # the scan itself, the finding circled on it, or the before/after pair --
+    # which is the only kind of thumbnail this channel can honestly make.
+    "No Known Cause": ["object_evidence_closeup", "red_circle_highlight",
+                       "comparison_grid", "before_after_split"],
     "The Evidence Room": ["object_evidence_closeup", "map_diagram_overlay",
                           "red_circle_highlight", "comparison_grid"],
     "The Control Files": ["before_after_split", "silhouette_dramatic",
