@@ -109,6 +109,40 @@ def list_all_videos(token, playlist_id):
     return out
 
 
+def list_playlists(token):
+    """
+    Every playlist this channel owns. The old dark-documentary pipeline
+    auto-created one per series ("Dark Hours — Full Investigations" etc.) via
+    ensure_niche_playlist, so a video-only cleanup leaves those behind and
+    visibly off-brand on the channel page. Returns (id, title, item_count).
+    """
+    out, page = [], None
+    while True:
+        params = {"part": "snippet,contentDetails", "mine": "true", "maxResults": 50}
+        if page:
+            params["pageToken"] = page
+        r = requests.get(f"{API}/playlists", params=params,
+                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        if r.status_code != 200:
+            log(f"WARN: playlists.list failed ({r.status_code}): {r.text[:200]}")
+            break
+        data = r.json()
+        for it in data.get("items", []):
+            out.append((it["id"],
+                        it.get("snippet", {}).get("title", "(untitled)"),
+                        (it.get("contentDetails") or {}).get("itemCount", 0)))
+        page = data.get("nextPageToken")
+        if not page:
+            break
+    return out
+
+
+def delete_playlist(token, pid):
+    r = requests.delete(f"{API}/playlists", params={"id": pid},
+                        headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    return r.status_code in (200, 204), r.text[:200]
+
+
 def set_unlisted(token, vid):
     """videos.update requires the full status object, not a partial patch."""
     r = requests.put(f"{API}/videos", params={"part": "status"},
@@ -149,20 +183,31 @@ def main():
     targets = [v for v in videos if v[0] not in KEEP_IDS]
 
     if MODE == "list":
+        # list mode is the "show me what's there" mode, so it must inventory
+        # playlists too -- returning before reaching the playlist section
+        # below would hide exactly what this mode exists to reveal.
+        pls = list_playlists(token)
+        log(f"\nFound {len(pls)} playlist(s):")
+        for pid, title, cnt in pls:
+            log(f"  {pid}  [{cnt:3} items]  {title[:60]}")
         log(f"\nMODE=list — inventory only, nothing changed.")
         log(f"  {len(targets)} video(s) would be affected by unlist/delete.")
+        log(f"  {len(pls)} playlist(s) would be removed by delete "
+            f"(playlists are left alone in unlist mode).")
         log(f"  Re-run with MODE=unlist (reversible) or "
             f"MODE=delete + CONFIRM={REQUIRED_CONFIRM} (permanent).")
         return
 
     if not targets:
-        log("\nNothing to do — no videos outside KEEP_IDS.")
-        return
-
-    verb = "Unlisting" if MODE == "unlist" else "DELETING"
-    log(f"\n{verb} {len(targets)} video(s)...\n")
+        # Deliberately NOT returning here: a channel whose videos are already
+        # gone can still have leftover playlists, and returning early would
+        # make a second delete run silently do nothing about them.
+        log("\nNo videos to process outside KEEP_IDS — continuing to playlists.")
 
     ok_n = fail_n = 0
+    if targets:
+        verb = "Unlisting" if MODE == "unlist" else "DELETING"
+        log(f"\n{verb} {len(targets)} video(s)...\n")
     for vid, title, _ in targets:
         if MODE == "unlist":
             ok, detail = set_unlisted(token, vid)
@@ -176,9 +221,40 @@ def main():
             log(f"  FAIL  {vid}  {title[:64]}  -> {detail}")
         time.sleep(0.4)   # stay well clear of quota/rate limits
 
-    log(f"\nDone. {ok_n} succeeded, {fail_n} failed.")
+    log(f"\nVideos: {ok_n} succeeded, {fail_n} failed.")
     if MODE == "delete" and ok_n:
         log("Deleted videos cannot be recovered from YouTube.")
+
+    # ── Playlists ─────────────────────────────────────────────────────────
+    # Only ever deleted, never "unlisted": an empty or off-brand playlist has
+    # no value once its videos are gone, and YouTube has no unlisted-playlist
+    # state worth using here. Skipped entirely in unlist mode so that mode
+    # stays fully reversible, which is its whole point.
+    if MODE == "delete":
+        pls = list_playlists(token)
+        if pls:
+            log(f"\nFound {len(pls)} playlist(s):")
+            for pid, title, cnt in pls:
+                log(f"  {pid}  [{cnt:3} items]  {title[:60]}")
+            log(f"\nDeleting {len(pls)} playlist(s)...")
+            for pid, title, _cnt in pls:
+                ok, detail = delete_playlist(token, pid)
+                if ok:
+                    log(f"  OK    {pid}  {title[:56]}")
+                else:
+                    fail_n += 1
+                    log(f"  FAIL  {pid}  {title[:56]}  -> {detail}")
+                time.sleep(0.4)
+        else:
+            log("\nNo playlists to remove.")
+    else:
+        pls = list_playlists(token)
+        if pls:
+            log(f"\n{len(pls)} playlist(s) exist and are NOT touched in "
+                f"{MODE} mode (playlists are only removed in delete mode):")
+            for pid, title, cnt in pls:
+                log(f"  {pid}  [{cnt:3} items]  {title[:60]}")
+
     if fail_n:
         sys.exit(1)
 
