@@ -61,48 +61,82 @@ REJECTED_LICENSE_MARKERS = ("nc", "nd", "non-commercial", "noderiv")
 # ineligible articles are never even retrieved.
 _BASE_FILTER = 'OPEN_ACCESS:Y AND HAS_FT:Y AND LICENSE:"cc by"'
 
+# Papers whose figures this channel can never show.
+#
+# Found on run 30561361514: the rare_disease_cases niche returned a World
+# Journal of Surgical Oncology paper (PMC3554459) with 0 usable figures. That
+# was NOT a bug -- TITLE:"rare" legitimately matches "A rare ... tumour: a
+# case report", and is_graphic_figure then correctly rejected every
+# intraoperative view, resected specimen and excised-tissue photomicrograph
+# in it. The article was simply unshowable, and FIGURE is 30% of the visual
+# mix, so the episode would have been visually gutted before rendering began.
+#
+# Screening at the figure was too late. Excluding these at SEARCH time means
+# the eight non-surgical niches stop surfacing papers whose imagery is
+# guaranteed to be filtered away.
+_NO_GRAPHIC = ('NOT (TITLE:"resection" OR TITLE:"intraoperative" OR '
+               'TITLE:"surgical management" OR ABSTRACT:"intraoperatively" OR '
+               'ABSTRACT:"resected specimen" OR ABSTRACT:"gross specimen")')
+
 NICHE_PMC_QUERIES = {
     "toxicology_cases": (
         f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
         '(TITLE:"poisoning" OR TITLE:"toxicity" OR TITLE:"overdose" OR TITLE:"intoxication")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "diagnostic_odyssey": (
         f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
         '(ABSTRACT:"delayed diagnosis" OR ABSTRACT:"misdiagnosed" OR ABSTRACT:"diagnostic challenge")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "rare_disease_cases": (
         f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
         '(TITLE:"rare" OR ABSTRACT:"rare disease" OR ABSTRACT:"first reported case")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "senior_health_longevity": (
         f'{_BASE_FILTER} AND '
         '(TITLE:"ageing" OR TITLE:"aging" OR TITLE:"longevity" OR TITLE:"geriatric" '
         'OR TITLE:"sarcopenia" OR TITLE:"frailty")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "medical_mystery_outbreak": (
         f'{_BASE_FILTER} AND '
         '(TITLE:"outbreak" OR TITLE:"cluster" OR ABSTRACT:"epidemiological investigation")'
+        f' AND {_NO_GRAPHIC}'
     ),
+    # Retargeted away from the operative field. The old query
+    # (ABSTRACT:"operative" OR TITLE:"resection") selected exactly the papers
+    # whose every figure is_graphic_figure rejects, making this the one niche
+    # structurally guaranteed to render with no figures. It now selects on the
+    # pre-operative imaging and the decision that preceded the incision --
+    # showable, and the more interesting half of the case regardless.
     "surgical_case_studies": (
         f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
-        '(ABSTRACT:"surgical management" OR ABSTRACT:"operative" OR TITLE:"resection")'
+        '(ABSTRACT:"preoperative imaging" OR ABSTRACT:"unexpected finding" '
+        'OR ABSTRACT:"anatomical variant" OR ABSTRACT:"incidental finding") '
+        f'AND {_NO_GRAPHIC}'
     ),
     "neurology_cases": (
         f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
         '(TITLE:"neurological" OR TITLE:"encephalitis" OR TITLE:"seizure" '
         'OR TITLE:"aphasia" OR TITLE:"amnesia")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "medical_history": (
         f'{_BASE_FILTER} AND '
         '(TITLE:"history of medicine" OR TITLE:"historical" OR ABSTRACT:"medical history")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "drug_discovery_stories": (
         f'{_BASE_FILTER} AND '
         '(TITLE:"discovery of" OR ABSTRACT:"drug discovery" OR ABSTRACT:"was first isolated")'
+        f' AND {_NO_GRAPHIC}'
     ),
     "sleep_science": (
         f'{_BASE_FILTER} AND '
         '(TITLE:"sleep" OR TITLE:"insomnia" OR TITLE:"narcolepsy" OR TITLE:"circadian")'
+        f' AND {_NO_GRAPHIC}'
     ),
 }
 
@@ -448,6 +482,13 @@ def get_real_cases(niche_name, count=6, max_candidates=20):
             "journal": ((article.get("journalInfo") or {}).get("journal") or {}).get("title", ""),
             "license": article.get("license") or "",
         })
+    # Figure-bearing papers first. The caller uses out[attempt-1], so this
+    # puts the best-illustrated case on attempt 1 -- the attempt most likely
+    # to be the one that publishes. A paper with no usable figures is still
+    # kept (it can carry the episode on BOARD/TIMELINE/CHART/ANATOMY), just
+    # ranked below one that can actually show the patient's own imaging,
+    # which is the channel's entire differentiator.
+    out.sort(key=lambda c: len(c.get("figures") or []), reverse=True)
     return out
 
 
