@@ -2620,16 +2620,46 @@ def generate_script_content(niche, topic, episode, attempt,
     raw = ai_generate(build_script_prompt(
         niche, topic, episode, attempt, trending_titles, research_context), tokens=8000)
     if raw:
-        for _exp in range(2):
+        # Word count is not a soft preference here -- it is the gate.
+        # score_result gives +2.8 at >=MIN_WORDS, +0.8 at >=1600, and -2.0
+        # below that, on a 5.0 base with +2.2 for zero violations. So the
+        # arithmetic ceiling is 10.0 at 1900w, 8.0 at 1600-1899w, and 5.2
+        # below 1600w -- against MIN_GATE 8.5. Any script under 1900 words
+        # is mathematically incapable of passing no matter how well written.
+        #
+        # So this loop failing quietly was fatal, not cosmetic. Run
+        # 30561361514: 744w -> "Expanded to 774w", a 30-word gain against a
+        # 1156-word deficit, then a second round that gained nothing -- on
+        # every one of 13 attempts, none of which could have cleared the gate.
+        #
+        # Two causes, and it is worth being precise about their weight. The
+        # prompt was thin ("Add N more words to Stage 4 and Stage 6"), where
+        # Step 3's richer prompt on the same script gained +356w. And it sent
+        # raw[:4000] -- 4000 CHARACTERS -- while asking for "the COMPLETE
+        # script with additions". At 744 words that clipped only ~9%, so
+        # truncation alone does not explain the gap; but it scales badly,
+        # keeping just 60% at 1122 words and 36% at 1900, so it would have
+        # blocked exactly the later rounds that need to work. Both are fixed:
+        # full script in, and a prompt that says what to add and why.
+        #
+        # Sending the whole script costs nothing that matters: 2100 words is
+        # ~2800 tokens against an 8000-token budget.
+        for _exp in range(3):
             raw_wc = len(raw.split())
             if raw_wc >= MIN_WORDS or raw_wc > MAX_WORDS: break
-            log(f"  Script {raw_wc}w short — expanding...")
+            log(f"  Script {raw_wc}w short — expanding (round {_exp + 1}/3)...")
             try:
-                ep = (f"Script is {raw_wc}w, needs {MIN_WORDS}."
-                      f" Add {MIN_WORDS - raw_wc} more words to Stage 4 and Stage 6."
-                      f" Zero markdown. Max 13 words per sentence."
-                      f" Return the COMPLETE script with additions:\n\n"
-                      + raw[:4000])
+                ep = (f"This narration script is {raw_wc} words. It must be between "
+                      f"{MIN_WORDS} and {MAX_WORDS} words -- that is a hard requirement, "
+                      f"not a target.\n\n"
+                      f"Expand it by roughly {MIN_WORDS - raw_wc} words. Put the new "
+                      f"material in the Escalation and Reveal sections: more specific "
+                      f"reported findings, exact values with their units, the sequence "
+                      f"of what was tested and ruled out, and what each result changed. "
+                      f"Do not add new claims that are not supported by the case. "
+                      f"Do not summarise or shorten any existing passage.\n\n"
+                      f"Max 13 words per sentence. Zero markdown. Return the COMPLETE "
+                      f"script, beginning to end.\n\nSCRIPT:\n{raw}")
                 raw2 = ai_generate(ep, tokens=8000)
                 if raw2 and len(raw2.split()) > raw_wc:
                     raw = raw2
@@ -2637,6 +2667,9 @@ def generate_script_content(niche, topic, episode, attempt,
                     if len(raw.split()) > MAX_WORDS:
                         raw = " ".join(raw.split()[:MAX_WORDS])
                     log(f"  Expanded to {len(raw.split())}w")
+                else:
+                    log(f"  Expansion round {_exp + 1} produced nothing longer — stopping")
+                    break
             except Exception as _e:
                 log(f"  Expansion (non-fatal): {_e}"); break
     if not raw:
@@ -2655,29 +2688,52 @@ def generate_script_content(niche, topic, episode, attempt,
     violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
     log(f"  Script: {wc}w | {violations} violations")
 
-    # Step 3: Expand if short
-    if wc < MIN_WORDS:
+    # Step 3: Expand if short.
+    #
+    # Two rounds, not one. This pass already sent the full script (unlike the
+    # pre-strip loop above, which was truncating), but a single round rarely
+    # closes a 700-word deficit, and falling short here is not a partial
+    # success -- see the gate arithmetic noted above: under 1900 words the
+    # attempt cannot pass, so a near miss is worth exactly as much as no
+    # attempt at all.
+    for _round in range(2):
+        if wc >= MIN_WORDS:
+            break
         deficit = MIN_WORDS - wc
-        log(f"  Short by {deficit}w — expanding stages 4 and 6...")
+        log(f"  Short by {deficit}w — expanding stages 4 and 6 (round {_round + 1}/2)...")
         exp = (
-            f"This documentary script is {wc} words. It needs {MIN_WORDS} minimum. "
-            f"Expand the Escalation section and the Reveal section only. "
-            f"Add specific evidence, exact numbers, exact dates, witness reactions. "
+            f"This narration script is {wc} words. It must reach at least {MIN_WORDS} "
+            f"words. Expand the Escalation section and the Reveal section only. "
+            f"Add the specific reported findings, exact values with units, what was "
+            f"tested and ruled out, and what each result changed. Add nothing the "
+            f"case does not support. Do not shorten anything already there. "
             f"Max 13 words per sentence. Zero markdown. "
             f"Return the COMPLETE expanded script.\n\nSCRIPT:\n{script}"
         )
         raw2 = ai_generate(exp, tokens=8000)
-        if raw2:
-            s2 = strip_all_leaked_stage_headers(strip_md(strip_md(raw2)))
-            if len(s2.split()) > wc:
-                script     = s2
-                wc         = len(script.split())
-                violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
-                # Hard truncate to MAX_WORDS
-                if wc > MAX_WORDS:
-                    script = " ".join(script.split()[:MAX_WORDS])
-                    wc = len(script.split())
-                log(f"  Expanded: {wc}w")
+        if not raw2:
+            log("  Expansion returned nothing — stopping")
+            break
+        s2 = strip_all_leaked_stage_headers(strip_md(strip_md(raw2)))
+        if len(s2.split()) <= wc:
+            log(f"  Expansion round {_round + 1} produced nothing longer "
+                f"({len(s2.split())}w vs {wc}w) — stopping")
+            break
+        script     = s2
+        wc         = len(script.split())
+        violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
+        # Hard truncate to MAX_WORDS
+        if wc > MAX_WORDS:
+            script = " ".join(script.split()[:MAX_WORDS])
+            wc = len(script.split())
+        log(f"  Expanded: {wc}w")
+
+    # State the consequence plainly in the log rather than letting the
+    # attempt fail later with an unexplained low score.
+    if wc < MIN_WORDS:
+        log(f"  STILL SHORT: {wc}w < {MIN_WORDS}w — this attempt cannot clear "
+            f"{MIN_GATE}/10 (word-count ceiling is "
+            f"{8.0 if wc >= 1600 else 5.2}/10), scoring anyway for the record")
 
     # Step 4: Stage-level scoring + targeted rewrite of 2 worst stages
     # FIX (found live, July 22 2026 — real bug, confirmed via a live crash:
