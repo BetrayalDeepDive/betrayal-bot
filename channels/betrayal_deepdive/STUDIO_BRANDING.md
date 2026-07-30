@@ -215,32 +215,42 @@ blocked words.
 
 Settings → Community → Defaults. YouTube allows **up to 3** guidelines, shown
 to a viewer before they comment for the first time (mobile for comments and
-Community posts; desktop and mobile for live chat). Keep each to one line —
-the field is short.
+Community posts; desktop and mobile for live chat).
 
-**Guideline 1**
-```
-Ask about the medicine, not about yourself — we can't diagnose anyone.
-```
+**Hard field limits, measured against the live form: 60 characters per
+guideline, 85 for the welcome message.** These are far tighter than the
+feature's documentation suggests, and an over-length draft is simply refused —
+so every string below is counted, not estimated.
 
-**Guideline 2**
+**Guideline 1** — 56/60
 ```
-Disagreeing is welcome. Cite the paper and we'll pin a good correction.
-```
-
-**Guideline 3**
-```
-No treatments, supplements, cures or links. Those get removed.
+Ask about the medicine, not yourself. We can't diagnose.
 ```
 
-**Welcome message**
+**Guideline 2** — 54/60
 ```
-Welcome. Every video here is one real published case — same paper you can look up yourself, cited in the description. The best comments here catch something we missed or add a source. The one thing we can't do is tell you what's wrong with you, so please don't ask us to.
+Disagree? Cite the paper. Good corrections get pinned.
 ```
 
-Guideline 2 is doing real work. A channel built on cited sources will attract
-clinicians, and a pinned correction from one of them is the single strongest
-credibility signal available — it proves the citations are being read.
+**Guideline 3** — 49/60
+```
+No cures, supplements or links. They get removed.
+```
+
+**Welcome message** — 72/85
+```
+Every case here is real and cited. Ask about the medicine, not yourself.
+```
+
+At 60 characters a guideline can carry one idea, so each of the three was cut
+to the single idea that earns its slot: no self-diagnosis, cite your sources,
+no product pushing. Nothing else survives the limit, and padding one out to
+use the space would just dilute it.
+
+Guideline 2 is doing the most work. A channel built on cited sources will
+attract clinicians, and a pinned correction from one of them is the single
+strongest credibility signal available — it proves the citations are being
+read.
 
 ---
 
