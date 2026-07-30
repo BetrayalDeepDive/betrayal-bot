@@ -2456,6 +2456,31 @@ number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
 
+COLD OPEN — TWO THINGS IT MUST CONTAIN (both are scored, both were missing
+on every attempt of run 30569528382, and together they are worth 2.8 of the
+hook's 10 points):
+
+1. NAMED STAKES. State plainly what this patient stood to lose, in the first
+   two sentences, in ordinary words. Not "something was wrong" or "a
+   disturbing case" -- name the thing: her kidneys, his sight, the pregnancy,
+   the use of both legs, consciousness, breathing, memory. A viewer must know
+   what is at risk before they know anything else.
+
+2. A VIOLATED EXPECTATION. Say the thing that should have explained it and
+   did not. In a case report this almost always has one shape: the patient is
+   visibly deteriorating and the tests come back NORMAL. Use that. "Every scan
+   was normal." "The bloodwork came back clean." "Nothing on the imaging
+   explained it." That contradiction IS the curiosity gap -- a question mark
+   alone is not.
+
+Example shape only, do not copy verbatim:
+"A fifty-one-year-old woman lost the use of both kidneys in nine days. Her
+scans were normal. Every test came back clean. The cause was sitting on her
+kitchen counter."
+
+Never address the viewer's own health here, and never use "you should", "if
+you have", or "your condition" -- those fail the medical policy gate outright.
+
 MID-VIDEO REHOOK (NON-NEGOTIABLE — the drift point): viewer attention
 consistently dips right around the 55-65% mark of a long video — after the
 opening hook has worn off, before the final reveal creates urgency again.

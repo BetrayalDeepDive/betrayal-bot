@@ -217,6 +217,20 @@ _STAKES_WORDS = [
     "reputation", "everything", "future", "custody", "inheritance", "empire",
     "company", "throne", "crown", "nation", "kingdom", "savings", "home",
     "children", "trust", "legacy", "survival", "safety",
+    # Clinical stakes. This list was entirely crime/legacy vocabulary --
+    # throne, inheritance, custody, fortune -- so a hook naming the strongest
+    # stake medicine has ("lost the use of both kidneys in nine days") scored
+    # ZERO here while "the family fortune" scored full marks. Measured: 24 of
+    # 24 natural clinical stake words were absent. Same class of bug as the
+    # Shorts shock-word bank, and worth 1.4 of the hook's 10 points on every
+    # clinical episode.
+    #
+    # Additive only: nothing is removed, so no other channel's score moves.
+    "kidney", "kidneys", "liver", "brain", "heart", "lung", "lungs",
+    "sight", "vision", "hearing", "memory", "mobility", "speech", "walking",
+    "pregnancy", "organ", "transplant", "dialysis", "consciousness",
+    "breathing", "paralysis", "permanent", "irreversible", "fatal",
+    "amputation", "recovery", "eyesight", "nervous system",
 ]
 
 _REVERSAL_PATTERNS = [
@@ -224,6 +238,15 @@ _REVERSAL_PATTERNS = [
     "no one thought", "everyone assumed", "everyone believed", "nobody expected",
     "was meant to", "looked like", "seemed like", "appeared to be",
     "was the last", "was the one thing", "the one person", "the same",
+    # Clinical reversals. The violated expectation in a case report has a
+    # specific shape the generic list misses entirely: the tests come back
+    # NORMAL while the patient is visibly deteriorating. "Her scans were
+    # normal. Every test came back clean." is a textbook curiosity gap and
+    # matched nothing above.
+    "were normal", "was normal", "came back clean", "came back normal",
+    "showed nothing", "found nothing", "no abnormality", "unremarkable",
+    "ruled out", "did not fit", "didn't fit", "made no sense",
+    "first diagnosis was wrong", "treated for the wrong",
 ]
 
 
