@@ -403,6 +403,75 @@ def get_real_case(niche_name, max_candidates=6):
     return None
 
 
+def get_real_cases(niche_name, count=6, max_candidates=20):
+    """
+    Up to `count` DISTINCT ready-to-script cases for this niche, same dict
+    shape as get_real_case().
+
+    Exists because the topic and the sourced case must be the same paper.
+    The first live run proved what happens otherwise: the script was written
+    about Sylvia Plath while the episode's case was a surgical-oncology
+    paper, because topics came from an LLM's idea of viral videos and the
+    case came from here. Returning a list lets the caller use each paper's
+    own title as that attempt's topic, so the two cannot drift apart -- and
+    still gives the retry engine genuinely different subject matter each
+    attempt instead of re-running one topic thirteen times.
+
+    Order is preserved from the (shuffled) candidate list, so callers get
+    variety across runs without re-picking the same top-cited case daily.
+    """
+    candidates = search_cc_by_cases(niche_name, page_size=max_candidates)
+    if not candidates:
+        return []
+    random.shuffle(candidates)
+    out, seen = [], set()
+    for article in candidates[:max_candidates]:
+        if len(out) >= count:
+            break
+        pmcid = article.get("pmcid")
+        if not pmcid or pmcid in seen:
+            continue
+        seen.add(pmcid)
+        xml = fetch_full_text(pmcid)
+        if not xml:
+            continue
+        narrative = extract_case_narrative(xml)
+        if not narrative:
+            continue
+        out.append({
+            "narrative": narrative,
+            "figures": extract_figures(xml, pmcid),
+            "citation": build_citation(article),
+            "pmcid": pmcid,
+            "title": article.get("title") or "",
+            "year": article.get("pubYear") or "",
+            "journal": ((article.get("journalInfo") or {}).get("journal") or {}).get("title", ""),
+            "license": article.get("license") or "",
+        })
+    return out
+
+
+def case_to_topic(case, max_words=30):
+    """
+    A paper's own title, trimmed to a usable episode topic.
+
+    Journal titles carry trailing apparatus ("...: a case report and review
+    of the literature") that adds nothing to a topic line and eats the word
+    budget, so it is stripped. Never invents or embellishes -- whatever this
+    returns is literally what the paper is called, which is the entire point.
+    """
+    t = (case.get("title") or "").strip().rstrip(".")
+    if not t:
+        return ""
+    t = re.sub(r"\s*[:\-–—]\s*(a\s+)?(rare\s+)?case\s+report.*$", "", t, flags=re.I)
+    t = re.sub(r"\s*[:\-–—]\s*(and\s+)?(a\s+)?review\s+of\s+the\s+literature.*$", "", t, flags=re.I)
+    t = re.sub(r"\s+", " ", t).strip()
+    words = t.split()
+    if len(words) > max_words:
+        t = " ".join(words[:max_words])
+    return t
+
+
 def format_script_context(case):
     """
     The sourced-facts block injected into the script prompt's research

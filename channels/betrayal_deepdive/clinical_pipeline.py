@@ -2487,7 +2487,8 @@ Write the complete script now:"""
 
 
 def generate_script_content(niche, topic, episode, attempt,
-                             trending_titles=None, research_context=""):
+                             trending_titles=None, research_context="",
+                             preselected_case=None):
     """
     v2 script generation:
     1. Generate full script with stage-structured v2 prompt
@@ -2505,7 +2506,12 @@ def generate_script_content(niche, topic, episode, attempt,
     try:
         from pmc_data import get_real_case, format_script_context, MEDICAL_NICHE_NAMES
         if niche["name"] in MEDICAL_NICHE_NAMES:
-            case = get_real_case(niche["name"]) or {}
+            # preselected_case is the paper whose title became `topic` for
+            # this attempt. Using it rather than fetching again is what keeps
+            # the script and the sourced case on the SAME document -- the
+            # independent fetch here is exactly how the first live run ended
+            # up scripting Sylvia Plath over a surgical-oncology case.
+            case = preselected_case or get_real_case(niche["name"]) or {}
             if case:
                 research_context = f"{format_script_context(case)}\n{research_context}"
                 log(f"  Real PMC case: {case['pmcid']} — {case['journal']} {case['year']} "
@@ -6862,7 +6868,13 @@ def run_ch1_viral_intelligence(niche):
     """
     Viral intelligence engine for Ch1 (ported from Ch2).
     Runs weekly — results cached in state.json under 'viral_intel'.
-    Finds what's working in the dark horror/psychological documentary niche.
+
+    Supplies hook formulas, title patterns, thumbnail text and power words
+    for the clinical-case niche. It no longer supplies TOPICS: run_stage1
+    takes those from Europe PMC so the topic and the sourced paper are the
+    same document. fresh_topic_ideas is still requested (title generation
+    reads the surrounding intel dict) but is deliberately not consulted as
+    a topic source -- see the PMC topic pool note in run_stage1.
     """
     state = load_state()
     intel = state.get("viral_intel", {})
@@ -6891,19 +6903,24 @@ def run_ch1_viral_intelligence(niche):
     # finance niches (AI told to sound documented, never told to BE
     # documented). Now requires an actual, real, independently verifiable
     # case by name -- validated below, not just requested.
-    prompt = f"""Analyze the TOP 20 most viral dark documentary YouTube videos (2M+ views) in the
-"{niche['search_query']}" niche.
-fresh_topic_ideas must contain a MINIMUM of 18 DISTINCT topic premises, each
-15-30 words, each about a REAL, independently verifiable historical case --
-a real named person, cult, con artist, disappearance, or investigation a
-viewer could look up on Wikipedia and confirm. Every single topic MUST
-literally name the real case (a real person's name, a real place, or a
-real event name) plus, where known, a real year. Never invent an
-anonymized composite like "a family" or "a stalker" -- if you cannot
-recall a real case that fits, name a different real case instead, do not
-fabricate one dressed up to sound real. Prefer cases where the central
-figure is deceased, convicted, or the facts are otherwise settled public
-record, since these are safest to state as fact.
+    prompt = f"""Analyze the TOP 20 most viral medical case-study and clinical explainer
+YouTube videos (1M+ views) in the "{niche['search_query']}" niche.
+
+This is a channel about REAL, PUBLISHED, peer-reviewed clinical cases. Every
+field below must fit that: a presenting complaint, a laboratory value, an
+imaging finding, a mechanism, a missed diagnosis. Nothing here may reference
+crime, cults, disappearances, missing persons, hauntings, or the biography of
+a famous person -- those belong to a different channel and any such output is
+discarded.
+
+fresh_topic_ideas must contain a MINIMUM of 18 DISTINCT premises, each 15-30
+words, each describing a documented CLINICAL presentation: what the patient
+presented with, what was found, and why it was unexpected. Anonymous is
+correct here ("a 51-year-old man", "a 19-year-old"), because published case
+reports are themselves de-identified -- do NOT name individuals.
+
+Never give medical advice, never address the viewer's own health, and never
+recommend or discourage a treatment.
 Return ONLY valid JSON:
 {{"top_hook_formulas":["Hook 1","Hook 2","Hook 3"],
 "winning_title_patterns":["Pattern 1","Pattern 2","Pattern 3"],
@@ -7234,6 +7251,35 @@ def run_stage1(state):
     best_topic     = niche["topics"][0]
     best_trending  = []
 
+    # ── Topics come from Europe PMC, not from an LLM ────────────────────
+    # Found on the first live run (30561361514, all 13 attempts blocked):
+    # topics came from run_ch1_viral_intelligence, whose prompt still asked
+    # for "the TOP 20 most viral dark documentary videos" and real cases
+    # involving "a cult, con artist, disappearance, or investigation". Under
+    # the rare_disease_cases niche it duly produced the disappearance of
+    # Maura Murray and the Mad Trapper of Rat River, and the winning topic
+    # was "The Enigmatic Life of Sylvia Plath" -- while the episode's sourced
+    # case was a surgical-oncology paper. The script and the case were about
+    # different things entirely, which is why nothing could clear the gate.
+    #
+    # A channel whose whole premise is "one real published case" has no
+    # business inventing topics. Each attempt now takes one real CC BY paper
+    # and uses ITS OWN TITLE as the topic, so topic and case are the same
+    # document by construction and cannot drift apart again.
+    pmc_cases = []
+    try:
+        from pmc_data import get_real_cases, case_to_topic, MEDICAL_NICHE_NAMES
+        if niche_name in MEDICAL_NICHE_NAMES:
+            pmc_cases = get_real_cases(niche_name, count=MAX_ATTEMPTS)
+            log(f"  PMC topic pool: {len(pmc_cases)} real CC BY cases for {niche_name}")
+            for _c in pmc_cases[:3]:
+                log(f"    {_c['pmcid']}: {case_to_topic(_c)[:80]}")
+            if not pmc_cases:
+                log("  WARNING: PMC returned no usable cases — falling back to "
+                    "the niche's static real-case topic list")
+    except Exception as e:
+        log(f"  PMC topic pool (non-fatal): {e}")
+
     log(f"\nNiche: {niche_name} | ${niche['rpm']} RPM | Ep{episode}")
 
     # Topic-scoring backlog integration — same pattern as Ch2: prefer a
@@ -7258,13 +7304,20 @@ def run_stage1(state):
         # or any future path that populates fresh_topic_ideas/the backlog,
         # could still carry one through. A bracket is never legitimate in
         # a genuinely specific topic.
-        if _approved_topic_entry and attempt == 1 and "[" not in _approved_topic_entry["topic_text"]:
+        attempt_case = None
+        if pmc_cases:
+            # One real paper per attempt; its own title is the topic.
+            attempt_case = pmc_cases[(attempt - 1) % len(pmc_cases)]
+            topic = case_to_topic(attempt_case) or attempt_case.get("title", "")
+        elif _approved_topic_entry and attempt == 1 and "[" not in _approved_topic_entry["topic_text"]:
             topic = _approved_topic_entry["topic_text"]
         else:
-            fresh = [t for t in intel.get("fresh_topic_ideas", niche["topics"])
-                     if "[" not in t and "]" not in t]
-            if not fresh:
-                fresh = niche["topics"]
+            # Reached only when PMC is unreachable. intel["fresh_topic_ideas"]
+            # is deliberately NOT consulted here any more -- see the PMC topic
+            # pool note above; that list is where the dark-documentary topics
+            # came from. niche["topics"] is a hand-written list of real,
+            # verifiable published cases, so the fallback stays clinical.
+            fresh = [t for t in niche["topics"] if "[" not in t and "]" not in t]
             unused = [t for t in fresh if t not in used_topics]
             topic = unused[0] if unused else random.choice(niche["topics"])
             try:
@@ -7290,7 +7343,8 @@ def run_stage1(state):
             result = generate_script_content(
                 niche, topic, episode, attempt,
                 trending_titles=trending,
-                research_context=research_ctx)
+                research_context=research_ctx,
+                preselected_case=attempt_case)
 
             if not result:
                 time.sleep(5); continue
@@ -7398,7 +7452,19 @@ def run_stage1(state):
     tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 after {MAX_ATTEMPTS} attempts "
        f"(best: {best_score}/10). Per your standing instruction, nothing under {MIN_GATE} "
        f"gets published.")
-    sys.exit(0)
+    # exit(2), not exit(0). Skipping the day is the correct EDITORIAL
+    # decision, but it is not a successful run, and exiting 0 made the whole
+    # workflow report green having produced no video at all. The first live
+    # run (30561361514) did exactly that: 13/13 attempts blocked, no
+    # artifact, "success" in the Actions UI, and the only clue was a buried
+    # "No files were found" warning on the upload step. A run that produces
+    # nothing has to be visibly red, or a silent daily no-op looks identical
+    # to a working channel.
+    #
+    # 2 rather than 1 so it stays distinguishable from a crash in the logs.
+    log(f"EXIT 2: no script cleared {MIN_GATE}/10 in {MAX_ATTEMPTS} attempts "
+        f"(best {best_score}/10) — no video produced.")
+    sys.exit(2)
 
 
 def pick_voice(niche_name, state):
