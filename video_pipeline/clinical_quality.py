@@ -93,12 +93,33 @@ def duration_check(words):
 # ── clinical specificity: the points word count used to occupy ─────────
 # Deliberately measured PER 100 WORDS. An absolute count would just be
 # length wearing a different hat, which is the bug being removed.
-_LAB_VALUE = re.compile(
-    r"\b\d+(?:[.,]\d+)?\s?(?:mg|mcg|µg|ug|g|kg|ml|mL|l|L|mmol|mol|mEq|meq|"
-    r"mmHg|mm|cm|IU|U/L|U/l|ng|pg|%|percent|beats?|bpm|degrees?)\b", re.I)
-_AGE = re.compile(r"\b\d{1,3}[- ]year[- ]old\b", re.I)
-_TIMEPOINT = re.compile(r"\b(?:day|hour|week|month|year)s?\s+\d+\b|"
-                        r"\b\d+\s+(?:day|hour|week|month|year)s?\b", re.I)
+# Numbers appear as WORDS in these scripts, not digits. build_script_prompt
+# instructs it directly: 'Every number must be specific: not "many" but
+# "forty-seven"' -- because the text is read aloud by TTS, where "171" is
+# ambiguous and "one hundred and seventy-one" is not.
+#
+# The first version of this module matched digits only. Measured on identical
+# content, that under-counted by ~8x (14.96 details/100w written with digits
+# vs 1.81 spelled out), and on run 30569528382 it scored a genuinely detailed
+# 1,953-word script at 1.29/10 specificity -- becoming the sole reason the
+# only attempt to pass every other gate was blocked. The metric was wrong,
+# not the script.
+_NUMWORD = (r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+            r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+            r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+            r"thousand)(?:[-\s](?:one|two|three|four|five|six|seven|eight|nine|"
+            r"ten|hundred|thousand|and))*")
+_NUM = rf"(?:\d+(?:[.,]\d+)?|{_NUMWORD})"
+
+_UNIT = (r"(?:mg|mcg|µg|ug|g|kg|ml|mL|l|L|litres?|liters?|mmol|mol|mEq|meq|"
+         r"milliequivalents?|millimol\w*|mmHg|millimet\w*|mm|cm|centimet\w*|"
+         r"IU|U/L|U/l|ng|pg|%|percent|beats?|bpm|degrees?|grams?|kilograms?)")
+
+_LAB_VALUE = re.compile(rf"\b{_NUM}\s?{_UNIT}\b", re.I)
+_AGE = re.compile(rf"\b{_NUM}[-\s]year[-\s]old\b", re.I)
+_TIMEPOINT = re.compile(rf"\b(?:day|hour|week|month|year)s?\s+{_NUM}\b|"
+                        rf"\b{_NUM}\s+(?:day|hour|week|month|year)s?\b|"
+                        rf"\bon the {_NUM}(?:st|nd|rd|th)?\s+day\b", re.I)
 _CLINICAL_NOUN = re.compile(
     r"\b(?:diagnosis|diagnosed|presented|presentation|admitted|admission|"
     r"biopsy|serum|plasma|imaging|scan|MRI|CT|ECG|EEG|ultrasound|"
@@ -127,9 +148,24 @@ def clinical_specificity(script, max_points=2.8):
     }
     hits = counts["values"] + counts["ages"] + counts["timepoints"] + counts["clinical"]
     per100 = hits / (words / 100.0)
-    # ~6 concrete details per 100 words reads as a properly sourced case
-    # report narration; beyond that it becomes a list, so it is capped.
-    score = max_points * min(1.0, per100 / 6.0)
+    # Threshold for full marks: 3.0 concrete details per 100 words.
+    #
+    # The first value here was 6.0, chosen with no evidence at all. Measured
+    # references, all on real or realistic prose:
+    #   0.79 /100w  a real 1,776-word dark-documentary narration from this
+    #               channel's previous incarnation -- i.e. what NON-clinical
+    #               storytelling prose looks like, the floor to beat
+    #   10.5 /100w  synthetic prose that is nothing but clinical facts, which
+    #               reads as a list rather than narration
+    # Real clinical narration lives between those, closer to the bottom,
+    # because it must also tell a story. 3.0 is ~4x the non-clinical floor
+    # and comfortably under the unreadable ceiling, so it discriminates
+    # without demanding prose nobody would watch.
+    #
+    # Still calibrated on limited data. Revisit once several real clinical
+    # scripts have been measured -- but the sanity check is fixed: a script
+    # scoring like generic storytelling should not earn these points.
+    score = max_points * min(1.0, per100 / 3.0)
     counts["per_100_words"] = round(per100, 2)
     return round(score, 2), counts
 
