@@ -6516,7 +6516,7 @@ def upload_yt(path, title, desc, tags, token=None, privacy="public"):
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
                  "X-Upload-Content-Length": str(fs), "X-Upload-Content-Type": "video/mp4"},
         json={"snippet": {"title": title[:100], "description": desc,
-                          "tags": tags[:15], "categoryId": "22"},
+                          "tags": tags[:15], "categoryId": "27"},
               "status": {"privacyStatus": privacy,
                          "selfDeclaredMadeForKids": False, "madeForKids": False,
                          "containsSyntheticMedia": True}},  # mandatory AI disclosure since Mar 2024
@@ -6615,7 +6615,7 @@ def update_video_metadata(video_id, title, description, tags, token=None):
             f"{YT_DATA_URL}/videos?part=snippet",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={"id": video_id, "snippet": {"title": title[:100], "description": description,
-                                               "tags": tags[:15], "categoryId": "22"}},
+                                               "tags": tags[:15], "categoryId": "27"}},
             timeout=20)
         if r.status_code == 200:
             return True
@@ -6659,8 +6659,8 @@ def ensure_niche_playlist(token, niche_name, series_name):
         r2 = requests.post(f"{YT_DATA_URL}/playlists",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             params={"part": "snippet,status"},
-            json={"snippet": {"title": f"{series_name} — Full Investigations",
-                              "description": f"All episodes of {series_name}. New investigations weekly."},
+            json={"snippet": {"title": f"{series_name} — All Cases",
+                              "description": f"Every published case in the {series_name} series. A new case every weekday, each one sourced from a peer-reviewed paper."},
                   "status": {"privacyStatus": "public"}}, timeout=20)
         if r2.status_code == 200:
             pid = r2.json()["id"]
