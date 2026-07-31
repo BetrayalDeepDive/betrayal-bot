@@ -70,6 +70,20 @@ def _detect_silence(path, duration, noise_db="-35dB", min_silence=1.0):
 
 def score_audio_quality(audio_path, audio_duration, script_word_count, voice_used,
                          target_wpm=150):
+    # NOTE ON target_wpm — READ BEFORE CHANGING THE CALLER.
+    #
+    # 150 is a general-purpose narration pace. A channel that deliberately
+    # narrates SLOWER must pass its own figure, or this scores a correct file
+    # as a duration mismatch and caps the total below the gate it is being
+    # judged against.
+    #
+    # That is exactly what happened on Ch1 (run 30642538133): clinical
+    # narration is rendered at roughly 98 wpm on purpose (Kokoro rates -12%
+    # to -24%), so a 1,969-word script produced 1,080s of audio against an
+    # "expected" 788s at 150 wpm -- ratio 1.37, duration_score 4.0, and a
+    # mathematical ceiling of 8.3/10 against an 8.5 gate. Thirteen attempts,
+    # all scoring exactly 8.3, two hours and eleven minutes, then the day
+    # skipped. The audio was fine; the yardstick was wrong.
     """
     Real 0-10 audio quality score from four independently-checkable signals:
 

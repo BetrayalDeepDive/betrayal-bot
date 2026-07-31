@@ -423,6 +423,7 @@ def audit_sourcing_robustness():
           "of Toxicology and Signal Transduction research papers — no patient, "
           "no chronology, no differential to build an episode from")
     _title_checks()
+    _audio_gate_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -635,6 +636,54 @@ def _hook_fits(max_px=1080):
             if len(text) * size * 0.62 > max_px:
                 return False
     return True
+
+
+def _audio_gate_checks():
+    """
+    A gate whose CEILING is below its own FLOOR can never pass.
+
+    Third instance of this defect class on this channel (title scorer, Shorts
+    scorer, now audio). Run 30642538133 spent 2h11m on thirteen audio attempts
+    that all scored exactly 8.3 against an 8.5 gate, because the scorer judged
+    a deliberately-slow clinical narration against a generic 150 wpm.
+    """
+    from quality_scoring import score_audio_quality
+    import inspect
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    check("D", "the audio gate judges duration at the channel's real pace",
+          "target_wpm=CLINICAL_NARRATION_WPM" in cp,
+          "at the generic 150 wpm default a correct clinical file scores a "
+          "duration MISMATCH and the total is capped below the gate")
+
+    # The arithmetic, not a grep: reproduce the scorer's own weighting and
+    # confirm a perfect file at the channel's real pace can clear 8.5.
+    src = inspect.getsource(score_audio_quality)
+    check("D", "a perfect clinical audio file can reach the 8.5 gate",
+          "target_wpm" in src and _audio_ceiling(100.0) >= 8.5,
+          f"ceiling at the channel's pace is {_audio_ceiling(100.0):.1f}; "
+          f"at the old 150 wpm default it was {_audio_ceiling(150.0):.1f}")
+    check("D", "the old 150 wpm yardstick really did make it unreachable",
+          _audio_ceiling(150.0) < 8.5,
+          "guards the regression rather than trusting the story")
+
+    check("E", "a normal-length episode is never trimmed",
+          "AUDIO_HARD_CAP_SECONDS = 26 * 60" in cp and "18 * 60" not in cp,
+          "the 18-minute cap cut 2 minutes off the end of a 20-minute "
+          "clinical episode, taking the closing stage with it")
+    check("F", "a stuck audio retry stops instead of burning its budget",
+          "_AUDIO_STUCK" in cp,
+          "thirteen identical attempts at ten minutes each is 2h11m to "
+          "learn nothing")
+
+
+def _audio_ceiling(wpm, words=1969, duration=1199.2):
+    """Best possible score for a real, correct file at this assumed pace."""
+    expected = (words / wpm) * 60
+    r = duration / expected
+    d = 10.0 if 0.85 <= r <= 1.15 else (7.0 if 0.70 <= r <= 1.30
+                                        else (4.0 if 0.50 <= r <= 1.50 else 1.0))
+    return 0.40 * 9.5 + 0.25 * d + 0.20 * 10 + 0.15 * 10
 
 
 def _email_routing_checks():

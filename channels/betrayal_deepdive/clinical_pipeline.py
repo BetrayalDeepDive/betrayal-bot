@@ -533,6 +533,18 @@ CHANNEL_EMAIL = os.environ.get("CH1_REVIEW_EMAIL", "").strip() or "noknowncauset
 # That shouldn't change."
 BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
 
+# ── NARRATION PACE AND LENGTH ──────────────────────────────────────────
+# Clinical delivery is deliberately slow (Kokoro renders at -12% to -24%).
+# Measured on a real run: 1,969 words -> 1,199s = 98 wpm. Anything that
+# judges this audio against a general-purpose 150 wpm will call a correct
+# file a duration mismatch.
+CLINICAL_NARRATION_WPM = 100.0
+
+# A RUNAWAY GUARD, NOT A LENGTH POLICY. At 100 wpm a normal 1,900-2,000 word
+# script is 19-20 minutes and must not be touched. This only exists to catch
+# TTS that has genuinely looped or stalled.
+AUDIO_HARD_CAP_SECONDS = 26 * 60
+
 # HONEST NOTE (found on final audit pass): none of the 4 URLs below are
 # real, trackable affiliate links yet — they're placeholder slugs on each
 # platform's own domain (e.g. betterhelp.com/deepdive isn't BetterHelp's
@@ -5013,10 +5025,27 @@ def run_audio_stage(script, niche_name, edge_voice):
             # so it was silently publishing with no captions and no
             # documentary-grade EQ most of the time. Now runs through the
             # same tail processing every other tier does.
-            if duration > 18 * 60:
-                log(f"  ⚠️ {tool_label} audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+            # THIS USED TO CUT THE END OFF EVERY EPISODE.
+            #
+            # The cap was 18 minutes and the trim a raw `-t 1080 -c copy`.
+            # Clinical narration runs at ~98 wpm by design, so a normal
+            # 1,969-word script renders 20.0 minutes -- and 119 seconds, two
+            # full minutes, were sliced off the end mid-sentence, taking the
+            # closing stage with them. Measured on run 30642538133, on all
+            # thirteen audio attempts.
+            #
+            # A clinical documentary is allowed to be twenty minutes long.
+            # The cap is now a genuine runaway guard, and if it ever fires it
+            # says plainly that narration has been lost.
+            if duration > AUDIO_HARD_CAP_SECONDS:
+                log(f"  ⚠️ {tool_label} audio is {duration/60:.1f} min, past the "
+                    f"{AUDIO_HARD_CAP_SECONDS/60:.0f}-min runaway cap — trimming, and "
+                    f"this NEEDS investigating: narration is being cut off.")
+                tg(f"⚠️ Ch1: narration ran {duration/60:.1f} min, past the "
+                   f"{AUDIO_HARD_CAP_SECONDS/60:.0f}-min safety cap. It was trimmed, so the "
+                   f"end of the episode is missing. That is a defect, not a normal outcome.")
                 trimmed = str(WORK_DIR / "narration_trimmed.mp3")
-                run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(18 * 60),
+                run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(AUDIO_HARD_CAP_SECONDS),
                             "-c", "copy", trimmed], label="hard-duration-cap-primary", timeout=120)
                 if Path(trimmed).exists() and Path(trimmed).stat().st_size > 50000:
                     audio_path = trimmed
@@ -5074,7 +5103,8 @@ def run_audio_stage(script, niche_name, edge_voice):
         # it is not retried here.
         log("  All edge-tts voices exhausted — trying backup TTS providers...")
         script_clean = script
-        dur_expected = min((len(script_clean.split()) / 125.0) * 60.0, 1080.0)  # matches 18-min hard cap
+        dur_expected = min((len(script_clean.split()) / CLINICAL_NARRATION_WPM) * 60.0,
+                           AUDIO_HARD_CAP_SECONDS)
         log(f"  Fallback tier expected duration: ~{dur_expected:.0f}s (final check_audio_quality "
             f"gate validates the real result against this once a tier succeeds)")
         fallback_ok = False
@@ -5164,9 +5194,10 @@ def run_audio_stage(script, niche_name, edge_voice):
     # exceed this. Trims cleanly rather than an abrupt mid-word cut where
     # possible, and always alerts so the overshoot itself still gets
     # investigated rather than silently masked every time.
-    HARD_MAX_SECONDS = 18 * 60
+    HARD_MAX_SECONDS = AUDIO_HARD_CAP_SECONDS
     if duration > HARD_MAX_SECONDS:
-        log(f"  ⚠️ Audio exceeded 18-min hard cap ({duration/60:.1f} min) — trimming")
+        log(f"  ⚠️ Audio is {duration/60:.1f} min, past the "
+            f"{HARD_MAX_SECONDS/60:.0f}-min runaway cap — trimming (narration WILL be lost)")
         trimmed = str(WORK_DIR / "narration_trimmed.mp3")
         run_ffmpeg(["ffmpeg", "-y", "-i", audio_path, "-t", str(HARD_MAX_SECONDS),
                     "-c", "copy", trimmed], label="hard-duration-cap", timeout=120)
@@ -9878,8 +9909,12 @@ def main():
             while True:
                 _integrity_ok = check_audio_quality(audio_path, _expected_dur)
                 if _integrity_ok:
+                    # Judge the duration against THIS channel's real narration
+                    # pace, not the generic 150 wpm default. Clinical delivery
+                    # is deliberately slow; measured at ~98 wpm on a real run.
                     _audio_score, _ = _score_audio_quality_gate(
-                        audio_path, audio_duration, len(script_clean.split()), edge_voice)
+                        audio_path, audio_duration, len(script_clean.split()),
+                        edge_voice, target_wpm=CLINICAL_NARRATION_WPM)
                 else:
                     _audio_score = 0.0
                 log(f"  Audio attempt {_audio_attempt}/{_AUDIO_MAX_ATTEMPTS}: {_audio_score}/10 "
@@ -9888,6 +9923,29 @@ def main():
                                     _AUDIO_MIN_GATE, extra=f"voice {edge_voice}")
                 if _audio_score >= _AUDIO_MIN_GATE:
                     break
+                # A RETRY THAT CHANGES NOTHING IS NOT A RETRY.
+                #
+                # Run 30642538133 produced thirteen attempts at exactly
+                # 8.3/10, every one on kokoro-local: the voice swap picks an
+                # edge-tts name, but Kokoro is the primary tier and wins
+                # regardless, so every attempt re-rendered byte-identical
+                # audio. Two hours and eleven minutes to learn nothing. The
+                # cause is fixed above, but a loop that cannot move should
+                # stop rather than spend the rest of its budget proving it.
+                _sig = (round(_audio_score, 2), edge_voice)
+                _stuck = globals().setdefault("_AUDIO_STUCK", [])
+                _stuck.append(_sig)
+                if len(_stuck) >= 3 and len(set(_stuck[-3:])) == 1:
+                    tg(f"🛑 Ch1: audio scored {_audio_score}/10 on three identical "
+                       f"attempts in a row (same voice, same score) — the retry is not "
+                       f"changing anything, so the remaining "
+                       f"{_AUDIO_MAX_ATTEMPTS - _audio_attempt} attempts would take "
+                       f"~{(_AUDIO_MAX_ATTEMPTS - _audio_attempt) * 10} minutes to fail "
+                       f"the same way. Stopping now.")
+                    log(f"  Audio retry is stuck at {_audio_score}/10 on {edge_voice} — "
+                        f"aborting after {_audio_attempt} attempts instead of "
+                        f"{_AUDIO_MAX_ATTEMPTS}.")
+                    sys.exit(0)
                 if _audio_attempt >= _AUDIO_MAX_ATTEMPTS:
                     tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 after {_AUDIO_MAX_ATTEMPTS} "
                        f"attempts (last: {_audio_score}/10, voice {edge_voice}) — skipping today's "
