@@ -1,20 +1,52 @@
 {
   "episode_case": {
-    "narrative": "Abstract Background Sarcopenia, an age-related decline in muscle mass and function, is one of the most important health problems in elderly with a high rate of adverse outcomes. However, several studies have investigated the prevalence of sarcopenia in the world, the results have been inconsistent. The current systematic review and meta- analysis study was conducted to estimate the overall prevalence of sarcopenia in both genders in different regions of the world. Methods Electronic databases, including MEDLINE (via PubMed), SCOPUS and Web of Science were searched between January 2009 and December 2016. The population- based studies that reported the prevalence of sarcopenia in healthy adults aged \u2265 60 years using the European Working Group on Sarcopenia in Older People (EWGSOP), the International Working Group on Sarcopenia (IWGS) and Asian Working Group for Sarcopenia (AWGS) definitions, were selected. According to these consensual definitions, sarcopenia was defined by presence of low muscle mass (adjusted appendicular muscle mass for height) and muscle strength (handgrip strength) or physical performance (the usual gait speed). The random effect model was used for estimation the prevalence of sarcopenia. The sex-specific prevalence of sarcopenia and 95% confidence interval (CI) were calculated using the Binomial Exact Method. Heterogeneity was assessed by subgroup analysis. Results Thirty- five articles met our inclusion criteria, with a total of 58404 individuals. The overall estimates of prevalence was 10% (95% CI: 8-12%) in men and 10% (95% CI: 8-13%) in women, respectively. The prevalence was higher among non- Asian than Asian individuals in both genders especially, when the Bio-electrical Impedance Analysis (BIA) was used to measure muscle mass (19% vs 10% in men; 20% vs 11% in women). Conclusion Despite the differences encountered between the studies, regarding diagnostic tools used to measure of muscle mass and different regions of the world for estimating parameters of sarcopenia, present systematic review revealed that a substantial proportion of the old people has sarcopenia, even in healthy populations. However, sarcopenia is as a consequence of the aging progress, early diagnosis can prevent some adverse outcomes. Keywords: Sarcopenia, Prevalence, General population, Systematic review",
+    "narrative": "A rapidly moving bushfire passing across 85,000 hectares (210,000 acres) destroyed a small town, claimed 2 lives and injured 13. Five of those injured sustained significant burns and were admitted to the Adult Burns Service at the Royal Adelaide Hospital. The most significant burn injury, 75% TBSA full-thickness burns, in a 66-year-old male patient was complicated by smoke inhalation injury and renal failure. The burns included the head and neck, anterior and posterior trunk, both arms, and both lower legs. The feet, buttocks, perineum, parts of both thighs, midface, and left axilla were spared. The patient arrived to the emergency department and was intubated and ventilated. He underwent escharotomies to all limbs and trunk during his trauma clearance, before attending the operating theatre. Within 6 hours of his injury, his burns to both upper limbs had been excised to fascia, revealing death of the right distal forearm muscle compartments both on the volar side and dorsally and at-risk viability of the digits of the left hand. Deep burns of the chest and abdomen were also excised to fascia as were circumferential burns of both lower limbs. Although head burns were obvious, these were cleaned and left at this first operation and, due to falling core temperature and physiological lability, deep burns on his back also had to be left. His wounds were dressed, and he was admitted on to the intensive care unit (ICU). Two days later, he returned to operating theatre where a below-elbow amputation was performed on the right. The remaining deep burn was removed from the posterior trunk and, under the Australian Therapeutic Goods Administration (TGA) Special Access Scheme, a biodegradable polyurethane dermal matrix (NovoSorb BTM; PolyNovo Biomaterials Pty Ltd, Port Melbourne, Victoria, Australia) was implanted into all debrided burn wounds (anterior and posterior trunk, both arms and legs). This concluded the majority of his early burn surgery until the BTM was integrated and ready to graft at day 40 postimplantation. On day 6 postinjury, however, his head and neck burns began to declare and degrade, necessitating excision of the scalp and dead periosteum to the level of the skull over the entire calvarium (). It took until day 40, with meticulous small debridements designed to retain as much viable head tissue as possible before the wounds were clean around the exposed calvarium (). In the intervening period, further necrosis was evident on the right upper limb, revealing an open elbow joint, and the amputation was converted to above-elbow. In addition, the BTM on both lower limbs and left upper limb had failed to integrate and been removed, the underlying wounds cleaned, and negative pressure wound therapy (VAC) dressings applied. Figure 1 Scalp burn degradation necessitating excision at day 6, progressing to reveal extensively exposed calvarium by day 12. Figure 2 Slow and meticulous debridement of the head and neck burns resulted in a clean, granulating head and neck. Full calvarial exposure demonstrated. At this stage, he was still resident on the ICU with a tracheostomy in situ. The BTM over the chest, abdomen, back, and residual right upper limb had completely integrated. The lower limb and left upper limb wounds were clean and lightly granulating. Thus, on day 43, he underwent his third major surgery. Fresh BTMs were implanted into the lower limbs. The integrated BTMs were delaminated (the outer seal peeled off) and the neodermis refreshed by light dermabrasion with a diamond-tipped cylindrical burr. Meshed split skin autograft (1:3) was applied to the integrated BTM over the chest, abdomen, back, right arm stump, and both shoulders as well as into the left arm wounds (where BTM had previously failed). Finally, our attention turned to the head.",
     "figures": [],
-    "citation": "Shafiee G, Keshtkar A, Soltani A, Ahadi Z, Larijani B, Heshmat R. Prevalence of sarcopenia in the world: a systematic review and meta- analysis of general population studies. Journal of diabetes and metabolic disorders 2017 doi:10.1186/s40200-017-0302-x \u2014 licensed CC BY",
-    "pmcid": "PMC5434551",
-    "title": "Prevalence of sarcopenia in the world: a systematic review and meta- analysis of general population studies.",
-    "year": "2017",
-    "journal": "Journal of diabetes and metabolic disorders",
+    "citation": "Greenwood JE, Wagstaff MJ, Rooke M, Caplash Y. Reconstruction of Extensive Calvarial Exposure After Major Burn Injury in 2 Stages Using a Biodegradable Polyurethane Matrix. Eplasty 2016 \u2014 licensed CC BY",
+    "pmcid": "PMC4864669",
+    "title": "Reconstruction of Extensive Calvarial Exposure After Major Burn Injury in 2 Stages Using a Biodegradable Polyurethane Matrix.",
+    "year": "2016",
+    "journal": "Eplasty",
     "license": "cc by",
-    "differentials": [],
-    "timeline": [],
+    "differentials": [
+      [
+        "Smoke Inhalation Injury",
+        "CONFIRMED",
+        "The most significant burn injury was complicated by smoke inhalation injury and renal failure."
+      ],
+      [
+        "Renal Failure",
+        "CONFIRMED",
+        "The most significant burn injury was complicated by smoke inhalation injury and renal failure."
+      ]
+    ],
+    "timeline": [
+      [
+        "Day 0",
+        "Patient was injured in a bushfire and arrived at the emergency department."
+      ],
+      [
+        "Within 6 hours of injury",
+        "Burns to both upper limbs were excised to fascia."
+      ],
+      [
+        "2 days later",
+        "Below-elbow amputation was performed on the right and deep burn was removed from the posterior trunk."
+      ],
+      [
+        "Day 6 postinjury",
+        "Head and neck burns began to declare and degrade, necessitating excision of the scalp and dead periosteum."
+      ],
+      [
+        "Day 40",
+        "Wounds were clean around the exposed calvarium and BTM was integrated and ready to graft."
+      ]
+    ],
     "chart_data": null,
     "anatomy": {
       "pathway": null,
       "blocked_step": null
     },
-    "quote": "Sarcopenia was defined by presence of low muscle mass (adjusted appendicular muscle mass for height) and muscle strength (handgrip strength) or physical performance (the usual gait speed)."
+    "quote": "The most significant burn injury, 75% TBSA full-thickness burns, in a 66-year-old male patient was complicated by smoke inhalation injury and renal failure."
   }
 }
