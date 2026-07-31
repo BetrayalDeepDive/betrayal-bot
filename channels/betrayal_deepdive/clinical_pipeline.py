@@ -513,9 +513,23 @@ def run_title_gate_with_rounds(title_str, title_scores, topic, niche_name,
     return None, scored
 
 
-# Real business-inquiries contact, per explicit request — every published
-# description was missing this entirely across all 5 channels.
-BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
+# ── CHANNEL 1's OWN INBOX ──────────────────────────────────────────────
+#
+# Direct instruction: "everything regarding the channel 1's details should be
+# sent to noknowncausetv@gmail.com.. not any other email."
+#
+# Everything this channel emits by email now goes here and nowhere else:
+# every review checkpoint notification, and the business-inquiries line
+# printed in every published description (which was routing viewer mail about
+# this channel to a different account). Ch2-Ch5 are untouched -- they keep
+# their shared address, because only Ch1 was asked for.
+#
+# Overridable by env so it can be changed without a code edit, but the
+# DEFAULT is this address, not a shared one.
+CHANNEL_EMAIL = os.environ.get("CH1_REVIEW_EMAIL", "").strip() or "noknowncausetv@gmail.com"
+
+# Real business-inquiries contact, printed in every description.
+BUSINESS_EMAIL = CHANNEL_EMAIL
 
 # HONEST NOTE (found on final audit pass): none of the 4 URLs below are
 # real, trackable affiliate links yet — they're placeholder slugs on each
@@ -10818,6 +10832,22 @@ def _log_runtime_breakdown(t0):
 
 if __name__ == "__main__":
     _t0 = time.time()
+    # Claim this channel's own review inbox before ANY gate can fire, so
+    # every notification this run sends goes to noknowncausetv@gmail.com and
+    # nowhere else. CH1_GMAIL_APP_PASSWORD, when set, is that mailbox's own
+    # App Password -- with it, emailed replies are read back from the same
+    # inbox the notification landed in, so replying to the mail works.
+    try:
+        from human_review_gate import set_review_recipient
+        _ch1_pass = os.environ.get("CH1_GMAIL_APP_PASSWORD", "").strip()
+        set_review_recipient(CHANNEL_EMAIL, _ch1_pass or None)
+        log(f"Review mail for this channel -> {CHANNEL_EMAIL}"
+            + ("" if _ch1_pass else
+               "  (CH1_GMAIL_APP_PASSWORD not set: mail is delivered there, "
+               "but emailed REPLIES are still read from GMAIL_SENDER_EMAIL's "
+               "inbox — set it to close that loop. Telegram is unaffected.)"))
+    except Exception as _e:
+        log(f"Review recipient wiring failed: {_e}")
     try:
         main_with_retry()
     finally:

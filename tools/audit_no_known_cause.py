@@ -423,6 +423,7 @@ def audit_sourcing_robustness():
           "of Toxicology and Signal Transduction research papers — no patient, "
           "no chronology, no differential to build an episode from")
     _title_checks()
+    _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
     _resolution_checks()
@@ -634,6 +635,46 @@ def _hook_fits(max_px=1080):
             if len(text) * size * 0.62 > max_px:
                 return False
     return True
+
+
+def _email_routing_checks():
+    """
+    Direct instruction: everything about Channel 1 goes to
+    noknowncausetv@gmail.com and no other address.
+    """
+    import human_review_gate as h
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    check("A", "Ch1 declares its own inbox",
+          'CHANNEL_EMAIL' in cp and "noknowncausetv@gmail.com" in cp)
+    check("A", "Ch1's business-inquiries line uses the channel inbox",
+          "BUSINESS_EMAIL = CHANNEL_EMAIL" in cp,
+          "the description printed in every published video was routing "
+          "viewer mail about this channel to a different account")
+    _entry = cp[cp.index('if __name__ == "__main__":'):]
+    check("A", "the channel claims its inbox before any gate can fire",
+          "set_review_recipient(CHANNEL_EMAIL" in _entry
+          and _entry.index("set_review_recipient(CHANNEL_EMAIL")
+              < _entry.index("main_with_retry()"),
+          "a gate firing before the claim would email the shared address")
+
+    # The routing itself, exercised rather than grepped.
+    _before = h.review_recipient()
+    try:
+        h.set_review_recipient("noknowncausetv@gmail.com", "pw")
+        check("A", "review mail routes to the Ch1 inbox once claimed",
+              h.review_recipient() == "noknowncausetv@gmail.com")
+        check("A", "emailed replies are read from the inbox that received them",
+              h.reply_mailbox("someone-else@gmail.com", "x")[0]
+              == "noknowncausetv@gmail.com",
+              "polling a different mailbox means an emailed decision never "
+              "registers")
+        h.set_review_recipient(None, None)
+        check("A", "Ch2-Ch5 keep the shared inbox",
+              h.review_recipient() == "nextlayermediallc@gmail.com",
+              "only Ch1 was asked to change")
+    finally:
+        h.set_review_recipient(None, None)
 
 
 def _format_leak_checks():

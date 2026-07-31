@@ -214,6 +214,50 @@ def _parse_email_decision(body):
     return None, None
 
 
+# PER-CHANNEL REVIEW INBOX.
+#
+# Every channel's review mail used to land in one shared inbox. Ch1 is a
+# medical channel with its own identity and its own address, and everything
+# about it is to go there and nowhere else. A channel sets this once at
+# startup; channels that never call it keep the previous shared behaviour, so
+# Ch2-Ch5 are untouched.
+_REVIEW_RECIPIENT = [None]
+_REVIEW_MAILBOX = [None]   # (address, app_password) whose INBOX holds replies
+
+
+def set_review_recipient(email, app_password=None):
+    """
+    Route this channel's review mail to `email`.
+
+    app_password is the App Password for THAT mailbox. It matters because the
+    email fallback is two-way: notifications are SENT to the recipient, and
+    replies are READ back over IMAP. If the recipient's own credentials are
+    supplied, both halves use the same mailbox and replying to the mail works.
+    Without them, mail still goes to the right place but replies have to be
+    read from the sending account's inbox instead -- so the caller is told.
+    """
+    _REVIEW_RECIPIENT[0] = (email or "").strip() or None
+    _REVIEW_MAILBOX[0] = ((email or "").strip(), app_password) if (email and app_password) else None
+    return _REVIEW_RECIPIENT[0]
+
+
+def review_recipient():
+    return _REVIEW_RECIPIENT[0] or os.environ.get("REVIEW_EMAIL") or "nextlayermediallc@gmail.com"
+
+
+def reply_mailbox(default_sender, default_password):
+    """
+    Which mailbox to poll for emailed decisions.
+
+    Prefers the mailbox the notification was actually delivered to -- reading
+    a different inbox than the one receiving the mail is how an email reply
+    silently never registers.
+    """
+    if _REVIEW_MAILBOX[0]:
+        return _REVIEW_MAILBOX[0]
+    return default_sender, default_password
+
+
 def send_email_notification(subject, html_body, sender_email, app_password, recipient_email=None):
     """
     Real Gmail SMTP send — the exact working pattern found already built
@@ -233,8 +277,9 @@ def send_email_notification(subject, html_body, sender_email, app_password, reci
     # always this one address unless a caller explicitly overrides it.
     # Was hardcoded to the retired channel's address. Env first so it is
     # configurable, then the account actually in use.
-    recipient_email = (recipient_email or os.environ.get("REVIEW_EMAIL")
-                       or "nextlayermediallc@gmail.com")
+    # A channel that has claimed its own inbox (set_review_recipient) wins
+    # over the shared default.
+    recipient_email = recipient_email or review_recipient()
     # FIX (found on direct user report, July 15 2026): a raw, truncated
     # <think> block reached this function's subject argument and
     # crashed the send entirely — Python's email library correctly
@@ -737,8 +782,14 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
 
             # Check email every ~4th cycle (roughly every 60s given the 15s sleep)
             email_check_counter += 1
-            if gmail_app_password and email_check_counter % 4 == 0:
-                email_replies = check_email_replies(gmail_sender, gmail_app_password,
+            # Poll the mailbox the notification was DELIVERED to. When a
+            # channel has claimed its own review inbox, reading the sending
+            # account's inbox instead would mean an emailed decision silently
+            # never registers -- the reply is sitting in a mailbox nothing
+            # looks at.
+            _reply_addr, _reply_pass = reply_mailbox(gmail_sender, gmail_app_password)
+            if _reply_pass and email_check_counter % 4 == 0:
+                email_replies = check_email_replies(_reply_addr, _reply_pass,
                                                      since_datetime=review_start_time)
                 if email_replies:
                     decision, extra, _msg_id = email_replies[0]  # most recent real reply
