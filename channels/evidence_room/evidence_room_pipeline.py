@@ -6947,17 +6947,26 @@ def main():
     if _new_chapters_block != chapters_block:
         log("  Audio duration changed during review — rebuilding chapters + description to match.")
         chapters_block = _new_chapters_block
-        description = (f"{seo_first}\n\nEpisode {episode} of {niche['series']}.\n\n"
-                       f"{episode_hook}\n\n"
-                       f"{chapters_block}\n\n"
-                       f"Subscribe to The Evidence Room."
-                       f"{cross_promo}"
-                       f"{affiliate_block}"
-                       f"{product_cta}\n\n"
-                       f"✨ Real cases, brought to life with next-generation AI narration and forensic craft."
-                       f"\n\n\U0001F4E7 Business inquiries: {BUSINESS_EMAIL}"
-                       f"{citations_block}\n\n"
-                       f"{hashtags}")
+        # This branch used to hand-roll the description inline and reference
+        # `episode_hook`, a name that does not exist anywhere in this file --
+        # a NameError waiting for the first review that changed the audio
+        # duration. It also duplicated the description body, so the two
+        # copies could drift.
+        #
+        # Found by running pyflakes across all five pipelines, after the
+        # identical bug class (`chart_fn=generate_data_chart`, another name
+        # that was never defined) turned out to have silently disabled an
+        # entire visual register on Ch1 for four production runs. A linter
+        # finds these in under a second; nothing here had ever been linted.
+        #
+        # Rebuilt through the same scored generator the first pass uses, so
+        # a rebuilt description is held to the same 9.0 bar as the original.
+        _redesc = regenerate_description_until_good(
+            niche, topic, title_str, episode, chapters_block, duration,
+            niche["name"], _desc_gen, min_score=9.0, max_attempts=4)
+        description = _redesc["description"]
+        log(f"  Description rebuilt: {_redesc['score']}/10 "
+            f"({_redesc['attempts']} attempts)")
 
     # Thumbnail
     thumb_path = generate_thumbnail_with_ai_bg(

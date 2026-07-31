@@ -72,6 +72,29 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch -q
           pip install kokoro soundfile -q
 
+      # PREFLIGHT: catch NameErrors before spending hours of compute.
+      #
+      # `chart_fn=generate_data_chart` -- a name defined in another
+      # channel's module and never imported here -- silently disabled Ch1's
+      # entire CHART visual register for four production runs, because the
+      # NameError was swallowed by a try/except and the degraded fallback
+      # logged as a success. The same class of bug (`episode_hook`) was
+      # sitting unfired in Ch2's description-rebuild branch. pyflakes finds
+      # both in under a second. Nothing here had ever been linted.
+      #
+      # This step SAVES Actions minutes: it fails in ~20s instead of after
+      # a multi-hour run that produces a quietly broken episode.
+      - name: Preflight — undefined names
+        run: |
+          pip install pyflakes -q
+          OUT=$(python -m pyflakes channels/*/*.py video_pipeline/*.py 2>&1 \
+                | grep "undefined name" || true)
+          if [ -n "$OUT" ]; then
+            echo "::error::undefined names found — this would crash or silently degrade at runtime"
+            echo "$OUT"
+            exit 1
+          fi
+          echo "no undefined names"
       - name: Pull latest state
         run: |
           git config user.email "action@github.com"
