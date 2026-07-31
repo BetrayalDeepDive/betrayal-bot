@@ -306,7 +306,15 @@ def build_cues(words_data, total_duration=None):
         # The cue may run until the next one starts (minus a visible gap),
         # or until the audio ends.
         if gi + 1 < len(groups):
-            ceiling = groups[gi + 1][0]["start"] - MIN_GAP
+            nxt_start = groups[gi + 1][0]["start"]
+            # The visible gap between cues is desirable, but not at the cost
+            # of cutting a caption before its own last word has finished --
+            # in continuous speech the next cue can start within MIN_GAP of
+            # this one's final word, and subtracting the gap unconditionally
+            # truncated it. Take the gap when there is room for it, and fall
+            # back to ending exactly at the next cue's start when there is
+            # not. Never past it: an overlap is worse than a missing gap.
+            ceiling = max(nxt_start - MIN_GAP, min(g[-1]["end"], nxt_start))
         elif total_duration:
             ceiling = float(total_duration)
         else:

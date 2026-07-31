@@ -323,6 +323,84 @@ def audit_rendered_episode():
           "a register scheduled without data renders the plain text card")
 
 
+def _no_truncated_speech(words, cues):
+    """
+    No cue may disappear while its own words are still being spoken.
+
+    My first draft of the timing capped every cue at MAX_DWELL, which clipped
+    the opening caption at 7.00s while the sentence ran to 8.6s -- the
+    caption vanished mid-word. Grepping for a constant would never catch
+    that; comparing cue ends against word ends does.
+    """
+    for i, c in enumerate(cues):
+        hi = cues[i + 1]["start"] if i + 1 < len(cues) else float("inf")
+        owned = [w for w in words if c["start"] - 1e-6 <= w["start"] < hi]
+        if owned and c["end"] + 1e-6 < max(w["end"] for w in owned):
+            return False
+    return True
+
+
+def _nothing_in_caption_band():
+    """
+    A real PIXEL test: render one still per register and assert the bottom
+    band is empty.
+
+    This is the check that would have caught the collision. Every renderer
+    independently chose the bottom of the frame for its secondary text, and
+    burned-in captions live there -- so the ANATOMY explanation, the
+    TIMELINE's last event, the CHART's axis labels and the CC BY credit were
+    all being overprinted. No amount of reading the source shows that; the
+    only evidence is the pixels.
+    """
+    import tempfile
+    from PIL import Image
+    import medical_figure_render as mfr
+    import medical_segments as ms
+    from local_episode_render import CASE
+
+    band_top = mfr.CONTENT_BOTTOM
+    bg = mfr.BG
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        made = []
+        p = td / "board.png"
+        if ms.render_board_still(CASE["differentials"], str(p), progress=1.0):
+            made.append(p)
+        p = td / "timeline.png"
+        if mfr.render_timeline_frame(CASE["timeline"], str(p)):
+            made.append(p)
+        cd = CASE["chart_data"]
+        p = td / "chart.png"
+        if ms.render_chart_still(cd["chart_type"], cd["title"], cd["labels"],
+                                 cd["values"], str(p), y_label=cd["y_label"],
+                                 citation=CASE["citation"], progress=1.0):
+            made.append(p)
+        a = CASE["anatomy"]
+        p = td / "anatomy.png"
+        if ms.render_anatomy_still(a["title"], a["explanation"], str(p),
+                                   pathway=a["pathway"],
+                                   blocked_index=a["blocked_step"],
+                                   variant=0, progress=1.0, variant_total=6):
+            made.append(p)
+        p = td / "text.png"
+        if ms.render_text_still(CASE["quote"], str(p),
+                                attribution=mfr.short_credit(CASE["citation"])):
+            made.append(p)
+        p = td / "last.png"
+        if ms.render_last_resort_still("A long line of narration " * 6, str(p),
+                                       citation=mfr.short_credit(CASE["citation"])):
+            made.append(p)
+
+        for path in made:
+            band = Image.open(path).convert("RGB").crop(
+                (0, band_top, mfr.W, mfr.H))
+            # Anything more than a few levels off the background is ink.
+            if max(max(abs(px[k] - bg[k]) for k in range(3))
+                   for px in band.getdata()) > 12:
+                return False
+    return bool(made)
+
+
 def _fallbacks_needed(ms, case, seq, reveals):
     """True if any scheduled register has no data to render from."""
     have = {
@@ -390,9 +468,47 @@ def audit_integration():
     check("F", "episode case survives a resumed run",
           'ckpt_save("episode_case"' in cp and 'ckpt_load("episode_case")' in cp,
           "resume would otherwise render every segment as a fallback card")
-    check("F", "subtitles have a minimum dwell in the function actually used",
-          "MIN_DWELL, LEAD_OUT, MAX_CHARS, MAX_WORDS" in cp,
-          "generate_real_synced_ass, not generate_fallback_ass")
+    # Captions, measured rather than grepped. The previous check here looked
+    # for a literal constant name in the pipeline source, which proved
+    # nothing about the output and broke the moment the logic moved into its
+    # own module. These run the real timing code over the real narration.
+    import caption_timing as capt
+    sys.path.insert(0, str(ROOT / "tools"))
+    from local_caption_render import synth_word_timings
+    from local_episode_render import NARRATION
+
+    check("F", "caption timing lives in a testable module",
+          "from caption_timing import ass_from_words" in cp)
+    for wpm in (110, 150):
+        words, total = synth_word_timings(NARRATION, wpm)
+        cues, st = capt.build_cues(words, total_duration=total)
+        check("F", f"captions never overlap ({wpm} wpm)", st["overlaps"] == 0,
+              str(st["overlaps"]))
+        check("F", f"no caption flashes below the dwell floor ({wpm} wpm)",
+              st["under_dwell"] == 0, str(st["under_dwell"]))
+        check("F", f"every caption is readable at <= {capt.MAX_CPS:.0f} CPS "
+                   f"({wpm} wpm)", st["over_cps"] == 0,
+              f"{st['over_cps']} cues above, max {st['max_cps']}")
+        check("F", f"no caption is cut off mid-sentence ({wpm} wpm)",
+              _no_truncated_speech(words, cues),
+              "a cue ended before its own last word finished")
+
+    check("F", "ASS override characters are escaped",
+          capt.escape_ass("a {b} c") == "a \\{b\\} c")
+    check("F", "caption style uses an installed font and an opaque box",
+          "DejaVu Sans" in capt.ASS_HEADER
+          and ",3,14,0,2," in capt.ASS_HEADER,
+          "Arial is not installed on the runner; outline-only white text is "
+          "unreadable over medical imaging")
+
+    # Nothing else may be drawn in the caption band.
+    import medical_figure_render as _mfr
+    import medical_segments as _ms
+    check("F", "renderers reserve a caption-safe band",
+          _mfr.CAPTION_SAFE_H >= 180 and _ms.CONTENT_BOTTOM == _mfr.CONTENT_BOTTOM)
+    check("F", "no renderer draws below the caption band",
+          _nothing_in_caption_band(),
+          "burned-in captions would sit on top of it")
     check("F", "pace is set in exactly one place",
           'rate="-8%"' not in cp and 'rate="-5%"' not in cp
           and "CLINICAL_PACE" in cp and "EDGE_RATE" in cp)

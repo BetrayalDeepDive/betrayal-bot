@@ -55,7 +55,24 @@ def _eyebrow(draw, label, y=82):
     draw.text((158, y - 14), label, font=_f(24), fill=TEAL)
 
 
-def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True):
+# Per-register motion. One identical Ken Burns push on every shot for
+# thirteen minutes is its own kind of monotony -- the eye stops reading it as
+# motion and starts reading it as drift. A figure earns a slow push in; a
+# chart or a board is a diagram and should be nearly still, because moving
+# text is harder to read; a title card holds.
+MOTION = {
+    "FIGURE":   {"zoom": 0.00055, "max": 1.14},
+    "ANATOMY":  {"zoom": 0.00035, "max": 1.09},
+    "TEXT":     {"zoom": 0.00022, "max": 1.05},
+    "CHART":    {"zoom": 0.00016, "max": 1.04},
+    "BOARD":    {"zoom": 0.00016, "max": 1.04},
+    "TIMELINE": {"zoom": 0.00016, "max": 1.04},
+    "TITLE":    {"zoom": 0.00012, "max": 1.03},
+}
+
+
+def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True,
+                  register=None):
     """
     Turn a rendered still into a clip with continuous slow motion.
 
@@ -64,9 +81,15 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True):
     something moving inside every held frame, and the 0.4s fade prevents the
     hard cut-to-fully-formed-graphic that was flagged as the most jarring
     transition in the previous pipeline.
+
+    The rate is per register (MOTION): a diagram covered in small labels that
+    is slowly scaling is measurably harder to read than one that is holding
+    still, and the previous single rate was tuned for photographs.
     """
+    m = MOTION.get(register or "", {"zoom": 0.00045, "max": 1.12})
     vf = ("scale=1920:1080,"
-          + (f"zoompan=z='min(zoom+0.00045,1.12)':d={max(1, int(duration * 24))}"
+          + (f"zoompan=z='min(zoom+{m['zoom']},{m['max']})':"
+             f"d={max(1, int(duration * 24))}"
              f":s=1920x1080:fps=24," if zoom else "")
           + "fade=t=in:st=0:d=0.4")
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still_path),
@@ -78,6 +101,87 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True):
     else:
         subprocess.run(cmd, capture_output=True, timeout=180)
     return Path(out_path).exists() and Path(out_path).stat().st_size > 1000
+
+
+# ── TITLE / ACT CARDS ──────────────────────────────────────────────────────
+# The episode had no opening at all. Segment zero was whatever register the
+# quota happened to schedule -- in a real local render, a half-drawn chart.
+# A documentary opens by telling you what it is, and marks its acts; without
+# that a 13-minute film of clinical graphics reads as a slide deck, which is
+# the note this channel has already had once.
+ACT_LABELS = ("THE PRESENTATION", "THE FIRST ANSWER",
+              "THE REVERSAL", "WHAT IT CHANGED")
+
+
+def act_boundaries(n_segments, acts=len(ACT_LABELS)):
+    """
+    Segment indices where an act card lands. Segment 0 is the title card, so
+    acts start after it and are spaced across the remainder.
+    """
+    if n_segments < 12:
+        return {}
+    step = n_segments / float(acts)
+    out = {}
+    for k in range(acts):
+        idx = int(round(k * step)) + (1 if k == 0 else 0)
+        idx = max(1, min(n_segments - 1, idx))
+        if idx not in out:
+            out[idx] = ACT_LABELS[k]
+    return out
+
+
+def render_title_card(title, out_path, niche_label="NO KNOWN CAUSE",
+                      source_line="", citation=""):
+    """
+    The opening frame. Deliberately typographic and still: the narration's
+    own hook is carrying the first fifteen seconds, and a busy graphic would
+    compete with it.
+    """
+    c = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(c)
+    _eyebrow(d, niche_label, y=150)
+
+    t = _tidy_display_line(title, 120) or "A PUBLISHED CASE"
+    size = 96
+    lines = mfr._wrap(d, t, _f(size), W - 320)
+    while len(lines) > 3 and size > 52:
+        size -= 8
+        lines = mfr._wrap(d, t, _f(size), W - 320)
+    f = _f(size)
+    lh = size + 26
+    y = max(240, (CONTENT_BOTTOM - len(lines) * lh) // 2 - 40)
+    for ln in lines[:3]:
+        d.text((160, y), ln, font=f, fill=TEXT_C)
+        y += lh
+
+    d.line([(160, y + 34), (520, y + 34)], fill=TEAL, width=4)
+    if source_line:
+        d.text((160, y + 64), _clip_words(source_line, 84), font=_f(30, False),
+               fill=TEAL)
+    cred = short_credit(citation)
+    if cred:
+        d.text((160, y + 112), cred, font=_f(24, False), fill=DIM)
+    c.save(out_path)
+    return Path(out_path).exists()
+
+
+def render_act_card(index, label, out_path, niche_label="NO KNOWN CAUSE"):
+    """A held act marker: large number, act name, single rule."""
+    c = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(c)
+    _eyebrow(d, niche_label, y=150)
+    num = f"{index:02d}"
+    fn = _f(200)
+    cy = CONTENT_BOTTOM // 2
+    # The number sits ABOVE the label, not behind it. Drawn as a ghost behind
+    # the text it half-covered the first word and read as a rendering error.
+    d.text((160, cy - 250), num, font=fn, fill=(38, 50, 58))
+    d.line([(160, cy - 22), (420, cy - 22)], fill=TEAL, width=4)
+    lab = _clip_words(label.upper(), 34)
+    fl = _f(76)
+    d.text((160, cy + 16), lab, font=fl, fill=TEXT_C)
+    c.save(out_path)
+    return Path(out_path).exists()
 
 
 # ── CHART ──────────────────────────────────────────────────────────────────
@@ -468,15 +572,29 @@ def render_text_still(quote, out_path, attribution="From the source paper",
     d = ImageDraw.Draw(c)
     _eyebrow(d, niche_label)
     q = quote.strip().strip('"“”')
-    f = _f(72)
-    lines = mfr._wrap(d, f'“{q}”', f, W - 300)[:6]
+    # The quote block plus its rule and attribution must all fit ABOVE the
+    # caption band. A fixed six-line cap overflowed it: six lines at 104px
+    # from y=280 ends at 904, and the attribution sat 52px below that, both
+    # inside the band. Caught by the pixel check, not by reading the code.
+    TOP, LINE_H, FOOTER = 280, 104, 96
+    room = CONTENT_BOTTOM - TOP - FOOTER
+    max_lines = max(1, room // LINE_H)
+    size = 72
+    lines = mfr._wrap(d, f'“{q}”', _f(size), W - 300)
+    # A long quotation shrinks rather than being cut off in the middle.
+    while len(lines) > max_lines and size > 40:
+        size -= 6
+        lines = mfr._wrap(d, f'“{q}”', _f(size), W - 300)
+    f = _f(size)
+    line_h = size + 32
+    lines = lines[:max(1, (CONTENT_BOTTOM - TOP - FOOTER) // line_h)]
     emph_from = max(1, int(len(lines) * 0.66))
-    y = max(280, (CONTENT_BOTTOM - len(lines) * 104) // 2)
+    y = max(TOP, (CONTENT_BOTTOM - FOOTER - len(lines) * line_h) // 2)
     for i, line in enumerate(lines):
         d.text((150, y), line, font=f, fill=TEAL if i >= emph_from else TEXT_C)
-        y += 104
+        y += line_h
     d.line([(150, y + 24), (430, y + 24)], fill=EDGE, width=2)
-    d.text((150, y + 52), attribution[:70], font=_f(26, False), fill=DIM)
+    d.text((150, y + 52), _clip_words(attribution, 90), font=_f(26, False), fill=DIM)
     c.save(out_path)
     return Path(out_path).exists()
 
@@ -648,4 +766,4 @@ def render_medical_segment(register, case, segment_text, duration, index,
     # FIGURE holds are panned more gently -- aggressive zoom on diagnostic
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
-                         zoom=True)
+                         zoom=True, register=register)

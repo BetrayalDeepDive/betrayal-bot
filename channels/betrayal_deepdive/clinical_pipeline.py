@@ -5302,6 +5302,9 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # scheduled CHART and TIMELINE segments on papers that have neither, and
     # half the episode rendered the identical fallback card.
     register_quota = new_quota(n_buckets, figure_count=_figure_count, case=_case)
+    from medical_segments import act_boundaries
+    _act_cards = act_boundaries(n_buckets)
+    log(f"  Structure: title card at 0, act cards at {sorted(_act_cards)}")
     log(f"  Register mix: {_figure_count} usable figure(s); "
         f"available={ {k: v for k, v in register_quota.mix.items() if v > 0} }")
 
@@ -5455,6 +5458,44 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         # line would have been a NameError on the first real segment.
         # force_switch on a real audio cue, so a stinger never lands with the
         # same register on both sides of it (no visual change at all).
+        # ── title card / act cards ──────────────────────────────────────
+        # The episode used to open on whatever register the quota happened to
+        # schedule first -- in a real local render, a half-drawn chart. A
+        # documentary opens by saying what it is and marks its acts; without
+        # that, thirteen minutes of clinical graphics reads as a slide deck,
+        # which is a note this channel has already had.
+        #
+        # These REPLACE a segment rather than being inserted, so the clip
+        # count still matches the audio exactly and nothing desyncs.
+        _card = None
+        if i == 0:
+            _card = ("TITLE", None)
+        elif i in _act_cards:
+            _card = ("ACT", _act_cards[i])
+        if _card:
+            try:
+                from medical_segments import (render_title_card, render_act_card,
+                                              still_to_clip)
+                _still = str(WORK_DIR / f"card_{i}.png")
+                if _card[0] == "TITLE":
+                    _src = (f"{_case.get('journal','')} {_case.get('year','')}".strip()
+                            or "Published case report")
+                    _ok = render_title_card(
+                        _case.get("title") or topic, _still,
+                        niche_label=niche["series"].upper(),
+                        source_line=_src, citation=_case.get("citation", ""))
+                else:
+                    _ok = render_act_card(
+                        list(_act_cards).index(i) + 1, _card[1], _still,
+                        niche_label=niche["series"].upper())
+                if _ok and still_to_clip(_still, segment_dur, clip_path,
+                                         run_ffmpeg=run_ffmpeg, register="TITLE"):
+                    log(f"  Segment {i+1}/{n_buckets} [{_card[0]} CARD]")
+                    fetched_clips.append(clip_path)
+                    continue
+            except Exception as e:
+                log(f"  Segment {i+1} card failed (falling through): {e}")
+
         register = register_quota.pick(stage_text, force_switch=audio_cue_hit)
         # Reveal position is counted within THIS register's own appearances,
         # not across the episode. Driving it off the global segment index
