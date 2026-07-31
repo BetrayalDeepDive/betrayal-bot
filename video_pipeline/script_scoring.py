@@ -530,6 +530,44 @@ def score_topic_clarity(script_text, topic):
     return round(min(max(score, 0.0), 10.0), 1), issues
 
 
+
+def strip_leading_title_line(script_text):
+    """
+    Remove a title the model prepended to the narration.
+
+    Found in the first episode this channel ever rendered (run 30578466862):
+    the script opened with
+
+        "The Forgotten Girl: A Family's Silent Fight Against the Unknown"
+
+    as its literal first line, while the video's actual title was something
+    else entirely. strip_md removed the surrounding ** but not the line, so
+    the narrator opens the episode by reading out an invented alternative
+    title -- a spoken artefact no viewer can interpret as anything but a
+    mistake.
+
+    Deliberately conservative. Only strips a FIRST line that is
+    title-shaped: short, quoted or title-cased, and with no sentence-ending
+    punctuation. A real opening sentence ends in . ? or ! and is left alone.
+    """
+    if not script_text:
+        return script_text
+    parts = script_text.lstrip().split("\n", 1)
+    if len(parts) < 2:
+        return script_text
+    first, rest = parts[0].strip(), parts[1]
+    if not first or len(first.split()) > 14:
+        return script_text
+    stripped = first.strip('"\u201c\u201d\u2018\u2019*_ ')
+    # A narration sentence ends in terminal punctuation; a title does not.
+    if stripped.endswith((".", "?", "!")):
+        return script_text
+    quoted = first[0] in '"\u201c' or first.startswith("**")
+    colon_title = ":" in stripped and len(stripped.split()) <= 14
+    if quoted or colon_title:
+        return rest.lstrip()
+    return script_text
+
 def validate_rehook_beat(script_text):
     """
     Checks for the mid-video "rehook" beat — a direct-address moment that

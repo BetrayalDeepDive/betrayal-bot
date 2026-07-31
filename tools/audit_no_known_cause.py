@@ -244,6 +244,15 @@ def audit_integration():
           cp.count("Preserve the existing mid-video direct-address beat") >= 2)
     check("F", "expansion sends the whole script, not raw[:4000]",
           "+ raw[:4000])" not in cp)
+    check("F", "leading title line is stripped from narration",
+          "strip_leading_title_line" in cp and cp.count("strip_leading_title_line") >= 3,
+          "run 4 opened by speaking an invented title")
+    from script_scoring import strip_leading_title_line as _slt
+    check("F", "title stripper removes a quoted title",
+          not _slt('"The Forgotten Girl: A Silent Fight"\nA baby was born.').startswith('"'))
+    check("F", "title stripper keeps real narration",
+          _slt("A baby girl was born on a Tuesday.\nShe weighed 2,500 grams.").startswith("A baby"))
+
     check("F", "disclaimer is appended to the description",
           "_clin_block" in cp and "description = f\"{description}{_clin_block}\"" in cp)
 

@@ -2741,8 +2741,11 @@ def generate_script_content(niche, topic, episode, attempt,
     # or paraphrased despite the "write continuously, no labels"
     # instruction. Swept out here before anything downstream (word count,
     # stage-splitting, scoring) ever sees it.
-    from script_scoring import strip_all_leaked_stage_headers
+    from script_scoring import (strip_all_leaked_stage_headers,
+                                strip_leading_title_line)
     script     = strip_all_leaked_stage_headers(script)
+    # Run 30578466862's episode opened by speaking an invented title line.
+    script     = strip_leading_title_line(script)
     wc         = len(script.split())
     violations = len(re.findall(r"[#*_`\[\]{}<>\\]", script))
     log(f"  Script: {wc}w | {violations} violations")
@@ -2774,7 +2777,8 @@ def generate_script_content(niche, topic, episode, attempt,
         if not raw2:
             log("  Expansion returned nothing — stopping")
             break
-        s2 = strip_all_leaked_stage_headers(strip_md(strip_md(raw2)))
+        s2 = strip_leading_title_line(
+            strip_all_leaked_stage_headers(strip_md(strip_md(raw2))))
         if len(s2.split()) <= wc:
             log(f"  Expansion round {_round + 1} produced nothing longer "
                 f"({len(s2.split())}w vs {wc}w) — stopping")
