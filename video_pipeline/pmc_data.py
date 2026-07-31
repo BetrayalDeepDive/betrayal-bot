@@ -112,15 +112,31 @@ NICHE_PMC_QUERIES = {
         '(TITLE:"rare" OR ABSTRACT:"rare disease" OR ABSTRACT:"first reported case")'
         f' AND {_NO_GRAPHIC}'
     ),
+    # EVERY niche below must select PUB_TYPE:"Case Reports".
+    #
+    # Five of these ten did not, and run 30637537806 shows exactly what that
+    # costs. senior_health_longevity returned Cell 2013, Archives of
+    # Toxicology 2023 and Signal Transduction and Targeted Therapy 2022 --
+    # basic-science research and review papers about ageing, with no patient,
+    # no chronology and no differential in them. Structure extraction scored
+    # 9, 5, 2 and 2 across four candidates (0 differentials and 0 timeline
+    # events on three of them), the script was written about sarcopenia
+    # epidemiology rather than a patient, and the episode died at the title
+    # gate on a headline about population statistics.
+    #
+    # This channel's unit is one patient's case. A query that does not say so
+    # is not a narrower version of the right query -- it is the wrong corpus.
     "senior_health_longevity": (
-        f'{_BASE_FILTER} AND '
-        '(TITLE:"ageing" OR TITLE:"aging" OR TITLE:"longevity" OR TITLE:"geriatric" '
-        'OR TITLE:"sarcopenia" OR TITLE:"frailty")'
+        f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
+        '(TITLE:"elderly" OR TITLE:"geriatric" OR TITLE:"octogenarian" '
+        'OR TITLE:"nonagenarian" OR ABSTRACT:"an elderly patient" '
+        'OR ABSTRACT:"older adult")'
         f' AND {_NO_GRAPHIC}'
     ),
     "medical_mystery_outbreak": (
-        f'{_BASE_FILTER} AND '
-        '(TITLE:"outbreak" OR TITLE:"cluster" OR ABSTRACT:"epidemiological investigation")'
+        f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
+        '(TITLE:"outbreak" OR TITLE:"cluster" OR ABSTRACT:"index case" '
+        'OR ABSTRACT:"epidemiological investigation" OR ABSTRACT:"contact tracing")'
         f' AND {_NO_GRAPHIC}'
     ),
     # Retargeted away from the operative field. The old query
@@ -141,19 +157,26 @@ NICHE_PMC_QUERIES = {
         'OR TITLE:"aphasia" OR TITLE:"amnesia")'
         f' AND {_NO_GRAPHIC}'
     ),
+    # Retargeted from "papers ABOUT the history of medicine" (reviews and
+    # essays, no patient) to "the case that was itself a first".
     "medical_history": (
-        f'{_BASE_FILTER} AND '
-        '(TITLE:"history of medicine" OR TITLE:"historical" OR ABSTRACT:"medical history")'
+        f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
+        '(ABSTRACT:"first reported case" OR ABSTRACT:"first described" '
+        'OR ABSTRACT:"historically" OR ABSTRACT:"previously unreported")'
         f' AND {_NO_GRAPHIC}'
     ),
+    # Retargeted from drug-discovery reviews to the patient the drug happened
+    # to: adverse reactions, unexpected responses, first human use.
     "drug_discovery_stories": (
-        f'{_BASE_FILTER} AND '
-        '(TITLE:"discovery of" OR ABSTRACT:"drug discovery" OR ABSTRACT:"was first isolated")'
+        f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
+        '(ABSTRACT:"adverse drug reaction" OR ABSTRACT:"drug-induced" '
+        'OR ABSTRACT:"unexpected response" OR TITLE:"induced by")'
         f' AND {_NO_GRAPHIC}'
     ),
     "sleep_science": (
-        f'{_BASE_FILTER} AND '
-        '(TITLE:"sleep" OR TITLE:"insomnia" OR TITLE:"narcolepsy" OR TITLE:"circadian")'
+        f'{_BASE_FILTER} AND PUB_TYPE:"Case Reports" AND '
+        '(TITLE:"sleep" OR TITLE:"insomnia" OR TITLE:"narcolepsy" '
+        'OR TITLE:"parasomnia" OR TITLE:"circadian")'
         f' AND {_NO_GRAPHIC}'
     ),
 }

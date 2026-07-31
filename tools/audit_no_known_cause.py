@@ -413,6 +413,15 @@ def audit_sourcing_robustness():
           "TEXT would otherwise put a paraphrase on screen attributed to a "
           "real paper")
 
+    # ── the four defects run 30637537806 died of ────────────────────────
+    check("B", "every PMC niche selects CASE REPORTS",
+          all('PUB_TYPE:"Case Reports"' in q
+              for q in P.NICHE_PMC_QUERIES.values()),
+          "five niches had no case-report filter and returned Cell, Archives "
+          "of Toxicology and Signal Transduction research papers — no patient, "
+          "no chronology, no differential to build an episode from")
+    _title_checks()
+
 
 
 
@@ -620,6 +629,79 @@ def _hook_fits(max_px=1080):
             if len(text) * size * 0.62 > max_px:
                 return False
     return True
+
+
+def _title_checks():
+    """
+    The title stage killed a whole run: it returned the byte-identical title
+    twelve times, capped at 7.0, and discarded a script that had passed at
+    8.6. Three separate causes, three checks.
+    """
+    import json as _json
+    import re as _re
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    ns = {"re": _re, "json": _json, "log": lambda *a, **k: None,
+          "notify_stage_score": lambda *a, **k: None,
+          "_record_title_history": lambda *a, **k: None}
+    exec(cp[cp.index("def score_title_v2"):
+            cp.index("# Real business-inquiries contact")], ns)
+    score, gate = ns["score_title_v2"], ns["run_title_ctr_gate"]
+
+    # 1. A real clinical title must be able to clear the 8.5 gate at all.
+    #    Before the phrase banks were re-based, the best a factual clinical
+    #    headline could score was about 7.0 -- the gate was unreachable by
+    #    construction, so every run ended the same way.
+    reachable = [
+        "Nobody Knew Why: The 21-Day-Old Diagnosed Too Late",
+        "The One Test That Finally Explained A 14-Year Illness",
+        "Treated As Sepsis For 96 Hours. It Was Never Infection",
+    ]
+    check("D", "a factual clinical title can clear the 8.5 title gate",
+          all(score(t)[0] >= 8.5 for t in reachable),
+          "the scorer's phrase banks were true-crime; a clinical headline "
+          "could not reach the gate no matter how many times it regenerated")
+
+    # 2. Cover-up framing must NOT score well. The old banks paid +1.5 for
+    #    "covered up" and +1.5 for "they knew" -- the scorer was rewarding
+    #    exactly the allegations the medical policy rules forbid.
+    accusatory = [
+        "Doctors Covered Up What They Knew: 14 Years Of Silence",
+        "The Hospital That Let It Happen And Went Unpunished",
+    ]
+    check("C", "the title scorer does not reward cover-up framing",
+          all(score(t)[0] < 7.5 for t in accusatory),
+          "titles alleging concealment by real named clinicians must not "
+          "outscore factual clinical ones on a medical channel")
+
+    # 3. Every retry must ASK SOMETHING DIFFERENT. This is the actual bug:
+    #    a deterministic provider given an identical prompt returns an
+    #    identical answer, so a stalled loop burns every remaining attempt.
+    prompts = []
+    def _ai(prompt, tokens=300):
+        prompts.append(prompt)
+        return _json.dumps(["Nobody knew the rates were this uneven"] * 5)
+    gate("seed", [("Nobody knew the rates were this uneven", 7.0)],
+         "a neonate with galactosaemia", "toxicology_cases",
+         "No Known Cause", 12, _ai, min_ctr=8.5, max_attempts=8)
+    check("D", "every title retry sends a different prompt",
+          len(prompts) > 1 and len(set(prompts)) == len(prompts),
+          "attempts 2-13 of run 30637537806 were byte-identical, wasting "
+          "twelve calls on a guaranteed failure")
+    check("D", "title retries name the titles already rejected",
+          all("Already rejected" in p for p in prompts[1:]),
+          "without it the model re-proposes the same headline")
+    check("C", "title retry prompts carry no true-crime instruction",
+          not any(w in p for p in prompts
+                  for w in ("They Knew", "Still Happening", "Dark documentary")),
+          "the retry loop was telling a medical channel to add conspiracy "
+          "phrasing")
+
+    # 4. A failing title must escalate, not destroy an approved script.
+    check("F", "a below-gate title escalates to a human instead of exiting",
+          "review_title" in cp and "_LAST_TITLE_CANDIDATES" in cp
+          and "Escalating to human review" in cp,
+          "run 30637537806 threw away a script that had passed at 8.6/10 "
+          "because a one-line string scored 7.0")
 
 
 def _vertical_cards_clear_caption():
