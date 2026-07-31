@@ -771,3 +771,235 @@ def render_medical_segment(register, case, segment_text, duration, index,
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
                          zoom=True, register=register)
+
+
+# ── VERTICAL (9:16) — Shorts ───────────────────────────────────────────────
+# Ch1's Shorts were still downloading Pixabay clips. The main video had stock
+# footage removed after a real episode about a newborn's liver failure shipped
+# illustrated with a mountain and a woman dancing -- but the Shorts path was
+# never touched, so a third of this channel's daily output was still generic
+# library footage of "hospital corridor night", and the topic-anchored query
+# made it worse: it takes the commonest long word from the title, so a case
+# about galactosaemia searched Pixabay for "galactose hospital corridor".
+#
+# A Short is the same channel. It draws from the same paper.
+VW, VH = 1080, 1920
+V_CAPTION_SAFE_H = 460          # Shorts burn large captions low in frame
+V_CONTENT_BOTTOM = VH - V_CAPTION_SAFE_H
+
+
+def _vf(size, bold=True):
+    return mfr._font(size, bold)
+
+
+def _v_eyebrow(d, label, y=150):
+    d.line([(80, y), (140, y)], fill=TEAL, width=4)
+    d.text((156, y - 18), label, font=_vf(32), fill=TEAL)
+
+
+def render_vertical_card(kind, case, out_path, headline="",
+                         niche_label="NO KNOWN CAUSE", progress=1.0):
+    """
+    One 1080x1920 card built from the episode's own case.
+
+    kind: "title" | "board" | "timeline" | "chart" | "quote" | "statement"
+    Returns True on success. Falls back to "statement" (always renderable
+    from the headline alone) rather than to anything fetched.
+    """
+    case = case or {}
+    c = Image.new("RGB", (VW, VH), BG)
+    d = ImageDraw.Draw(c)
+    _v_eyebrow(d, niche_label)
+    y = 250
+
+    def _heading(text, size=62, fill=TEXT_C, max_lines=4):
+        """Shrinks to fit rather than truncating -- a quotation cut off at
+        "rather than its" reads as a bug, and the quote card is the one that
+        most often needs the room."""
+        nonlocal y
+        f = _vf(size)
+        lines = mfr._wrap(d, text, f, VW - 160)
+        while len(lines) > max_lines and size > 34:
+            size -= 6
+            f = _vf(size)
+            lines = mfr._wrap(d, text, f, VW - 160)
+        for ln in lines[:max_lines]:
+            d.text((80, y), ln, font=f, fill=fill)
+            y += size + 16
+        y += 24
+
+    try:
+        if kind == "title":
+            _heading(_tidy_display_line(headline or case.get("title", ""), 140), 66)
+            d.line([(80, y), (400, y)], fill=TEAL, width=5)
+            src = f"{case.get('journal','')} {case.get('year','')}".strip()
+            if src:
+                d.text((80, y + 30), _clip_words(src, 46), font=_vf(34, False),
+                       fill=TEAL)
+
+        elif kind == "board":
+            rows = (case.get("differentials") or [])[:4]
+            if not rows:
+                return render_vertical_card("statement", case, out_path,
+                                            headline, niche_label)
+            _heading("DIFFERENTIAL", 54, TEXT_C)
+            resolved = max(1, min(len(rows), int(round(progress * len(rows)))))
+            for i, (name, verdict, _reason) in enumerate(rows):
+                on = i < resolved
+                v = (verdict or "").lower()
+                col = (TEAL if "confirm" in v else
+                       (AMBER if "partial" in v else RED)) if on else EDGE
+                d.rectangle([80, y, VW - 80, y + 150],
+                            fill=PANEL if on else BG, outline=EDGE, width=2)
+                d.rectangle([80, y, 88, y + 150], fill=col)
+                for j, ln in enumerate(mfr._wrap(d, str(name), _vf(40),
+                                                 VW - 220)[:2]):
+                    d.text((116, y + 24 + j * 46), ln, font=_vf(40),
+                           fill=TEXT_C if on else DIM)
+                vt = (verdict or "").upper()[:10] if on else ""
+                if vt:
+                    d.text((116, y + 108), vt, font=_vf(28), fill=col)
+                y += 170
+
+        elif kind == "timeline":
+            events = (case.get("timeline") or [])[:5]
+            if len(events) < 2:
+                return render_vertical_card("statement", case, out_path,
+                                            headline, niche_label)
+            _heading("CLINICAL COURSE", 54)
+            live = max(1, min(len(events), int(round(progress * len(events)))))
+            spine = 108
+            step = (V_CONTENT_BOTTOM - y - 60) / max(1, len(events) - 1)
+            d.line([(spine, y), (spine, y + step * (len(events) - 1))],
+                   fill=EDGE, width=4)
+            for i, (day, desc) in enumerate(events):
+                ey = int(y + step * i)
+                on = i < live
+                r = 15 if on else 11
+                d.ellipse([spine - r, ey - r, spine + r, ey + r],
+                          fill=TEAL if on else BG,
+                          outline=TEAL if on else EDGE, width=4)
+                d.text((spine + 44, ey - 40), str(day).upper(), font=_vf(36),
+                       fill=TEAL if on else DIM)
+                if on:
+                    for j, ln in enumerate(mfr._wrap(d, desc, _vf(30, False),
+                                                     VW - spine - 120)[:2]):
+                        d.text((spine + 44, ey + 4 + j * 36), ln,
+                               font=_vf(30, False), fill=TEXT_C)
+
+        elif kind == "chart":
+            cd = case.get("chart_data") or {}
+            labels, values = cd.get("labels") or [], cd.get("values") or []
+            n = min(len(labels), len(values))
+            if n < 2:
+                return render_vertical_card("statement", case, out_path,
+                                            headline, niche_label)
+            nums = [float(v) for v in values[:n]]
+            _heading(_clip_words(str(cd.get("title", "REPORTED VALUES")).upper(), 34), 50)
+            L, R = 190, VW - 90
+            T, B = y + 40, V_CONTENT_BOTTOM - 120
+            lo, hi = min(nums), max(nums)
+            if hi == lo:
+                hi, lo = hi + 1, lo - 1
+            pad = (hi - lo) * 0.15
+            lo, hi = lo - pad, hi + pad
+            py = lambda v: B - (v - lo) / (hi - lo) * (B - T)
+            for k in range(4):
+                v = lo + (hi - lo) * k / 3.0
+                d.line([(L, py(v)), (R, py(v))], fill=EDGE, width=1)
+                d.text((40, py(v) - 18), _fmt_value(v), font=_vf(26, False), fill=DIM)
+            d.line([(L, T), (L, B)], fill=EDGE, width=3)
+            d.line([(L, B), (R, B)], fill=EDGE, width=3)
+            shown = max(2, min(n, math.ceil(progress * n)))
+            step = (R - L) / (n - 1)
+            pts = [(L + step * i, py(nums[i])) for i in range(shown)]
+            d.line(pts, fill=TEAL, width=7, joint="curve")
+            for x, yy in pts:
+                d.ellipse([x - 11, yy - 11, x + 11, yy + 11], fill=TEAL)
+            for i in (0, n - 1):
+                t = _clip_words(str(labels[i]), 10)
+                tw = d.textlength(t, font=_vf(28, False))
+                d.text((min(max(L, L + step * i - tw / 2), R - tw), B + 22), t,
+                       font=_vf(28, False), fill=DIM)
+
+        elif kind == "quote":
+            q = (case.get("quote") or "").strip()
+            if not q:
+                return render_vertical_card("statement", case, out_path,
+                                            headline, niche_label)
+            _heading(f'"{q}"', 54, TEXT_C, max_lines=7)
+            d.line([(80, y), (360, y)], fill=EDGE, width=3)
+            cred = short_credit(case.get("citation", ""))
+            if cred:
+                d.text((80, y + 26), _clip_words(cred, 54), font=_vf(24, False),
+                       fill=DIM)
+
+        else:  # statement — always renderable
+            _heading(_tidy_display_line(headline, 200), 58, max_lines=6)
+            cred = short_credit(case.get("citation", ""))
+            if cred:
+                d.line([(80, V_CONTENT_BOTTOM - 90),
+                        (400, V_CONTENT_BOTTOM - 90)], fill=EDGE, width=3)
+                d.text((80, V_CONTENT_BOTTOM - 64), _clip_words(cred, 54),
+                       font=_vf(24, False), fill=DIM)
+    except Exception:
+        return False
+
+    c.save(out_path)
+    return Path(out_path).exists()
+
+
+VERTICAL_SEQUENCE = ("title", "board", "timeline", "chart", "quote", "statement")
+
+
+def render_vertical_background(case, out_path, duration, headline="",
+                               niche_label="NO KNOWN CAUSE", run_ffmpeg=None,
+                               work_dir=None):
+    """
+    A full 9:16 background for one Short: a sequence of real clinical cards
+    from THIS case, cut at a Shorts pace, concatenated.
+
+    Replaces the Pixabay download entirely for this channel. Nothing is
+    fetched, so nothing can be irrelevant.
+    """
+    work = Path(work_dir or Path(out_path).parent)
+    work.mkdir(parents=True, exist_ok=True)
+    kinds = [k for k in VERTICAL_SEQUENCE
+             if k in ("title", "statement")
+             or (k == "board" and case.get("differentials"))
+             or (k == "timeline" and len(case.get("timeline") or []) >= 2)
+             or (k == "chart" and (case.get("chart_data") or {}).get("labels"))
+             or (k == "quote" and (case.get("quote") or "").strip())]
+    if not kinds:
+        kinds = ["statement"]
+    # ~4s a card keeps a Short moving; never fewer than three cuts.
+    n = max(3, min(len(kinds) * 2, int(round(duration / 4.0))))
+    per = duration / n
+    clips = []
+    for i in range(n):
+        kind = kinds[i % len(kinds)]
+        still = work / f"vcard_{i}_{kind}.png"
+        if not render_vertical_card(kind, case, str(still), headline=headline,
+                                    niche_label=niche_label,
+                                    progress=(i + 1) / n):
+            continue
+        clip = work / f"vclip_{i}.mp4"
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still),
+               "-vf", (f"scale={VW}:{VH},zoompan=z='min(zoom+0.0004,1.08)':"
+                       f"d={max(1, int(per * 24))}:s={VW}x{VH}:fps=24,"
+                       f"fade=t=in:st=0:d=0.3"),
+               "-t", f"{per:.2f}", "-c:v", "libx264", "-preset", "ultrafast",
+               "-pix_fmt", "yuv420p", "-an", str(clip)]
+        (run_ffmpeg(cmd, label="short-card") if run_ffmpeg
+         else subprocess.run(cmd, capture_output=True, timeout=180))
+        if clip.exists() and clip.stat().st_size > 1000:
+            clips.append(clip)
+    if not clips:
+        return False
+    lst = work / "vconcat.txt"
+    lst.write_text("".join(f"file '{c.resolve()}'\n" for c in clips))
+    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+           "-c", "copy", str(out_path)]
+    (run_ffmpeg(cmd, label="short-bg") if run_ffmpeg
+     else subprocess.run(cmd, capture_output=True, timeout=180))
+    return Path(out_path).exists() and Path(out_path).stat().st_size > 10000

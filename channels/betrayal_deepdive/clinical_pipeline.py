@@ -10053,7 +10053,19 @@ def main():
             import importlib.util
             if importlib.util.find_spec("shorts_reels_engine") is None:
                 raise ImportError("shorts_reels_engine not in PYTHONPATH")
-            from shorts_reels_engine import produce_video_topic_short, produce_standalone_short
+            from shorts_reels_engine import (produce_video_topic_short,
+                                             produce_standalone_short,
+                                             set_clinical_case)
+            # Shorts draw from the SAME sourced paper as the episode. Without
+            # this they fell through to the Pixabay path -- the main video's
+            # stock footage was removed after a real episode about a newborn's
+            # liver failure shipped illustrated with a mountain and a woman
+            # dancing, but the Shorts path was never touched, so a third of
+            # this channel's daily output was still library clips.
+            try:
+                set_clinical_case(get_episode_case())
+            except Exception as _e:
+                log(f"  Shorts case handoff (non-fatal): {_e}")
 
             def _post_short_comment_safe(short_url, mode_name):
                 if not short_url:

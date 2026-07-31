@@ -330,6 +330,20 @@ def audit_sourcing_robustness():
                              "/tmp")["figures"] == [],
           "an unreachable figure must not stay in the case")
 
+    # Shorts must not fetch library footage either.
+    import shorts_reels_engine as sre
+    import medical_segments as _ms
+    check("B", "the clinical channel is on the no-stock list",
+          "hospital medical" in sre.NO_STOCK_NICHES)
+    check("B", "clinical Shorts render from the case, not Pixabay",
+          hasattr(sre, "set_clinical_case")
+          and hasattr(_ms, "render_vertical_background")
+          and "set_clinical_case(get_episode_case())" in cp,
+          "the main video's stock path was closed; the Shorts path was not")
+    check("B", "every vertical card kind renders",
+          _all_vertical_cards_render(),
+          "a Short that cannot render its card would fall back to footage")
+
     check("B", "case-structure extraction retries rather than failing silently",
           "_parse_structures" in cp and "for attempt in range(3)" in cp,
           "one malformed response used to leave five of six registers empty")
@@ -428,6 +442,18 @@ def audit_rendered_episode():
           all(quota.mix.get(r, 0) >= 0 for r in counts) and
           not _fallbacks_needed(ms, case, seq, reveals),
           "a register scheduled without data renders the plain text card")
+
+
+def _all_vertical_cards_render():
+    import tempfile
+    import medical_segments as ms
+    from local_episode_render import CASE
+    with tempfile.TemporaryDirectory() as td:
+        return all(
+            ms.render_vertical_card(k, CASE, f"{td}/{k}.png",
+                                    headline="A baby girl stopped feeding.",
+                                    progress=0.6)
+            for k in ms.VERTICAL_SEQUENCE)
 
 
 def _no_truncated_speech(words, cues):

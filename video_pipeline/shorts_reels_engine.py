@@ -1208,7 +1208,50 @@ def _extract_topic_anchor(topic):
     return _C(words).most_common(1)[0][0]
 
 
-def download_background_clip(niche: str, output_path: str, topic: str = "") -> bool:
+# Channels whose Shorts must NEVER fetch a library clip. Their background is
+# rendered from the episode's own sourced case instead.
+NO_STOCK_NICHES = ("hospital medical",)
+_CLINICAL_CASE = {"case": None}
+
+
+def set_clinical_case(case):
+    """Ch1 hands its real sourced case here before producing Shorts."""
+    _CLINICAL_CASE["case"] = case or None
+
+
+def download_background_clip(niche: str, output_path: str, topic: str = "",
+                             duration: float = 30.0) -> bool:
+    # NO STOCK FOOTAGE ON THE CLINICAL CHANNEL -- not in the main video, and
+    # not here either.
+    #
+    # The main video's stock path was closed after a real episode about a
+    # newborn's liver failure shipped illustrated with a mountain and a woman
+    # dancing. The Shorts path was never touched, so a third of this
+    # channel's daily output was still generic library footage. The
+    # topic-anchored query made it worse rather than better: it takes the
+    # commonest long word from the title, so a case about galactosaemia
+    # searched Pixabay for "galactose hospital corridor night".
+    #
+    # A Short is the same channel and draws from the same paper.
+    if niche in NO_STOCK_NICHES:
+        case = _CLINICAL_CASE["case"]
+        try:
+            from medical_segments import render_vertical_background
+            if render_vertical_background(case or {}, output_path,
+                                          max(6.0, float(duration)),
+                                          headline=topic):
+                log.info("Clinical vertical background rendered from the case")
+                return True
+            log.warning("Clinical vertical background failed — using the "
+                        "procedural fallback, NOT stock footage")
+        except Exception as e:
+            log.warning("Clinical vertical background error: %s", e)
+        return _procedural_fallback_bg(output_path)
+
+    return _download_stock_background(niche, output_path, topic)
+
+
+def _download_stock_background(niche: str, output_path: str, topic: str = "") -> bool:
     """Download 9:16 background clip from Pixabay. When `topic` is given,
     tries a topic-anchored query first (a real specific word from THIS
     Short's actual topic, combined with the niche's mood keyword) before
@@ -1294,7 +1337,34 @@ def download_background_clip(niche: str, output_path: str, topic: str = "") -> b
     # particle-like noise field reads as genuine, deliberate motion
     # graphics rather than a placeholder, while still being fully
     # generatable offline with no network dependency.
-    log.info("Using improved FFmpeg background fallback (animated, not static)")
+    return _procedural_fallback_bg(output_path)
+
+
+def _audio_seconds(path, default=30.0):
+    """Real duration of the narration this background has to cover.
+
+    The rendered clinical background is built from a fixed number of cards,
+    so it needs the real length -- a 30-second assumption would leave a
+    55-second Short with 25 seconds of nothing."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                            "format=duration", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, timeout=30)
+        return max(5.0, float(r.stdout.strip()))
+    except Exception:
+        return default
+
+
+def _procedural_fallback_bg(output_path):
+    """
+    Generated, never fetched. Extracted so the clinical path can reach it
+    without going anywhere near a stock library.
+
+    This used to be a flat black screen with a vignette -- about as visually
+    dead as a background can be. A slow gradient drift plus a moving noise
+    field reads as deliberate motion graphics rather than a placeholder,
+    and needs no network.
+    """
     subprocess.run([
         "ffmpeg", "-y", "-f", "lavfi",
         "-i", "gradients=s=1080x1920:c0=0x0a0a12:c1=0x1a1420:x0=0:y0=0:x1=1080:y1=1920:speed=0.02",
@@ -1816,7 +1886,8 @@ def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> d
 
         # 6. Download background
         bg_out = os.path.join(OUTPUT_DIR, f"bg_{run_id}.mp4")
-        download_background_clip(niche, bg_out, topic=title)
+        download_background_clip(niche, bg_out, topic=title,
+                                 duration=_audio_seconds(audio_out))
 
         # 7. Assemble video
         video_out = os.path.join(OUTPUT_DIR, f"short_{mode}_{run_id}_final.mp4")
@@ -2173,7 +2244,8 @@ Return JSON:
             continue
 
         generate_synced_subtitles(script_data["script"], audio_out, srt_out)
-        download_background_clip(cfg["bg_search_term"], bg_out, topic=main_topic)
+        download_background_clip(cfg["bg_search_term"], bg_out, topic=main_topic,
+                                 duration=_audio_seconds(audio_out))
 
         if not assemble_short_video(bg_out, audio_out, srt_out,
                                      script_data["hook_text"], video_out):
