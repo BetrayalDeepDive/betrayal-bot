@@ -281,6 +281,29 @@ def audit_visuals():
         check("E", f"thumbnail profile: {n}",
               p is not None and p["bg_color"] == (14, 18, 22),
               "missing -> falls back to blood-red horror styling")
+    # Thumbnails, measured on real output.
+    T = ("Acute liver failure in a neonate following a rare inherited "
+         "disorder of galactose metabolism")
+    for _ in range(6):
+        out = te.enforce_number_noun("", T, "rare_disease_cases")
+        check("E", "the thumbnail never invents a number",
+              not re.search(r"\b\d", out),
+              f"got {out!r} — a case about a 21-day-old newborn was coming "
+              f"back as '14 YEARS', picked at random from a bank with no "
+              f"clinical entry. That is a false claim on the most visible "
+              f"surface the channel has.")
+    check("E", "a REAL number from the topic is still allowed",
+          "47" in te.enforce_number_noun("", "A 47 year old man with hepatic failure",
+                                         "rare_disease_cases"))
+    check("E", "medical thumbnails never fall back to a stock photo",
+          "rare_disease_cases" in te.MEDICAL_NICHES
+          and "_clinical_procedural_background" in read(
+              "video_pipeline/thumbnail_engine_v2.py"))
+    check("E", "the generated backdrop is visible, not near-black",
+          _thumbnail_backdrop_is_visible(),
+          "a black rectangle in YouTube's grid is the only place a "
+          "thumbnail has to work")
+
     check("E", "avatar resolves for the live channel name",
           te.get_channel_avatar_prompt("No Known Cause", 1)[0] is not None)
     check("E", "register mix sums to 1.0",
@@ -442,6 +465,21 @@ def audit_rendered_episode():
           all(quota.mix.get(r, 0) >= 0 for r in counts) and
           not _fallbacks_needed(ms, case, seq, reveals),
           "a register scheduled without data renders the plain text card")
+
+
+def _thumbnail_backdrop_is_visible():
+    """
+    Real pixel measurement: the generated clinical backdrop must have some
+    actual luminance range, not be a flat near-black field.
+    """
+    import tempfile
+    from PIL import Image
+    import thumbnail_engine_v2 as te
+    with tempfile.TemporaryDirectory() as td:
+        prof = te.NICHE_PROFILES["rare_disease_cases"]
+        path = te._clinical_procedural_background(td, 7, prof)
+        px = list(Image.open(path).convert("L").getdata())
+        return (max(px) - min(px)) >= 25 and sum(px) / len(px) >= 8
 
 
 def _all_vertical_cards_render():

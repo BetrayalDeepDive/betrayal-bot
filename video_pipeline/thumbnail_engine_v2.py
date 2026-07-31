@@ -172,8 +172,14 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        # Tuned DOWN from 0.78/0.22 for the clinical profiles only. Those
+        # values were set for bright Pollinations photographs, where heavy
+        # darkening creates the mood. The clinical fallback backdrop is
+        # generated dark to begin with, so crushing it again produced a
+        # near-black rectangle -- invisible in YouTube's grid, which is the
+        # only place a thumbnail has to work.
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark laboratory bench amber sample vials backlit analytical instrument atmospheric no people no patients no text cinematic 8k"
         ),
@@ -189,8 +195,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dim hospital corridor with a lightbox of scans glowing at the far end atmospheric no people no patients no text cinematic 8k"
         ),
@@ -206,8 +212,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark reading room single illuminated brain MRI lightbox teal glow atmospheric no people no patients no text cinematic 8k"
         ),
@@ -223,8 +229,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark archive of medical case files one folder open under a desk lamp atmospheric no people no patients no text cinematic 8k"
         ),
@@ -240,8 +246,8 @@ NICHE_PROFILES = {
         "shadow_color":    (56, 40, 8),
         "badge_color":     (120, 92, 34),
         "glow_color":      (238, 196, 110),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark desk with long-term study charts and a stethoscope warm lamp atmospheric no people no patients no text cinematic 8k"
         ),
@@ -257,8 +263,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark epidemiology map wall with pinned case markers dim teal glow atmospheric no people no patients no text cinematic 8k"
         ),
@@ -274,8 +280,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "empty operating theatre single overhead surgical lamp lit dark room atmospheric no people no patients no text cinematic 8k"
         ),
@@ -291,8 +297,8 @@ NICHE_PROFILES = {
         "shadow_color":    (56, 40, 8),
         "badge_color":     (120, 92, 34),
         "glow_color":      (238, 196, 110),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark laboratory glassware and handwritten research notebook warm lamp atmospheric no people no patients no text cinematic 8k"
         ),
@@ -308,8 +314,8 @@ NICHE_PROFILES = {
         "shadow_color":    (0, 42, 40),
         "badge_color":     (38, 96, 92),
         "glow_color":      (130, 210, 200),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark sleep laboratory polysomnography traces glowing on a monitor atmospheric no people no patients no text cinematic 8k"
         ),
@@ -325,8 +331,8 @@ NICHE_PROFILES = {
         "shadow_color":    (56, 40, 8),
         "badge_color":     (120, 92, 34),
         "glow_color":      (238, 196, 110),
-        "vignette_strength": 0.78,
-        "brightness":      0.22,
+        "vignette_strength": 0.55,
+        "brightness":      0.40,
         "pollinations_style": (
             "dark shelf of antique medical volumes one open under a warm lamp atmospheric no people no patients no text cinematic 8k"
         ),
@@ -1298,6 +1304,19 @@ def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
         "bridge","forest","lake","river","ocean","cabin","hotel","hospital","school",
         "spreadsheet","invoice","contract","chart","calculator","warehouse","factory",
     }
+    # NO STOCK PHOTO ON THE MEDICAL CHANNEL.
+    #
+    # Same reasoning that removed stock FOOTAGE from the episode and the
+    # Shorts: a library photo of "a hospital" is not this case, and on a
+    # channel whose entire premise is that every image comes from the
+    # sourced paper, a generic stock ward is worse than no photograph at
+    # all. Rendering the fallback and looking at it also showed the other
+    # half of the problem -- when everything failed, the thumbnail came out
+    # as a near-black rectangle with faint outlines, which on YouTube's grid
+    # is invisible.
+    if niche_name in MEDICAL_NICHES:
+        return _clinical_procedural_background(work_dir, seed, profile)
+
     _topic_w_words = [w.strip(".,!?;:\"'()") for w in topic_w.lower().split()]
     _topic_w_concrete = [w for w in _topic_w_words if w in _thumb_concrete_nouns]
     thumb_query = " ".join(_topic_w_concrete[:3]) if _topic_w_concrete else topic_w
@@ -1318,6 +1337,61 @@ def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
         except Exception:
             pass
     return None
+
+
+def _clinical_procedural_background(work_dir, seed, profile):
+    """
+    A generated clinical backdrop: deep slate, a soft off-centre teal light,
+    a faint measurement grid, and a scan-line texture.
+
+    Not a photograph and not pretending to be one. It reads as an
+    instrument panel, which is on-brand, is legible behind large text, and
+    -- unlike the previous near-black fallback -- is actually visible as a
+    thumbnail at grid size.
+    """
+    import math as _math
+    import random as _random
+    from PIL import Image as _I, ImageDraw as _D, ImageFilter as _F
+    W, H = 1280, 720
+    bg = profile.get("bg_color", (14, 18, 22))
+    accent = profile.get("accent_text", (95, 168, 160))
+    rnd = _random.Random(seed)
+
+    img = _I.new("RGB", (W, H), bg)
+    d = _D.Draw(img)
+
+    # Soft light source, off-centre so the composition has a direction.
+    cx, cy = int(W * (0.62 + rnd.random() * 0.12)), int(H * 0.42)
+    for r in range(460, 0, -12):
+        k = 1.0 - (r / 460.0)
+        col = tuple(min(255, int(bg[i] + (accent[i] - bg[i]) * 0.78 * (k ** 1.4)))
+                    for i in range(3))
+        d.ellipse([cx - r, cy - int(r * 0.72), cx + r, cy + int(r * 0.72)], fill=col)
+    img = img.filter(_F.GaussianBlur(38))
+    d = _D.Draw(img)
+
+    # Measurement grid — faint, so it reads as texture not as a chart.
+    grid = tuple(min(255, int(bg[i] + (accent[i] - bg[i]) * 0.16)) for i in range(3))
+    for x in range(0, W, 64):
+        d.line([(x, 0), (x, H)], fill=grid, width=1)
+    for y in range(0, H, 64):
+        d.line([(0, y), (W, y)], fill=grid, width=1)
+
+    # A single trace across the frame: the visual signature of the channel.
+    pts, y0 = [], H * 0.62
+    for i in range(0, W + 1, 16):
+        y = y0 - _math.sin(i / 210.0 + seed % 7) * 46 - (i / W) * 120
+        pts.append((i, y))
+    d.line(pts, fill=accent, width=3, joint="curve")
+
+    # Scan lines, very low contrast.
+    dark = tuple(max(0, c - 6) for c in bg)
+    for y in range(0, H, 4):
+        d.line([(0, y), (W, y)], fill=dark, width=1)
+
+    out = Path(work_dir) / f"bg_clinical_{seed}.jpg"
+    img.save(out, quality=92)
+    return str(out)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1535,12 +1609,77 @@ def enforce_number_noun(thumb_text, topic, niche_name):
         "dark_business_documentaries": ["$1.2B LOST", "800K VICTIMS", "14 MONTHS", "1 MEMO", "23 COUNTRIES"],
         "scams_fraud_exposed":         ["19 YEARS", "300 EMPLOYEES", "$65B GONE", "1 PERSON", "STILL RUNNING"],
     }
+    # ── NEVER INVENT A NUMBER ON THE MEDICAL CHANNEL ────────────────────
+    #
+    # Rendering a real thumbnail and looking at it: a case about a
+    # twenty-one-day-old newborn came back reading "14 YEARS". There is no
+    # clinical entry in number_banks, so it fell to the DEFAULT bank and
+    # picked one AT RANDOM. That is a fabricated factual claim on the single
+    # most visible surface the channel has -- and on health content it is
+    # exactly the sensationalised framing that draws a limited-ads label,
+    # which is the entire economic case for this niche.
+    #
+    # For these niches the rule is absolute: a number appears only if it is
+    # genuinely in this episode's own topic. Otherwise the text stays
+    # non-numeric, which is a weaker thumbnail and an honest one.
+    if niche_name in MEDICAL_NICHES:
+        m = re.search(r"\b(\d[\d,\.]*)\b", topic)
+        if m:
+            return _number_phrase_from_topic(m.group(1), topic)
+        return _clinical_noun_phrase(thumb_text, topic)
+
     bank = number_banks.get(niche_name, ["14 YEARS", "47 CASES", "1 TRUTH", "23 HOURS"])
     # Try to extract a number from the topic
     m = re.search(r'\b(\d[\d,\.]*)\b', topic)
     if m:
         return f"{m.group(1)} {topic.split()[0].upper()[:8]}"[:20]
     return random.choice(bank)
+
+
+# Niches where a fabricated number is not a styling choice, it is a false
+# claim. Mirrors pmc_data.MEDICAL_NICHE_NAMES; duplicated as a literal so
+# this module has no import-order dependency on the sourcing layer.
+MEDICAL_NICHES = {
+    "toxicology_cases", "diagnostic_odyssey", "rare_disease_cases",
+    "senior_health_longevity", "medical_mystery_outbreak",
+    "surgical_case_studies", "neurology_cases", "medical_history",
+    "drug_discovery_stories", "sleep_science",
+}
+
+_CLINICAL_STOP = {
+    "the", "a", "an", "and", "or", "of", "in", "on", "to", "for", "with",
+    "from", "case", "report", "study", "rare", "following", "after", "due",
+    "patient", "presenting", "presentation", "novel", "unusual",
+}
+
+
+def _number_phrase_from_topic(num, topic):
+    """A real number from the topic, paired with a real word beside it."""
+    words = [w.strip(",.;:()") for w in topic.split()]
+    for i, w in enumerate(words):
+        if num in w:
+            for nxt in words[i + 1:i + 3]:
+                if nxt.lower() not in _CLINICAL_STOP and len(nxt) > 2:
+                    return f"{num} {nxt.upper()}"[:20]
+            break
+    return f"{num}"[:20]
+
+
+def _clinical_noun_phrase(thumb_text, topic):
+    """
+    No number available, so no number is shown. Falls back to the strongest
+    real content word in the episode's own topic.
+    """
+    base = (thumb_text or "").strip()
+    if base and not re.search(r"\b\d", base):
+        return base.upper()[:20]
+    words = [w.strip(",.;:()") for w in (topic or "").split()
+             if w.strip(",.;:()").lower() not in _CLINICAL_STOP and len(w) > 3]
+    if len(words) >= 2:
+        return " ".join(words[:2]).upper()[:20]
+    if words:
+        return words[0].upper()[:20]
+    return "A PUBLISHED CASE"
 
 
 # ═══════════════════════════════════════════════════════════════════
