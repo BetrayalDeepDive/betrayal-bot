@@ -206,6 +206,67 @@ def audit_scoring():
     check("D", "clinical hook can reach 10.0", hs >= 9.5, f"{hs} {hissues}")
 
 
+def audit_script_craft():
+    """
+    The mechanism that IMPROVES a script, not the ones that judge it.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    code = "\n".join(l for l in cp.splitlines() if not l.lstrip().startswith("#"))
+
+    check("D", "stage rewrite runs at the lengths this channel produces",
+          "if wc >= DURATION_FLOOR_WORDS:" in code,
+          "gated at MIN_WORDS (1900) it never ran on a 1,600-word clinical "
+          "episode -- the one tool for raising craft was unreachable")
+    check("D", "stage targets are proportions, not the retired absolutes",
+          "[110, 210, 260, 420, 170, 680, 190]" not in code
+          and "_SHAPE" in code,
+          "absolute targets summing to 2,040 words docked every stage of "
+          "every clinical script for being 'under target'")
+    check("D", "stage names describe a clinical case, not a crime",
+          '"FALSE RESOLUTION"' not in code and '"THE PATIENT"' in code,
+          "the rewrite prompt feeds the stage name to the model as its "
+          "purpose; a true-crime beat sheet steers it back to the retired "
+          "format")
+    check("D", "stage specificity uses the clinical detector",
+          "clinical_specificity(stext)" in code,
+          r"the digit regex \d+ matched almost nothing, because the "
+          "prompt requires numbers spelled out for TTS")
+    check("D", "the GENERATION prompt describes a clinical case",
+          "STAGE 5 — FALSE RESOLUTION" not in cp
+          and "STAGE 6 — THE REVERSAL" in cp,
+          "this prompt is what actually shapes the script")
+    check("D", "no true-crime trigger vocabulary reaches the writer",
+          "COMPLICITY (s10)" not in cp and "INSTITUTIONAL (s7)" not in cp
+          and "single most disturbing fact —" not in cp,
+          "instructing a writer to imply COMPLICITY over a documented "
+          "medical case is unsafe, not just off-format")
+    check("D", "the prompt forbids blaming clinicians",
+          "blaming any clinician" in cp)
+    check("D", "review section labels match the scorer and the act cards",
+          '"THE REVERSAL"' in cp and "_stage_names_ch1" in cp
+          and '"COLD OPEN","THE BEFORE"' not in cp,
+          "EDIT feedback could not resolve to a section that no longer exists")
+    check("D", "rewrite prompts name the stage's real problems",
+          "_problem_summary(stext" in code,
+          "a fixed problem string on every rewrite is a re-roll, not a fix")
+
+    # Sentence-length rule, measured on real documentary prose.
+    sys.path.insert(0, str(ROOT / "tools"))
+    from local_episode_render import NARRATION
+    m = re.search(r"^MAX_SENTENCE_WORDS = (\d+)", cp, re.M)
+    check("D", "sentence cap defined once, as a constant", m is not None)
+    cap = int(m.group(1)) if m else 13
+    sents = [x for x in re.split(r"(?<=[.!?])\s+", NARRATION) if x.strip()]
+    over = [x for x in sents if len(x.split()) > cap]
+    check("D", "the sentence cap does not fight ordinary documentary prose",
+          len(over) / max(1, len(sents)) < 0.35,
+          f"{len(over)}/{len(sents)} sentences of a realistic clinical "
+          f"episode exceed {cap} words")
+    check("D", "sentence-length VARIETY is measured, not just a ceiling",
+          "no rhythm" in cp,
+          "uniform sentence length reads as machine prose at any length")
+
+
 # ── E. VISUALS ─────────────────────────────────────────────────────────
 def audit_visuals():
     import thumbnail_engine_v2 as te
@@ -589,7 +650,8 @@ def audit_integration():
 
 def main():
     for fn in (audit_identity, audit_sourcing, audit_policy,
-               audit_scoring, audit_visuals, audit_integration):
+               audit_scoring, audit_script_craft, audit_visuals,
+               audit_integration):
         try:
             fn()
         except Exception as e:

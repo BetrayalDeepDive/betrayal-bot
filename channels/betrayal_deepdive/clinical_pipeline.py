@@ -617,6 +617,18 @@ CLINICAL_PACE = 0.88      # Kokoro multiplier: ~125 wpm -> ~110 wpm
 EDGE_RATE     = "-18%"    # edge-tts equivalent of the same target
 
 MIN_WORDS   = 1900
+# Maximum words in one narration sentence.
+#
+# This was 13, inherited from the dark-documentary format where clipped,
+# staccato delivery was the house style. Measured against a realistic
+# clinical episode, 13 words flags three of the first four sentences as
+# faults -- the rule was fighting ordinary documentary prose, and the
+# rewrite prompt then instructed the model to chop perfectly good writing
+# into fragments. Broadcast documentary narration runs 15-20 words; the
+# rule that actually matters for this channel is VARIETY, which is now
+# measured directly (standard deviation of sentence length) instead of
+# being approximated by a hard ceiling.
+MAX_SENTENCE_WORDS = 20
 MAX_WORDS   = 2100
 # FIX (direct user report, July 24 2026 — explicit, final policy decision
 # after being shown real data that 8.8 essentially never gets hit): hard
@@ -1982,14 +1994,21 @@ def generate_best_cold_open(niche, topic, trending_titles=None):
         trend_hint = f"These hooks are working in this niche right now:\n"
         trend_hint += "\n".join(f"  - {t}" for t in trending_titles[:3])
 
-    prompt = f"""Generate exactly 3 different cold open variants for a dark documentary narration.
+    prompt = f"""Generate exactly 3 different cold open variants for a clinical
+case documentary narration, drawn from a real published case report.
 Topic: {topic}
 Niche style: {niche["dread_style"]}
 {trend_hint}
 
 Each cold open must:
 - Be 80-120 words
-- Start with the single most disturbing fact — mid-action, no preamble
+- Start with the single most SURPRISING documented fact of this case —
+  mid-moment, no preamble. Surprising, not lurid: the tension in these
+  stories is that competent people were doing the right thing and were
+  wrong, not that something horrifying happened to a patient. ("The single
+  most disturbing fact" was the instruction here when this channel was a
+  dark-documentary format; on a medical case it produces exactly the
+  sensationalised framing that draws a limited-ads label.)
 - Never say "welcome back", "today", "in this video"
 - Use a specific date, time, or number in the first sentence
 - Create a question the listener cannot stop thinking about
@@ -2415,46 +2434,63 @@ most viewers actually drop off if nothing happens):
   set up a payoff that requires continuing to watch to resolve — a question,
   an incomplete number, a named person whose role isn't yet explained.
 
-STAGE 1 — COLD OPEN ({stage_targets[1]} words)
+STAGE 1 — THE OPENING ({stage_targets[1]} words)
 {_COLD_OPEN_MANDATORY_INSTR if "MANDATORY COLD OPEN" in research_context else _COLD_OPEN_QUESTION_INSTR}
+Open on the ONE detail from this case that should not have happened. Not a
+summary of the paper — a moment. Name the patient's situation in concrete
+terms. Do not name the diagnosis.
 Forbidden: "welcome back", "today we", "in this video", "join me"
-Trigger: QUESTION HOOK (sentence 1), PROXIMITY (sentence 2), open loop (sentence 3)
 
-STAGE 2 — THE BEFORE ({stage_targets[2]} words)
-Establish the subject as completely ordinary. Specific routine, specific place.
-Final sentence: signal something is about to break — without stating it.
-Forbidden: "little did they know", "but little did", "unbeknownst to them"
-Trigger: NORMALITY (sentences 1-3), PROXIMITY (sentences 4-6)
+STAGE 2 — THE PATIENT ({stage_targets[2]} words)
+Who this was before anything went wrong, in the terms the paper gives: age,
+the ordinary reason they were seen, what was unremarkable. The point is that
+nothing here predicted what followed.
+Forbidden: "little did they know", "unbeknownst to them"
 
-STAGE 3 — FIRST SIGNALS ({stage_targets[3]} words)
-Small wrong things. Individually explainable. One per sentence. Build accumulation.
-Start with the smallest possible wrong detail.
+STAGE 3 — FIRST SIGNS ({stage_targets[3]} words)
+The earliest findings, in the order they were actually found. Each one
+individually explainable — that is exactly why they were explained away.
+Give the real value, the real day, the real observation.
 Forbidden: "suddenly", "out of nowhere", "without warning"
-Trigger: INVISIBILITY (s1), DURATION (s3), SCALE (s5), INSTITUTIONAL (s7)
 
-STAGE 4 — ESCALATION ({stage_targets[4]} words)
-Open with one short sentence that reframes Stage 3 entirely.
-Signs become undeniable. Short sentences, then one longer one. Specific evidence.
+STAGE 4 — DETERIORATION ({stage_targets[4]} words)
+What changed, measurably, and what the team did about it. Real numbers, real
+timeline. Explain WHY each finding mattered — a rising INR in an infant is
+meaningless to a viewer until you say the liver builds clotting factors.
 Forbidden: passive voice, vague quantities ("many", "several", "some")
-Trigger: SCALE (s1), COMPETENCE (s4), INSTITUTIONAL (s7), COMPLICITY (s10)
 
-STAGE 5 — FALSE RESOLUTION ({stage_targets[5]} words)
-Normalcy briefly returns. Specific timeframe. Listener exhales.
-Final sentence: subtly, quietly wrong — not dramatic, not announced.
-Forbidden: "but it wasn't over", "however", "little did they know", "or so they thought"
-Trigger: NORMALITY (s1-3), REPETITION (s4), quiet wrongness (final)
+STAGE 5 — THE FIRST ANSWER ({stage_targets[5]} words)
+The working diagnosis, why it was the RIGHT call on the information
+available, and what was done for it. Treat the team as competent. Then: the
+result that did not fit.
+Forbidden: "but it wasn't over", "or so they thought", blaming any clinician
 
-STAGE 6 — THE REAL REVEAL ({stage_targets[6]} words)
-One short sentence destroys the false resolution. Then one idea per short paragraph.
-Most disturbing section. Be thorough. Let each paragraph land before moving on.
+STAGE 6 — THE REVERSAL ({stage_targets[6]} words)
+The longest section. What the negative result meant, what was looked for
+next, and the mechanism — explained so that someone with no medical training
+understands exactly why this made the patient ill. This is where the episode
+earns its existence: not the name of the disease, but how it works.
+One idea per short paragraph. Let each land.
 Forbidden: "in conclusion", "to summarise", "as we can see"
-Trigger per paragraph: REVERSAL, DETAIL, COST, SCALE, DURATION, INSTITUTIONAL, REPETITION
 
-STAGE 7 — IMPLICATION AND CTA ({stage_targets[7]} words)
-Imply — never state — that this pattern extends beyond this case.
-Subscribe CTA at the emotional peak, not as afterthought.
-Forbidden: "subscribe and like", "hit the bell", "don't forget to"
-Trigger: REPETITION (s1), PROXIMITY (s3), subscribe CTA (final 2 sentences)
+STAGE 7 — WHAT IT CHANGED ({stage_targets[7]} words)
+What this case changed in medical understanding, or what the authors
+themselves argue it demonstrates. Then the subscribe CTA, at the point the
+viewer is most satisfied — not bolted on.
+Never tell the viewer what to do about their own health.
+Forbidden: "subscribe and like", "hit the bell", "don't forget to",
+"consult your doctor", "if you have these symptoms"
+
+WHY THESE STAGES AND NOT THE OTHER ONES
+The previous version of this structure was a true-crime beat sheet: COLD
+OPEN, THE BEFORE, FALSE RESOLUTION, THE REAL REVEAL, and per-stage triggers
+named COMPLICITY, INSTITUTIONAL and "most disturbing section". Applied to a
+published medical case report that is not merely off-format, it is unsafe:
+it instructs the writer to imply wrongdoing by identifiable clinicians in a
+documented case, and to treat a child's illness as a horror beat. The tension
+in these stories is real and does not need manufacturing — it is a team
+doing the right thing and being wrong, and a negative result nobody wanted
+turning out to be the answer.
 
 RETENTION PAYOFF CADENCE (NON-NEGOTIABLE — the single biggest lever for
 average view duration): a script that saves its only real hooks for a
@@ -2565,7 +2601,8 @@ CRAVEABILITY TRIGGERS — use at least 3 per script:
 7. The question the script raises but deliberately doesn't fully answer.
 
 RULES:
-1. Maximum 13 words per sentence. Count them.
+1. Maximum 20 words per sentence, and vary the length — short sentences for
+   the turns, longer ones for explanation. Never two long sentences in a row.
 2. Zero markdown — no symbols, headers, bullets, asterisks.
 3. Zero AI filler — no "moreover", "furthermore", "interestingly", "it is worth noting".
 4. Every number must be specific: not "many" but "forty-seven".
@@ -2579,6 +2616,51 @@ RULES:
    Stage 7, not just the opening.
 
 Write the complete script now:"""
+
+
+def _problem_summary(stext, score):
+    """
+    Name the ACTUAL weaknesses of this stage for the rewrite prompt.
+
+    The prompt used to state the same fixed sentence -- "sentences over 13
+    words, vague quantities, forbidden phrases" -- on every rewrite of every
+    stage, whether or not any of those were true. A rewrite instruction that
+    does not describe the real problem is a re-roll, which is why targeted
+    rewrites moved craft so little.
+    """
+    import re as _re
+    from clinical_quality import clinical_specificity
+    low = stext.lower()
+    probs = []
+    sents = [x for x in _re.split(r"(?<=[.!?])\s+", stext) if x.strip()]
+    long_ = [x for x in sents if len(x.split()) > MAX_SENTENCE_WORDS]
+    if sents and len(long_) / len(sents) > 0.35:
+        probs.append(f"{len(long_)} of {len(sents)} sentences run over "
+                     f"{MAX_SENTENCE_WORDS} words")
+    # Uniform sentence length is its own flatness, and nothing measured it.
+    if len(sents) >= 6:
+        lens = [len(x.split()) for x in sents]
+        mean = sum(lens) / len(lens)
+        spread = (sum((x - mean) ** 2 for x in lens) / len(lens)) ** 0.5
+        if spread < 4.0:
+            probs.append("every sentence is the same length — no rhythm")
+    vague = [w for w in ("many", "several", "some", "numerous", "various",
+                         "countless", "multiple", "eventually", "at some point")
+             if w in low]
+    if vague:
+        probs.append("vague quantities/times: " + ", ".join(vague[:4]))
+    _, c = clinical_specificity(stext)
+    if c.get("per_100_words", 0) < 2.0:
+        probs.append("almost no concrete clinical detail — no values, "
+                     "timepoints or named mechanisms")
+    filler = [p for p in ("moreover", "furthermore", "it is worth noting",
+                          "in conclusion") if p in low]
+    if filler:
+        probs.append("AI filler: " + ", ".join(filler))
+    if not probs:
+        probs.append("flat — it states facts without making the reader want "
+                     "the next sentence")
+    return "; ".join(probs)
 
 
 def generate_script_content(niche, topic, episode, attempt,
@@ -2886,7 +2968,7 @@ def generate_script_content(niche, topic, episode, attempt,
                       f"Do not add new claims that are not supported by the case. "
                       f"Do not summarise or shorten any existing passage. "
                       f"Preserve the existing mid-video direct-address beat (the short 'stop for a second / if you're still watching' moment around the 55-65% mark) exactly where it is -- do not remove, move or reword it. If there is no such beat, add one there. \n\n"
-                      f"Max 13 words per sentence. Zero markdown. Return the COMPLETE "
+                      f"Max 20 words per sentence, varied. Zero markdown. Return the COMPLETE "
                       f"script, beginning to end.\n\nSCRIPT:\n{raw}")
                 raw2 = ai_generate(ep, tokens=8000)
                 if raw2 and len(raw2.split()) > raw_wc:
@@ -2939,7 +3021,7 @@ def generate_script_content(niche, topic, episode, attempt,
             f"tested and ruled out, and what each result changed. Add nothing the "
             f"case does not support. Do not shorten anything already there. "
             f"Preserve the existing mid-video direct-address beat (the short 'stop for a second / if you're still watching' moment around the 55-65% mark) exactly where it is -- do not remove, move or reword it. If there is no such beat, add one there. "
-            f"Max 13 words per sentence. Zero markdown. "
+            f"Max 20 words per sentence, varied. Zero markdown. "
             f"Return the COMPLETE expanded script.\n\nSCRIPT:\n{script}"
         )
         raw2 = ai_generate(exp, tokens=8000)
@@ -2998,9 +3080,26 @@ def generate_script_content(niche, topic, episode, attempt,
     # rewrite loop below genuinely needs that gate. Computed here,
     # unconditionally, so review material always shows real structure.
     from script_scoring import split_into_stage_texts, strip_leaked_stage_headers
-    targets = [110, 210, 260, 420, 170, 680, 190]
+    from clinical_quality import DURATION_FLOOR_WORDS
+    # Stage targets are PROPORTIONS of this script, not absolute counts.
+    #
+    # They were absolutes summing to 2,040 words, from the retired
+    # dark-documentary format. A clinical episode clears its real floor at
+    # 1,250 words, so on every script this channel actually produces every
+    # stage measured 20-40% "under target" and lost 1.5 points for it --
+    # the rubric was punishing scripts for not being a different show.
+    _SHAPE = (0.05, 0.10, 0.13, 0.21, 0.08, 0.33, 0.10)
+    targets = [max(60, int(round(wc * f))) for f in _SHAPE]
     stage_texts = split_into_stage_texts(script, targets)
-    if wc >= MIN_WORDS:
+    # Gated on the REAL duration floor, not the retired 1,900-word target.
+    #
+    # This block is the only mechanism in the pipeline that IMPROVES a
+    # script rather than judging it: it scores each stage and rewrites the
+    # two worst. Gating it at MIN_WORDS meant that on a 1,600-word clinical
+    # episode -- a length that passes every real gate -- it never ran at
+    # all. The one tool for raising craft was unreachable at exactly the
+    # lengths this channel produces, which is why craft never moved.
+    if wc >= DURATION_FLOOR_WORDS:
         try:
             # FIX (direct user report, July 23 2026 — a live test run's
             # PDF showed a sentence physically split in half between the
@@ -3009,19 +3108,28 @@ def generate_script_content(niche, topic, episode, attempt,
             # real sentence breaks (video_pipeline/script_scoring.py).
             stage_texts = split_into_stage_texts(script, targets)
 
-            # Score each stage
-            stage_names   = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
-                             "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
-            hook_signals  = ["subscribe","next","what happens","revealed","about to",
-                             "this changes","thirty seconds","coming up","stay"]
+            # Stage names describe a CLINICAL CASE, and match the act cards
+            # the video renders. The previous set -- COLD OPEN / THE BEFORE /
+            # FIRST SIGNALS / ESCALATION / FALSE RESOLUTION / THE REVEAL /
+            # IMPLICATION -- is a true-crime beat sheet, and the rewrite
+            # prompt fed those names to the model as the stage's purpose. It
+            # was actively steering a medical case report toward the format
+            # this channel was retired for.
+            stage_names   = ["OPENING", "THE PATIENT", "FIRST SIGNS",
+                             "DETERIORATION", "THE FIRST ANSWER",
+                             "THE REVERSAL", "WHAT IT CHANGED"]
+            hook_signals  = ["what happened next", "the reason", "nobody",
+                             "should not have", "was not", "turned out",
+                             "the answer", "changed"]
             forbidden_per = [
-                ["welcome back","today we","in this video","join me"],
-                ["little did they know","unbeknownst"],
-                ["suddenly","out of nowhere","without warning"],
+                ["welcome back", "today we", "in this video", "join me"],
+                ["little did they know", "unbeknownst"],
+                ["suddenly", "out of nowhere", "without warning"],
                 [],
-                ["but it wasn't over","however","or so they thought"],
-                ["in conclusion","to summarise","as we can see"],
-                ["subscribe and like","hit the bell","don't forget"],
+                ["but it wasn't over", "or so they thought"],
+                ["in conclusion", "to summarise", "as we can see"],
+                ["subscribe and like", "hit the bell", "don't forget",
+                 "consult your doctor", "if you have these symptoms"],
             ]
 
             stage_scores = []
@@ -3035,10 +3143,20 @@ def generate_script_content(niche, topic, episode, attempt,
                                      "a lot of", "countless", "multiple"]
             vague_time_words = ["years ago", "some time later", "at some point",
                                  "a while later", "eventually", "in time"]
-            specificity_signals = [r'\b\d+\b', r'\$\d', r'\b\d{4}\b']  # numbers, money, years
-            craveability_signals = ["still", "today", "confirmed", "documented",
-                                     "records show", "never released", "still running",
-                                     "still active", "remains", "to this day"]
+            # Specificity is measured by the real clinical detector, not by
+            # a digit regex. build_script_prompt REQUIRES numbers to be
+            # spelled out for TTS, so `\b\d+\b` matched almost nothing and
+            # every stage was docked a point for having "no numbers" while
+            # being full of them.
+            from clinical_quality import clinical_specificity
+            # What makes a clinical case land is not "still running today" --
+            # that is crime-channel vocabulary. It is that the finding was
+            # documented, that it changed something, that a result was
+            # negative when everyone expected positive.
+            craveability_signals = ["documented", "published", "reported",
+                                     "confirmed", "returned normal", "sterile",
+                                     "changed", "no longer", "for the first time",
+                                     "still not known", "remains unexplained"]
 
             for i, (stext, sname, starget, sforbidden) in enumerate(
                     zip(stage_texts, stage_names, targets, forbidden_per)):
@@ -3051,9 +3169,17 @@ def generate_script_content(niche, topic, episode, attempt,
                 found_forbidden = [f for f in sforbidden if f in stext.lower()]
                 sc -= len(found_forbidden) * 0.8
                 sents = [s for s in re.split(r"(?<=[.!?])\s+", stext) if s.strip()]
-                long  = [s for s in sents if len(s.split()) > 13]
-                if len(long) / max(len(sents), 1) > 0.2:
+                long  = [s for s in sents if len(s.split()) > MAX_SENTENCE_WORDS]
+                if len(long) / max(len(sents), 1) > 0.35:
                     sc -= 0.8
+                # Reward rhythm. Uniform sentence length reads as machine
+                # prose no matter how short the sentences are, and nothing
+                # here measured it.
+                if len(sents) >= 6:
+                    _l = [len(x.split()) for x in sents]
+                    _m = sum(_l) / len(_l)
+                    _sd = (sum((x - _m) ** 2 for x in _l) / len(_l)) ** 0.5
+                    sc += 0.6 if _sd >= 6.0 else (0.0 if _sd >= 4.0 else -0.6)
                 if i in [0, 6]:  # cold open and CTA — check for hooks
                     if not any(h in stext.lower() for h in hook_signals[:3]):
                         sc -= 0.5
@@ -3064,9 +3190,11 @@ def generate_script_content(niche, topic, episode, attempt,
                 # penalize the vague-quantity words the prompt explicitly forbids
                 # but nothing was previously verifying were actually absent.
                 stext_lower = stext.lower()
-                num_hits = sum(1 for pat in specificity_signals if re.search(pat, stext))
-                if num_hits >= 2: sc += 1.0
-                elif num_hits == 0: sc -= 1.0
+                _spec_pts, _spec_counts = clinical_specificity(stext)
+                _per100 = _spec_counts.get("per_100_words", 0.0)
+                if _per100 >= 4.0:   sc += 1.0
+                elif _per100 >= 2.0: sc += 0.4
+                elif _per100 == 0:   sc -= 1.0
                 vague_q_found = sum(1 for w in vague_quantity_words if w in stext_lower)
                 sc -= vague_q_found * 0.6
                 vague_t_found = sum(1 for w in vague_time_words if w in stext_lower)
@@ -3105,11 +3233,17 @@ def generate_script_content(niche, topic, episode, attempt,
                     f"(target: {sdef_target} words)\n"
                     f"TOPIC: {topic[:100]}\n"
                     f"CURRENT SCORE: {stage_scores[idx]}/10\n"
-                    f"PROBLEMS: sentences over 13 words, vague quantities, forbidden phrases\n"
+                    f"PROBLEMS: {_problem_summary(stext, stage_scores[idx])}\n"
                     f"FORBIDDEN: {forb_str}\n\n"
                     f"RULES:\n"
-                    f"- Maximum 13 words per sentence. Every sentence.\n"
-                    f"- Every number must be specific (not 'many' but '47').\n"
+                    f"- Maximum {MAX_SENTENCE_WORDS} words per sentence, and VARY the "
+                    f"length: short for the turns, longer for explanation.\n"
+                    f"- Every number must be specific, and SPELLED OUT as words for "
+                    f"text-to-speech: not 'many' but 'forty-seven'.\n"
+                    f"- Every clinical detail must come from the sourced case. Do not "
+                    f"invent a value, a date, or an outcome.\n"
+                    f"- Third person, past tense, about the documented patient. Never "
+                    f"address the viewer's own health.\n"
                     f"- Zero markdown. Zero AI filler phrases. Zero titles/headers/labels.\n"
                     f"- More visceral and specific than the original.\n"
                     f"- Target: {sdef_target} words (±15% acceptable).\n\n"
@@ -9116,8 +9250,17 @@ def main():
             # reply. Loops until APPROVE, REJECT, or a timeout auto-approval.
             try:
                 from human_review_gate import review_script, identify_target_sections, regenerate_script_sections
-                _stage_names_ch1 = ["COLD OPEN","THE BEFORE","FIRST SIGNALS",
-                                     "ESCALATION","FALSE RESOLUTION","THE REVEAL","IMPLICATION"]
+                # These are the section labels the human sees in the review
+                # card, and the ones identify_target_sections matches EDIT
+                # feedback against. They were still the retired
+                # dark-documentary beat sheet, so a reply like "the reversal
+                # is weak" could not resolve to a section, and the review card
+                # described a clinical case report in true-crime terms. Kept
+                # identical to the stage names used by the scorer and by the
+                # video's act cards, so all three agree.
+                _stage_names_ch1 = ["OPENING", "THE PATIENT", "FIRST SIGNS",
+                                    "DETERIORATION", "THE FIRST ANSWER",
+                                    "THE REVERSAL", "WHAT IT CHANGED"]
                 _stage_texts_ch1 = script_result.get("stage_texts", [])
                 _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
                 _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
