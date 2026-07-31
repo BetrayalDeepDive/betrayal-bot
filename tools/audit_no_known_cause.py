@@ -20,8 +20,10 @@ Checks are grouped by what they protect:
   E  VISUALS        the six registers can actually render
   F  INTEGRATION    the pieces agree with each other
 """
+import os
 import re
 import sys
+import time
 import json
 import pathlib
 
@@ -421,6 +423,9 @@ def audit_sourcing_robustness():
           "of Toxicology and Signal Transduction research papers — no patient, "
           "no chronology, no differential to build an episode from")
     _title_checks()
+    _format_leak_checks()
+    _review_gate_checks()
+    _resolution_checks()
 
 
 
@@ -631,6 +636,117 @@ def _hook_fits(max_px=1080):
     return True
 
 
+def _format_leak_checks():
+    """
+    The retired true-crime format must not survive anywhere in the prompts
+    that write this channel's content.
+
+    The stage NAMES were converted to clinical ones months ago, which made
+    this look done. The direction wrapped around them was not: the live
+    script prompt still asked for a "dark investigative documentary" that
+    revolved around "ONE central relationship fracture -- a specific betrayal
+    between two specific people", with "each stage darker than the last".
+    Given a paper about a neonate's liver enzymes, that brief produces a
+    script about a story the paper does not contain -- which is why the
+    finished videos read as unrelated to their own visuals, since the visuals
+    ARE built from the real case data.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    # Only look at what is actually SENT to a model: prompt bodies, not the
+    # comments that explain why each leak was removed.
+    live = "\n".join(l for l in cp.split("\n")
+                     if not l.lstrip().startswith("#"))
+    banned = {
+        "dark investigative documentary": "the script/description/topic brief",
+        "central relationship fracture": "the script brief's core requirement",
+        "a specific betrayal between two": "the script brief's core requirement",
+        "Build psychological dread": "the script brief's tone section",
+        "This is DARK DOCUMENTARY": "the script brief's tone section",
+        "any other true-crime channel": "the signature-opening instruction",
+        "14 VICTIMS": "the thumbnail-text examples",
+        "classified evidence": "the description keyword list",
+    }
+    found = [f"{p!r} ({where})" for p, where in banned.items() if p in live]
+    check("C", "no true-crime format language reaches any live prompt",
+          not found,
+          "leaks found: " + "; ".join(found) if found else
+          "the clinical stage names hid a true-crime brief for months")
+
+    check("A", "the script brief names the diagnostic question, not a betrayal",
+          "CENTRAL DIAGNOSTIC QUESTION" in cp and "STAY ON THIS CASE" in cp,
+          "the script must be traceable to the sourced paper")
+
+
+def _review_gate_checks():
+    """
+    A review gate that ignores the person is worse than no gate.
+    Both of these were reported directly after a real episode.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    # 1. DECLINE must stop the episode at EVERY checkpoint. The audio
+    #    checkpoint used `break`, which left the review loop and fell
+    #    straight into the next stage -- the episode carried on and would
+    #    have published exactly as if approved.
+    import re as _re
+    rejects = _re.findall(r'== "reject":\n(.{0,600}?)(?=\n\s{16}(?:if|_|#|tg\()|\Z)',
+                          cp, _re.S)
+    bad = [r for r in rejects
+           if "sys.exit" not in r and "REJECTED" not in r.upper()]
+    check("F", "DECLINE stops the episode at every review checkpoint",
+          not bad,
+          "the audio checkpoint used `break`, so tapping Decline let the "
+          "episode continue to publish")
+
+    # 2. EDIT must actually take up the job.
+    check("F", "title feedback at the script checkpoint retitles the episode",
+          "_is_title_feedback" in cp and "_retitle_from_feedback" in cp,
+          "'change the title' was routed to a whole-script rewrite that "
+          "never touched the title, and still reported success")
+    check("F", "a typed-out title is used verbatim",
+          "USE IT VERBATIM" in cp,
+          "a human who writes the headline they want has already decided")
+    check("F", "an edit that changed nothing is reported as such",
+          "produced NO change to the script" in cp,
+          "'it just gave me the same script' -- the no-op was announced as "
+          "a success")
+
+    # 3. Title rounds, per explicit instruction: 13 x 3 with a real pause.
+    check("D", "the title gate runs three rounds of thirteen",
+          "TITLE_ROUNDS = 3" in cp and "run_title_gate_with_rounds" in cp
+          and "_research_title_angles" in cp,
+          "one round of 13 was the whole budget before the day was skipped")
+    check("D", "the day is skipped only after the final title round",
+          "all {TITLE_ROUNDS} rounds" in cp or "TITLE_ROUNDS * MAX_ATTEMPTS" in cp,
+          "skipping after round 1 discards the episode too early")
+
+
+def _resolution_checks():
+    """
+    The visual system renders 1920x1080 and must DELIVER 1920x1080.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    live = "\n".join(l for l in cp.split("\n") if not l.lstrip().startswith("#"))
+    # Thumbnails are legitimately 1280x720; nothing in the video chain is.
+    video_720 = [l for l in live.split("\n")
+                 if ("1280:720" in l or "1280x720" in l) and "thumbnail" not in l.lower()]
+    check("E", "the video chain composes at 1920x1080, not 720p",
+          not video_720,
+          "every register still is rendered at 1920x1080 and was then "
+          "downscaled to 1280x720 for delivery — 44% of the pixels thrown "
+          "away, on a channel whose visuals are small-label diagnostic "
+          "graphics")
+    check("E", "a video is never shipped with no captions at all",
+          "_captions_for" in cp and "generate_real_synced_ass(audio_path, ass_path):\n            ass_path = None" not in cp,
+          "every call site set ass_path=None when Whisper failed, so a "
+          "missing key, a timeout or one 500 shipped an uncaptioned episode "
+          "and logged it as a one-line non-fatal note")
+    check("E", "the vertical crop is taken at full resolution",
+          "crop=405:720" not in live,
+          "a 405px-wide strip of a 720p intermediate was upscaled 2.67x to "
+          "1080x1920 — a third of the frame, blown up, already degraded")
+
+
 def _title_checks():
     """
     The title stage killed a whole run: it returned the byte-identical title
@@ -640,7 +756,9 @@ def _title_checks():
     import json as _json
     import re as _re
     cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
-    ns = {"re": _re, "json": _json, "log": lambda *a, **k: None,
+    ns = {"re": _re, "json": _json, "os": os, "time": time,
+          "log": lambda *a, **k: None, "tg": lambda *a, **k: None,
+          "SCRIPT_DIR": pathlib.Path("."),
           "notify_stage_score": lambda *a, **k: None,
           "_record_title_history": lambda *a, **k: None}
     exec(cp[cp.index("def score_title_v2"):
@@ -696,12 +814,12 @@ def _title_checks():
           "the retry loop was telling a medical channel to add conspiracy "
           "phrasing")
 
-    # 4. A failing title must escalate, not destroy an approved script.
-    check("F", "a below-gate title escalates to a human instead of exiting",
-          "review_title" in cp and "_LAST_TITLE_CANDIDATES" in cp
-          and "Escalating to human review" in cp,
-          "run 30637537806 threw away a script that had passed at 8.6/10 "
-          "because a one-line string scored 7.0")
+    # 4. The title's runners-up must survive a total failure, so the skip
+    #    message can report what was actually tried rather than just "failed".
+    check("D", "a failed title gate still reports its best candidate",
+          "_LAST_TITLE_CANDIDATES" in cp,
+          "returning None must not also discard the titles that were "
+          "generated — the skip notice has to say what the best one was")
 
 
 def _vertical_cards_clear_caption():

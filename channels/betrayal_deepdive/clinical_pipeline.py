@@ -111,14 +111,6 @@ NUMBER_NOUN_BANKS = {
     "drug_discovery_stories":  ["1928","14 YEARS","1 ACCIDENT","2 MILLION LIVES","ONE DISH"],
     "sleep_science":           ["0 HOURS","18 NIGHTS","4 STAGES","1 GENE","6 MONTHS"],
     "medical_history":         ["FOR 70 YEARS","1 STUDY","12,000 PATIENTS","1954","ONE DOUBT"],
-    "forensic_finance":   ["$2.4M GONE","4,380 DAYS","47 REPORTS","$14M FRAUD","12 YEARS"],
-    "criminal_investigation": ["14 VICTIMS","23 YEARS","1 FILE","47 CLUES","3 SUSPECTS"],
-    "corporate_exposure": ["$840M HIDDEN","14 YEARS","23 EMAILS","$2.4B FRAUD","1 MEMO"],
-    "digital_forensics":  ["2.7M FILES","847 ACCOUNTS","1 IP ADDRESS","23 SERVERS","14TB DATA"],
-    "cult_psychology":    ["847 MEMBERS","14 YEARS","7 STAGES","23 RULES","1 LEADER"],
-    "propaganda_systems": ["40M PEOPLE","7 TECHNIQUES","14 YEARS","3 AGENCIES","1 NARRATIVE"],
-    "social_engineering": ["6 PRINCIPLES","847 TARGETS","23 HOURS","7 TRIGGERS","1 CALL"],
-    "mass_deception":     ["1B PEOPLE","14 MONTHS","3 NETWORKS","23 COUNTRIES","1 LIE"],
 }
 
 def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
@@ -132,7 +124,7 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
             r = ai_fn(
                 f"Topic: {topic[:80]}\n"
                 f"Generate 2-3 word thumbnail in NUMBER+NOUN format.\n"
-                f"Examples: '$2.4M GONE', '47 REPORTS', '14 VICTIMS', '4380 DAYS'\n"
+                f"Examples: '96 HOURS', 'DAY 9', '6 YEARS', '21 DAYS OLD'\n"
                 f"Return ONLY the phrase in ALL CAPS.", tokens=20)
             if r and re.search(r'\d', r):
                 return re.sub(r'[^A-Z0-9$.,% ]','', r.upper()).strip()[:22]
@@ -223,6 +215,73 @@ def score_title_v2(title):
     generic = ["incredible","unbelievable","shocking","amazing","you won't believe"]
     sc -= sum(0.8 for g in generic if g in t)
     return round(min(max(sc, 0), 10), 1), bd
+
+
+_TITLE_FEEDBACK_WORDS = ("title", "headline", "heading", "name of the video",
+                         "video name", "thumbnail text", "rename")
+
+
+def _norm_ws(s):
+    return re.sub(r"\s+", " ", (s or "")).strip()
+
+
+def _is_title_feedback(feedback):
+    """
+    Does this review feedback ask for the TITLE to change?
+
+    Needed because the title is not one of the seven script stages, so
+    identify_target_sections() cannot see it: "change the title" fell through
+    to a whole-script rewrite that never touched the title, and the reply
+    still claimed the script had been updated.
+    """
+    low = (feedback or "").lower()
+    return any(w in low for w in _TITLE_FEEDBACK_WORDS)
+
+
+def _retitle_from_feedback(current_title, feedback, topic, niche_name, episode, ai_fn):
+    """
+    Apply real human title feedback.
+
+    Two paths, in order:
+      1. If the person simply typed the title they want, USE IT VERBATIM.
+         A human who writes out a headline has already made the decision;
+         paraphrasing it through a model is how "I wrote it manually and it
+         didn't take up the job" happens.
+      2. Otherwise ask for a rewrite that satisfies the feedback.
+
+    Returns the new title, or "" if nothing usable came back.
+    """
+    fb = (feedback or "").strip()
+    # Path 1 -- a literal title. Strip a leading instruction if there is one
+    # ("change the title to X", "use: X").
+    m = re.search(r"(?:title\s*(?:to|:)|use\s*:?)\s*[\"'“]?(.{15,110}?)[\"'”]?\s*$",
+                  fb, re.I)
+    if m:
+        cand = m.group(1).strip(" .")
+        if len(cand.split()) >= 4:
+            return cand[:110]
+    # A bare line that looks like a headline rather than an instruction.
+    if (15 <= len(fb) <= 110 and len(fb.split()) >= 4
+            and not any(w in fb.lower() for w in
+                        ("change", "make it", "please", "should", "can you", "i want"))):
+        return fb
+    # Path 2 -- a real rewrite driven by the feedback.
+    try:
+        out = ai_fn(
+            f"Rewrite this YouTube title for a clinical case documentary.\n"
+            f"Current title: {current_title}\n"
+            f"The person reviewing it asked for: {fb}\n"
+            f"Case: {topic[:160]}\n"
+            f"Rules: 50-65 characters, factual clinical-documentary tone, "
+            f"describe the medicine, never accuse anyone of concealing "
+            f"anything, never promise medical advice.\n"
+            f"Return ONLY the new title, nothing else.", tokens=60) or ""
+        out = out.strip().strip('"').strip("'").split("\n")[0].strip()
+        if len(out) >= 15 and out.lower() != (current_title or "").lower():
+            return out[:110]
+    except Exception as e:
+        log(f"  Title rewrite from feedback failed: {e}")
+    return ""
 
 
 def _record_title_history(niche_name, episode, title, score):
@@ -356,6 +415,102 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     # whether to accept a 7.0 needs to see it and its runners-up.
     globals()["_LAST_TITLE_CANDIDATES"] = list(v2_scored)
     return None, v2_scored
+
+
+# How the title stage retries, per explicit instruction: the same shape the
+# script engine already uses -- 13 attempts, three times over -- with a real
+# pause and genuinely fresh research between rounds, and the day skipped only
+# after the THIRD round fails.
+TITLE_ROUNDS = 3
+TITLE_ROUND_PAUSE_SEC = int(os.environ.get("TITLE_ROUND_PAUSE_SEC", "600"))  # 10 minutes
+
+
+def _research_title_angles(topic, niche_name, ai_fn, round_no):
+    """
+    Fresh material for the next title round.
+
+    A round that failed thirteen times has exhausted what it can get from
+    rephrasing its own output; the next round needs new input, not another
+    rewording. Pulls the real high-performing title PATTERNS for this niche
+    (via the existing competitive-research cache when it is available) and,
+    failing that, asks for structural angles rather than finished titles.
+    """
+    lines = []
+    try:
+        from competitive_research import get_cached_research
+        _r = get_cached_research(str(SCRIPT_DIR), niche_name) or {}
+        for t in (_r.get("top_titles") or [])[:8]:
+            if t:
+                lines.append(str(t))
+    except Exception as e:
+        log(f"  Title research (cached competitive data unavailable): {e}")
+    try:
+        out = ai_fn(
+            f"Round {round_no}. List 8 DIFFERENT structural angles a factual "
+            f"clinical-case documentary title could take for this case, one "
+            f"per line, no numbering, no finished titles -- just the angle "
+            f"(e.g. 'the symptom that contradicted the diagnosis').\n"
+            f"Case: {topic[:200]}", tokens=250) or ""
+        lines.extend(l.strip(" -•") for l in out.split("\n") if len(l.strip()) > 8)
+    except Exception as e:
+        log(f"  Title angle research failed: {e}")
+    return [l for l in lines if l][:12]
+
+
+def run_title_gate_with_rounds(title_str, title_scores, topic, niche_name,
+                               series_name, episode, ai_fn, min_ctr=8.5,
+                               max_attempts=13, rounds=TITLE_ROUNDS,
+                               pause_sec=TITLE_ROUND_PAUSE_SEC, tg_fn=None,
+                               regenerate_fn=None):
+    """
+    The title gate, run in ROUNDS.
+
+    Per explicit instruction: "We have a quality score, which attempts three
+    times, that is, 13 x 3. I want the same thing for the title as well. If,
+    for the first time, it fails for 13 attempts, I want to redo it after 10
+    minutes. Research other title names and go ahead with the approval. If
+    that doesn't work for the third time, then it skips for the day, not
+    before that."
+
+    Between rounds it waits, researches genuinely new angles, and regenerates
+    a fresh candidate set to start from -- so round 2 does not begin from the
+    same stalled title round 1 ended on.
+
+    Returns (title, scored) with title=None only after every round has failed.
+    """
+    scored = title_scores
+    for rnd in range(1, rounds + 1):
+        if rnd > 1:
+            msg = (f"Ch1: title round {rnd - 1} of {rounds} ended without clearing "
+                   f"{min_ctr}/10 after {max_attempts} attempts. Waiting "
+                   f"{pause_sec // 60} minutes, researching new angles, then trying "
+                   f"again. The day is only skipped if round {rounds} also fails.")
+            log(f"  {msg}")
+            if tg_fn:
+                try:
+                    tg_fn(msg)
+                except Exception:
+                    pass
+            time.sleep(pause_sec)
+            angles = _research_title_angles(topic, niche_name, ai_fn, rnd)
+            if angles:
+                log(f"  Title round {rnd}: researched {len(angles)} new angles.")
+            if regenerate_fn:
+                try:
+                    fresh = regenerate_fn(angles, rnd)
+                    if fresh:
+                        scored = fresh
+                except Exception as e:
+                    log(f"  Title round {rnd} regeneration failed: {e}")
+        log(f"  Title ROUND {rnd}/{rounds} — up to {max_attempts} attempts at {min_ctr}/10")
+        won, scored = run_title_ctr_gate(title_str, scored, topic, niche_name,
+                                         series_name, episode, ai_fn,
+                                         min_ctr=min_ctr, max_attempts=max_attempts)
+        if won:
+            log(f"  Title cleared on round {rnd}.")
+            return won, scored
+    log(f"  Title failed all {rounds} rounds of {max_attempts} attempts.")
+    return None, scored
 
 
 # Real business-inquiries contact, per explicit request — every published
@@ -1824,7 +1979,7 @@ def _research_viral_content(niche, original_topic):
     viral mega-videos (2M+ views) in this niche and generate a stronger
     topic angle before the next attempt. Gives the AI better direction.
     """
-    prompt = f"""You are a YouTube viral content strategist for dark investigative documentaries.
+    prompt = f"""You are a YouTube content strategist for clinical case documentaries\nbuilt from real published, peer-reviewed case reports.
 
 Niche: {niche["name"].replace("_", " ")}
 Underperforming topic: {original_topic}
@@ -2438,7 +2593,21 @@ def build_script_prompt(niche, topic, episode, attempt,
         7: 150,   # Implication + CTA
     }
 
-    return f"""Write a {intensity} dark investigative documentary narration.
+    # THIS PROMPT WAS A TRUE-CRIME BRIEF POINTED AT MEDICAL PAPERS.
+    #
+    # The seven stage NAMES were converted to clinical ones, but the
+    # direction wrapped around them never was: it asked for a "dark
+    # investigative documentary", told the writer not to sound
+    # "interchangeable with any other true-crime channel", demanded "ONE
+    # central relationship fracture -- a specific betrayal between two
+    # specific people", and instructed that "each stage should feel darker
+    # than the last". Given a case report about a neonate's liver enzymes,
+    # a model following that brief invents a betrayal that is not in the
+    # paper and drifts off the case entirely -- which is exactly why the
+    # finished videos read as random and unmatched to their own visuals,
+    # since the VISUALS are built from the real case data and the script
+    # was not.
+    return f"""Write a clinical case documentary narration.
 
 TOPIC: {topic}
 SERIES: {niche["series"]} — Episode {episode}
@@ -2459,24 +2628,26 @@ output. The reader must experience one continuous, unbroken narration
 with zero visible section breaks of any kind — the transition between
 stages should be a single smooth sentence, never a title or heading:
 
-SIGNATURE OPENING (brand consistency — real successful channels have this,
-generic AI content doesn't): begin the cold open with a recognizable rhythm
-specific to this series — the exact words can vary per episode, but the
-STRUCTURE should feel unmistakably like {niche["series"]} within the first
-sentence, not interchangeable with any other true-crime channel.
+SIGNATURE OPENING (brand consistency): begin with a single documented fact
+from this case, stated plainly, mid-moment and without preamble — a
+measurement, a day, an observation. The structure should feel unmistakably
+like {niche["series"]} within the first sentence: clinical, specific, and
+already in the middle of something.
 
-CASE SELECTION: prefer a genuinely underreported or lesser-known angle over
-the most famous/oversaturated version of this story, if the topic allows it.
-This is both a differentiation advantage (viewers haven't seen this take
-everywhere already) and a real protection against looking like mass-produced
-generic content — original research reads as authored, not templated.
+STAY ON THIS CASE. Everything you write must be traceable to the source
+paper above. Do not import events, people, institutions, motives or
+statistics from anywhere else. If the paper does not say it, it does not go
+in the script. The interest here is the real difficulty of a real diagnosis;
+it does not need dramatising and must not be embellished.
 
-CENTRAL FRACTURE (channel strength, not optional): every script must revolve
-around ONE central relationship fracture — a specific betrayal between two
-specific people — not a generic "something creepy happened." Name the
-relationship explicitly (sister/sister, patient/doctor, mother/son) and keep
-the entire narrative anchored to that one fracture rather than drifting into
-a vague atmosphere piece.
+CENTRAL DIAGNOSTIC QUESTION (not optional): every script must revolve around
+ONE question the clinicians could not answer — the finding that did not fit,
+the treatment that did not work, the result nobody expected. State it early,
+keep returning to it, and let the reversal answer it. This replaces the
+"central fracture" this channel used to be built on: there is no betrayal in
+a case report, and looking for one produces a script about a story that was
+never in the paper. Nobody in these cases is a villain. The antagonist is the
+disease and the limits of what could be known at the time.
 
 FICTION LABELING (non-negotiable, real policy-safety requirement, but NEVER
 spoken in the narration — direct user instruction: "I keep seeing that
@@ -2643,22 +2814,24 @@ in naturally, skip it entirely — a forced-sounding mention actively hurts
 the viewer-satisfaction signals that now weigh more than raw watch time.
 
 TONE AND STYLE (NON-NEGOTIABLE):
-- This is DARK DOCUMENTARY — every sentence should feel like a weight pressing down.
-- Dark psychological humor is permitted and encouraged. The kind that makes viewers 
-  laugh uncomfortably, then feel disturbed they laughed.
-- Every paragraph should leave the viewer wanting the next one. Not curious — CRAVING.
-- Think: what would someone who KNOWS they shouldn't watch this keep watching anyway?
-- Each stage should feel darker than the last. Build psychological dread deliberately.
-- Real documentary references make it feel researched. Fake-sounding claims get skipped.
-- Pacing: short sentences hit harder. Use them at revelation moments.
-- The viewer should feel like they discovered something others don't know.
+- This is CLINICAL DOCUMENTARY. The register is calm, precise and serious —
+  the tone of a good hospital case conference, not a horror narration.
+- Tension comes from uncertainty, not dread: competent people doing the right
+  thing with the information they had, and being wrong.
+- Never mock, never use dark humour about a patient, never imply negligence.
+- Every paragraph should make the viewer need the next one because they want
+  the ANSWER, not because they feel unsafe.
+- Name the real measurements. A number the paper reported is worth more than
+  any adjective.
+- Pacing: short sentences at the moments a result comes back.
+- The viewer should finish understanding something true about medicine.
 
-WHAT MAKES VIEWERS CRAVE THIS CONTENT:
-- The sense that something was hidden — and you're the one showing it.
-- The feeling that the world is slightly more dangerous/dark than they thought.
-- Uncomfortable recognition — "this happened to someone I know" or "this could be me."
-- The satisfaction of understanding a dark system fully, from start to end.
-- Dark humor that signals: we both know this is messed up, and we're in it together.
+WHAT MAKES VIEWERS WATCH THIS CONTENT:
+- A puzzle with a real answer, revealed in the order the clinicians found it.
+- The moment the obvious explanation is ruled out and everything reopens.
+- Recognition — "I have had that test", "that is a normal result".
+- The satisfaction of understanding a mechanism completely, start to end.
+- Respect for everyone involved, including the patient and the team.
 
 CRAVEABILITY TRIGGERS — use at least 3 per script:
 1. The statistic that sounds impossible but is real.
@@ -3683,67 +3856,65 @@ Notice their actual phrasing rhythm, specificity level, and emotional angle —
 match that energy, don't just follow the formulas below in isolation.
 """
 
+    # THIS PROMPT WAS A TRUE-CRIME TITLE ENGINE POINTED AT MEDICINE.
+    #
+    # It asked for "a dark investigative documentary" in a "dark investigative
+    # tone" and supplied formula banks like "The [Institution] Knew. They Did
+    # It Anyway. Here's The File." and "[Specific Crime/System]: [Number]
+    # Victims. [Number] Years. Zero Arrests." -- applied to published clinical
+    # case reports about real patients and real named clinicians. That is the
+    # direct cause of titles that do not describe the video ("the titles are
+    # not syncing"), and on a medical channel those formulas allege
+    # institutional wrongdoing that the policy rules exist to prevent.
+    #
+    # The curiosity in a case report is real and does not need inventing: a
+    # patient got worse, the obvious answer was wrong, one finding changed
+    # everything. Title THAT.
     prompt = f"""
-{trend_block}TITLE REQUIREMENTS — NON-NEGOTIABLE:
-- Do NOT write normal YouTube titles. Normal = ignored.
-- The title should feel like something a person would screenshot and send to a friend.
-- Use specific numbers, real-feeling names, or uncomfortable specificity.
-- The best titles create DREAD before the video starts — but dread is not the only
-  register. A sympathetic, heartbreaking, "this could have been anyone" angle often
-  outperforms pure shock, because it makes the viewer feel FOR someone, not just
-  unsettled. Rotate between dread-driven and sympathy-driven framing rather than
-  defaulting to dread every time — both are proven, and variety prevents the channel
-  from reading as one-note.
-- Dark humor in titles outperforms pure shock — it signals intelligence.
-- The title should make someone feel like: "I shouldn't watch this... but I have to"
-  OR "I need to know what happened to them" (sympathy-driven equivalent).
-- CURIOSITY GAP: give enough to create genuine interest but withhold the one detail
-  that can only be resolved by watching. Don't explain the outcome in the title.
-- HONESTY CONSTRAINT (critical, non-negotiable): the title must be something the
-  first 30 seconds of the actual video genuinely delivers on. YouTube's 2026 ranking
-  now actively penalizes titles that get clicks but lose viewers fast when the video
-  doesn't match the promise — this is worse for the channel long-term than a slightly
-  less aggressive but honest title. Never promise a specific reveal the video doesn't
-  actually contain in its opening.
+{trend_block}Write titles for ONE published clinical case report. This is a
+medical case documentary, not an investigative crime channel.
 
-TITLE FORMULAS THAT WORK (dread-driven):
-- "[Number] [People/Days/Years] [Disturbing Specific Thing] — Nobody Talked About This"
-- "The [Institution] Knew. They Did It Anyway. Here's The File."
-- "How [Completely Normal Thing] Was Used To [Dark Outcome]"
-- "[Name or System] Ran [Disturbing Operation] For [Specific Duration]. Here's The Evidence."
-- "They Thought It Was [Normal Thing]. It Was [Dark Reality]."
-- "The [Number]-Day [Dark Event] Everyone Pretended Didn't Happen"
-- "[Specific Crime/System]: [Number] Victims. [Number] Years. [Number] Investigations. Zero Arrests."
+THE CASE (this is what the video is actually about — the title must describe
+THIS, not a genre):
+{topic}
 
-TITLE FORMULAS THAT WORK (sympathy/woeful-driven — use these roughly as often as dread ones):
-- "She Tried To Warn Them For [Number] Years. Nobody Listened."
-- "[Number] Days Alone. Nobody Came. Here's What Happened To [Him/Her]."
-- "All [Name] Wanted Was [Simple Normal Thing]. It Cost [Him/Her] Everything."
-- "Everyone Blamed [Him/Her]. The Truth Was Worse Than Anyone Guessed."
-- "The Last [Number] Days Of A Life Nobody Was Watching"
+TITLE REQUIREMENTS — NON-NEGOTIABLE:
+- The title must describe what happens in THIS case. A viewer who reads the
+  title and then watches must feel the video delivered exactly that.
+- The curiosity is diagnostic, not criminal: the symptom that made no sense,
+  the test that came back normal, the condition it was mistaken for, the one
+  finding that changed the diagnosis.
+- Use a REAL number from the case where there is one: the patient's age, how
+  many days, how long it took, a lab value.
+- NEVER allege concealment, negligence, blame or a cover-up. Do not use
+  "covered up", "they knew", "nobody was punished", "the truth about".
+  Clinicians in these papers acted in good faith on the information they had;
+  the story is the difficulty of the diagnosis, not misconduct.
+- NEVER promise medical advice, a cure, a warning sign to watch for, or
+  anything a viewer could act on medically.
+- Withhold the answer. Name the puzzle, not the diagnosis, unless the
+  diagnosis IS the surprise.
+- HONESTY CONSTRAINT (non-negotiable): the first 30 seconds must genuinely
+  deliver what the title promises. YouTube penalises titles that win the
+  click and lose the viewer.
 
-TITLE FORMULAS THAT WORK (concrete/object-driven — cleaner and more specific
-than pure dread/sympathy, often outperforms both by feeling more real):
-- "The Last Tape From Room [Number]"
-- "Why She Betrayed Her Own [Sister/Brother/Mother]"
-- "The [Hospital Wing/Facility] They Closed Forever"
-- "He Heard [Family Member] After The Funeral"
-- "The Confession Hidden In The [Journal/Tape/File]"
-- "The [Patient/Person] Who Invented A Second Life"
-- "Nobody Believed The Second [Recording/Call/Witness]"
-- "The House That Remembered What [He/She] Did"
+TITLE FORMULAS THAT WORK FOR CLINICAL CASES:
+- "Every Test Was Normal. On Day [N] One Result Changed Everything"
+- "Treated As [Common Condition] For [N] Days. It Was Never That"
+- "The [Age] Whose [Symptom] Nobody Could Explain"
+- "Mistaken For [Common Condition] For [N] Years. The Real Diagnosis"
+- "The One Test That Finally Explained [N] Years Of Illness"
+- "[N] Doctors. [N] Years. One Finding Nobody Had Looked For"
+- "Nobody Knew Why [She/He] Was Getting Worse. Then The [Test] Came Back"
+- "The Symptom That Contradicted Every Scan"
+- "It Looked Like [Common Condition]. The Bloodwork Said Otherwise"
 
-FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable", 
-"You Won't Believe", "Mind-Blowing", "Epic", "Ultimate", "Best"
-These signal low-quality content. Avoid them completely.
+FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable",
+"You Won't Believe", "Mind-Blowing", "Epic", "Ultimate", "Best", "Miracle",
+"Cure", "Doctors Hate", "Warning Signs".
 
-Generate 5 YouTube titles for a dark investigative documentary.
-Series: {niche["series"]}, Episode {episode}. Topic: {topic}
-REGISTER FOR THIS EPISODE (enforced, alternates every episode): {register_instruction}
-Rules: 40-65 chars each (fits fully on mobile). Front-load the most compelling part
-in the first 40 characters. Opens a psychological loop. Specific numbers where natural.
-Dark investigative tone. No colons unless essential. No quotes.
-IMPORTANT: Start with a NUMBER or specific statistic for highest CTR.
+Rules: 50-65 characters each (fits fully on mobile). Front-load the most
+compelling part in the first 40 characters. No quotes.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
 
@@ -3784,9 +3955,34 @@ Return ONLY 5 titles, one per line."""
             # failure so the caller can skip the day, never a fallback
             # title that never earned the bar.
             title_scores = [(l, 0) for l in lines]
-            best, v2_scored = run_title_ctr_gate(
+
+            # THREE ROUNDS OF THIRTEEN, per explicit instruction: "13 x 3...
+            # If, for the first time, it fails for 13 attempts, I want to redo
+            # it after 10 minutes. Research other title names and go ahead
+            # with the approval. If that doesn't work for the third time, then
+            # it skips for the day, not before that."
+            #
+            # Each new round starts from a genuinely fresh candidate set built
+            # from researched angles -- starting round 2 from the stalled
+            # title round 1 ended on is what produced thirteen identical
+            # attempts in run 30637537806.
+            def _fresh_candidates(angles, rnd):
+                _angle_block = ""
+                if angles:
+                    _angle_block = ("\nTake a DIFFERENT angle this time. Angles worth "
+                                    "trying:\n" + "\n".join(f"- {a}" for a in angles[:8]))
+                _raw2 = ai_generate(prompt + _angle_block +
+                                    f"\n\nThis is retry round {rnd}. The previous round's "
+                                    f"titles all failed. Do not repeat them.", tokens=400)
+                if not _raw2:
+                    return None
+                _lines2 = [l.strip() for l in _raw2.strip().splitlines()
+                           if 30 <= len(l.strip()) <= 80 and looks_like_title(l.strip())]
+                return [(l, 0) for l in _lines2] or None
+
+            best, v2_scored = run_title_gate_with_rounds(
                 lines[0], title_scores, topic, niche["name"], niche["series"],
-                episode, ai_generate)
+                episode, ai_generate, tg_fn=tg, regenerate_fn=_fresh_candidates)
             return best
 
     return None
@@ -3809,8 +4005,10 @@ def generate_chapters(audio_duration):
 # ================================================================
 def generate_dynamic_thumbnail_text(script):
     """
-    Generate NUMBER+NOUN thumbnail text — the highest CTR format in dark documentary.
-    Examples: "4,380 DAYS"  "14 VICTIMS"  "ONE LETTER"  "$2.4M GONE"  "7 WITNESSES"
+    Generate NUMBER+NOUN thumbnail text — the highest CTR format for this channel.
+    Clinical examples: "96 HOURS"  "DAY 9"  "6 YEARS"  "EVERY TEST NORMAL"
+    "ONE ENZYME". Never "VICTIMS", never a body count — this is a patient, not
+    a casualty, and the number must come from the real case.
     The specific number creates believability. The noun creates visceral impact.
     Both together create a loop the viewer must close by watching.
     """
@@ -3820,15 +4018,18 @@ def generate_dynamic_thumbnail_text(script):
     sample = sample[:1000]
     prompt = f"""From this documentary narration, generate thumbnail text following the NUMBER+NOUN format.
 
-This format drives the highest click-through rates in dark documentary YouTube:
-- A SPECIFIC NUMBER (exact, real-feeling: days, victims, years, dollars, witnesses, documents)
-- A POWERFUL NOUN (visceral, specific to the case)
+This format drives the highest click-through rates for case documentaries:
+- A SPECIFIC NUMBER TAKEN FROM THIS CASE (a day, an age, a duration, a
+  measured value, how many tests) — never invented, never a body count
+- A CLINICAL NOUN (specific to what actually happened)
 - 2-4 words total, ALL CAPS
 
 EXAMPLES OF HIGH-CTR FORMAT:
-"4,380 DAYS" | "14 VICTIMS" | "ONE LETTER" | "$2.4M GONE" | "7 WITNESSES"
-"17 YEARS" | "3 BODIES" | "ONE ENVELOPE" | "23 ACCOUNTS" | "48 HOURS"
+"96 HOURS" | "DAY 9" | "6 YEARS" | "EVERY TEST NORMAL" | "ONE ENZYME"
+"21 DAYS OLD" | "4 DIAGNOSES" | "1 MISSING RESULT" | "3 SPECIALISTS"
 
+NEVER use "VICTIMS", "BODIES", "SUSPECTS" or any casualty framing — this is a
+patient in a published case report, not a crime.
 AVOID generic phrases like "SOMETHING WRONG" or "DARK TRUTH" — these have low CTR.
 The number must come from or be inspired by the actual content below.
 
@@ -3871,18 +4072,23 @@ def format_citations_block(real_cases):
 def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block="",
                               needs_fiction_disclosure=True):
     dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
-    prompt = f"""Write a YouTube video description for a dark investigative documentary.
+    prompt = f"""Write a YouTube video description for a clinical case documentary
+built from a real published, peer-reviewed case report.
 Title: {title} | Series: {niche["series"]}, Episode {episode}
 Topic: {topic} | Duration: ~{dur_min} minutes
 
 Structure:
-1. Two hook sentences on the core disturbing fact. Creates urgency to watch.
-2. Three sentences on what the investigation reveals. No spoilers.
-3. One line: Watch until the end — the final revelation changes everything.
+1. Two sentences on the documented clinical puzzle. Factual, no spoilers.
+2. Three sentences on how the diagnosis was reached. Never reveal it outright.
+3. One line: The answer comes in the last third of the video.
 4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
-5. Eight keyword sentences using: dark documentary, true investigation, psychological analysis,
-   hidden truth, {niche["name"].replace("_", " ")}, classified evidence, real case, dark nonfiction
-6. One line: New investigations every week — subscribe so you never miss one.
+5. Eight keyword sentences using: medical case study, clinical case report,
+   diagnostic process, case documentary, {niche["name"].replace("_", " ")},
+   peer-reviewed medicine, differential diagnosis, medical education
+6. One line: New cases every week — subscribe so you never miss one.
+
+NEVER write medical advice, symptoms to watch for, or anything a viewer could
+act on. NEVER suggest anyone concealed or mishandled anything.
 
 Total: 250-320 words. Plain text. No markdown. Do NOT include any hashtags —
 those are added separately afterward."""
@@ -4161,6 +4367,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     except Exception as e:
         log(f"  vtt->ass error: {e}")
         return False
+
+def _captions_for(audio_path, ass_path, script, audio_duration):
+    """
+    ALWAYS return captions when there is any way to build them.
+
+    Every call site did `if not generate_real_synced_ass(...): ass_path = None`
+    -- so a missing GROQ_KEY, a Whisper timeout, a rate limit or a single 500
+    from the transcription API shipped an episode with NO SUBTITLES AT ALL,
+    and logged it as a one-line non-fatal note. That is the "subtitles are not
+    properly embedded" symptom: not misplaced captions, absent ones.
+
+    Word-level Whisper timing is still strongly preferred and tried first.
+    generate_fallback_ass distributes the real script across the real audio
+    duration -- less precise, but a readable caption track beats none, and
+    YouTube's auto-captions are worse than either.
+    """
+    if generate_real_synced_ass(audio_path, ass_path):
+        return True
+    log("  Real caption sync unavailable — building duration-distributed "
+        "captions from the script so the video is never shipped uncaptioned.")
+    try:
+        generate_fallback_ass(script, audio_duration, ass_path)
+        ok = Path(ass_path).exists() and Path(ass_path).stat().st_size > 200
+        log(f"  Fallback captions: {'built' if ok else 'FAILED'}")
+        return ok
+    except Exception as e:
+        log(f"  Fallback captions failed: {e}")
+        return False
+
 
 def generate_real_synced_ass(audio_path, ass_path):
     """
@@ -5993,7 +6228,7 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         if not downloaded:
             black_fallback_count += 1
             run_ffmpeg(["ffmpeg","-y","-f","lavfi",
-                "-i",f"color=c=black:size=1280x720:rate=24:duration={segment_dur:.1f}",
+                "-i",f"color=c=black:size=1920x1080:rate=24:duration={segment_dur:.1f}",
                 "-c:v","libx264","-pix_fmt","yuv420p", clip_path],
                 label=f"seg-{i}-fallback")
             log(f"  Segment {i+1}: NO footage found on Pixabay or Pexels — using black clip")
@@ -6033,8 +6268,8 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         # glitches at the internal seams — same category of issue as the
         # audio sample-rate mismatch found and fixed in this same review.
         run_ffmpeg(["ffmpeg","-y","-stream_loop","2","-i",clip,
-            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
-                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,"
+            "-vf","scale=1920:1080:force_original_aspect_ratio=decrease,"
+                  "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,"
                   f"fade=t=in:st=0:d={fade_dur:.2f},"
                   f"fade=t=out:st={segment_dur-fade_dur:.2f}:d={fade_dur:.2f}",
             "-t",f"{segment_dur:.2f}","-c:v","libx264","-preset","ultrafast",
@@ -6074,7 +6309,7 @@ def get_background_video(niche, audio_duration, script=""):
     path = str(WORK_DIR / "background.mp4")
     dur  = max(int(audio_duration) + 15, 60)
     run_ffmpeg(["ffmpeg", "-y", "-f", "lavfi",
-        "-i", f"color=c=black:size=1280x720:rate=24:duration={dur}",
+        "-i", f"color=c=black:size=1920x1080:rate=24:duration={dur}",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", path], label="bg-fallback")
     return path
 
@@ -6423,7 +6658,7 @@ def create_intro(series_name):
     text = series_name.replace("'", "").replace('"', "")
     run_ffmpeg([
         "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "color=c=black:size=1280x720:rate=24:duration=2",
+        "-f", "lavfi", "-i", "color=c=black:size=1920x1080:rate=24:duration=2",
         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo:duration=2",
         "-vf", f"drawtext=text='{text}':fontsize=72:fontcolor=red:x=(w-text_w)/2:y=(h-text_h)/2",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", path
@@ -6459,7 +6694,7 @@ def create_outro(series_name="Dark Hours", episode_num=1):
     path = str(WORK_DIR / "outro.mp4")
     run_ffmpeg([
         "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "color=c=black:size=1280x720:rate=24:duration=8",
+        "-f", "lavfi", "-i", "color=c=black:size=1920x1080:rate=24:duration=8",
         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo:duration=8",
         "-vf",
         "drawbox=x=0:y=0:w=iw:h=ih:color=red@0.3:t=4,"
@@ -6509,7 +6744,7 @@ def create_citations_scene(real_cases):
     vf = ",".join(lines_filters)
     run_ffmpeg([
         "ffmpeg", "-y",
-        "-f", "lavfi", "-i", f"color=c=black:size=1280x720:rate=24:duration={duration}",
+        "-f", "lavfi", "-i", f"color=c=black:size=1920x1080:rate=24:duration={duration}",
         "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:duration={duration}",
         "-vf", vf,
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", path
@@ -6880,7 +7115,7 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
 
     try:
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
-        W, H = 1280, 720
+        W, H = 1280, 720  # THUMBNAIL — 1280x720 is correct here
         if got_image and Path(pol_path).exists():
             # Use Pollinations AI image as background, darkened
             bg_img = Image.open(pol_path).convert("RGB").resize((W, H))
@@ -6949,7 +7184,7 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
     try:
         safe  = thumb_text.replace("'", "")[:28]
         stit  = title[:55].replace("'", "")
-        subprocess.run(["convert", "-size", "1280x720", "xc:black",
+        subprocess.run(["convert", "-size", "1280x720", "xc:black",  # thumbnail
             "-fill", "#C80000", "-pointsize", "115", "-gravity", "Center", "-annotate", "0", safe,
             "-fill", "#D2D2D2", "-pointsize", "34", "-gravity", "South", "-annotate", "0+0+60", stit,
             "-fill", "#960000", "-pointsize", "26", "-gravity", "NorthWest",
@@ -7042,8 +7277,8 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
     # background clip has (this path also serves the single-clip fallback,
     # whose source rate is unpredictable), consistent with intro/outro's
     # hardcoded 24fps so the final -c copy concat doesn't hit a mismatch.
-    vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-          "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=24,"
+    vf = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+          "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=24,"
           f"{grade}")
     if has_sub:
         # ffmpeg's filter syntax requires colons and backslashes in the
@@ -7140,9 +7375,17 @@ def create_short(narration_path, bg_path, music_path, ass_path,
 
     # FIX (found on direct user report, July 15 2026): same bug as the
     # main compose_video — has_sub was computed and then never used.
-    vf = ("scale=1280:720:force_original_aspect_ratio=decrease,"
-          "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-          "crop=405:720:(iw-405)/2:0,scale=1080:1920,fps=24")
+    # The vertical crop used to be taken from a 720p intermediate: the source
+    # was scaled DOWN to 1280x720, a 405-pixel-wide centre strip was cropped
+    # out, and that strip was then blown back UP to 1080x1920 -- a 2.67x
+    # upscale of a third of the frame. On a clinical card covered in small
+    # labels that is unreadable mush, and it silently discarded two thirds of
+    # the picture. Crop at full resolution instead: 608x1080 out of the 1080p
+    # frame is the same 9:16 window, taken from real pixels, and the final
+    # scale is a mild 1.78x rather than 2.67x of something already degraded.
+    vf = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+          "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+          "crop=608:1080:(iw-608)/2:0,scale=1080:1920,fps=24")
     if has_sub:
         _escaped_ass = str(ass_path).replace("\\", "\\\\\\\\").replace(":", "\\:").replace("'", "\\'")
         vf += f",ass='{_escaped_ass}'"
@@ -7696,8 +7939,10 @@ def update_channel_description(token, latest_title, latest_url):
         # existing snippet from the GET above and only mutate description.
         existing_snippet = r.json()["items"][0].get("snippet", {})
         desc  = (f"Latest: {latest_title}\n{latest_url}\n\n"
-                 "Investigative documentary narrations — dark psychology, true horror, classified evidence.\n"
-                 "New episodes every weekday. Subscribe for weekly investigations.")
+                 "Real published medical cases, told from the peer-reviewed record. "
+                 "Every episode is one patient, one diagnosis, and the evidence that "
+                 "settled it — sourced, cited, and never medical advice.\n"
+                 "New cases every weekday. Subscribe so you never miss one.")
         existing_snippet["description"] = desc[:1000]
         r2 = requests.put(f"{YT_DATA_URL}/channels",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -7859,9 +8104,9 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
     if bg:
         # Real footage — vertical crop, darkened, NO subtitles
         run_ffmpeg(["ffmpeg","-y","-stream_loop","-1","-i",bg,"-i",audio_out,
-            "-vf","scale=1280:720:force_original_aspect_ratio=decrease,"
-                  "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
-                  "crop=405:720:(iw-405)/2:0,scale=1080:1920,"
+            "-vf","scale=1920:1080:force_original_aspect_ratio=decrease,"
+                  "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                  "crop=608:1080:(iw-608)/2:0,scale=1080:1920,"
                   "eq=brightness=-0.3:contrast=1.3",
             "-c:v","libx264","-preset","fast","-crf","22",
             "-pix_fmt","yuv420p","-c:a","aac","-b:a","128k",
@@ -8483,7 +8728,7 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 
         filter_complex = (
             f"[0:v]{','.join(video_filters)}[graded];"
-            f"color=c=white:size=1280x720:rate=24[whitesrc];"
+            f"color=c=white:size=1920x1080:rate=24[whitesrc];"
             f"[whitesrc]trim=duration={audio_duration:.2f},setpts=PTS-STARTPTS[wht];"
             f"[graded][wht]blend=all_expr='if(between(T,{flash_t0:.2f},{flash_t1:.2f}),B,A)':shortest=1[out];"
             f"aevalsrc=0.15*sin(2*PI*t*(80+220*t)):d=2.5:s=44100,"
@@ -9343,32 +9588,25 @@ def main():
                 # A human can supply or approve a title; if nobody does, the
                 # day is skipped as before. What is gone is the silent
                 # discard of work that had already passed its own gate.
+                # THREE ROUNDS OF THIRTEEN HAVE NOW FAILED.
+                #
+                # generate_titles runs run_title_gate_with_rounds: 13 attempts,
+                # a 10-minute pause, researched new angles, 13 more, pause,
+                # research, 13 more. Reaching here means all 39 attempts across
+                # all three rounds failed to clear 8.5. Per explicit
+                # instruction the day is skipped only at this point -- not
+                # before.
                 _best_titles = globals().get("_LAST_TITLE_CANDIDATES") or []
-                _best = _best_titles[0][0] if _best_titles else ""
-                log(f"  Title gate never cleared 8.5 after {MAX_ATTEMPTS} attempts "
-                    f"(best: {_best[:60]!r}). Escalating to human review rather "
-                    f"than discarding an approved script.")
-                _decision = {"decision": "reject", "feedback": ""}
-                try:
-                    from human_review_gate import review_title
-                    _decision = review_title(
-                        "No Known Cause (title BELOW 8.5 gate)", _best or "(none generated)",
-                        [t for t, _s in _best_titles[1:4]],
-                        TG_TOKEN, TG_CHAT, timeout_minutes=60)
-                except Exception as e:
-                    log(f"  Title escalation gate unavailable: {e}")
-                _fb = (_decision.get("feedback") or "").strip()
-                if _decision.get("decision") == "approve" and _best:
-                    title = _best
-                    log("  Human approved the below-gate title. Continuing.")
-                elif _fb and len(_fb) >= 15:
-                    title = _fb[:100]
-                    log(f"  Human supplied a title: {title[:60]!r}. Continuing.")
-                else:
-                    tg(f"Ch1 Day Skipped — no title cleared 8.5/10 after {MAX_ATTEMPTS} "
-                       f"attempts and no human title was supplied. Per your standing "
-                       f"instruction, nothing under 8.5 gets published.")
-                    sys.exit(0)
+                _best = _best_titles[0][0] if _best_titles else "(none generated)"
+                _best_sc = _best_titles[0][1] if _best_titles else 0
+                tg(f"Ch1 Day Skipped — the title never cleared 8.5/10 across all "
+                   f"{TITLE_ROUNDS} rounds of {MAX_ATTEMPTS} attempts "
+                   f"({TITLE_ROUNDS * MAX_ATTEMPTS} titles, with research between "
+                   f"rounds).\n\nBest was {_best_sc}/10: {_best}\n\n"
+                   f"Per your standing instruction, nothing under 8.5 gets published.")
+                log(f"  Title failed all {TITLE_ROUNDS} rounds x {MAX_ATTEMPTS} "
+                    f"attempts (best {_best_sc}/10: {_best[:70]!r}). Skipping the day.")
+                sys.exit(0)
             else:
                 title = title_result
 
@@ -9464,11 +9702,43 @@ def main():
                         sys.exit(0)
                     if _review["decision"] == "approve":
                         break
+                    # TITLE FEEDBACK AT THE SCRIPT CHECKPOINT.
+                    #
+                    # Reported directly: "I clicked EDIT and typed that I want
+                    # the title to be changed... it just gave me the same
+                    # script." Both halves of that were real. The title is not
+                    # one of the seven script stages, so
+                    # identify_target_sections() returned nothing, the feedback
+                    # was treated as a WHOLE-SCRIPT rewrite, and the title --
+                    # the only thing actually asked about -- was never touched
+                    # by any branch on this path. The message still said
+                    # "Script updated per your feedback".
+                    if _review["decision"] == "edit" and _is_title_feedback(_review.get("feedback")):
+                        _fb_t = (_review.get("feedback") or "").strip()
+                        log(f"  Script-review EDIT is about the TITLE: {_fb_t!r}")
+                        _old_title = title
+                        _retitled = _retitle_from_feedback(title, _fb_t, topic, niche_name,
+                                                           episode, ai_generate)
+                        if _retitled and _retitled != _old_title:
+                            title = _retitled
+                            _ts = score_title_v2(title)[0]
+                            tg(f"🏷️ Title changed per your feedback:\n\n"
+                               f"OLD: {_old_title}\nNEW: {title}\n\nScore: {_ts}/10\n\n"
+                               f"Sending the episode back for another look.")
+                            log(f"  Title changed: {_old_title!r} -> {title!r} ({_ts}/10)")
+                        else:
+                            tg(f"⚠️ Ch1: I could not produce a different title from that "
+                               f"feedback. The title is UNCHANGED: {title}\n\n"
+                               f"Reply with the exact title you want and I'll use it verbatim.")
+                            log("  Title edit produced nothing usable — title UNCHANGED.")
+                        continue  # re-send for review with the new title
+
                     if _review["decision"] == "edit" and _stage_texts_ch1:
                         _targets = identify_target_sections(_review["feedback"], _stage_names_ch1)
                         if len(_stage_texts_ch1) != len(_stage_names_ch1):
                             _targets = []  # a prior whole-script edit collapsed this list — avoid an IndexError
                         log(f"  Script EDIT requested: '{_review['feedback']}' -> sections: {_targets or 'WHOLE SCRIPT'}")
+                        _script_before_edit = script_clean
                         try:
                             script_clean, _updated_sections = regenerate_script_sections(
                                 script_clean, _stage_texts_ch1, _stage_names_ch1, _targets,
@@ -9495,7 +9765,27 @@ def main():
                             # degrade gracefully (skip stale data) instead of
                             # silently using it.
                             _script_was_edited = True
-                            tg(f"✅ Script updated per your feedback — sending the revised version for another look.")
+                            # AN EDIT THAT CHANGED NOTHING MUST NOT REPORT
+                            # SUCCESS. "It just gave me the same script" was
+                            # reported directly: if the rewrite came back
+                            # identical (empty model reply, unparseable
+                            # response, section text not found), this still
+                            # said "Script updated per your feedback" and
+                            # re-sent the unchanged script. Silence about a
+                            # no-op is what made the gate feel ignored.
+                            if _norm_ws(script_clean) == _norm_ws(_script_before_edit):
+                                script_clean = _script_before_edit
+                                _script_was_edited = False
+                                tg(f"⚠️ Ch1: your edit produced NO change to the script — "
+                                   f"nothing was applied. Feedback was: \"{_review['feedback'][:150]}\"\n\n"
+                                   f"Try naming the section (e.g. \"the opening\"), or reply "
+                                   f"REMAKE to scrap this episode.")
+                                log("  Script edit returned an IDENTICAL script — reported "
+                                    "honestly, not claimed as applied.")
+                            else:
+                                _delta = abs(len(script_clean.split()) - len(_script_before_edit.split()))
+                                tg(f"✅ Script updated per your feedback ({_delta} words "
+                                   f"different) — sending the revised version for another look.")
                         except Exception as e:
                             tg(f"🚨 Ch1: your script edit could NOT be applied — {e}. "
                                f"The script is UNCHANGED. Please try again or approve as-is.")
@@ -9648,7 +9938,7 @@ def main():
         # the accepted tier). Skipped entirely rather than risking
         # desynced captions if the real transcription isn't available.
         ass_path = str(WORK_DIR / "main_captions.ass")
-        if not generate_real_synced_ass(audio_path, ass_path):
+        if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
             ass_path = None
         video_path = run_stage_with_retry(
             assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -9765,10 +10055,23 @@ def main():
 
                 _a_dec = _av_review["audio_decision"]["decision"]
                 if _a_dec == "reject":
+                    # DECLINE MUST STOP THE EPISODE.
+                    #
+                    # This was `break`, not exit -- so tapping REJECT at the
+                    # audio checkpoint left the review loop and fell straight
+                    # into the NEXT stage, and the episode carried on to
+                    # thumbnail, description and publish exactly as if it had
+                    # been approved. Reported directly: "I clicked the Decline
+                    # button and it did not take up the job." Every other
+                    # checkpoint in this pipeline exits on reject; this one
+                    # silently did the opposite of what the button says.
                     if _prerendered_yt_vid_id:
                         delete_yt_video(_prerendered_yt_vid_id, token=get_yt_token())
-                    log("Rejected during audio review.")
-                    break
+                    tg("🛑 Ch1: audio DECLINED — this episode is stopped. Nothing will be "
+                       "published. A fresh episode will be generated on the next run.")
+                    log("Rejected during audio review — clearing pending and stopping.")
+                    clear_pending(SCRIPT_DIR)
+                    sys.exit(0)
                 # FIX (direct user report, July 24 2026 — "I told you
                 # specifically to remake it, and it didn't even send me a
                 # notification that it is working on the remake"): REMAKE
@@ -9792,7 +10095,7 @@ def main():
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
                     ass_path = str(WORK_DIR / "main_captions.ass")
-                    if not generate_real_synced_ass(audio_path, ass_path):
+                    if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
                         ass_path = None
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
@@ -9875,7 +10178,7 @@ def main():
                         run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                     edge_voice = voice_used
                     ass_path = str(WORK_DIR / "main_captions.ass")
-                    if not generate_real_synced_ass(audio_path, ass_path):
+                    if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
                         ass_path = None
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
@@ -9910,7 +10213,7 @@ def main():
                     # Captions must be regenerated for the new audio too —
                     # the old ass_path was timed to audio that no longer exists.
                     ass_path = str(WORK_DIR / "main_captions.ass")
-                    if not generate_real_synced_ass(audio_path, ass_path):
+                    if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
                         ass_path = None
                     # FIX (found on deep re-audit): unlike SWAP VOICE right
                     # above, this branch regenerated audio+captions but
