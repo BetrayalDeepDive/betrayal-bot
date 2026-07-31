@@ -232,6 +232,52 @@ def audit_visuals():
           "FIGURE" not in picks, str(set(picks)))
 
     audit_rendered_episode()
+    audit_sourcing_robustness()
+
+
+# ── B2. SOURCING, MEASURED ─────────────────────────────────────────────
+def audit_sourcing_robustness():
+    import pmc_data as P
+    from io import BytesIO
+    from PIL import Image
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    check("B", "figure fetch tries the canonical PMC host first",
+          P.FIGURE_URL_PATTERNS[0].startswith("https://pmc.ncbi.nlm.nih.gov"),
+          "www.ncbi.nlm.nih.gov/pmc now redirects; relying on a redirect for "
+          "the one asset that differentiates this channel is a needless risk")
+    check("B", "figure fetch has three independent URL patterns",
+          len(P.FIGURE_URL_PATTERNS) >= 3)
+
+    # The bytes must really be a usable image.
+    def _jpg(w, h):
+        b = BytesIO(); Image.new("RGB", (w, h)).save(b, "JPEG"); return b.getvalue()
+    check("B", "HTML masquerading as a figure is rejected",
+          not P._decodes_as_usable_image(b"<html>error</html>"))
+    check("B", "a thumbnail-sized figure is rejected",
+          not P._decodes_as_usable_image(_jpg(100, 80)),
+          "would render as a postage stamp in a 1080p frame")
+    check("B", "a real image is accepted", P._decodes_as_usable_image(_jpg(800, 600)))
+
+    check("B", "figures are proven downloadable before the quota is built",
+          "prefetch_figures" in cp,
+          "the quota commits ~30% of the episode to FIGURE from METADATA; if "
+          "the binaries fail every one of those segments silently renders the "
+          "fallback card")
+    check("B", "figure prefetch prunes to what actually landed",
+          P.prefetch_figures({"figures": [{"pmcid": "PMC0", "filename": "x.jpg"}]},
+                             "/tmp")["figures"] == [],
+          "an unreachable figure must not stay in the case")
+
+    check("B", "case-structure extraction retries rather than failing silently",
+          "_parse_structures" in cp and "for attempt in range(3)" in cp,
+          "one malformed response used to leave five of six registers empty")
+    check("B", "an invented quotation is rejected",
+          "not found verbatim" in cp,
+          "TEXT would otherwise put a paraphrase on screen attributed to a "
+          "real paper")
+
+
 
 
 # ── E2. VISUALS, MEASURED ON A REAL RENDER ─────────────────────────────

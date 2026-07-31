@@ -2623,70 +2623,175 @@ def generate_script_content(niche, topic, episode, attempt,
     # than invented independently. Each is individually optional: a register
     # with no data simply returns False and the quota redistributes.
     if case.get("narrative"):
+        # THREE ATTEMPTS, BEST KEPT.
+        #
+        # This one call populates BOTH the differential board and the
+        # timeline and the chart and the mechanism diagram and the quote --
+        # five of the six visual registers. A single malformed response used
+        # to leave every one of them empty, which collapses the episode onto
+        # ANATOMY alone: the quota's availability logic would do the right
+        # thing with the wrong facts. One LLM call deciding five registers is
+        # too much single-point failure for no retry at all.
+        #
+        # Each attempt is scored by how many structures it actually yielded,
+        # the best is kept, and a retry is told specifically what came back
+        # empty rather than just being run again identically.
+        _base_prompt = (
+            "From this REAL published clinical case text, extract only what is "
+            "actually stated. Use null for anything not present — do NOT invent.\n\n"
+            f"{case['narrative'][:2600]}\n\n"
+            "Return ONLY valid JSON (no backticks):\n"
+            '{"differentials":[["diagnosis name","EXCLUDED|PARTIAL|CONFIRMED","one-line reason"]],'
+            '"timeline":[["Day 0 or a real time label","what happened"]],'
+            '"chart_data":{"chart_type":"bar or line","title":"short title",'
+            '"y_label":"what the numbers are","labels":["label"],"values":[number]},'
+            '"anatomy":{"title":"short mechanism title","explanation":"one or two plain '
+            'sentences explaining the physical mechanism","search":"2-4 word wikimedia '
+            'search for a relevant anatomical or molecular diagram",'
+            '"pathway":["2-4 ordered steps of the physiological or metabolic chain '
+            'involved, 1-4 words each, in order"],'
+            '"blocked_step":"zero-based index of the step in pathway that failed in '
+            'this patient, or null"},'
+            '"quote":"one real sentence quoted verbatim from the text, or null"}'
+        )
+
+        def _parse_structures(raw):
+            """Raw model output -> normalised structures, or None."""
+            if not raw:
+                return None
+            raw = re.sub(r"```json|```", "", raw).strip()
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if not m:
+                return None
+            try:
+                ex = json.loads(m.group())
+            except Exception:
+                return None
+            if not isinstance(ex, dict):
+                return None
+            diffs = []
+            for row in (ex.get("differentials") or []):
+                if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]).strip():
+                    diffs.append((str(row[0]), str(row[1]),
+                                  str(row[2]) if len(row) > 2 else ""))
+            tl = []
+            for row in (ex.get("timeline") or []):
+                if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]).strip():
+                    tl.append((str(row[0]), str(row[1])))
+            cd = ex.get("chart_data") or {}
+            if isinstance(cd, dict) and cd.get("labels") and cd.get("values"):
+                try:
+                    vals = [float(v) for v in cd["values"]]
+                except (TypeError, ValueError):
+                    vals = []
+                # Every point must be a real number and the series must have
+                # at least two of them, or the chart renderer refuses it and
+                # the whole register degrades to the fallback card.
+                if len(vals) >= 2 and len(cd["labels"]) == len(vals):
+                    cd = dict(cd)
+                    cd["values"] = vals
+                else:
+                    cd = None
+            else:
+                cd = None
+            anat = ex.get("anatomy") if isinstance(ex.get("anatomy"), dict) else {}
+            anat = dict(anat or {})
+            # Normalise the mechanism chain. The ANATOMY renderer draws it as
+            # boxes-and-arrows with the failed step crossed out, so a
+            # malformed pathway must be dropped here rather than half-drawn
+            # there.
+            _pw = [str(x).strip() for x in (anat.get("pathway") or [])
+                   if str(x).strip()][:4]
+            anat["pathway"] = _pw if len(_pw) >= 2 else None
+            try:
+                _bs = int(anat.get("blocked_step"))
+                anat["blocked_step"] = _bs if (anat["pathway"] and
+                                               0 <= _bs < len(_pw)) else None
+            except (TypeError, ValueError):
+                anat["blocked_step"] = None
+            quote = ex.get("quote")
+            quote = str(quote).strip() if quote else ""
+            # A "quote" the model paraphrased is not a quote. It has to appear
+            # in the source text, or the TEXT register puts an invented
+            # sentence on screen attributed to a real paper.
+            if quote:
+                _norm = lambda t: re.sub(r"[^a-z0-9 ]", "", t.lower())
+                if _norm(quote)[:60] not in _norm(case["narrative"]):
+                    log("  Case structures: dropped a 'quote' not found verbatim "
+                        "in the source text")
+                    quote = ""
+            return {"differentials": diffs, "timeline": tl, "chart_data": cd,
+                    "anatomy": anat, "quote": quote}
+
+        def _score(st):
+            if not st:
+                return 0
+            return (min(len(st["differentials"]), 5) * 2
+                    + min(len(st["timeline"]), 6) * 2
+                    + (3 if st["chart_data"] else 0)
+                    + (2 if st["anatomy"].get("pathway") else 0)
+                    + (1 if st["anatomy"].get("explanation") else 0)
+                    + (2 if st["quote"] else 0))
+
+        best, best_score = None, -1
+        for attempt in range(3):
+            prompt = _base_prompt
+            if best is not None:
+                missing = [k for k, ok in (
+                    ("differentials", best["differentials"]),
+                    ("timeline", best["timeline"]),
+                    ("chart_data", best["chart_data"]),
+                    ("pathway", best["anatomy"].get("pathway")),
+                    ("quote", best["quote"])) if not ok]
+                if not missing:
+                    break
+                prompt += ("\n\nThe previous attempt returned nothing for: "
+                           + ", ".join(missing)
+                           + ". Look again specifically for those. If the text "
+                             "genuinely does not contain one, leave it null — "
+                             "do not invent it.")
+            try:
+                st = _parse_structures(ai_generate(prompt, tokens=900))
+            except Exception as e:
+                log(f"  Case structure extraction attempt {attempt+1} failed: {e}")
+                st = None
+            sc = _score(st)
+            if sc > best_score:
+                best, best_score = st, sc
+            if sc >= 12:            # enough for a full visual mix
+                break
+
+        if best:
+            case.update(best)
+            log(f"  Case structures (score {best_score}): "
+                f"{len(best['differentials'])} differentials, "
+                f"{len(best['timeline'])} timeline events, "
+                f"chart={'yes' if best['chart_data'] else 'no'}, "
+                f"pathway={'yes' if best['anatomy'].get('pathway') else 'no'}, "
+                f"quote={'yes' if best['quote'] else 'no'}")
+        else:
+            log("  Case structures: all 3 extraction attempts failed — "
+                "the episode will run on ANATOMY and FIGURE only")
+
+    # ── Step 2b: prove the figures are actually fetchable ────────────────
+    # The visual quota schedules ~30% of the episode as FIGURE segments based
+    # on case["figures"], which is METADATA parsed from the article XML. If
+    # the binaries then fail to download, that share is already committed to
+    # a register with nothing to show and every one of those segments
+    # silently renders the fallback card -- the same shape as the CHART
+    # defect, and equally invisible because the fallback logs as success.
+    #
+    # Downloading up front and pruning to what actually landed means the
+    # quota is built from the truth. It costs nothing extra: these are the
+    # same files the renderer would fetch anyway, cached under the same
+    # names it looks for.
+    if case.get("figures"):
         try:
-            extract_prompt = (
-                "From this REAL published clinical case text, extract only what is "
-                "actually stated. Use null for anything not present — do NOT invent.\n\n"
-                f"{case['narrative'][:2600]}\n\n"
-                "Return ONLY valid JSON (no backticks):\n"
-                '{"differentials":[["diagnosis name","EXCLUDED|PARTIAL|CONFIRMED","one-line reason"]],'
-                '"timeline":[["Day 0 or a real time label","what happened"]],'
-                '"chart_data":{"chart_type":"bar or line","title":"short title",'
-                '"y_label":"what the numbers are","labels":["label"],"values":[number]},'
-                '"anatomy":{"title":"short mechanism title","explanation":"one or two plain '
-                'sentences explaining the physical mechanism","search":"2-4 word wikimedia '
-                'search for a relevant anatomical or molecular diagram",'
-                '"pathway":["2-4 ordered steps of the physiological or metabolic chain '
-                'involved, 1-4 words each, in order"],'
-                '"blocked_step":"zero-based index of the step in pathway that failed in '
-                'this patient, or null"},'
-                '"quote":"one real sentence quoted verbatim from the text, or null"}'
-            )
-            raw = ai_generate(extract_prompt, tokens=900)
-            if raw:
-                raw = re.sub(r"```json|```", "", raw).strip()
-                m = re.search(r"\{[\s\S]*\}", raw)
-                if m:
-                    ex = json.loads(m.group())
-                    # Normalise to the tuple shapes the renderers expect, and
-                    # drop anything malformed rather than passing it through.
-                    diffs = []
-                    for row in (ex.get("differentials") or []):
-                        if isinstance(row, (list, tuple)) and len(row) >= 2:
-                            diffs.append((str(row[0]), str(row[1]),
-                                          str(row[2]) if len(row) > 2 else ""))
-                    tl = []
-                    for row in (ex.get("timeline") or []):
-                        if isinstance(row, (list, tuple)) and len(row) >= 2:
-                            tl.append((str(row[0]), str(row[1])))
-                    cd = ex.get("chart_data") or {}
-                    if not (isinstance(cd, dict) and cd.get("labels") and cd.get("values")
-                            and len(cd["labels"]) == len(cd["values"]) and len(cd["labels"]) >= 2):
-                        cd = None
-                    case["differentials"] = diffs
-                    case["timeline"] = tl
-                    case["chart_data"] = cd
-                    anat = ex.get("anatomy") or {}
-                    # Normalise the mechanism chain. The ANATOMY renderer draws
-                    # it as boxes-and-arrows with the failed step crossed out,
-                    # so a malformed pathway must be dropped here rather than
-                    # half-drawn there.
-                    _pw = [str(s).strip() for s in (anat.get("pathway") or [])
-                           if str(s).strip()][:4]
-                    anat["pathway"] = _pw if len(_pw) >= 2 else None
-                    try:
-                        _bs = int(anat.get("blocked_step"))
-                        anat["blocked_step"] = _bs if (anat["pathway"] and
-                                                       0 <= _bs < len(_pw)) else None
-                    except (TypeError, ValueError):
-                        anat["blocked_step"] = None
-                    case["anatomy"] = anat
-                    case["quote"] = ex.get("quote") or ""
-                    log(f"  Case structures: {len(diffs)} differentials, {len(tl)} timeline "
-                        f"events, chart={'yes' if cd else 'no'}, "
-                        f"quote={'yes' if case['quote'] else 'no'}")
+            from pmc_data import prefetch_figures
+            WORK_DIR.mkdir(parents=True, exist_ok=True)
+            case = prefetch_figures(case, str(WORK_DIR), log_fn=log)
         except Exception as e:
-            log(f"  Case structure extraction (non-fatal): {e}")
+            log(f"  Figure prefetch (non-fatal): {e}")
 
     # Make the case available to the per-segment renderers deep inside
     # get_stage_matched_video (see the EPISODE CASE HOLDER note above).

@@ -666,7 +666,11 @@ def render_medical_segment(register, case, segment_text, duration, index,
                 # Rotate through available figures so a 6-figure paper shows
                 # all six across its ~20 FIGURE segments rather than one.
                 fig = figs[variant % len(figs)]
-                local = work / f"pmcfig_{variant % len(figs)}.jpg"
+                # prefetch_figures already downloaded and validated these and
+                # recorded where each one landed. The path fallback keeps the
+                # renderer usable standalone (tests, other callers).
+                local = Path(fig.get("local_path")
+                             or (work / f"pmcfig_{variant % len(figs)}.jpg"))
                 if not local.exists():
                     from pmc_data import download_figure
                     if not download_figure(fig, str(local), log_fn=log_fn):

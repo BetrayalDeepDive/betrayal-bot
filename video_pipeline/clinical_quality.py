@@ -104,26 +104,102 @@ def duration_check(words):
 # 1,953-word script at 1.29/10 specificity -- becoming the sole reason the
 # only attempt to pass every other gate was blocked. The metric was wrong,
 # not the script.
-_NUMWORD = (r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
-            r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
-            r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
-            r"thousand)(?:[-\s](?:one|two|three|four|five|six|seven|eight|nine|"
-            r"ten|hundred|thousand|and))*")
+# Spelled-out numbers, including compounds. The continuation group used to
+# allow only one..ten, hundred, thousand and "and" -- so "one hundred and
+# forty micromoles per litre", a completely ordinary reported value, matched
+# as far as "one hundred and" and then stopped, missing the unit and scoring
+# nothing. Every tens word is now a legal continuation, which is what
+# English actually does.
+_NUMWORD_ATOM = (r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|"
+                 r"twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+                 r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
+                 r"ninety|hundred|thousand|million)")
+_NUMWORD = rf"(?:{_NUMWORD_ATOM}(?:[-\s](?:{_NUMWORD_ATOM}|and))*)"
 _NUM = rf"(?:\d+(?:[.,]\d+)?|{_NUMWORD})"
 
-_UNIT = (r"(?:mg|mcg|µg|ug|g|kg|ml|mL|l|L|litres?|liters?|mmol|mol|mEq|meq|"
-         r"milliequivalents?|millimol\w*|mmHg|millimet\w*|mm|cm|centimet\w*|"
-         r"IU|U/L|U/l|ng|pg|%|percent|beats?|bpm|degrees?|grams?|kilograms?)")
+# Units. The first list was assembled from memory and had a hole big enough
+# to change the score: it contained `mmol` and `millimol\w*` but NOT
+# micromoles -- and "micromoles per litre" is the single most common unit in
+# the biochemistry these cases turn on. Measured on a realistic 1,193-word
+# clinical narration, that one gap alone lost every serum and bilirubin
+# concentration in the script.
+_UNIT = (r"(?:mg|mcg|µg|ug|ng|pg|g|kg|ml|mL|l|L|dL|dl|litres?|liters?|"
+         r"mmol|micromol\w*|millimol\w*|nanomol\w*|µmol|umol|mol|mEq|meq|"
+         r"milliequivalents?|mmHg|kPa|millimet\w*|mm|cm|centimet\w*|"
+         r"IU|U/L|U/l|units?\s+per\s+litre|%|percent|"
+         r"beats?|bpm|degrees?|celsius|centigrade|"
+         r"grams?|kilograms?|micrograms?|milligrams?|nanograms?|"
+         r"cells?\s+per|copies\s+per|per\s+litre|per\s+decilitre)")
 
-_LAB_VALUE = re.compile(rf"\b{_NUM}\s?{_UNIT}\b", re.I)
+_LAB_VALUE = re.compile(rf"\b{_NUM}\s?(?:per\s+)?{_UNIT}\b", re.I)
+
+# A decimal spoken aloud. build_script_prompt requires numbers to be written
+# as words for TTS, so a real reported value like an INR of 2.8 or a pH of
+# 7.1 reaches the script as "two point eight" -- carrying no unit and
+# therefore invisible to _LAB_VALUE. These are among the most specific
+# statements a clinical script can make and were scoring zero.
+_SPOKEN_DECIMAL = re.compile(rf"\b{_NUMWORD}\s+point\s+{_NUMWORD}\b", re.I)
+
 _AGE = re.compile(rf"\b{_NUM}[-\s]year[-\s]old\b", re.I)
 _TIMEPOINT = re.compile(rf"\b(?:day|hour|week|month|year)s?\s+{_NUM}\b|"
                         rf"\b{_NUM}\s+(?:day|hour|week|month|year)s?\b|"
                         rf"\bon the {_NUM}(?:st|nd|rd|th)?\s+day\b", re.I)
 _CLINICAL_NOUN = re.compile(
-    r"\b(?:diagnosis|diagnosed|presented|presentation|admitted|admission|"
-    r"biopsy|serum|plasma|imaging|scan|MRI|CT|ECG|EEG|ultrasound|"
-    r"differential|prognosis|histology|titre|titer|culture|assay)\b")
+    r"\b(?:diagnosis|diagnosed|diagnostic|presented|presentation|admitted|"
+    r"admission|discharged|biopsy|serum|plasma|imaging|scan|MRI|CT|ECG|EEG|"
+    r"ultrasound|echocardiogram|radiograph|endoscopy|colonoscopy|"
+    r"differential|prognosis|histology|histological|titre|titer|culture|"
+    r"cultures|assay|enzyme|antibody|antibodies|marker|biomarker|mutation|"
+    r"genotype|sequencing|panel|screening|referral|coagulopathy|"
+    r"electrolytes?|metabolite|metabolic|workup|work-up)\b", re.I)
+
+# A named mechanism, enzyme, syndrome or disease. A script that says
+# "galactose-1-phosphate uridylyltransferase" is being vastly more specific
+# than one that says "an enzyme", and no amount of unit-matching sees the
+# difference. Matched structurally rather than from a word list, because a
+# word list for all of medicine is not maintainable.
+_TECHNICAL_TERM = re.compile(
+    r"\b(?:[a-z]+(?:-[a-z0-9]+){1,}(?:ase|ine|ide|ate|ol)?"
+    r"|[a-z]{6,}(?:ase|aemia|emia|osis|itis|pathy|oma|opathy|uria|plasia))\b")
+
+
+# Density of concrete clinical detail, per 100 words, that earns full marks.
+#
+# CALIBRATION, WITH THE ACTUAL MEASUREMENTS
+# -----------------------------------------
+# The first value was 6.0, chosen with no evidence at all. The second was
+# 3.0, chosen against two references. Both were measured with a DETECTOR
+# THAT WAS ITSELF BROKEN, which made the threshold meaningless either way:
+#
+#   * it had no unit for micromoles -- the single most common unit in the
+#     biochemistry these cases turn on
+#   * its spelled-number pattern allowed only one..ten as a continuation, so
+#     "one hundred and forty micromoles per litre" matched as far as "one
+#     hundred and" and stopped, missing the unit entirely
+#   * it could not see a spoken decimal ("an INR of two point eight"), even
+#     though the prompt REQUIRES numbers to be spelled out for TTS
+#   * it had no notion of a named mechanism, so a script saying
+#     "galactose-1-phosphate uridylyltransferase" scored the same as one
+#     saying "an enzyme"
+#
+# Re-measured with the detector fixed:
+#
+#   0.00 /100w   non-clinical documentary narration -- the floor, what
+#                storytelling prose with no clinical content looks like
+#   3.94 /100w   a realistic 1,193-word clinical episode of the kind this
+#                channel exists to make: real values, real timepoints, a
+#                full differential, named mechanisms
+#  14.66 /100w   synthetic prose that is nothing but clinical facts, which
+#                reads as a list and nobody would watch
+#
+# 4.5 places that target episode at 8.8/10 -- clearly good, with headroom
+# left for a denser one -- while remaining unreachable by anything that is
+# merely storytelling and well short of the unwatchable ceiling.
+#
+# Honest limitation: the 3.94 reference is ONE sample. It is the right KIND
+# of evidence, which the previous two numbers were not, but the threshold
+# should be revisited once several real accepted scripts have been measured.
+SPECIFICITY_TARGET_PER_100W = 4.5
 
 
 def clinical_specificity(script, max_points=2.8):
@@ -142,30 +218,18 @@ def clinical_specificity(script, max_points=2.8):
     words = max(1, len(script.split()))
     counts = {
         "values":     len(_LAB_VALUE.findall(script)),
+        "decimals":   len(_SPOKEN_DECIMAL.findall(script)),
         "ages":       len(_AGE.findall(script)),
         "timepoints": len(_TIMEPOINT.findall(script)),
+        # Unique, not total: counting every occurrence would reward saying
+        # "diagnosis" forty times, which is padding wearing a lab coat.
         "clinical":   len(set(m.lower() for m in _CLINICAL_NOUN.findall(script))),
+        "technical":  len(set(m.lower() for m in _TECHNICAL_TERM.findall(script))),
     }
-    hits = counts["values"] + counts["ages"] + counts["timepoints"] + counts["clinical"]
+    hits = sum(counts.values())
     per100 = hits / (words / 100.0)
-    # Threshold for full marks: 3.0 concrete details per 100 words.
-    #
-    # The first value here was 6.0, chosen with no evidence at all. Measured
-    # references, all on real or realistic prose:
-    #   0.79 /100w  a real 1,776-word dark-documentary narration from this
-    #               channel's previous incarnation -- i.e. what NON-clinical
-    #               storytelling prose looks like, the floor to beat
-    #   10.5 /100w  synthetic prose that is nothing but clinical facts, which
-    #               reads as a list rather than narration
-    # Real clinical narration lives between those, closer to the bottom,
-    # because it must also tell a story. 3.0 is ~4x the non-clinical floor
-    # and comfortably under the unreadable ceiling, so it discriminates
-    # without demanding prose nobody would watch.
-    #
-    # Still calibrated on limited data. Revisit once several real clinical
-    # scripts have been measured -- but the sanity check is fixed: a script
-    # scoring like generic storytelling should not earn these points.
-    score = max_points * min(1.0, per100 / 3.0)
+    # See SPECIFICITY_TARGET_PER_100W for the calibration and its evidence.
+    score = max_points * min(1.0, per100 / SPECIFICITY_TARGET_PER_100W)
     counts["per_100_words"] = round(per100, 2)
     return round(score, 2), counts
 

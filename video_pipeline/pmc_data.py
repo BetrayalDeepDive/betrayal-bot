@@ -34,6 +34,7 @@ is verified against mocked responses; real end-to-end verification happens
 on the GitHub Actions runner where the pipeline actually executes.
 """
 import re
+import time
 import random
 import requests
 
@@ -54,7 +55,12 @@ FIGURE_URL = "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/bin/{fname}"
 # silently cost the FIGURE register 30% of the visual mix on every episode,
 # with nothing in the log to say why. Europe PMC mirrors the same binaries
 # under its own host, so a second pattern is cheap insurance.
+# pmc.ncbi.nlm.nih.gov is the CANONICAL host: PMC moved off
+# www.ncbi.nlm.nih.gov/pmc/... and the old path now redirects. It is listed
+# first because relying on a redirect for the one asset that differentiates
+# this channel is a needless dependency.
 FIGURE_URL_PATTERNS = (
+    "https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/bin/{fname}",
     "https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/bin/{fname}",
     "https://europepmc.org/articles/{pmcid}/bin/{fname}",
 )
@@ -369,7 +375,7 @@ def extract_figures(xml, pmcid):
     return figures
 
 
-def download_figure(figure, out_path, min_bytes=15000, log_fn=None):
+def download_figure(figure, out_path, min_bytes=6000, log_fn=None, retries=2):
     """
     Fetch one screened figure to disk, trying each known URL pattern.
 
@@ -377,9 +383,21 @@ def download_figure(figure, out_path, min_bytes=15000, log_fn=None):
     log_fn, because a silent False here is indistinguishable from "this
     paper had no figures" -- and those two need very different responses.
 
-    Checks Content-Type as well as size: a CDN error page can exceed
-    min_bytes while being HTML, which would land a text file on disk with
-    a .jpg name and fail later inside the renderer instead of here.
+    Three checks, in increasing strength:
+      * HTTP status
+      * Content-Type is an image (a CDN error page can exceed min_bytes
+        while being HTML, which would land a text file on disk with a .jpg
+        name and fail later inside the renderer instead of here)
+      * the bytes actually DECODE as an image, and are large enough to fill
+        a 1920x1080 frame without looking like a thumbnail
+
+    min_bytes dropped from 15000 to 6000 because a clean line diagram --
+    exactly the kind of figure this channel most wants -- compresses very
+    small, and the real test is now whether PIL can open it and what its
+    pixel dimensions are, not its file size.
+
+    Transient failures are retried: a single timeout against one host should
+    not cost the episode its only real figure.
     """
     fname = figure.get("filename") or ""
     pmcid = figure.get("pmcid") or ""
@@ -389,25 +407,105 @@ def download_figure(figure, out_path, min_bytes=15000, log_fn=None):
             u = pat.format(pmcid=pmcid, fname=fname)
             if u not in urls:
                 urls.append(u)
+
     for u in urls:
-        try:
-            r = requests.get(u, headers=_headers(), timeout=30)
-            ctype = (r.headers.get("Content-Type") or "").lower()
+        for attempt in range(retries):
+            try:
+                r = requests.get(u, headers=_headers(), timeout=30)
+            except Exception as e:
+                if log_fn:
+                    log_fn(f"    figure fetch error {type(e).__name__} {u[:70]}")
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            if r.status_code in (429, 500, 502, 503, 504) and attempt + 1 < retries:
+                time.sleep(1.5 * (attempt + 1))
+                continue
             if r.status_code != 200:
-                if log_fn: log_fn(f"    figure {r.status_code} {u[:88]}")
-                continue
+                if log_fn:
+                    log_fn(f"    figure {r.status_code} {u[:88]}")
+                break
+            ctype = (r.headers.get("Content-Type") or "").lower()
             if "image" not in ctype:
-                if log_fn: log_fn(f"    figure not an image ({ctype or 'no type'}) {u[:70]}")
-                continue
+                if log_fn:
+                    log_fn(f"    figure not an image ({ctype or 'no type'}) {u[:70]}")
+                break
             if len(r.content) <= min_bytes:
-                if log_fn: log_fn(f"    figure too small ({len(r.content)}B) {u[:70]}")
-                continue
+                if log_fn:
+                    log_fn(f"    figure too small ({len(r.content)}B) {u[:70]}")
+                break
+            if not _decodes_as_usable_image(r.content, log_fn, u):
+                break
             with open(out_path, "wb") as f:
                 f.write(r.content)
             return True
-        except Exception as e:
-            if log_fn: log_fn(f"    figure fetch error {type(e).__name__} {u[:70]}")
     return False
+
+
+def _decodes_as_usable_image(content, log_fn=None, url=""):
+    """
+    The bytes must open as an image AND be big enough to fill a frame.
+
+    Content-Type is set by the server and can be wrong; this is the only
+    check that cannot be fooled. A 120x90 thumbnail is technically a valid
+    image and would render as a postage stamp in the middle of a 1080p
+    frame, which looks like a failure even though every earlier check passed.
+    """
+    try:
+        from io import BytesIO
+        from PIL import Image
+        img = Image.open(BytesIO(content))
+        img.verify()
+        img = Image.open(BytesIO(content))
+        w, h = img.size
+    except Exception as e:
+        if log_fn:
+            log_fn(f"    figure does not decode ({type(e).__name__}) {url[:70]}")
+        return False
+    if w < 320 or h < 240:
+        if log_fn:
+            log_fn(f"    figure too low-resolution ({w}x{h}) {url[:70]}")
+        return False
+    return True
+
+
+def prefetch_figures(case, work_dir, log_fn=None, prefix="pmcfig"):
+    """
+    Download every screened figure UP FRONT and keep only the ones that
+    actually landed on disk.
+
+    WHY THIS MATTERS MORE THAN IT LOOKS
+    -----------------------------------
+    The visual quota decides how many FIGURE segments to schedule from
+    `case["figures"]`, which is METADATA parsed out of the article XML. If
+    the binaries then fail to download, the quota has already committed ~30%
+    of the episode to a register with nothing to show, and every one of
+    those segments silently renders the plain fallback card.
+
+    That is exactly the failure mode the CHART register had -- a whole
+    register scheduled against nothing, degrading to a card that logs as a
+    success. It is invisible unless something checks, so this checks: after
+    this call, `case["figures"]` contains only figures whose bytes are on
+    disk and decode as usable images, and the quota is built from the truth.
+    """
+    figs = list(case.get("figures") or [])
+    if not figs:
+        return case
+    kept = []
+    from pathlib import Path as _P
+    for i, fig in enumerate(figs):
+        dest = _P(work_dir) / f"{prefix}_{len(kept)}.jpg"
+        if download_figure(fig, str(dest), log_fn=log_fn):
+            fig = dict(fig)
+            fig["local_path"] = str(dest)
+            kept.append(fig)
+        elif log_fn:
+            log_fn(f"    figure {i+1}/{len(figs)} unavailable "
+                   f"({fig.get('label') or fig.get('filename') or '?'})")
+    case["figures"] = kept
+    if log_fn:
+        log_fn(f"  Figures on disk: {len(kept)}/{len(figs)} "
+               f"({'FIGURE register disabled' if not kept else 'ok'})")
+    return case
 
 
 def build_citation(article):
