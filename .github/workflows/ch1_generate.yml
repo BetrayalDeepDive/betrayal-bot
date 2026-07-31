@@ -127,6 +127,22 @@ jobs:
             exit 1
           fi
           echo "no undefined names"
+
+      # Every renderer, driven through 25 structurally different case shapes,
+      # with the invariants checked on the PIXELS. This exists because "it
+      # rendered without raising" has never been the same thing as "it
+      # rendered correctly" on this channel: the CHART register produced a
+      # fallback card on 29% of a shipped episode, a two-point bar chart drew
+      # half of itself outside the frame, and a fourteen-event timeline
+      # stopped at day six with the diagnosis off screen. All three logged as
+      # success. ~70s, no network, no API spend.
+      - name: Preflight — fuzz the case shape
+        run: |
+          python tools/fuzz_case_shapes.py --render-dir "${RUNNER_TEMP}/fuzz" || {
+            echo "::error::a renderer breaks on a real case shape — see the failures above"
+            exit 1
+          }
+
       - name: Pull latest state
         run: |
           git config user.email "action@github.com"

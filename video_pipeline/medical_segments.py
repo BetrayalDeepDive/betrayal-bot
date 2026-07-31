@@ -197,6 +197,39 @@ def _fmt_value(v):
     return f"{f:.1f}"
 
 
+def _nice_ticks(lo, hi, want=5):
+    """
+    Round tick values spanning [lo, hi].
+
+    The first version labelled the gridlines with raw fractions of the data
+    range, so a real series produced an axis reading 1411.8 / 1039.6 / 667.5
+    / 295.4 / -76.8. Nobody reads a value off that, and the bottom label is a
+    negative bilirubin -- a number that cannot exist -- printed on a channel
+    whose entire claim is that the numbers are the paper's own.
+    """
+    span = float(hi) - float(lo)
+    if span <= 0:
+        span = abs(float(hi)) or 1.0
+    raw = span / max(1, want - 1)
+    mag = 10.0 ** math.floor(math.log10(raw)) if raw > 0 else 1.0
+    step = 10.0 * mag
+    for m in (1, 2, 2.5, 5, 10):
+        if raw <= m * mag:
+            step = m * mag
+            break
+    # Cover [lo, hi] completely: the top tick must be at or above the largest
+    # value, or the tallest bar runs past the last gridline and reads as
+    # off-the-chart.
+    v, top = math.floor(lo / step) * step, math.ceil(hi / step) * step
+    out = []
+    while v <= top + step * 0.001 and len(out) < 16:
+        out.append(round(v, 10))
+        v += step
+    if len(out) < 2:
+        out = [lo, hi]
+    return out
+
+
 def render_chart_still(chart_type, title, labels, values, out_path,
                        y_label="", niche_label="NO KNOWN CAUSE",
                        progress=1.0, citation=""):
@@ -239,34 +272,84 @@ def render_chart_still(chart_type, title, labels, values, out_path,
     if y_label:
         d.text((90, 182), _clip_words(str(y_label), 70), font=_f(27, False), fill=DIM)
 
-    # B leaves room for BOTH the x-axis labels (B+18) and the CC BY credit
+    # B leaves room for BOTH the x-axis labels (B+26) and the CC BY credit
     # below them. At CONTENT_BOTTOM-60 the credit was drawn straight through
     # "Day 3 / Day 6 / Day 9" -- visible the moment the caption safe-zone
     # push moved them into each other.
-    L, R, T, B = 150, W - 110, 250, CONTENT_BOTTOM - 105
-    lo, hi = min(nums), max(nums)
-    if hi == lo:
-        hi, lo = hi + 1, lo - 1
-    pad = (hi - lo) * 0.15
-    lo, hi = lo - pad, hi + pad
+    T, B = 250, CONTENT_BOTTOM - 105
+    is_bar = str(chart_type).lower().startswith("bar")
+
+    # AXIS RANGE.
+    #
+    # The old range was min-15% .. max+15% unconditionally, which invented
+    # impossible readings for every strictly positive clinical series: a
+    # bilirubin axis that bottomed out at -76.8, a cell count at -1,854,825.
+    # A bar chart additionally MUST be zero-based -- a bar whose baseline is
+    # not zero misrepresents the ratio between its bars, which on this
+    # channel would be misrepresenting the patient's own values.
+    dlo, dhi = min(nums), max(nums)
+    if is_bar:
+        # 8% headroom above the tallest bar so the callout badge has somewhere
+        # to sit other than on top of the bar it is labelling.
+        lo, hi = min(0.0, dlo * 1.08), max(0.0, dhi * 1.08)
+    else:
+        pad = (dhi - dlo) * 0.15 or (abs(dhi) * 0.1 or 1.0)
+        lo, hi = dlo - pad, dhi + pad
+        if dlo >= 0:
+            lo = max(0.0, lo)       # never below zero for non-negative data
+    if hi <= lo:
+        hi, lo = lo + 1.0, lo - 1.0
+    ticks = _nice_ticks(lo, hi)
+    lo, hi = ticks[0], ticks[-1]
+    if hi <= lo:
+        hi = lo + 1.0
+
+    # LEFT GUTTER, measured rather than assumed.
+    #
+    # Tick labels were drawn at a fixed x = L-130. "14,259,325" is wider than
+    # that, so it ran off the left edge of the frame; the fuzz run caught ink
+    # at x=0 on every wide-value series.
+    f_tick = _f(24, False)
+    gutter = max(int(d.textlength(_fmt_value(v), font=f_tick)) for v in ticks)
+    L = min(90 + gutter + 22, 460)
+    R = W - 110
 
     def py(v):
         return B - (v - lo) / (hi - lo) * (B - T)
 
     # Gridlines with real value labels -- an unlabelled grid is decoration.
-    for k in range(5):
-        v = lo + (hi - lo) * k / 4.0
+    for v in ticks:
         gy = py(v)
+        if gy < T - 1 or gy > B + 1:
+            continue
         d.line([(L, gy), (R, gy)], fill=EDGE, width=1)
-        d.text((L - 130, gy - 15), _fmt_value(v), font=_f(24, False), fill=DIM)
+        t = _fmt_value(v)
+        tw = d.textlength(t, font=f_tick)
+        # Right-aligned into the gutter, and lifted off the baseline so the
+        # bottom tick does not sit in the x-label row.
+        ty = min(gy - 15, B - 30) if abs(gy - B) < 16 else gy - 15
+        d.text((L - 18 - tw, ty), t, font=f_tick, fill=DIM)
     d.line([(L, T), (L, B)], fill=EDGE, width=2)
     d.line([(L, B), (R, B)], fill=EDGE, width=2)
 
     # At least two points, so the register never renders as a single dot on
     # an empty grid -- which is what the first two CHART segments looked like.
     shown = max(2, min(n, math.ceil(progress * n)))
-    step = (R - L) / (n - 1) if n > 1 else 0
     f_lab = _f(25, False)
+
+    # X POSITIONS.
+    #
+    # Bars live in slots; points sit on the axis ends. Bars were previously
+    # centred on the point positions, so on a two-point series the first bar
+    # was centred on the y-axis and the last on the right edge and BOTH ran
+    # off the frame -- half the chart drawn outside the picture.
+    if is_bar:
+        slot = (R - L) / n
+        xs = [L + slot * (i + 0.5) for i in range(n)]
+        bw = max(14.0, min(slot * 0.62, 150.0))
+    else:
+        step = (R - L) / (n - 1) if n > 1 else 0
+        xs = [L + step * i for i in range(n)]
 
     # NOTHING PAST THE REVEAL IS DRAWN.
     #
@@ -277,37 +360,40 @@ def render_chart_still(chart_type, title, labels, values, out_path,
     # showed the viewer that the child gets better. The axes are already
     # fixed to the full series range, so nothing shifts position anyway;
     # the guide bought nothing and gave away the ending.
-    if str(chart_type).lower().startswith("bar"):
-        bw = max(18, int(step * 0.5))
+    if is_bar:
+        zero = py(max(lo, min(hi, 0.0)))
         for i in range(shown):
-            x = L + step * i
-            d.rectangle([x - bw / 2, py(nums[i]), x + bw / 2, B], fill=TEAL)
+            top, bot = sorted((py(nums[i]), zero))
+            d.rectangle([xs[i] - bw / 2, top, xs[i] + bw / 2, bot], fill=TEAL)
     else:
-        pts = [(L + step * i, py(nums[i])) for i in range(shown)]
+        pts = [(xs[i], py(nums[i])) for i in range(shown)]
         if shown >= 2:
             d.line(pts, fill=TEAL, width=5, joint="curve")
         for x, y in pts:
             d.ellipse([x - 9, y - 9, x + 9, y + 9], fill=TEAL,
                       outline=TEAL, width=3)
 
-    # x labels, thinned so they never collide
+    # x labels, thinned so they never collide, and clamped inside the frame
+    # so the last one cannot hang off the right edge.
     every = max(1, n // 8)
     for i in range(n):
         if i % every and i != n - 1:
             continue
-        x = L + step * i
         t = _clip_words(str(labels[i]), 12)
         tw = d.textlength(t, font=f_lab)
-        d.text((x - tw / 2, B + 18), t, font=f_lab,
+        tx = min(max(xs[i] - tw / 2, 90), W - 90 - tw)
+        d.text((tx, B + 26), t, font=f_lab,
                fill=TEXT_C if i < shown else DIM)
 
     # Call out the value the narration has just reached.
     i = shown - 1
-    vx, vy = L + step * i, py(nums[i])
+    vx, vy = xs[i], py(nums[i])
     vt = _fmt_value(nums[i])
     vw = d.textlength(vt, font=_f(38))
-    bx0, by0 = vx - vw / 2 - 18, vy - 82
-    d.rectangle([bx0, by0, bx0 + vw + 36, by0 + 54], fill=PANEL, outline=TEAL, width=2)
+    bw_box = vw + 36
+    bx0 = min(max(vx - bw_box / 2, L + 4), W - 90 - bw_box)
+    by0 = vy - 82 if vy - 82 >= T + 4 else min(vy + 26, B - 58)
+    d.rectangle([bx0, by0, bx0 + bw_box, by0 + 54], fill=PANEL, outline=TEAL, width=2)
     d.text((bx0 + 18, by0 + 8), vt, font=_f(38), fill=TEAL)
 
     cred = short_credit(citation)
@@ -318,6 +404,28 @@ def render_chart_still(chart_type, title, labels, values, out_path,
 
 
 # ── BOARD ──────────────────────────────────────────────────────────────────
+def _cap_differentials(rows, cap=5):
+    """
+    Trim a differential list to what fits on the board WITHOUT losing the
+    answer.
+
+    The old code took the first N. Fuzzing a nine-differential case showed
+    what that costs: a real paper lists the candidates roughly in the order
+    they were considered, so the diagnosis that was finally CONFIRMED is
+    usually near the END of the list -- exactly the row a head-slice throws
+    away. A differential board whose confirmed row has been silently dropped
+    is not a shortened board, it is a wrong one.
+    """
+    rows = list(rows or [])
+    if len(rows) <= cap:
+        return rows
+    def rank(r):
+        v = str(r[1] if len(r) > 1 else "").lower()
+        return 0 if "confirm" in v else (1 if "partial" in v else 2)
+    keep = sorted(range(len(rows)), key=lambda i: (rank(rows[i]), i))[:cap]
+    return [rows[i] for i in sorted(keep)]
+
+
 def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE",
                        progress=1.0):
     """
@@ -337,7 +445,7 @@ def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE",
     # narration is both the fix and the correct documentary device: the
     # viewer watches the possibilities get eliminated as the team eliminates
     # them, instead of being shown the answer and then told the story.
-    rows_all = differentials[:5]
+    rows_all = _cap_differentials(differentials, 5)
     resolved = max(1, min(len(rows_all), int(round(progress * len(rows_all)))))
 
     # WHAT IS REVEALED IS THE VERDICT, NOT THE CANDIDATE.
@@ -856,7 +964,7 @@ def render_vertical_card(kind, case, out_path, headline="",
                        fill=TEAL)
 
         elif kind == "board":
-            rows = (case.get("differentials") or [])[:4]
+            rows = _cap_differentials(case.get("differentials"), 4)
             if not rows:
                 return render_vertical_card("statement", case, out_path,
                                             headline, niche_label)
@@ -880,14 +988,20 @@ def render_vertical_card(kind, case, out_path, headline="",
                 y += 170
 
         elif kind == "timeline":
-            events = (case.get("timeline") or [])[:5]
+            events, _kept = mfr.condense_timeline(case.get("timeline"), 5)
             if len(events) < 2:
                 return render_vertical_card("statement", case, out_path,
                                             headline, niche_label)
             _heading("CLINICAL COURSE", 54)
             live = max(1, min(len(events), int(round(progress * len(events)))))
             spine = 108
-            step = (V_CONTENT_BOTTOM - y - 60) / max(1, len(events) - 1)
+            # The reserve below the LAST dot has to cover that event's own
+            # description, not just the dot. At 60 it covered a one-line
+            # description only, so any event whose text wrapped to two lines
+            # pushed ink past the safe bottom and into the Shorts caption --
+            # invisible until the condensed timeline happened to end on a
+            # longer event. Two lines of 36px plus the 4px offset is 76.
+            step = (V_CONTENT_BOTTOM - y - 92) / max(1, len(events) - 1)
             d.line([(spine, y), (spine, y + step * (len(events) - 1))],
                    fill=EDGE, width=4)
             for i, (day, desc) in enumerate(events):
@@ -914,18 +1028,38 @@ def render_vertical_card(kind, case, out_path, headline="",
                                             headline, niche_label)
             nums = [float(v) for v in values[:n]]
             _heading(_clip_words(str(cd.get("title", "REPORTED VALUES")).upper(), 34), 50)
-            L, R = 190, VW - 90
+            R = VW - 90
             T, B = y + 40, V_CONTENT_BOTTOM - 120
-            lo, hi = min(nums), max(nums)
-            if hi == lo:
-                hi, lo = hi + 1, lo - 1
-            pad = (hi - lo) * 0.15
-            lo, hi = lo - pad, hi + pad
+            # Same axis rules as the horizontal chart: round tick values, and
+            # never a floor below zero for non-negative data. The old
+            # min-15%..max+15% padding printed a negative bilirubin under a
+            # curve of the patient's real bilirubin.
+            dlo, dhi = min(nums), max(nums)
+            pad = (dhi - dlo) * 0.15 or (abs(dhi) * 0.1 or 1.0)
+            lo, hi = dlo - pad, dhi + pad
+            if dlo >= 0:
+                lo = max(0.0, lo)
+            if hi <= lo:
+                hi, lo = lo + 1.0, lo - 1.0
+            vticks = _nice_ticks(lo, hi, want=4)
+            lo, hi = vticks[0], vticks[-1]
+            if hi <= lo:
+                hi = lo + 1.0
             py = lambda v: B - (v - lo) / (hi - lo) * (B - T)
-            for k in range(4):
-                v = lo + (hi - lo) * k / 3.0
-                d.line([(L, py(v)), (R, py(v))], fill=EDGE, width=1)
-                d.text((40, py(v) - 18), _fmt_value(v), font=_vf(26, False), fill=DIM)
+            f_vt = _vf(26, False)
+            # The left gutter is measured, not fixed: a cell count reaching
+            # eight figures is wider than the 150px the fixed L=190 left it,
+            # and ran off the side of the Short.
+            _gut = max(int(d.textlength(_fmt_value(v), font=f_vt)) for v in vticks)
+            L = min(60 + _gut + 20, 460)
+            for v in vticks:
+                gy = py(v)
+                if gy < T - 1 or gy > B + 1:
+                    continue
+                d.line([(L, gy), (R, gy)], fill=EDGE, width=1)
+                t = _fmt_value(v)
+                d.text((L - 20 - d.textlength(t, font=f_vt), gy - 18),
+                       t, font=f_vt, fill=DIM)
             d.line([(L, T), (L, B)], fill=EDGE, width=3)
             d.line([(L, B), (R, B)], fill=EDGE, width=3)
             shown = max(2, min(n, math.ceil(progress * n)))
@@ -1012,7 +1146,13 @@ def render_vertical_background(case, out_path, duration, headline="",
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still),
                "-vf", (f"scale={VW}:{VH},zoompan=z='min(zoom+0.0004,1.08)':"
                        f"d={max(1, int(per * 24))}:s={VW}x{VH}:fps=24,"
-                       f"fade=t=in:st=0:d=0.3"),
+                       # 0.3 was a main-video fade length applied to a Short.
+                       # Measured on a real 25s assembly: with six cards it
+                       # put a visible dip to black at every one of the five
+                       # cuts, up to 0.29s each -- roughly 4% of the Short is
+                       # black, in the format least able to afford it. 0.12
+                       # still softens the cut without reading as a flash.
+                       f"fade=t=in:st=0:d=0.12"),
                "-t", f"{per:.2f}", "-c:v", "libx264", "-preset", "ultrafast",
                "-pix_fmt", "yuv420p", "-an", str(clip)]
         (run_ffmpeg(cmd, label="short-card") if run_ffmpeg

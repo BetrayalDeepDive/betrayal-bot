@@ -296,6 +296,15 @@ class RegisterQuota:
         # documentary changes what you are looking at.
         self.run_len = 0
         self.MAX_RUN = 2
+        # MAX_RUN is only keepable when there is a second register to switch
+        # to. A paper that renders exactly one register makes it arithmetically
+        # impossible, and the old code broke the cap silently -- fuzzing an
+        # empty case produced 54 identical picks with no complaint. The
+        # counter below makes the breach countable rather than invisible; the
+        # pipeline refuses such a case outright before it ever gets here.
+        self.live_registers = [r for r in self.mix if self.mix[r] > 0]
+        self.max_run_enforceable = len(self.live_registers) >= 2
+        self.forced_repeats = 0
         # TEXT is reachable by deficit-fill ONLY when the paper actually
         # supplied a quotation, and even then only a couple of times.
         #
@@ -370,6 +379,8 @@ class RegisterQuota:
                 alt = self._neediest(exclude=self.last)
                 if alt != self.last:
                     chosen = alt
+                else:
+                    self.forced_repeats += 1
 
         self.counts[chosen] += 1
         self.done += 1

@@ -1514,11 +1514,28 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
     # technique real Shorts editors use to fight scroll-past. Falls back
     # to no pattern interrupt (old behavior) if the shared module can't
     # be imported for any reason — never blocks assembly.
-    try:
-        from shorts_formats import pattern_interrupt_filter
-        vf_parts.append(pattern_interrupt_filter())
-    except Exception as e:
-        log.warning("Pattern interrupt filter unavailable (non-fatal): %s", e)
+    #
+    # NOT on a rendered clinical card. The punch is a 1.15x magnification
+    # outward from centre, on top of the card's own 1.08 pan, and every
+    # clinical card's layout is derived from that 1.08. Assembling a real
+    # Short and pulling a punch frame out of it showed the cost: the chart's
+    # y-axis read ",500" because the leading digit of "1,500" had been pushed
+    # off the left edge of the frame. On a differential board the same punch
+    # cuts the diagnosis names. A photographic background has nothing at its
+    # edges to lose; an information card is all edges.
+    #
+    # It also buys less here: this background is not a static loop, it is a
+    # sequence of different cards, so the visual change the interrupt exists
+    # to create is already happening.
+    if is_clinical_bg:
+        log.info("[SHORTS] Clinical card background — pattern-interrupt punch "
+                 "skipped (it crops the card's own labels)")
+    else:
+        try:
+            from shorts_formats import pattern_interrupt_filter
+            vf_parts.append(pattern_interrupt_filter())
+        except Exception as e:
+            log.warning("Pattern interrupt filter unavailable (non-fatal): %s", e)
 
     # The vignette is applied ONLY to fetched footage. On the clinical
     # channel the background is a rendered card -- deliberately dark already

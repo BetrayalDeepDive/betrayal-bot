@@ -297,6 +297,30 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     return Path(out_path).exists()
 
 
+def condense_timeline(events, cap=6):
+    """
+    Reduce a long clinical course to `cap` rows that still SPAN it.
+
+    Returns (rows, original_indices).
+
+    A head-slice was the old behaviour and it removed the end of the story:
+    on a fourteen-event course the frame stopped at day six, so the
+    deterioration, the diagnosis and the outcome -- the reason the episode
+    exists -- were never drawn. Sampling evenly and always keeping the first
+    and last event means the spine still runs from admission to resolution.
+    """
+    ev = list(events or [])
+    if len(ev) <= cap:
+        return ev, list(range(len(ev)))
+    idx, seen = [], set()
+    for i in range(cap):
+        k = int(round(i * (len(ev) - 1) / (cap - 1)))
+        if k not in seen:
+            seen.add(k)
+            idx.append(k)
+    return [ev[k] for k in idx], idx
+
+
 def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
                           niche_label="NO KNOWN CAUSE", reached=None):
     """
@@ -327,13 +351,22 @@ def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
     draw.text((margin + 68, 68), niche_label, font=f_eyebrow, fill=ACCENT)
     draw.text((margin, 118), title, font=f_title, fill=TEXT)
 
-    shown = events[:6]
+    shown, kept = condense_timeline(events, 6)
     if not shown:
         return False
     n = len(shown)
-    live = n if reached is None else max(1, min(n, int(reached)))
+    # `reached` counts events in the ORIGINAL list, so map it onto the rows
+    # that survived condensation. Before this, a fourteen-event case laid out
+    # only the first six and clamped reached to six, so every TIMELINE segment
+    # in the back half of the episode drew the identical fully-lit frame --
+    # and the frame it drew ended on day six, with the diagnosis and the
+    # outcome nowhere on screen.
+    live = n if reached is None else max(1, sum(1 for k in kept if k < int(reached)))
 
-    top, bottom = 230, CONTENT_BOTTOM - 40
+    # Same reserve rule as the vertical card: the bottom of the spine is the
+    # last DOT, and that event's description is drawn below it (two lines of
+    # 34px from y+2). Reserving 40 only fitted a one-line description.
+    top, bottom = 230, CONTENT_BOTTOM - 96
     spine_x = margin + 26
     draw.line([(spine_x, top), (spine_x, bottom)], fill=PANEL_EDGE, width=3)
     step = (bottom - top) / max(1, n - 1) if n > 1 else 0

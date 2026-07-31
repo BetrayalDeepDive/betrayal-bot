@@ -2875,6 +2875,36 @@ def generate_script_content(niche, topic, episode, attempt,
         except Exception as e:
             log(f"  Figure prefetch (non-fatal): {e}")
 
+    # ── Step 2c: can this paper actually be ILLUSTRATED? ─────────────────
+    # ANATOMY is procedural and therefore always "available", which means the
+    # visual quota can never report that it has nothing to work with. Fuzzing
+    # the case shape showed what that costs: on a case where extraction
+    # returned nothing and the paper had no downloadable figures, the quota
+    # scheduled ANATOMY for all fifty-four segments in a row -- thirteen
+    # minutes of one visual treatment, and a silent breach of its own
+    # MAX_RUN=2 promise, because there was no second register to alternate
+    # with.
+    #
+    # There is no scheduling fix for that; the material genuinely is not
+    # there. Returning None fails this attempt, and the retry engine moves to
+    # the next candidate paper (each attempt already carries a different one),
+    # which is the correct response to "this paper cannot carry a documentary".
+    if case.get("narrative"):
+        try:
+            from medical_register import available_from_case
+            _av = available_from_case(case)
+            _live = [r for r, ok in _av.items() if ok and r != "ANATOMY"]
+            if not _live:
+                log("  Case REJECTED: no figures, no differentials, no timeline, "
+                    "no chart values and no quote — the episode would be one "
+                    "register for its whole length. Trying the next paper.")
+                return None
+            if len(_live) == 1:
+                log(f"  Case is thin: {_live[0]} is the only register besides "
+                    f"ANATOMY. The episode will alternate between the two.")
+        except Exception as e:
+            log(f"  Register-availability check (non-fatal): {e}")
+
     # Make the case available to the per-segment renderers deep inside
     # get_stage_matched_video (see the EPISODE CASE HOLDER note above).
     set_episode_case(case)
