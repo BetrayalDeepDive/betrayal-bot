@@ -40,6 +40,8 @@ EDGE = mfr.PANEL_EDGE
 TEAL = mfr.ACCENT
 TEXT_C = mfr.TEXT
 DIM = mfr.TEXT_DIM
+# Bottom band reserved for burned-in captions -- see medical_figure_render.
+CONTENT_BOTTOM = mfr.CONTENT_BOTTOM
 RED = (192, 85, 75)
 AMBER = (195, 154, 69)
 
@@ -133,7 +135,11 @@ def render_chart_still(chart_type, title, labels, values, out_path,
     if y_label:
         d.text((90, 182), _clip_words(str(y_label), 70), font=_f(27, False), fill=DIM)
 
-    L, R, T, B = 150, W - 110, 250, H - 190
+    # B leaves room for BOTH the x-axis labels (B+18) and the CC BY credit
+    # below them. At CONTENT_BOTTOM-60 the credit was drawn straight through
+    # "Day 3 / Day 6 / Day 9" -- visible the moment the caption safe-zone
+    # push moved them into each other.
+    L, R, T, B = 150, W - 110, 250, CONTENT_BOTTOM - 105
     lo, hi = min(nums), max(nums)
     if hi == lo:
         hi, lo = hi + 1, lo - 1
@@ -202,7 +208,7 @@ def render_chart_still(chart_type, title, labels, values, out_path,
 
     cred = short_credit(citation)
     if cred:
-        d.text((90, H - 62), cred, font=_f(24, False), fill=DIM)
+        d.text((90, CONTENT_BOTTOM - 40), cred, font=_f(24, False), fill=DIM)
     c.save(out_path)
     return Path(out_path).exists()
 
@@ -244,7 +250,7 @@ def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE",
     # frame, the layout is computed for the full list so nothing moves, and
     # the verdict column fills in as the narration eliminates each one.
     y = 248
-    row_h = min(138, int((H - 300) / max(1, len(rows_all))))
+    row_h = min(138, int((CONTENT_BOTTOM - 260) / max(1, len(rows_all))))
     for i, (name, verdict, reason) in enumerate(rows_all):
         decided = i < resolved
         v = (verdict or "").lower()
@@ -294,7 +300,7 @@ def _draw_pathway(d, steps, blocked_index, progress=1.0):
     box_h = 200
     total = n * box_w + (n - 1) * gap
     x = (W - total) // 2
-    cy = 560
+    cy = 520
     live = max(1, min(n, int(round(progress * n))))
 
     # Pick ONE font size that fits every step's longest word inside the box,
@@ -351,7 +357,7 @@ def _draw_accumulation(d, progress=1.0):
     up inside a cell because the step after it is blocked. Exists so
     consecutive ANATOMY segments are not the same drawing.
     """
-    cx, cy = W // 2, 590
+    cx, cy = W // 2, 520
     d.ellipse([cx - 300, cy - 230, cx + 300, cy + 230], outline=TEAL, width=4)
     d.ellipse([cx - 110, cy - 85, cx + 110, cy + 85], outline=EDGE, width=3)
     filled = int(round(progress * 26))
@@ -369,7 +375,7 @@ def _draw_accumulation(d, progress=1.0):
 
 def _draw_radial(d):
     """Third motif: the original concentric figure, kept for rotation."""
-    cx, cy = W // 2, 600
+    cx, cy = W // 2, 520
     for r, col in ((250, EDGE), (170, TEAL)):
         d.ellipse([cx - r, cy - r, cx + r, cy + r],
                   outline=col, width=4 if col == TEAL else 2)
@@ -444,7 +450,7 @@ def render_anatomy_still(title, explanation, out_path, image_path=None,
     if explanation:
         f = _f(30, False)
         for j, line in enumerate(mfr._wrap(d, explanation, f, W - 180)[:2]):
-            d.text((90, H - 130 + j * 42), line, font=f, fill=TEXT_C)
+            d.text((90, CONTENT_BOTTOM - 96 + j * 42), line, font=f, fill=TEXT_C)
     c.save(out_path)
     return Path(out_path).exists()
 
@@ -465,7 +471,7 @@ def render_text_still(quote, out_path, attribution="From the source paper",
     f = _f(72)
     lines = mfr._wrap(d, f'“{q}”', f, W - 300)[:6]
     emph_from = max(1, int(len(lines) * 0.66))
-    y = max(280, (H - len(lines) * 104) // 2)
+    y = max(280, (CONTENT_BOTTOM - len(lines) * 104) // 2)
     for i, line in enumerate(lines):
         d.text((150, y), line, font=f, fill=TEAL if i >= emph_from else TEXT_C)
         y += 104
@@ -498,7 +504,7 @@ def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE
     line = _tidy_display_line(segment_text, 240)
     f = _f(52, bold=False)
     lines = mfr._wrap(d, line, f, W - 320)[:7]
-    y = max(250, (H - len(lines) * 78) // 2)
+    y = max(250, (CONTENT_BOTTOM - len(lines) * 78) // 2)
     for ln in lines:
         d.text((160, y), ln, font=f, fill=TEXT_C)
         y += 78

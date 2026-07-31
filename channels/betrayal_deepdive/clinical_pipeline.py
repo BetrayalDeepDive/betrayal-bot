@@ -3867,68 +3867,31 @@ def generate_real_synced_ass(audio_path, ass_path):
             log("  Real caption sync: no word-level data returned — no captions this episode")
             return False
 
-        def s2t(s):
-            h = int(s) // 3600; m = (int(s) % 3600) // 60
-            sc = int(s) % 60;   cs = int((s - int(s)) * 100)
-            return f"{h}:{m:02d}:{sc:02d}.{cs:02d}"
-
-        header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,90,90,75,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        # Grouping. Whisper gives genuinely accurate per-word times, so the
-        # sync was never the arithmetic -- it was the grouping and the
-        # snap-off. Direct feedback on the first rendered episode: "the
-        # subtitles are moving too fast, and there are words that are not
-        # even syncing in."
-        #
-        # Two causes, both here:
-        #   * chunk_size = 6 words regardless of length. Six short words
-        #     ("and then it was not the") is well under two seconds on
-        #     screen, which reads as flashing rather than reading.
-        #   * the cue ended on the exact millisecond the last word ended, so
-        #     it vanished the instant the word finished -- there was never
-        #     time to finish reading it.
-        #
-        # Now grouped by readable line length, held for a minimum dwell, and
-        # given a short lead-out that is always clamped to the next cue's
-        # start so cues can never overlap.
-        MIN_DWELL, LEAD_OUT, MAX_CHARS, MAX_WORDS = 1.5, 0.35, 46, 9
-
-        groups, cur, cur_chars = [], [], 0
-        for w in words_data:
-            tok = w["word"].strip()
-            if cur and (cur_chars + 1 + len(tok) > MAX_CHARS or len(cur) >= MAX_WORDS):
-                groups.append(cur); cur, cur_chars = [], 0
-            cur.append(w); cur_chars += (1 if cur_chars else 0) + len(tok)
-        if cur:
-            groups.append(cur)
-
-        events = []
-        for gi, group in enumerate(groups):
-            start_sec = group[0]["start"]
-            end_sec = group[-1]["end"] + LEAD_OUT
-            next_start = groups[gi + 1][0]["start"] if gi + 1 < len(groups) else None
-            if end_sec - start_sec < MIN_DWELL:
-                end_sec = start_sec + MIN_DWELL
-            if next_start is not None:
-                end_sec = min(end_sec, next_start)      # never overlap
-            if end_sec <= start_sec:
-                continue
-            text = " ".join(w["word"].strip() for w in group)
-            events.append(f"Dialogue: 0,{s2t(start_sec)},{s2t(end_sec)},Default,,0,0,0,,{text}")
-
+        # Grouping, timing and ASS generation now live in
+        # video_pipeline/caption_timing.py, so the logic that decides when a
+        # caption appears and how long it stays is directly testable instead
+        # of only observable by watching a finished 250 MB video. It had been
+        # revised twice on the strength of reading it, and never once looked
+        # at. tools/local_caption_render.py burns the real output onto real
+        # frames; doing that found five defects the inline version still had,
+        # including a minimum-dwell floor that could never fire and captions
+        # with no readability limit at all.
+        from caption_timing import ass_from_words
+        ass_text, cap_stats = ass_from_words(words_data, total_duration=None)
+        if not ass_text:
+            log("  Real caption sync: no usable cues built — no captions this episode")
+            return False
         with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(header + "\n".join(events))
-        log(f"  Real caption sync: {len(events)} genuinely word-timed caption groups ✅")
+            f.write(ass_text)
+        if cap_stats.get("over_cps"):
+            # Not fatal, but it means the narration is being spoken faster
+            # than a caption can be read, which is a PACE problem, not a
+            # caption problem. Surfaced rather than silently tolerated.
+            log(f"  Caption readability: {cap_stats['over_cps']}/{cap_stats['cues']} "
+                f"cues exceed {cap_stats['max_cps']} CPS — narration may be too fast")
+        log(f"  Real caption sync: {cap_stats['cues']} cues, mean dwell "
+            f"{cap_stats['mean_dwell']}s, max {cap_stats['max_cps']} CPS, "
+            f"{cap_stats['overlaps']} overlaps ✅")
         return True
     except Exception as e:
         log(f"  Real caption sync failed (non-fatal, no captions this episode): {e}")

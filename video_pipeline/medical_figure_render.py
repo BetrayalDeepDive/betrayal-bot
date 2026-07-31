@@ -29,6 +29,21 @@ from PIL import Image, ImageDraw, ImageFont
 
 W, H = 1920, 1080
 
+# Burned-in captions occupy the bottom of every frame for essentially the
+# whole episode. Nothing else may be drawn there.
+#
+# Found by burning the real ASS onto the real stills and looking: the caption
+# box landed directly on top of the ANATOMY explanation line, the TIMELINE's
+# last event, and the CC BY credit -- two layers of text in the same pixels,
+# on most frames. Each renderer had been designed in isolation and every one
+# of them chose the bottom of the frame for its secondary text, because in
+# isolation that is the right place.
+#
+# 200px clears two caption lines at 52px plus the opaque box padding and the
+# 68px bottom margin.
+CAPTION_SAFE_H = 200
+CONTENT_BOTTOM = H - CAPTION_SAFE_H
+
 # Clinical palette -- deliberately not the dark-red documentary look of the
 # previous Ch1 channel. Cool slate with a desaturated teal accent reads as
 # clinical/reference rather than true-crime dramatic.
@@ -208,7 +223,7 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     margin = 70
     # Reserve vertical space: eyebrow strip on top, caption + credit below.
     top_reserved = margin + 46
-    bottom_reserved = 210
+    bottom_reserved = 210 + CAPTION_SAFE_H
     box_w = W - margin * 2
     box_h = H - top_reserved - bottom_reserved
 
@@ -252,11 +267,11 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     # distance from the bottom edge so it cannot be pushed off-frame by a
     # long caption above it.
     if citation:
-        draw.line([(margin, H - 78), (W - margin, H - 78)],
+        draw.line([(margin, CONTENT_BOTTOM - 96), (W - margin, CONTENT_BOTTOM - 96)],
                   fill=PANEL_EDGE, width=1)
         credit_lines = _wrap(draw, short_credit(citation, 110), f_credit,
                              W - margin * 2)
-        cy = H - 62
+        cy = CONTENT_BOTTOM - 66
         for line in credit_lines[:2]:
             draw.text((margin, cy), line, font=f_credit, fill=TEXT_DIM)
             cy += 26
@@ -301,7 +316,7 @@ def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
     n = len(shown)
     live = n if reached is None else max(1, min(n, int(reached)))
 
-    top, bottom = 230, H - 120
+    top, bottom = 230, CONTENT_BOTTOM - 40
     spine_x = margin + 26
     draw.line([(spine_x, top), (spine_x, bottom)], fill=PANEL_EDGE, width=3)
     step = (bottom - top) / max(1, n - 1) if n > 1 else 0
