@@ -49,7 +49,7 @@ failure does not.
 import re
 
 # ── duration ───────────────────────────────────────────────────────────
-WPM = 125                     # matches edge-tts rate="-8%" in the pipeline
+WPM = 110                     # slowed from 125 after "the audio pacing is very fast"
 DURATION_FLOOR_WORDS = 1250   # ~10 min; mid-roll eligibility is 8 min
 TARGET_WORDS = 1900           # ~15 min; what expansion aims for, not a gate
 

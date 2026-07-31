@@ -607,6 +607,15 @@ CKPT_AUDIO_FILE = SCRIPT_DIR / "checkpoint_audio.mp3"
 # ================================================================
 # CONFIG
 # ================================================================
+# Narration pace. Slowed after direct feedback on the first rendered
+# episode ("the audio pacing is very fast"): it ran at 125 wpm, which is
+# news-read speed, not documentary speed. These two constants are the ONLY
+# place pace is set -- edge-tts and Kokoro previously disagreed (-8%/-5% vs
+# an unscaled Kokoro speed), so the delivered pace depended on which
+# provider happened to answer.
+CLINICAL_PACE = 0.88      # Kokoro multiplier: ~125 wpm -> ~110 wpm
+EDGE_RATE     = "-18%"    # edge-tts equivalent of the same target
+
 MIN_WORDS   = 1900
 MAX_WORDS   = 2100
 # FIX (direct user report, July 24 2026 — explicit, final policy decision
@@ -2456,6 +2465,34 @@ number, a forward reference ("what happens next reveals...") — roughly
 every 150-225 words (approximately every 60-90 seconds of narration),
 not just at the stage's start. Never save all the value for the end.
 
+TELL IT AS A STORY, NOT AS A PAPER. This is the difference between an
+episode people finish and an episode people close.
+
+A case report is written for clinicians: findings first, patient reduced to
+"the subject". You are doing the opposite. Rebuild the SAME facts as a
+chronological account of something happening to a person, in the order the
+people involved actually experienced it:
+
+  - Open in a real moment, not a summary. Someone noticed something.
+  - Follow the confusion forward. What did they think it was? What did they
+    do about it? What happened when that did not work?
+  - Every test result is a beat with consequences, not a line in a table.
+    "The scan was normal" is only interesting if the reader knows what the
+    team was hoping to find and what it means that they did not find it.
+  - Name the wrong turn plainly. The most interesting sentence in most of
+    these papers is the one where someone was confidently wrong.
+  - Reveal the mechanism as the resolution of the mystery, not as a
+    definition. Explain it the moment it EXPLAINS something the viewer has
+    been carrying for ten minutes.
+
+Never write "this case report describes", "the patient presented with" as an
+opening move, "in conclusion", or "this highlights the importance of". Those
+are thesis phrases. Nobody watches a thesis.
+
+Anonymous is correct -- published cases are de-identified -- but anonymous is
+not the same as abstract. "A woman in her fifties" is a person. "The subject"
+is not.
+
 COLD OPEN — TWO THINGS IT MUST CONTAIN (both are scored, both were missing
 on every attempt of run 30569528382, and together they are worth 2.8 of the
 hook's 10 points):
@@ -3681,7 +3718,7 @@ async def _edge_tts_stream(text, voice, audio_path, vtt_path):
     """
     import edge_tts
     try:
-        communicate = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+        communicate = edge_tts.Communicate(text=text, voice=voice, rate=EDGE_RATE)
         sub = edge_tts.SubMaker()
         with open(audio_path, "wb") as af:
             async for chunk in communicate.stream():
@@ -3704,7 +3741,7 @@ async def _edge_tts_stream(text, voice, audio_path, vtt_path):
         # MUST create a brand-new Communicate object here.
         # The original one's stream() is already consumed and cannot be reused.
         try:
-            communicate_fresh = edge_tts.Communicate(text=text, voice=voice, rate="-8%")
+            communicate_fresh = edge_tts.Communicate(text=text, voice=voice, rate=EDGE_RATE)
             await communicate_fresh.save(audio_path)
             return False   # audio saved, no subtitle timing
         except Exception as save_err:
@@ -3856,17 +3893,67 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         h = int(s) // 3600; m = (int(s) % 3600) // 60
         sc = int(s) % 60;   cs = int((s - int(s)) * 100)
         return f"{h}:{m:02d}:{sc:02d}.{cs:02d}"
-    words   = script.split()
-    spw     = audio_duration / max(len(words), 1)   # seconds per word
-    chunks  = [words[i:i+6] for i in range(0, len(words), 6)]
-    events  = []
-    t       = 0.0
-    for chunk in chunks:
-        if t >= audio_duration: break
-        end  = min(t + spw * len(chunk), audio_duration)
+    # Timing model. Direct feedback on the first rendered episode: "the
+    # subtitles are moving too fast, and there are words that are not even
+    # syncing in." Both symptoms came from this function.
+    #
+    # 1. DRIFT. It divided total duration by total word count, giving every
+    #    word an identical duration. The audio does not work that way --
+    #    inject_ssml_rate deliberately speaks different stages at different
+    #    rates, and "a" and "hepatosplenomegaly" are not the same length.
+    #    Errors accumulated, so captions ran ahead of the voice and never
+    #    recovered. Weighting each word by its character count tracks real
+    #    speech far more closely at zero cost.
+    #
+    # 2. FLASHING. Fixed 6-word chunks meant a cue of six short words could
+    #    be on screen under a second. A minimum dwell time fixes that; where
+    #    enforcing it would overlap the next cue, the chunk is merged instead
+    #    of overlapping.
+    words = script.split()
+    if not words:
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(header)
+        return
+
+    MIN_DWELL   = 1.5    # seconds a cue must stay readable
+    MAX_DWELL   = 6.0
+    MAX_CHARS   = 46     # ~one comfortable line at 46px
+    MAX_WORDS   = 9
+
+    # Character-weighted duration. +1 per word approximates the inter-word
+    # gap, so short function words do not collapse to near-zero.
+    weights = [len(w) + 1 for w in words]
+    total_w = sum(weights) or 1
+    sec_per_unit = audio_duration / total_w
+
+    chunks, cur, cur_chars = [], [], 0
+    for w in words:
+        if cur and (cur_chars + 1 + len(w) > MAX_CHARS or len(cur) >= MAX_WORDS):
+            chunks.append(cur); cur, cur_chars = [], 0
+        cur.append(w); cur_chars += (1 if cur_chars else 0) + len(w)
+    if cur:
+        chunks.append(cur)
+
+    events = []
+    t = 0.0
+    i = 0
+    while i < len(chunks) and t < audio_duration:
+        chunk = chunks[i]
+        dur = sum(len(w) + 1 for w in chunk) * sec_per_unit
+        # Too short to read: absorb the next chunk rather than flash, and
+        # rather than overlap the cue that follows.
+        while dur < MIN_DWELL and i + 1 < len(chunks):
+            i += 1
+            chunk = chunk + chunks[i]
+            dur = sum(len(w) + 1 for w in chunk) * sec_per_unit
+        dur = min(dur, MAX_DWELL)
+        end = min(t + dur, audio_duration)
+        if end <= t:
+            break
         text = " ".join(chunk)
         events.append(f"Dialogue: 0,{s2t(t)},{s2t(end)},Default,,0,0,0,,{text}")
         t = end
+        i += 1
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(events))
 
@@ -4106,7 +4193,18 @@ def run_audio_with_kokoro(script, niche_name, edge_voice):
     for i, (text, rate) in enumerate(segments):
         if not text.strip():
             continue
-        speed = max(0.7, min(1.3, 1 + int(rate.strip('%')) / 100.0))
+        # CLINICAL_PACE slows the whole channel down.
+        #
+        # Run 30578466862 delivered 1,613 words in 775.8s = 125 wpm, which is
+        # brisk news-read pace. Direct feedback on that episode: "the audio
+        # pacing is very fast". Documentary narration on this kind of material
+        # sits nearer 100-110 wpm -- the viewer is being asked to hold a lab
+        # value and a timeline in their head, and needs room to do it.
+        #
+        # 0.88 multiplier takes 125 wpm to ~110. Applied on top of the
+        # per-segment SSML rate so the deliberate slow/fast contrast between
+        # sections is preserved rather than flattened.
+        speed = max(0.7, min(1.3, 1 + int(rate.strip('%')) / 100.0)) * CLINICAL_PACE
         try:
             generator = pipeline(text, voice=kokoro_voice, speed=speed)
             chunks = [audio_chunk for _, _, audio_chunk in generator]
@@ -5344,7 +5442,39 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                 fetched_clips.append(clip_path)
                 continue
         except Exception as e:
-            log(f"  Segment {i+1} {register} render failed (non-fatal, falling back to stock footage): {e}")
+            log(f"  Segment {i+1} {register} raised: {e}")
+
+        # NO STOCK FOOTAGE ON THIS CHANNEL.
+        #
+        # Run 30578466862 shipped an episode about a newborn's liver failure
+        # illustrated with a mountain and a woman dancing, because every
+        # register that returned False fell through to the Pixabay/Pexels
+        # path below. A stock library cannot hold footage of a specific
+        # published case, so that path could only ever produce something
+        # unrelated -- it is the same failure that killed this channel's
+        # previous incarnation, reappearing through a fallback I left open.
+        #
+        # render_medical_segment now ends in a procedural clinical card that
+        # cannot fail, so reaching here at all means something is genuinely
+        # broken and a loud, ugly card is the correct outcome: it is visible
+        # in review, where a plausible-looking mountain is not.
+        try:
+            from medical_segments import render_last_resort_still, still_to_clip
+            _still = str(WORK_DIR / f"lastresort_{i}.png")
+            if render_last_resort_still(stage_text, _still,
+                                        niche_label=niche["series"].upper(),
+                                        citation=_case.get("citation", "")):
+                if still_to_clip(_still, segment_dur, clip_path,
+                                 run_ffmpeg=run_ffmpeg):
+                    log(f"  Segment {i+1}: clinical fallback card")
+                    fetched_clips.append(clip_path)
+                    continue
+        except Exception as e:
+            log(f"  Segment {i+1} fallback card failed: {e}")
+        log(f"  Segment {i+1}: NO VISUAL PRODUCED — this is a bug, not a style choice")
+        continue
+
+        # ---- unreachable: retained stock-footage code below ----
 
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) footage: '{kw[:40]}'")
         downloaded = False
@@ -7251,7 +7381,7 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
     try:
         import edge_tts as _edge
         async def _gen():
-            comm = _edge.Communicate(text=script, voice=edge_voice, rate="-5%")
+            comm = _edge.Communicate(text=script, voice=edge_voice, rate=EDGE_RATE)
             await asyncio.wait_for(comm.save(audio_out), timeout=120)
         asyncio.run(_gen())
     except Exception as e:

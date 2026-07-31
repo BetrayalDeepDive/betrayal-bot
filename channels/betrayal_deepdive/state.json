@@ -1,54 +1,5 @@
 {
-  "viral_intel": {
-    "rare_disease_cases": {
-      "top_hook_formulas": [
-        "What if a seemingly common symptom hides a disease never seen before?",
-        "This rare diagnosis was missed for years\u2014until a single lab result changed everything.",
-        "Watch how an unexpected imaging finding led to the first ever reported case of a lethal disorder."
-      ],
-      "winning_title_patterns": [
-        "The First Reported Case of [Rare Disease]: How It Was Missed for Months",
-        "When a Simple Test Revealed a Never\u2011Before\u2011Seen Condition \u2013 [Patient Age]\u2019s Story",
-        "Unbelievable Diagnosis: [Symptom] Turns Out to Be [Rare Disease] \u2013 First Case Ever"
-      ],
-      "thumbnail_text_examples": [
-        "UNSEEN DISEASE",
-        "MISSED DIAGNOSIS",
-        "RARE FINDING",
-        "FIRST CASE",
-        "SHOCKING RESULT"
-      ],
-      "retention_hooks": [
-        "30pct",
-        "60pct",
-        "80pct"
-      ],
-      "niche_power_words": [
-        "unprecedented",
-        "cryptic",
-        "breakthrough",
-        "mysterious",
-        "life\u2011changing",
-        "groundbreaking"
-      ],
-      "fresh_topic_ideas": [
-        "A 62\u2011year\u2011old man presented with recurrent abdominal pain; CT showed a calcified pancreatic mass later identified as primary pancreatic sarcoidosis, a never\u2011reported entity.",
-        "A 45\u2011year\u2011old patient presented with unexplained hyponatremia; serum osmolality was low, and a brain MRI displayed a posterior pituitary lesion later diagnosed as Langerhans cell histiocytosis, first adult case reported.",
-        "A 28\u2011year\u2011old female presented with acute bilateral lower\u2011extremity weakness; EMG showed demyelinating neuropathy, and serum anti\u2011MOG antibodies indicated a newly described variant of neuromyelitis optica spectrum disorder.",
-        "A 57\u2011year\u2011old man arrived with episodic chest pain; coronary angiography was normal, yet cardiac MRI displayed diffuse infiltration later identified as cardiac involvement of Erdheim\u2011Chester disease, first cardiac case reported.",
-        "A 22\u2011year\u2011old student experienced severe headaches; CSF analysis revealed elevated protein, and next\u2011generation sequencing discovered a novel ALK\u2011fusion tumor causing leptomeningeal carcinomatosis, the first such case.",
-        "A 73\u2011year\u2011old woman presented with sudden visual field loss; fundus exam showed optic disc edema, and OCT identified peripapillary retinal angiomatous proliferation, later classified as an atypical ocular manifestation of Beh\u00e7et disease.",
-        "A 5\u2011year\u2011old child presented with unexplained seizures; EEG revealed focal spikes, and metabolic panel showed markedly low pyridoxal\u20115\u2032\u2011phosphate, leading to the discovery of a novel PLP\u2011dependent enzyme deficiency.",
-        "A 68\u2011year-old female reported persistent pruritus; skin biopsy showed atypical lymphoid infiltrates, and molecular testing identified a previously undescribed cutaneous manifestation of adult\u2011onset Still\u2019s disease.",
-        "A 34\u2011year\u2011old man arrived with recurrent epistaxis; nasal endoscopy revealed a vascular lesion, and histopathology diagnosed a rare sinonasal hemangiopericytoma, the first case linked to a STAT3 mutation.",
-        "A 49\u2011year-old woman experienced unexplained hypertension; renal ultrasound was normal, yet renal artery Doppler showed stenosis caused by fibromuscular dysplasia associated with a novel NOTCH2 variant.",
-        "A 27\u2011year\u2011old female presented with intermittent dysphagia; barium swallow highlighted a esophageal stricture, and biopsy identified a unique lymphocytic esophagitis associated with a new HLA\u2011DQ allele.",
-        "A 60\u2011year-old man had progressive gait instability; spinal MRI displayed diffuse white\u2011matter lesions, and CSF analysis detected anti\u2011GFAP antibodies, marking the first reported case of GFAP\u2011autoimmune astrocytopathy in adults.",
-        "A 15\u2011year-old adolescent presented with rapid weight loss; endocrine labs showed low cortisol, and adrenal imaging revealed bilateral adrenal hyperplasia due to a rare ACTH\u2011producing pheochromocytoma, never before described."
-      ],
-      "last_run": "2026-07-30T17:02:01.064119"
-    }
-  },
+  "viral_intel": {},
   "last_title_register": "sympathy",
   "performance": {
     "thumbnail_style_A": {
@@ -94,7 +45,6 @@
     "obsession_dark": "PLbqqA3yvFSbI",
     "dark_horror": "PLbqqA3yvFSbI"
   },
-  "last_title": "Dark Hours: A woman received a letter from herself \u2014 postmarked the",
   "last_url": "https://www.youtube.com/watch?v=qnaXIkCmwJA",
   "last_voice": "en-US-JasonNeural",
   "total_uploads": 2,

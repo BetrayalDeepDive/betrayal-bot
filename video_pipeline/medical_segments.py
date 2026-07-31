@@ -185,6 +185,43 @@ def render_text_still(quote, out_path, attribution="From the source paper",
     return Path(out_path).exists()
 
 
+def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE",
+                             citation=""):
+    """
+    The visual that renders when every other register has declined.
+
+    Exists because this channel must NEVER fall through to stock footage.
+    Run 30578466862 shipped an episode whose visuals were generic library
+    clips -- a mountain, a woman dancing -- under a narration about a
+    newborn's liver failure. That is worse than a plain card: it is
+    actively misleading, and it is the exact failure that got the previous
+    incarnation of this channel abandoned.
+
+    A typographic card carrying this segment's own narration line is always
+    renderable from local fonts, needs no network, and cannot be irrelevant
+    because it literally shows what is being said.
+    """
+    c = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(c)
+    _eyebrow(d, niche_label)
+
+    line = (segment_text or "").strip()
+    if len(line) > 240:
+        line = line[:237].rsplit(" ", 1)[0] + "..."
+    f = _f(52, bold=False)
+    lines = mfr._wrap(d, line, f, W - 320)[:7]
+    y = max(250, (H - len(lines) * 78) // 2)
+    for ln in lines:
+        d.text((160, y), ln, font=f, fill=TEXT_C)
+        y += 78
+
+    d.line([(160, y + 30), (420, y + 30)], fill=EDGE, width=2)
+    if citation:
+        d.text((160, y + 56), citation[:96], font=_f(24, False), fill=DIM)
+    c.save(out_path)
+    return Path(out_path).exists()
+
+
 # ── dispatch ───────────────────────────────────────────────────────────────
 def render_medical_segment(register, case, segment_text, duration, index,
                            out_path, work_dir, niche_label="NO KNOWN CAUSE",
@@ -266,7 +303,17 @@ def render_medical_segment(register, case, segment_text, duration, index,
         return False
 
     if not ok:
-        return False
+        # Never return False. A False here sends the caller to stock footage,
+        # which is how an episode about a newborn's liver failure ended up
+        # showing a mountain and a woman dancing. ANATOMY and this card are
+        # both procedural and always renderable, so there is no legitimate
+        # reason to ever need a library clip on this channel.
+        log_fn(f"  {register} {index}: no data -> clinical fallback card")
+        ok = render_last_resort_still(segment_text, str(still),
+                                      niche_label=niche_label,
+                                      citation=case.get("citation", ""))
+        if not ok:
+            return False
     # FIGURE holds are panned more gently -- aggressive zoom on diagnostic
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
