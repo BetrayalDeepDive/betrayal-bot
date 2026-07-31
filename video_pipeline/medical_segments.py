@@ -77,7 +77,8 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True):
 
 
 # ── BOARD ──────────────────────────────────────────────────────────────────
-def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE"):
+def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE",
+                       progress=1.0):
     """
     differentials: list of (name, verdict, reason). verdict drives the colour:
     anything containing 'confirm' reads teal, 'partial' amber, else red.
@@ -89,7 +90,16 @@ def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE"):
     _eyebrow(d, niche_label)
     d.text((90, 118), "DIFFERENTIAL DIAGNOSIS", font=_f(46), fill=TEXT_C)
 
-    rows = differentials[:5]
+    # Progressive reveal. Rendering the finished board on every BOARD
+    # segment means the same still repeatedly -- measured at 39 identical
+    # renders on a paper with one differential. Revealing it in step with the
+    # narration is both the fix and the correct documentary device: the
+    # viewer watches the possibilities get eliminated as the team eliminates
+    # them, instead of being shown the answer and then told the story.
+    rows_all = differentials[:5]
+    shown = max(1, min(len(rows_all), int(round(progress * len(rows_all)))))
+    rows = rows_all[:shown]
+    pending = len(rows_all) - shown
     y = 248
     row_h = min(138, int((H - 300) / max(1, len(rows))))
     for name, verdict, reason in rows:
@@ -104,6 +114,12 @@ def render_board_still(differentials, out_path, niche_label="NO KNOWN CAUSE"):
         vw = d.textlength(vt, font=_f(26))
         d.rectangle([W - 130 - vw - 26, y + 34, W - 104, y + 78], outline=col, width=2)
         d.text((W - 130 - vw - 13, y + 44), vt, font=_f(26), fill=col)
+        y += row_h
+    # Unresolved candidates are drawn as empty slots so the board reads as
+    # in-progress rather than short.
+    for _ in range(pending):
+        d.rectangle([90, y, W - 90, y + row_h - 20], outline=EDGE, width=2)
+        d.text((130, y + 34), "?", font=_f(34), fill=DIM)
         y += row_h
     c.save(out_path)
     return Path(out_path).exists()
@@ -225,7 +241,8 @@ def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE
 # ── dispatch ───────────────────────────────────────────────────────────────
 def render_medical_segment(register, case, segment_text, duration, index,
                            out_path, work_dir, niche_label="NO KNOWN CAUSE",
-                           chart_fn=None, run_ffmpeg=None, log_fn=print):
+                           chart_fn=None, run_ffmpeg=None, log_fn=print,
+                           progress=1.0):
     """
     Render one segment. Returns True on success.
 
@@ -271,10 +288,14 @@ def render_medical_segment(register, case, segment_text, duration, index,
 
         elif register == "BOARD":
             ok = render_board_still(case.get("differentials") or [], str(still),
-                                    niche_label=niche_label)
+                                    niche_label=niche_label, progress=progress)
 
         elif register == "TIMELINE":
-            ok = mfr.render_timeline_frame(case.get("timeline") or [], str(still),
+            # Same progressive reveal as BOARD: show the course only as far
+            # as the narration has reached.
+            _tl = case.get("timeline") or []
+            _n = max(1, min(len(_tl), int(round(progress * len(_tl))))) if _tl else 0
+            ok = mfr.render_timeline_frame(_tl[:_n], str(still),
                                            niche_label=niche_label)
 
         elif register == "ANATOMY":
@@ -290,8 +311,12 @@ def render_medical_segment(register, case, segment_text, duration, index,
                         img = str(cand)
                 except Exception:
                     img = None
+            # Alternate between the mechanism explanation and THIS segment's
+            # own narration line, so consecutive ANATOMY segments are not the
+            # same frame with the same caption.
+            _expl = (anat.get("explanation") or "") if index % 2 == 0 else ""
             ok = render_anatomy_still(anat.get("title", "Mechanism"),
-                                      anat.get("explanation", segment_text[:150]),
+                                      _expl or segment_text[:150],
                                       str(still), image_path=img)
 
         elif register == "TEXT":
@@ -317,4 +342,4 @@ def render_medical_segment(register, case, segment_text, duration, index,
     # FIGURE holds are panned more gently -- aggressive zoom on diagnostic
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
-                         zoom=(register != "FIGURE") or True)
+                         zoom=True)

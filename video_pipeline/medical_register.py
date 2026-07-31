@@ -113,7 +113,19 @@ def classify_hint(segment_text):
     return None
 
 
-def build_mix(figure_count):
+def build_mix(figure_count, available=None):
+    """
+    available: optional {register: bool} of what this paper can actually
+    render. A register with no data is set to zero share and its budget is
+    redistributed, instead of being scheduled and silently degrading.
+
+    Found before run 5 by simulating a realistic paper (no chart data, one
+    differential, no timeline -- exactly what run 30563819566's logs showed):
+    the quota still assigned 21 CHART and 9 TIMELINE segments, so HALF the
+    episode would have rendered the identical fallback card. That is not a
+    visible crash; it is sixty seconds of the same slide, repeatedly, which
+    is why it survived every check until it was simulated.
+    """
     """
     Active target mix given how many usable figures this paper actually has.
 
@@ -127,6 +139,18 @@ def build_mix(figure_count):
     charts are generated from the case's own reported values.
     """
     mix = dict(TARGET_MIX)
+    if available:
+        # Zero anything with no data, then renormalise over what is left.
+        # ANATOMY is procedural and therefore always available, so the mix
+        # can never collapse to nothing.
+        for reg in list(mix):
+            if reg != ANATOMY and not available.get(reg, True):
+                mix[reg] = 0.0
+        live = sum(mix.values())
+        if live <= 0:
+            mix = {ANATOMY: 1.0, **{k: 0.0 for k in TARGET_MIX if k != ANATOMY}}
+        else:
+            mix = {k: v / live for k, v in mix.items()}
     if figure_count <= 0:
         spare = mix[FIGURE]
         mix[FIGURE] = 0.0
@@ -163,13 +187,18 @@ class RegisterQuota:
     # absent by design: it needs a real quotation to display (see _neediest).
     FILLABLE = (FIGURE, CHART, BOARD, TIMELINE, ANATOMY)
 
-    def __init__(self, total_segments, figure_count=0):
+    def __init__(self, total_segments, figure_count=0, available=None):
         self.total = max(1, total_segments)
         self.figure_count = figure_count
-        self.mix = build_mix(figure_count)
+        self.mix = build_mix(figure_count, available)
         self.counts = {k: 0 for k in self.mix}
         self.done = 0
         self.last = None
+        # 21 identical segments in a row was measured on a 6-figure
+        # paper -- roughly five straight minutes of one visual. A
+        # documentary changes what you are looking at.
+        self.run_len = 0
+        self.MAX_RUN = 3
 
     def _deficit(self, register):
         return self.mix[register] * self.total - self.counts[register]
@@ -220,8 +249,18 @@ class RegisterQuota:
         if force_switch and chosen == self.last:
             chosen = self._neediest(exclude=self.last)
 
+        # Hard cap on consecutive identical registers. Measured before run 5:
+        # a 6-figure paper produced 21 FIGURE segments back to back, about
+        # five unbroken minutes of one visual treatment.
+        if chosen == self.last:
+            if self.run_len >= self.MAX_RUN:
+                alt = self._neediest(exclude=self.last)
+                if alt != self.last:
+                    chosen = alt
+
         self.counts[chosen] += 1
         self.done += 1
+        self.run_len = self.run_len + 1 if chosen == self.last else 1
         self.last = chosen
         return chosen
 
@@ -232,6 +271,25 @@ class RegisterQuota:
         return {k: v / self.done for k, v in self.counts.items()}
 
 
-def new_quota(total_segments, figure_count=0):
+def available_from_case(case):
+    """
+    What this specific paper can actually render, derived from the case dict
+    the pipeline already builds. ANATOMY is procedural so it is always True.
+    """
+    case = case or {}
+    return {
+        FIGURE:   bool(case.get("figures")),
+        CHART:    bool((case.get("chart_data") or {}).get("labels")),
+        BOARD:    bool(case.get("differentials")),
+        TIMELINE: len(case.get("timeline") or []) >= 2,
+        TEXT:     bool((case.get("quote") or "").strip()),
+        ANATOMY:  True,
+    }
+
+
+def new_quota(total_segments, figure_count=0, case=None, available=None):
     """Fresh per-episode tracker. Always call this, never reuse one."""
-    return RegisterQuota(total_segments, figure_count=figure_count)
+    if available is None and case is not None:
+        available = available_from_case(case)
+    return RegisterQuota(total_segments, figure_count=figure_count,
+                         available=available)

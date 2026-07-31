@@ -253,6 +253,48 @@ def audit_integration():
     check("F", "title stripper keeps real narration",
           _slt("A baby girl was born on a Tuesday.\nShe weighed 2,500 grams.").startswith("A baby"))
 
+    # Defects found by simulation before run 5, each now locked in.
+    from medical_register import new_quota, available_from_case
+    POOR = {"figures": [], "chart_data": None,
+            "differentials": [("X", "EXCLUDED", "y")], "timeline": [], "quote": ""}
+    q = new_quota(60, figure_count=0, case=POOR)
+    picks = [q.pick("the patient deteriorated overnight") for _ in range(60)]
+    avail = available_from_case(POOR)
+    dead = sum(1 for r in picks if not avail.get(r, False))
+    check("F", "quota never schedules a register with no data", dead == 0,
+          f"{dead}/60 would render the fallback card")
+
+    run = longest = 1
+    for a, b in zip(picks, picks[1:]):
+        run = run + 1 if a == b else 1
+        longest = max(longest, run)
+    check("F", "no more than 3 identical registers in a row", longest <= 3,
+          f"longest run {longest}")
+
+    q2 = new_quota(60, figure_count=6,
+                   case={"figures": [1] * 6, "chart_data": {"labels": [1, 2], "values": [1, 2]},
+                         "differentials": [("a", "b", "c")], "timeline": [("d", "e"), ("f", "g")],
+                         "quote": "q"})
+    p2 = [q2.pick("scan repeated") for _ in range(60)]
+    run = longest = 1
+    for a, b in zip(p2, p2[1:]):
+        run = run + 1 if a == b else 1
+        longest = max(longest, run)
+    check("F", "6-figure paper does not run 21 FIGUREs in a row", longest <= 3,
+          f"longest run {longest}")
+
+    check("F", "episode case survives a resumed run",
+          'ckpt_save("episode_case"' in cp and 'ckpt_load("episode_case")' in cp,
+          "resume would otherwise render every segment as a fallback card")
+    check("F", "subtitles have a minimum dwell in the function actually used",
+          "MIN_DWELL, LEAD_OUT, MAX_CHARS, MAX_WORDS" in cp,
+          "generate_real_synced_ass, not generate_fallback_ass")
+    check("F", "pace is set in exactly one place",
+          'rate="-8%"' not in cp and 'rate="-5%"' not in cp
+          and "CLINICAL_PACE" in cp and "EDGE_RATE" in cp)
+    check("F", "stock footage is unreachable",
+          "NO STOCK FOOTAGE ON THIS CHANNEL" in cp)
+
     check("F", "disclaimer is appended to the description",
           "_clin_block" in cp and "description = f\"{description}{_clin_block}\"" in cp)
 

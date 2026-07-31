@@ -2673,6 +2673,15 @@ def generate_script_content(niche, topic, episode, attempt,
     # Make the case available to the per-segment renderers deep inside
     # get_stage_matched_video (see the EPISODE CASE HOLDER note above).
     set_episode_case(case)
+    # Persisted so a resumed run (is_makeup=true) restores it. Without this
+    # the resume path skips script generation, _EPISODE_CASE stays empty, and
+    # EVERY register reports "no data" -- the whole episode renders as the
+    # fallback card. Found before run 5 by tracing the resume branch rather
+    # than by hitting it.
+    try:
+        ckpt_save("episode_case", case)
+    except Exception:
+        pass
 
     # (The old anchor-injection block is gone: research_context is now built
     # from the real PMC case above, not from invented anchors.)
@@ -3857,12 +3866,45 @@ Style: Default,Arial,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-        chunk_size = 6
+        # Grouping. Whisper gives genuinely accurate per-word times, so the
+        # sync was never the arithmetic -- it was the grouping and the
+        # snap-off. Direct feedback on the first rendered episode: "the
+        # subtitles are moving too fast, and there are words that are not
+        # even syncing in."
+        #
+        # Two causes, both here:
+        #   * chunk_size = 6 words regardless of length. Six short words
+        #     ("and then it was not the") is well under two seconds on
+        #     screen, which reads as flashing rather than reading.
+        #   * the cue ended on the exact millisecond the last word ended, so
+        #     it vanished the instant the word finished -- there was never
+        #     time to finish reading it.
+        #
+        # Now grouped by readable line length, held for a minimum dwell, and
+        # given a short lead-out that is always clamped to the next cue's
+        # start so cues can never overlap.
+        MIN_DWELL, LEAD_OUT, MAX_CHARS, MAX_WORDS = 1.5, 0.35, 46, 9
+
+        groups, cur, cur_chars = [], [], 0
+        for w in words_data:
+            tok = w["word"].strip()
+            if cur and (cur_chars + 1 + len(tok) > MAX_CHARS or len(cur) >= MAX_WORDS):
+                groups.append(cur); cur, cur_chars = [], 0
+            cur.append(w); cur_chars += (1 if cur_chars else 0) + len(tok)
+        if cur:
+            groups.append(cur)
+
         events = []
-        for i in range(0, len(words_data), chunk_size):
-            group = words_data[i:i + chunk_size]
+        for gi, group in enumerate(groups):
             start_sec = group[0]["start"]
-            end_sec = group[-1]["end"]
+            end_sec = group[-1]["end"] + LEAD_OUT
+            next_start = groups[gi + 1][0]["start"] if gi + 1 < len(groups) else None
+            if end_sec - start_sec < MIN_DWELL:
+                end_sec = start_sec + MIN_DWELL
+            if next_start is not None:
+                end_sec = min(end_sec, next_start)      # never overlap
+            if end_sec <= start_sec:
+                continue
             text = " ".join(w["word"].strip() for w in group)
             events.append(f"Dialogue: 0,{s2t(start_sec)},{s2t(end_sec)},Default,,0,0,0,,{text}")
 
@@ -5275,9 +5317,12 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # FIGURE share adapts to how many usable figures this paper actually has.
     # A 2-figure paper would otherwise be asked for ~20 FIGURE segments and
     # would show the same image eighteen times.
-    register_quota = new_quota(n_buckets, figure_count=_figure_count)
-    log(f"  Register mix: {_figure_count} usable figure(s) -> "
-        f"FIGURE share {register_quota.mix['FIGURE']*100:.0f}%")
+    # Pass the case, not just the figure count. Without it the quota
+    # scheduled CHART and TIMELINE segments on papers that have neither, and
+    # half the episode rendered the identical fallback card.
+    register_quota = new_quota(n_buckets, figure_count=_figure_count, case=_case)
+    log(f"  Register mix: {_figure_count} usable figure(s); "
+        f"available={ {k: v for k, v in register_quota.mix.items() if v > 0} }")
 
     # FIX (direct user spec, this session — "switches should align with
     # real audio cues... not be purely visually arbitrary"): reuses the
@@ -5437,7 +5482,8 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                 ok = render_medical_segment(
                     register, _case, stage_text, segment_dur, i, clip_path,
                     work_dir=str(WORK_DIR), niche_label=niche["series"].upper(),
-                    chart_fn=generate_data_chart, run_ffmpeg=run_ffmpeg, log_fn=log)
+                    chart_fn=generate_data_chart, run_ffmpeg=run_ffmpeg, log_fn=log,
+                    progress=(i + 1) / max(1, n_buckets))
             if ok:
                 fetched_clips.append(clip_path)
                 continue
@@ -8715,6 +8761,13 @@ def main():
     # from a checkpoint, send the real checkpointed script (PDF) and
     # audio (file) and wait for an explicit decision.
     if _resume_script:
+        _saved_case = ckpt_load("episode_case")
+        if _saved_case:
+            set_episode_case(_saved_case)
+            log(f"  Resumed episode case: {_saved_case.get('pmcid','?')}")
+        else:
+            log("  WARNING: resuming with no saved case — visuals will be "
+                "fallback cards only. Prefer a fresh run.")
         try:
             from human_review_gate import review_resume_checkpoint
             _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
