@@ -523,6 +523,20 @@ def audit_integration():
     from local_caption_render import synth_word_timings
     from local_episode_render import NARRATION
 
+    # Runtime accountability.
+    import human_review_gate as hrg
+    cp_code = "\n".join(l for l in cp.splitlines()
+                        if not l.lstrip().startswith("#"))
+    check("F", "every review gate is named for the runtime breakdown",
+          cp_code.count("review_") > 0 and
+          read("video_pipeline/human_review_gate.py").count('set_current_gate("') >= 9,
+          "an unattributed 5-hour run is a run nobody can reason about")
+    check("F", "per-gate review timeout is overridable for test runs",
+          hasattr(hrg, "default_review_timeout"),
+          "a test run should not cost 4 hours of idle polling")
+    check("F", "the pipeline prints where the wall-clock went",
+          "_log_runtime_breakdown" in cp_code)
+
     check("F", "caption timing lives in a testable module",
           "from caption_timing import ass_from_words" in cp)
     for wpm in (110, 150):

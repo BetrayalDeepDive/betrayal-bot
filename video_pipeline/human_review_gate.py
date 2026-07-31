@@ -65,6 +65,54 @@ def _total_review_time_exhausted():
     return elapsed_hours >= _MAX_TOTAL_REVIEW_HOURS
 
 
+# ── where the wall-clock actually goes ─────────────────────────────────
+# Run 30578466862 took 5 hours 34 minutes and that number sat "undiagnosed"
+# for days, because nothing anywhere recorded how long each review gate
+# waited. It was never a bug: the gates poll for a human decision for up to
+# 60 minutes each, three attempts, under a 4.5-hour episode-wide budget, so
+# an unattended run spends most of its life waiting on a reply that is not
+# coming and roughly an hour doing real work.
+#
+# That is a legitimate design, but a run whose duration cannot be attributed
+# is a run nobody can reason about -- and on a free Actions allowance the
+# difference between "five hours of compute" and "one hour of compute and
+# four hours of idle polling" is the whole budget question. Every gate now
+# records its own wait, and the pipeline prints the breakdown.
+_REVIEW_WAITS = []
+
+
+def record_review_wait(label, seconds, outcome):
+    _REVIEW_WAITS.append({"gate": label, "seconds": round(seconds, 1),
+                          "outcome": outcome})
+
+
+def review_time_report():
+    """Human-readable breakdown of every gate's wait. Safe to call anytime."""
+    if not _REVIEW_WAITS:
+        return "No review gates ran."
+    total = sum(w["seconds"] for w in _REVIEW_WAITS)
+    lines = [f"Review wait breakdown — {total/60:.0f} min across "
+             f"{len(_REVIEW_WAITS)} gate(s):"]
+    for w in sorted(_REVIEW_WAITS, key=lambda x: -x["seconds"]):
+        lines.append(f"  {w['seconds']/60:6.1f} min  {w['gate']}  ({w['outcome']})")
+    return "\n".join(lines)
+
+
+def default_review_timeout():
+    """
+    Per-gate poll timeout in minutes.
+
+    Overridable with REVIEW_TIMEOUT_MIN so a TEST run does not cost four
+    hours of idle polling to find out whether the visuals render. Every gate
+    reads this instead of hard-coding 60.
+    """
+    try:
+        v = int(os.environ.get("REVIEW_TIMEOUT_MIN", "60"))
+        return max(1, min(180, v))
+    except (TypeError, ValueError):
+        return 60
+
+
 import imaplib
 import email as email_lib
 
@@ -498,8 +546,37 @@ def export_script_to_pdf(channel_name, title, niche_name, score, full_script,
         return None
 
 
-def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
-                        gmail_sender=None, gmail_app_password=None):
+# Set by each gate before it polls, so the wait can be attributed to a name
+# rather than showing up as an unexplained hour of wall-clock.
+_CURRENT_GATE = ["review"]
+
+
+def set_current_gate(label):
+    _CURRENT_GATE[0] = label or "review"
+
+
+def _poll_for_decision(tg_token, tg_chat, timeout_minutes=None, max_attempts=3,
+                       gmail_sender=None, gmail_app_password=None):
+    """
+    Timed wrapper. Every exit path is recorded against the gate that was
+    waiting, so review_time_report() can account for the whole run.
+    """
+    if timeout_minutes is None:
+        timeout_minutes = default_review_timeout()
+    _t0 = time.time()
+    label = _CURRENT_GATE[0]
+    try:
+        decision, feedback = _poll_for_decision_inner(
+            tg_token, tg_chat, timeout_minutes, max_attempts,
+            gmail_sender, gmail_app_password)
+    finally:
+        pass
+    record_review_wait(label, time.time() - _t0, decision)
+    return decision, feedback
+
+
+def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
+                             gmail_sender=None, gmail_app_password=None):
     """
     Real reply polling — 3 attempts of 60 minutes each, checking BOTH
     Telegram AND email every cycle (email checked every ~60s rather than
@@ -516,6 +593,7 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=60, max_attempts=3,
     offset = None
     email_check_counter = 0
     review_start_time = datetime.datetime.now()
+    _gate_label = _CURRENT_GATE[0] or "review"
     _getupdates_error_logged = [False]  # mutable so the nested loop below can set it once
     awaiting_edit_text = False  # FIX (July 14 2026): EDIT is now a real
     # button (see _button_keyboard). A tap can't carry free-form text, so
@@ -715,6 +793,7 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
     candidate, not necessarily every character of the final rendered
     image.
     """
+    set_current_gate("title+thumbnail+description")
     schedule_line = get_schedule_line(check_ins_used)
     thumb_score_line = f"Thumbnail attention score: {thumbnail_score}/10\n" if thumbnail_score is not None else ""
     caption = (f"🖼️🏷️📝 {channel_name} — TITLE + THUMBNAIL + DESCRIPTION REVIEW\n\n"
@@ -908,6 +987,7 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
     cleaned up, is gone) — shown when present, silently omitted
     otherwise so this doesn't break for a caller that hasn't wired it in.
     """
+    set_current_gate("shorts")
     schedule_line = get_schedule_line(check_ins_used)
     lines = [f"🎞️ {channel_name} — SHORTS REVIEW\n\n{schedule_line}\n",
              "Already published (review happens post-publish — see the note below):"]
@@ -1049,6 +1129,7 @@ def review_community_tab(channel_name, question, options, tg_token, tg_chat,
 
     Returns {"decision": "posted"|"skip", "feedback": None}.
     """
+    set_current_gate("community tab")
     schedule_line = get_schedule_line(check_ins_used)
     lines = [f"📢 {channel_name} — COMMUNITY TAB POST\n\n{schedule_line}\n",
              "Post this to the Community tab now:\n",
@@ -1101,6 +1182,7 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
     regenerates the thumbnail with that feedback folded into the real
     AI image prompt — not a cosmetic re-roll, an actual instructed retry.
     """
+    set_current_gate("thumbnail")
     # FIX (direct user report, July 24 2026 — "the Telegram options and
     # buttons... are not clickable right now"): this checkpoint sent a
     # plain photo with instructions to TYPE a reply and never mentioned
@@ -1132,6 +1214,7 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
     feedback can reference something concrete ("use option 2 instead" is
     directly actionable) rather than guessing blind.
     """
+    set_current_gate("title")
     # FIX (direct user report, July 24 2026 — same fix as review_thumbnail
     # above): this checkpoint had no real buttons either — plain text
     # only, and REMAKE wasn't even mentioned as an option.
@@ -1328,6 +1411,7 @@ def review_script(channel_name, title, full_script, score, niche_name,
     converted to a 0-10 scale, is the first real use of this), not
     invented numbers — shown as its own line under the main score.
     """
+    set_current_gate("script")
     schedule_line = get_schedule_line(check_ins_used)
     sub_score_lines = ""
     if sub_scores:
@@ -1452,6 +1536,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     for just those 60 seconds (confirmed live), while the real YouTube
     link has no such limit.
     """
+    set_current_gate("audio+video")
     schedule_line = get_schedule_line(check_ins_used)
 
     def _breakdown_line(breakdown):
@@ -1584,6 +1669,7 @@ def review_resume_checkpoint(channel_name, title, script_clean, score, niche_nam
     consistent with every other gate in this file defaulting toward not
     discarding already-approved work).
     """
+    set_current_gate("resume confirmation")
     has_audio = bool(audio_path and Path(audio_path).exists())
     lines = [
         f"⏸️ <b>{channel_name} — RESUMING FROM A PREVIOUS RUN</b>",
@@ -1672,6 +1758,7 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
 
     Returns {"decision": "approve"|"regenerate", "feedback": str or None}.
     """
+    set_current_gate("final pre-publish")
     schedule_line = get_schedule_line(check_ins_used)
     caption = (f"🎬 {channel_name} — FINAL VIDEO, READY TO GO PUBLIC\n\n{schedule_line}\n\n"
                f"Full video (unlisted — not public yet, viewable/downloadable "

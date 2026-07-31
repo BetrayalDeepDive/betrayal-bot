@@ -10183,5 +10183,36 @@ def main_with_retry():
                 sys.exit(1)
 
 
+def _log_runtime_breakdown(t0):
+    """
+    Where the wall-clock actually went.
+
+    Run 30578466862 took 5h34m and that number stayed "undiagnosed" for days
+    purely because nothing recorded it. It was never a bug -- the review
+    gates poll for a human decision for up to an hour each -- but a run whose
+    duration cannot be attributed is a run nobody can reason about, and on a
+    free Actions allowance the difference between five hours of compute and
+    one hour of compute plus four hours of idle polling is the entire budget
+    question.
+    """
+    try:
+        from human_review_gate import review_time_report, _REVIEW_WAITS
+        total = time.time() - t0
+        waiting = sum(w["seconds"] for w in _REVIEW_WAITS)
+        log("")
+        log("─" * 58)
+        log(f"RUNTIME: {total/60:.0f} min total — "
+            f"{waiting/60:.0f} min waiting on review gates, "
+            f"{(total-waiting)/60:.0f} min of real work")
+        log(review_time_report())
+        log("─" * 58)
+    except Exception as e:
+        log(f"  runtime breakdown unavailable: {e}")
+
+
 if __name__ == "__main__":
-    main_with_retry()
+    _t0 = time.time()
+    try:
+        main_with_retry()
+    finally:
+        _log_runtime_breakdown(_t0)
