@@ -21,6 +21,7 @@ The output is a still PNG. The pipeline turns it into a moving clip with the
 same Ken Burns / depth-motion treatment used elsewhere, so a held FIGURE shot
 is never a static image sitting on screen.
 """
+import re
 import textwrap
 from pathlib import Path
 
@@ -82,6 +83,104 @@ def _wrap(draw, text, font, max_width):
     return lines
 
 
+def _clip_words(text, limit):
+    """
+    Truncate on a WORD boundary.
+
+    Every renderer here used to slice with [:70] / [:96], which on a real
+    citation produced "...following a rare inherited d" -- a line that ends
+    mid-word reads as a rendering bug to a viewer, not as an abbreviation.
+    """
+    t = (text or "").strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+    return (cut or t[:limit]) + "…"
+
+
+_ABBREV = ("dr", "mr", "mrs", "ms", "prof", "vs", "eg", "ie", "no", "st")
+
+
+def _tidy_display_line(text, limit=240):
+    """
+    Make a narration slice presentable as on-screen text.
+
+    The pipeline hands every renderer `stage_text`, which is
+    `" ".join(words[start:end]).lower()` -- lowercased for keyword matching
+    and cut on an arbitrary word index. Put straight on a card, that reads
+    as "rare. newborns tire, newborns refuse, and tired mothers are told,
+    gently and constantly, that this is normal. what was not". Lowercase
+    sentence starts and both ends dangling mid-clause. It looks like a bug,
+    because it is one.
+
+    So: prefer whole sentences inside the slice, and restore sentence case.
+    Words that were already capitalised in the source cannot be recovered
+    once lowercased -- the real fix for that is upstream, passing the
+    original-case text -- but this is correct either way and is the safety
+    net if any caller still passes a lowercased slice.
+    """
+    t = " ".join((text or "").split())
+    if not t:
+        return ""
+    # Whole sentences within the slice, if there are any.
+    sentences = re.findall(r"[^.!?]+[.!?]", t)
+    if sentences:
+        picked, out = [], 0
+        for s in sentences:
+            s = s.strip()
+            if out and out + len(s) + 1 > limit:
+                break
+            picked.append(s)
+            out += len(s) + 1
+        if picked:
+            t = " ".join(picked)
+        else:
+            t = _clip_words(sentences[0], limit)
+    else:
+        t = _clip_words(t, limit)
+
+    def _cap(m):
+        return m.group(1) + m.group(2).upper()
+
+    t = re.sub(r"(^|[.!?]\s+)([a-z])", _cap, t)
+    # "i" as a standalone pronoun, and nothing else -- guessing at proper
+    # nouns would corrupt clinical terms, which is worse than lowercase.
+    t = re.sub(r"\bi\b", "I", t)
+    return t
+
+
+def short_credit(citation, max_len=88):
+    """
+    The on-screen form of a CC BY credit.
+
+    The full citation is authors + full paper title + journal + year +
+    licence, which is ~150 characters and unreadable at the size a credit
+    line is drawn. The LICENCE only requires attribution, and the full
+    citation is carried in the description (enforced by
+    medical_policy_gate.check_publish_package). On screen, the identifying
+    part -- authors, journal, year, licence -- is both sufficient and
+    legible. The paper title is what gets dropped.
+    """
+    c = " ".join((citation or "").split())
+    if not c:
+        return ""
+    # Split on sentence-ending periods only. A naive split(".") cuts "CC BY
+    # 4.0" into "CC BY 4" and "0", which is a licence statement that no
+    # longer names the licence version.
+    parts = [p.strip(" .") for p in re.split(r"\.\s+", c) if p.strip(" .")]
+    if len(parts) >= 3:
+        # The paper TITLE is what makes a citation unreadable on screen, and
+        # it is reliably the longest part. Everything else -- authors,
+        # journal, year, licence -- is what identifies the source.
+        title_i = max(range(1, len(parts)), key=lambda i: len(parts[i]))
+        kept = [p for i, p in enumerate(parts) if i != title_i]
+        rebuilt = ". ".join(kept)
+        if len(rebuilt) <= max_len:
+            return rebuilt
+        return _clip_words(rebuilt, max_len)
+    return _clip_words(c, max_len)
+
+
 def render_figure_frame(figure_path, out_path, caption="", label="",
                         citation="", niche_label="NO KNOWN CAUSE"):
     """
@@ -104,7 +203,7 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     f_eyebrow = _font(24)
     f_label = _font(34)
     f_caption = _font(30, bold=False)
-    f_credit = _font(21, bold=False)
+    f_credit = _font(25, bold=False)
 
     margin = 70
     # Reserve vertical space: eyebrow strip on top, caption + credit below.
@@ -153,9 +252,10 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     # distance from the bottom edge so it cannot be pushed off-frame by a
     # long caption above it.
     if citation:
-        draw.line([(margin, H - 74), (W - margin, H - 74)],
+        draw.line([(margin, H - 78), (W - margin, H - 78)],
                   fill=PANEL_EDGE, width=1)
-        credit_lines = _wrap(draw, citation, f_credit, W - margin * 2)
+        credit_lines = _wrap(draw, short_credit(citation, 110), f_credit,
+                             W - margin * 2)
         cy = H - 62
         for line in credit_lines[:2]:
             draw.text((margin, cy), line, font=f_credit, fill=TEXT_DIM)
@@ -166,13 +266,24 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
 
 
 def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
-                          niche_label="NO KNOWN CAUSE"):
+                          niche_label="NO KNOWN CAUSE", reached=None):
     """
     TIMELINE register: the case's real chronology.
 
-    events -- ordered list of (day_label, description) from the source paper.
+    events   -- ordered list of (day_label, description) from the source paper
+    reached  -- how many events the narration has got to. Events past that
+                point are still LAID OUT and drawn dim, never omitted.
+
     Rendered as a vertical spine so long descriptions stay readable, rather
     than a horizontal axis that forces text to tiny sizes.
+
+    The caller used to implement its progressive reveal by SLICING the event
+    list, which meant an early TIMELINE segment drew a single dot at the top
+    of an otherwise empty 1080-line frame, and every event's position moved
+    as more were added. Rendering a full episode locally and looking at the
+    frames is what exposed it -- it logs as a clean success. The reveal is
+    now a highlight over a fixed layout: the whole clinical course is always
+    on screen, and the point the narration has reached is the lit one.
     """
     canvas = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(canvas)
@@ -187,18 +298,43 @@ def render_timeline_frame(events, out_path, title="CLINICAL COURSE",
     shown = events[:6]
     if not shown:
         return False
+    n = len(shown)
+    live = n if reached is None else max(1, min(n, int(reached)))
+
     top, bottom = 230, H - 120
     spine_x = margin + 26
     draw.line([(spine_x, top), (spine_x, bottom)], fill=PANEL_EDGE, width=3)
-    step = (bottom - top) / max(1, len(shown) - 1) if len(shown) > 1 else 0
+    step = (bottom - top) / max(1, n - 1) if n > 1 else 0
+    # The spine fills in behind the narration, so the frame carries a real
+    # sense of travel through the case rather than being a static list.
+    if live > 1:
+        draw.line([(spine_x, top), (spine_x, int(top + step * (live - 1)))],
+                  fill=ACCENT, width=3)
 
     for i, (day, desc) in enumerate(shown):
         y = int(top + step * i)
-        draw.ellipse([spine_x - 11, y - 11, spine_x + 11, y + 11],
-                     fill=ACCENT, outline=BG, width=3)
-        draw.text((spine_x + 42, y - 34), str(day).upper(), font=f_day, fill=ACCENT)
-        for j, line in enumerate(_wrap(draw, desc, f_desc, W - spine_x - 160)[:2]):
-            draw.text((spine_x + 42, y + 2 + j * 34), line, font=f_desc, fill=TEXT)
+        on = i < live
+        current = i == live - 1
+        r = 13 if current else 11
+        draw.ellipse([spine_x - r, y - r, spine_x + r, y + r],
+                     fill=ACCENT if on else BG,
+                     outline=ACCENT if on else PANEL_EDGE, width=3)
+        draw.text((spine_x + 42, y - 34), str(day).upper(), font=f_day,
+                  fill=ACCENT if on else TEXT_DIM)
+        if on:
+            for j, line in enumerate(_wrap(draw, desc, f_desc,
+                                           W - spine_x - 160)[:2]):
+                draw.text((spine_x + 42, y + 2 + j * 34), line, font=f_desc,
+                          fill=TEXT)
+        else:
+            # The DAY LABEL of a future event is drawn (it holds the layout
+            # and shows how far the case still has to run); its DESCRIPTION
+            # is not. Drawing it dim was still perfectly readable in the
+            # rendered frames, which meant an early timeline segment showed
+            # "Day 21 -- liver function normalised; discharged". The ending,
+            # in the first minute.
+            draw.line([(spine_x + 42, y + 16), (spine_x + 42 + 260, y + 16)],
+                      fill=PANEL_EDGE, width=2)
 
     canvas.save(out_path)
     return Path(out_path).exists()

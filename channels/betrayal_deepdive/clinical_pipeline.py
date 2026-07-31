@@ -2635,7 +2635,11 @@ def generate_script_content(niche, topic, episode, attempt,
                 '"y_label":"what the numbers are","labels":["label"],"values":[number]},'
                 '"anatomy":{"title":"short mechanism title","explanation":"one or two plain '
                 'sentences explaining the physical mechanism","search":"2-4 word wikimedia '
-                'search for a relevant anatomical or molecular diagram"},'
+                'search for a relevant anatomical or molecular diagram",'
+                '"pathway":["2-4 ordered steps of the physiological or metabolic chain '
+                'involved, 1-4 words each, in order"],'
+                '"blocked_step":"zero-based index of the step in pathway that failed in '
+                'this patient, or null"},'
                 '"quote":"one real sentence quoted verbatim from the text, or null"}'
             )
             raw = ai_generate(extract_prompt, tokens=900)
@@ -2662,7 +2666,21 @@ def generate_script_content(niche, topic, episode, attempt,
                     case["differentials"] = diffs
                     case["timeline"] = tl
                     case["chart_data"] = cd
-                    case["anatomy"] = ex.get("anatomy") or {}
+                    anat = ex.get("anatomy") or {}
+                    # Normalise the mechanism chain. The ANATOMY renderer draws
+                    # it as boxes-and-arrows with the failed step crossed out,
+                    # so a malformed pathway must be dropped here rather than
+                    # half-drawn there.
+                    _pw = [str(s).strip() for s in (anat.get("pathway") or [])
+                           if str(s).strip()][:4]
+                    anat["pathway"] = _pw if len(_pw) >= 2 else None
+                    try:
+                        _bs = int(anat.get("blocked_step"))
+                        anat["blocked_step"] = _bs if (anat["pathway"] and
+                                                       0 <= _bs < len(_pw)) else None
+                    except (TypeError, ValueError):
+                        anat["blocked_step"] = None
+                    case["anatomy"] = anat
                     case["quote"] = ex.get("quote") or ""
                     log(f"  Case structures: {len(diffs)} differentials, {len(tl)} timeline "
                         f"events, chart={'yes' if cd else 'no'}, "
@@ -5343,7 +5361,15 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         base_kw = theme_cycle[i % len(theme_cycle)]
         start = i * bucket_words
         end   = min(start + bucket_words, total)
-        stage_text = " ".join(words[start:end]).lower()
+        # Two forms, deliberately. stage_text is lowercased because every
+        # keyword matcher below (classify_hint, the SFX cue detector, the
+        # noun extractor) compares against lowercase literals. stage_display
+        # keeps the narration's own capitalisation, because some registers
+        # DRAW this text on screen -- and a card reading "newborns tire...
+        # what was not" with lowercase sentence starts reads as a rendering
+        # bug. Found by rendering an episode locally and looking at it.
+        stage_display = " ".join(words[start:end])
+        stage_text = stage_display.lower()
 
         stage_words= [w.strip(".,!?;:") for w in stage_text.split()
                       if len(w) > 4 and w not in stopwords]
@@ -5467,23 +5493,38 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         # force_switch on a real audio cue, so a stinger never lands with the
         # same register on both sides of it (no visual change at all).
         register = register_quota.pick(stage_text, force_switch=audio_cue_hit)
-        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) [{register}]")
+        # Reveal position is counted within THIS register's own appearances,
+        # not across the episode. Driving it off the global segment index
+        # made CHART 3 and 8, BOARD 4/9/20, TIMELINE 2 and 6 and FIGURE
+        # 0/21/24 render as identical frames -- see RegisterQuota.reveal.
+        _occ, _exp = register_quota.reveal(register)
+        _reg_progress = _occ / max(1, _exp)
+        log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) "
+            f"[{register} {_occ}/{_exp}]")
         try:
             if register == "TEXT":
                 # kinetic_text is the one existing renderer that already does
                 # exactly what this register needs, so it is reused directly
                 # rather than reimplemented in medical_segments.
                 from kinetic_text import generate_text_segment
-                _q = _case.get("quote") or stage_text
+                _q = _case.get("quote") or stage_display
                 ok = generate_text_segment(niche["name"], _q, _q[:60], segment_dur,
                                             i, clip_path, log_fn=log)
             else:
                 from medical_segments import render_medical_segment
+                # chart_fn used to be passed as `generate_data_chart` -- a name
+                # that exists only in collapse_index_pipeline.py and was never
+                # imported here. Every CHART segment therefore raised NameError,
+                # got swallowed by the except below, and rendered the plain
+                # fallback card: 17 of 59 segments in a locally rendered
+                # episode, including six of the first eight. medical_segments
+                # now owns the clinical chart renderer, so nothing is injected.
                 ok = render_medical_segment(
-                    register, _case, stage_text, segment_dur, i, clip_path,
+                    register, _case, stage_display, segment_dur, i, clip_path,
                     work_dir=str(WORK_DIR), niche_label=niche["series"].upper(),
-                    chart_fn=generate_data_chart, run_ffmpeg=run_ffmpeg, log_fn=log,
-                    progress=(i + 1) / max(1, n_buckets))
+                    run_ffmpeg=run_ffmpeg, log_fn=log,
+                    progress=_reg_progress, variant=_occ - 1,
+                    variant_total=_exp)
             if ok:
                 fetched_clips.append(clip_path)
                 continue
@@ -5507,7 +5548,7 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         try:
             from medical_segments import render_last_resort_still, still_to_clip
             _still = str(WORK_DIR / f"lastresort_{i}.png")
-            if render_last_resort_still(stage_text, _still,
+            if render_last_resort_still(stage_display, _still,
                                         niche_label=niche["series"].upper(),
                                         citation=_case.get("citation", "")):
                 if still_to_clip(_still, segment_dur, clip_path,

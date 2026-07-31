@@ -231,6 +231,110 @@ def audit_visuals():
     check("E", "no FIGURE segments when the paper has none",
           "FIGURE" not in picks, str(set(picks)))
 
+    audit_rendered_episode()
+
+
+# ── E2. VISUALS, MEASURED ON A REAL RENDER ─────────────────────────────
+# Everything above this line inspects code. The defects that actually
+# shipped were invisible to that: the audit passed 83/83 while the CHART
+# register rendered NOTHING on any segment of any episode, because the
+# pipeline passed a chart function it had never imported, the NameError was
+# swallowed by a try/except, and the fallback card it produced logs as a
+# success. 29% of a measured episode was that card.
+#
+# So these checks drive the real quota and the real renderers over a full
+# episode and assert on the OUTPUT.
+def audit_rendered_episode():
+    import importlib
+    import medical_segments as ms
+    from medical_register import (new_quota, SEGMENTS_PER_DATUM,
+                                  TEXT_CAPACITY_SEGMENTS, RegisterQuota)
+
+    sys.path.insert(0, str(ROOT / "tools"))
+    ler = importlib.import_module("local_episode_render")
+    case, narration = ler.CASE, ler.NARRATION
+
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    # Comments are stripped first: the fix's own explanation names the bug,
+    # and a check that its own rationale trips is a check nobody keeps.
+    cp_code = "\n".join(l for l in cp.splitlines()
+                        if not l.lstrip().startswith("#"))
+    check("E", "no undefined chart function is passed to the renderers",
+          "generate_data_chart" not in cp_code,
+          "clinical_pipeline defines no such name; passing it raised "
+          "NameError on every CHART segment and silently produced the "
+          "fallback card")
+    check("E", "medical_segments owns a chart renderer",
+          hasattr(ms, "render_chart_still"))
+    check("E", "renderers receive the narration's own capitalisation",
+          "stage_display, segment_dur" in cp_code
+          and "render_last_resort_still(stage_display" in cp_code,
+          "stage_text is lowercased for keyword matching; drawing it "
+          "produces cards with lowercase sentence starts")
+    check("E", "reveal is counted per register, not per episode",
+          hasattr(RegisterQuota, "reveal") and "register_quota.reveal(" in cp_code)
+    check("E", "TEXT capacity and TEXT budget agree",
+          RegisterQuota(60, available={"TEXT": True}).text_budget
+          == int(TEXT_CAPACITY_SEGMENTS))
+    check("E", "every data-driven register has a capacity rule",
+          set(SEGMENTS_PER_DATUM) == {"FIGURE", "CHART", "BOARD", "TIMELINE"},
+          str(sorted(SEGMENTS_PER_DATUM)))
+
+    # Drive a full episode's scheduling exactly as the pipeline does.
+    words = narration.split()
+    n = 59
+    bw = max(1, len(words) // n)
+    quota = new_quota(n, figure_count=len(case["figures"]), case=case)
+    seq, reveals = [], {}
+    for i in range(n):
+        text = " ".join(words[i * bw:(i + 1) * bw]).lower()
+        reg = quota.pick(text)
+        occ, exp = quota.reveal(reg)
+        seq.append(reg)
+        reveals.setdefault(reg, []).append(occ)
+
+    from collections import Counter
+    counts = Counter(seq)
+    check("E", "all six registers are used on a case that supports them",
+          len(counts) == 6, str(dict(counts)))
+
+    longest, cur = 1, 1
+    for a, b in zip(seq, seq[1:]):
+        cur = cur + 1 if a == b else 1
+        longest = max(longest, cur)
+    check("E", "no register runs longer than its cap",
+          longest <= quota.MAX_RUN, f"longest run {longest}")
+
+    check("E", "every register's reveal advances by one per appearance",
+          all(v == list(range(1, len(v) + 1)) for v in reveals.values()),
+          "a register that repeats its reveal position renders identical frames")
+
+    # No single register may dominate. 30% is the highest share TARGET_MIX
+    # ever assigns, so anything above it means surplus piled onto one
+    # register -- the exact failure that produced 17 CHART and later 16
+    # ANATOMY segments on this same case.
+    worst, worst_n = counts.most_common(1)[0]
+    check("E", "no register takes more than 30% of the episode",
+          worst_n <= n * 0.30, f"{worst} took {worst_n}/{n}")
+
+    check("E", "the fallback card is never needed on a well-formed case",
+          all(quota.mix.get(r, 0) >= 0 for r in counts) and
+          not _fallbacks_needed(ms, case, seq, reveals),
+          "a register scheduled without data renders the plain text card")
+
+
+def _fallbacks_needed(ms, case, seq, reveals):
+    """True if any scheduled register has no data to render from."""
+    have = {
+        "FIGURE": bool(case.get("figures")),
+        "CHART": bool((case.get("chart_data") or {}).get("labels")),
+        "BOARD": bool(case.get("differentials")),
+        "TIMELINE": len(case.get("timeline") or []) >= 2,
+        "TEXT": bool((case.get("quote") or "").strip()),
+        "ANATOMY": True,
+    }
+    return any(not have.get(r, False) for r in set(seq))
+
 
 # ── F. INTEGRATION ─────────────────────────────────────────────────────
 def audit_integration():

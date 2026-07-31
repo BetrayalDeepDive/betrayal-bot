@@ -113,34 +113,88 @@ def classify_hint(segment_text):
     return None
 
 
-def build_mix(figure_count, available=None):
-    """
-    available: optional {register: bool} of what this paper can actually
-    render. A register with no data is set to zero share and its budget is
-    redistributed, instead of being scheduled and silently degrading.
+# How many segments one unit of each register's source data can carry before
+# consecutive frames become pixel-identical. Every register here reveals its
+# content progressively, so its capacity is set by how many DISTINCT states
+# its data has, not by an aesthetic preference.
+#
+# All of these were measured on full local renders. FIGURE was capped first
+# (3 figures were being asked to fill ~18 segments). The rest were not, and
+# each one in turn became the register the surplus piled onto: capping CHART
+# alone pushed BOARD to 15 segments on a 4-item differential, which is the
+# same defect wearing a different name. So the cap is a rule, not a special
+# case.
+#
+# ANATOMY and TEXT are absent from this table because their capacity is not
+# a function of the paper's data counts -- both are given explicit ceilings
+# below.
+SEGMENTS_PER_DATUM = {
+    FIGURE:   3.0,    # a held shot plus re-approaches, per real figure
+    CHART:    1.5,    # per plotted point
+    BOARD:    2.5,    # per candidate diagnosis
+    TIMELINE: 2.0,    # per event
+}
 
-    Found before run 5 by simulating a realistic paper (no chart data, one
-    differential, no timeline -- exactly what run 30563819566's logs showed):
-    the quota still assigned 21 CHART and 9 TIMELINE segments, so HALF the
-    episode would have rendered the identical fallback card. That is not a
-    visible crash; it is sixty seconds of the same slide, repeatedly, which
-    is why it survived every check until it was simulated.
-    """
-    """
-    Active target mix given how many usable figures this paper actually has.
+# ANATOMY's capacity is not set by the paper's data -- it is procedural --
+# but it is not infinite either: three motifs, each with a progressive reveal,
+# sustain roughly a dozen genuinely distinct frames. Without this it became
+# the sink for everything the capped registers refused, and a thin paper
+# produced sixteen procedural diagrams in one episode: the same defect the
+# caps were added to remove, relocated.
+ANATOMY_CAPACITY_SEGMENTS = 12.0
 
-    Real papers vary from zero usable figures (all screened out as graphic,
-    or none present) to a dozen. Asking for 30% FIGURE segments when only
-    two real figures exist would mean re-showing the same image ~18 times in
-    one episode. The cap allows each real figure to carry roughly three
-    segments (a held shot plus depth-motion re-approaches), and any
-    unusable share is redistributed 60/40 to ANATOMY and CHART -- both of
-    which are always available, since anatomy comes from Wikimedia and
-    charts are generated from the case's own reported values.
+# TEXT shows one real quoted line. A case report yields one quotable
+# sentence, so beyond a couple of appearances it is the identical card.
+# This MUST match RegisterQuota.text_budget: when TEXT was left uncapped
+# here, it was the only register with unbounded headroom, so the whole
+# surplus landed on it -- a nominal 29% share that pick() then refused to
+# spend, which distorted every other register's deficit for the whole
+# episode.
+TEXT_CAPACITY_SEGMENTS = 2.0
+
+
+def _capacity_shares(mix, counts):
+    """{register: max share it can sustain}."""
+    caps = {}
+    for reg, per in SEGMENTS_PER_DATUM.items():
+        have = counts.get(reg)
+        if have is None or mix.get(reg, 0) <= 0:
+            continue
+        caps[reg] = min(TARGET_MIX[reg], (have * per) / 60.0)
+    if mix.get(ANATOMY, 0) > 0:
+        caps[ANATOMY] = ANATOMY_CAPACITY_SEGMENTS / 60.0
+    if mix.get(TEXT, 0) > 0:
+        caps[TEXT] = TEXT_CAPACITY_SEGMENTS / 60.0
+    return caps
+
+
+def build_mix(figure_count, available=None, chart_points=0, data_counts=None):
+    """
+    The active target mix for THIS paper.
+
+    Two corrections are applied to TARGET_MIX:
+
+    1. AVAILABILITY. A register the paper cannot render at all is zeroed and
+       the mix renormalised. Found by simulating a realistic paper (no chart
+       data, one differential, no timeline -- exactly what run 30563819566's
+       logs showed): the quota still assigned 21 CHART and 9 TIMELINE
+       segments, so HALF the episode would have rendered the identical
+       fallback card. Not a crash; sixty seconds of the same slide.
+
+    2. CAPACITY. A register the paper CAN render, but thinly, is capped at
+       what its data can actually sustain. Availability alone is not enough --
+       a six-point series is "available" and still cannot fill seventeen
+       segments without repeating itself exactly.
+
+    Surplus is redistributed ONLY into registers that still have headroom
+    under their own cap, iteratively. A single proportional pass was not
+    enough: it handed FIGURE's surplus straight back to CHART, pushing CHART
+    from its 9-segment cap back up to 12 and reproducing the repeats the cap
+    existed to prevent. Whatever no capped register can absorb ends up in
+    ANATOMY, which is procedural and has no data to exhaust.
     """
     mix = dict(TARGET_MIX)
     if available:
-        # Zero anything with no data, then renormalise over what is left.
         # ANATOMY is procedural and therefore always available, so the mix
         # can never collapse to nothing.
         for reg in list(mix):
@@ -148,23 +202,65 @@ def build_mix(figure_count, available=None):
                 mix[reg] = 0.0
         live = sum(mix.values())
         if live <= 0:
-            mix = {ANATOMY: 1.0, **{k: 0.0 for k in TARGET_MIX if k != ANATOMY}}
-        else:
-            mix = {k: v / live for k, v in mix.items()}
-    if figure_count <= 0:
-        spare = mix[FIGURE]
-        mix[FIGURE] = 0.0
-        mix[ANATOMY] += spare * 0.6
-        mix[CHART] += spare * 0.4
-        return mix
-    # Roughly 60 segments/episode; ~3 segments per real figure is the
-    # comfortable ceiling before repetition becomes visible.
-    max_share = min(TARGET_MIX[FIGURE], (figure_count * 3) / 60.0)
-    spare = mix[FIGURE] - max_share
-    if spare > 0:
-        mix[FIGURE] = max_share
-        mix[ANATOMY] += spare * 0.6
-        mix[CHART] += spare * 0.4
+            return {ANATOMY: 1.0, **{k: 0.0 for k in TARGET_MIX if k != ANATOMY}}
+        mix = {k: v / live for k, v in mix.items()}
+
+    counts = dict(data_counts or {})
+    counts.setdefault(FIGURE, figure_count)
+    if chart_points:
+        counts.setdefault(CHART, chart_points)
+    caps = _capacity_shares(mix, counts)
+
+    for _ in range(8):
+        surplus = 0.0
+        for reg, cap in caps.items():
+            if mix.get(reg, 0) > cap:
+                surplus += mix[reg] - cap
+                mix[reg] = cap
+        if surplus <= 1e-9:
+            break
+        # Headroom = uncapped registers at their current share, plus capped
+        # ones only up to their cap.
+        room = {}
+        for reg, share in mix.items():
+            if share <= 0:
+                continue
+            if reg in caps:
+                if caps[reg] - share > 1e-9:
+                    room[reg] = caps[reg] - share
+            else:
+                room[reg] = float("inf")
+        finite = {k: v for k, v in room.items() if v != float("inf")}
+        infinite = [k for k, v in room.items() if v == float("inf")]
+        if infinite:
+            base = sum(mix[k] for k in infinite) or 1.0
+            for k in infinite:
+                mix[k] += surplus * (mix[k] / base)
+            break
+        total_room = sum(finite.values())
+        take = min(surplus, total_room)
+        if total_room > 1e-9:
+            for k, v in finite.items():
+                mix[k] += take * (v / total_room)
+        residual = surplus - take
+        if residual > 1e-9:
+            # EVERY register is now at capacity and the episode still has
+            # segments left. This means the paper is genuinely too thin to
+            # fill it -- three figures, one six-point series, four
+            # differentials and six events cannot produce fifty-nine
+            # distinct frames, and no scheduling rule can invent more.
+            #
+            # The residual is therefore spread across all live registers in
+            # proportion to their caps, NOT dumped on one of them. Dumping it
+            # on ANATOMY (the previous behaviour) concentrated every repeat
+            # into one visual treatment -- sixteen procedural diagrams in a
+            # row-ish. Repetition spread thinly across six registers is far
+            # less visible than the same amount piled into one.
+            live = {k: caps.get(k, mix[k]) for k in mix if mix[k] > 0}
+            base = sum(live.values()) or 1.0
+            for k, w in live.items():
+                mix[k] += residual * (w / base)
+            break
     return mix
 
 
@@ -187,10 +283,11 @@ class RegisterQuota:
     # absent by design: it needs a real quotation to display (see _neediest).
     FILLABLE = (FIGURE, CHART, BOARD, TIMELINE, ANATOMY)
 
-    def __init__(self, total_segments, figure_count=0, available=None):
+    def __init__(self, total_segments, figure_count=0, available=None,
+                 chart_points=0, data_counts=None):
         self.total = max(1, total_segments)
         self.figure_count = figure_count
-        self.mix = build_mix(figure_count, available)
+        self.mix = build_mix(figure_count, available, chart_points, data_counts)
         self.counts = {k: 0 for k in self.mix}
         self.done = 0
         self.last = None
@@ -198,7 +295,20 @@ class RegisterQuota:
         # paper -- roughly five straight minutes of one visual. A
         # documentary changes what you are looking at.
         self.run_len = 0
-        self.MAX_RUN = 3
+        self.MAX_RUN = 2
+        # TEXT is reachable by deficit-fill ONLY when the paper actually
+        # supplied a quotation, and even then only a couple of times.
+        #
+        # Measured on a full local render: TEXT fired 0 times out of 59.
+        # classify_hint() only returns TEXT when the narration contains a
+        # literal quote character, and clinical narration written for TTS
+        # rarely does -- so a register worth 6% of the mix was dead, and the
+        # episode ran on five registers instead of six. Simply adding TEXT to
+        # FILLABLE is the wrong fix in the other direction: there is one
+        # quote, so deficit-filling would show the identical card four or
+        # five times. Capped instead.
+        _has_quote = bool(available.get(TEXT, False)) if available else False
+        self.text_budget = int(TEXT_CAPACITY_SEGMENTS) if _has_quote else 0
 
     def _deficit(self, register):
         return self.mix[register] * self.total - self.counts[register]
@@ -217,10 +327,13 @@ class RegisterQuota:
         classify_hint(); its unused share is absorbed by the registers that
         can always be rendered from the case's own data.
         """
-        eligible = [r for r in self.FILLABLE
+        fillable = list(self.FILLABLE)
+        if self.counts.get(TEXT, 0) < self.text_budget and self.mix.get(TEXT, 0) > 0:
+            fillable.append(TEXT)
+        eligible = [r for r in fillable
                     if self.mix.get(r, 0) > 0 and r != exclude]
         if not eligible:
-            eligible = [r for r in self.FILLABLE if self.mix.get(r, 0) > 0]
+            eligible = [r for r in fillable if self.mix.get(r, 0) > 0]
         if not eligible:                      # pathological: nothing fillable
             eligible = [r for r in self.mix if self.mix[r] > 0]
         return max(eligible, key=self._deficit)
@@ -264,6 +377,32 @@ class RegisterQuota:
         self.last = chosen
         return chosen
 
+    def reveal(self, register):
+        """
+        (occurrence, expected_total) for the register just picked, both
+        counted IN THAT REGISTER'S OWN SEQUENCE.
+
+        Every renderer varies its output on something the caller supplies:
+        the progressive reveal on `progress`, the ANATOMY motif on `variant`,
+        which figure to show on the segment index. All of those used to be
+        derived from the GLOBAL segment position -- and a register that
+        appears on twelve of fifty-nine segments moves through a global
+        0..1 ramp in twelve coarse jumps that mostly land on the same value.
+
+        Rendering a full episode made the consequence obvious and uniform:
+        CHART segments 3 and 8 were the same frame, BOARD 4/9/20 the same
+        frame, TIMELINE 2 and 6 the same frame, and FIGURE 0/21/24 all showed
+        Figure 1 because 0, 21 and 24 are all ≡ 0 (mod 3). Five separate
+        symptoms, one cause.
+
+        Counting within the register's own run makes each of its appearances
+        advance by exactly one step, which is what a progressive reveal was
+        supposed to mean in the first place.
+        """
+        occurrence = self.counts.get(register, 1)          # 1-based, post-pick
+        expected = max(1, int(round(self.mix.get(register, 0) * self.total)))
+        return occurrence, max(expected, occurrence)
+
     def realised_mix(self):
         """Actual proportions so far -- for logging and the video gate."""
         if not self.done:
@@ -291,5 +430,12 @@ def new_quota(total_segments, figure_count=0, case=None, available=None):
     """Fresh per-episode tracker. Always call this, never reuse one."""
     if available is None and case is not None:
         available = available_from_case(case)
+    c = case or {}
+    counts = {
+        FIGURE:   len(c.get("figures") or []) or figure_count,
+        CHART:    len((c.get("chart_data") or {}).get("labels") or []),
+        BOARD:    len(c.get("differentials") or []),
+        TIMELINE: len(c.get("timeline") or []),
+    }
     return RegisterQuota(total_segments, figure_count=figure_count,
-                         available=available)
+                         available=available, data_counts=counts)
