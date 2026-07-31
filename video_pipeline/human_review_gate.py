@@ -115,9 +115,11 @@ def default_review_timeout():
 
 import imaplib
 import email as email_lib
+import email.header  # noqa: F401  — needed for the subject decode below
 
 
-def check_email_replies(sender_email, app_password, since_datetime=None):
+def check_email_replies(sender_email, app_password, since_datetime=None,
+                        channel_tag=None):
     """
     THE REAL EMAIL FALLBACK — makes Gmail a genuine two-way input
     channel, not just a one-way notification. Uses IMAP (the same real
@@ -154,6 +156,26 @@ def check_email_replies(sender_email, app_password, since_datetime=None):
             if status != "OK":
                 continue
             msg = email_lib.message_from_bytes(msg_data[0][1])
+
+            # ONE INBOX, FIVE CHANNELS.
+            #
+            # GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD are shared secrets: all
+            # five pipelines send from, and poll, the SAME mailbox. Without a
+            # filter, a reply meant for one channel's review is read by
+            # whichever channel happens to poll next -- so an APPROVE typed
+            # for Ch1 could approve a Ch3 script, and Ch1 would keep waiting
+            # for a decision that has already been consumed. Every
+            # notification subject starts with "[channel name]", and a reply
+            # keeps it as "Re: [channel name] ...", so the tag is the
+            # disambiguator.
+            if channel_tag:
+                try:
+                    _subj = str(email_lib.header.make_header(
+                        email_lib.header.decode_header(msg.get("Subject", ""))))
+                except Exception:
+                    _subj = msg.get("Subject", "") or ""
+                if channel_tag.lower() not in _subj.lower():
+                    continue
 
             body = ""
             if msg.is_multipart():
@@ -223,6 +245,9 @@ def _parse_email_decision(body):
 # Ch2-Ch5 are untouched.
 _REVIEW_RECIPIENT = [None]
 _REVIEW_MAILBOX = [None]   # (address, app_password) whose INBOX holds replies
+# Which channel this process is. Used to make sure a review only ever consumes
+# ITS OWN emailed reply out of the one shared inbox.
+_CURRENT_CHANNEL = [None]
 
 
 def set_review_recipient(email, app_password=None):
@@ -249,13 +274,29 @@ def reply_mailbox(default_sender, default_password):
     """
     Which mailbox to poll for emailed decisions.
 
-    Prefers the mailbox the notification was actually delivered to -- reading
-    a different inbox than the one receiving the mail is how an email reply
-    silently never registers.
+    Must be the mailbox the notification was DELIVERED to -- polling a
+    different inbox than the one receiving the mail is how an emailed
+    decision silently never registers.
+
+    In the normal setup the sending account IS the review inbox (the channel
+    mails itself), so the default credentials already point at the right
+    mailbox and nothing extra is needed.
     """
     if _REVIEW_MAILBOX[0]:
         return _REVIEW_MAILBOX[0]
     return default_sender, default_password
+
+
+def reply_mailbox_is_correct(default_sender):
+    """
+    True when the inbox we poll is the inbox the mail lands in.
+
+    False means an emailed reply will be sitting in a mailbox nothing reads --
+    worth saying out loud rather than discovering when a decision is ignored.
+    """
+    want = review_recipient()
+    have = (_REVIEW_MAILBOX[0][0] if _REVIEW_MAILBOX[0] else default_sender) or ""
+    return have.strip().lower() == (want or "").strip().lower()
 
 
 def send_email_notification(subject, html_body, sender_email, app_password, recipient_email=None):
@@ -291,6 +332,12 @@ def send_email_notification(subject, html_body, sender_email, app_password, reci
     # sending regardless of what produced it — sanitized here too as a
     # second, independent safeguard.
     subject = " ".join(str(subject).split())[:200]
+    # Remember this notification's "[channel] " tag so the reply poller only
+    # consumes a reply to THIS mail. Set at send time, so it is automatically
+    # correct for every gate without touching a single call site.
+    _tag = re.match(r"\s*(\[[^\]]{1,80}\])", subject)
+    if _tag:
+        _CURRENT_CHANNEL[0] = _tag.group(1)
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender_email
@@ -790,7 +837,8 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
             _reply_addr, _reply_pass = reply_mailbox(gmail_sender, gmail_app_password)
             if _reply_pass and email_check_counter % 4 == 0:
                 email_replies = check_email_replies(_reply_addr, _reply_pass,
-                                                     since_datetime=review_start_time)
+                                                     since_datetime=review_start_time,
+                                                     channel_tag=_CURRENT_CHANNEL[0])
                 if email_replies:
                     decision, extra, _msg_id = email_replies[0]  # most recent real reply
                     return decision, extra

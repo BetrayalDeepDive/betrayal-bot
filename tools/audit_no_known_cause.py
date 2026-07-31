@@ -645,12 +645,15 @@ def _email_routing_checks():
     import human_review_gate as h
     cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
 
-    check("A", "Ch1 declares its own inbox",
-          'CHANNEL_EMAIL' in cp and "noknowncausetv@gmail.com" in cp)
-    check("A", "Ch1's business-inquiries line uses the channel inbox",
-          "BUSINESS_EMAIL = CHANNEL_EMAIL" in cp,
-          "the description printed in every published video was routing "
-          "viewer mail about this channel to a different account")
+    check("A", "Ch1's INTERNAL mail goes to the channel inbox",
+          'CHANNEL_EMAIL' in cp and "noknowncausetv@gmail.com" in cp,
+          "checkpoints, uploads and reports")
+    check("A", "Ch1's PUBLIC business line stays the company address",
+          'BUSINESS_EMAIL = "nextlayermediallc@gmail.com"' in cp,
+          "the internal inbox must never be printed in a published "
+          "description — those are two different audiences")
+    check("A", "internal and business addresses are not the same",
+          "BUSINESS_EMAIL = CHANNEL_EMAIL" not in cp)
     _entry = cp[cp.index('if __name__ == "__main__":'):]
     check("A", "the channel claims its inbox before any gate can fire",
           "set_review_recipient(CHANNEL_EMAIL" in _entry
@@ -669,12 +672,32 @@ def _email_routing_checks():
               == "noknowncausetv@gmail.com",
               "polling a different mailbox means an emailed decision never "
               "registers")
+        check("A", "the reply loop is closed when the sender IS the inbox",
+              h.reply_mailbox_is_correct("noknowncausetv@gmail.com"),
+              "the shared GMAIL_SENDER_EMAIL secret already holds this "
+              "account, so no extra credential should be required")
         h.set_review_recipient(None, None)
         check("A", "Ch2-Ch5 keep the shared inbox",
               h.review_recipient() == "nextlayermediallc@gmail.com",
               "only Ch1 was asked to change")
     finally:
         h.set_review_recipient(None, None)
+
+    # ONE MAILBOX, FIVE CHANNELS -- found while checking this.
+    # GMAIL_SENDER_EMAIL/GMAIL_APP_PASSWORD are shared secrets, so every
+    # pipeline polls the SAME inbox for emailed decisions. Without a filter,
+    # an APPROVE typed for one channel is consumed by whichever channel polls
+    # next, and the channel it was meant for waits forever.
+    hg = read("video_pipeline/human_review_gate.py")
+    check("F", "an emailed reply can only be read by the channel it names",
+          "channel_tag" in hg and "_CURRENT_CHANNEL" in hg
+          and "channel_tag=_CURRENT_CHANNEL[0]" in hg,
+          "five pipelines share one inbox; a reply meant for Ch1 could "
+          "approve a Ch3 script")
+    check("F", "the channel tag is captured from the notification itself",
+          '_tag = re.match(r"\\s*(\\[[^\\]]{1,80}\\])", subject)' in hg,
+          "recording it at send time keeps every gate correct with no "
+          "call-site changes")
 
 
 def _format_leak_checks():
@@ -803,7 +826,7 @@ def _title_checks():
           "notify_stage_score": lambda *a, **k: None,
           "_record_title_history": lambda *a, **k: None}
     exec(cp[cp.index("def score_title_v2"):
-            cp.index("# Real business-inquiries contact")], ns)
+            cp.index("# \u2500\u2500 TWO ADDRESSES")], ns)
     score, gate = ns["score_title_v2"], ns["run_title_ctr_gate"]
 
     # 1. A real clinical title must be able to clear the 8.5 gate at all.

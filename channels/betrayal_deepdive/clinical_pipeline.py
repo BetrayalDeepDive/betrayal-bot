@@ -513,23 +513,25 @@ def run_title_gate_with_rounds(title_str, title_scores, topic, niche_name,
     return None, scored
 
 
-# ── CHANNEL 1's OWN INBOX ──────────────────────────────────────────────
+# ── TWO ADDRESSES, DELIBERATELY DIFFERENT ──────────────────────────────
 #
-# Direct instruction: "everything regarding the channel 1's details should be
-# sent to noknowncausetv@gmail.com.. not any other email."
+# INTERNAL (this one): every review checkpoint, upload notification and
+# report about this channel. Clarified directly: "This email that I have sent
+# you is for internal purposes, whatever the video uploads or the reports or
+# anything like that are."
 #
-# Everything this channel emits by email now goes here and nowhere else:
-# every review checkpoint notification, and the business-inquiries line
-# printed in every published description (which was routing viewer mail about
-# this channel to a different account). Ch2-Ch5 are untouched -- they keep
-# their shared address, because only Ch1 was asked for.
-#
-# Overridable by env so it can be changed without a code edit, but the
-# DEFAULT is this address, not a shared one.
+# The GMAIL_SENDER_EMAIL / GMAIL_APP_PASSWORD secrets already hold this
+# account -- the same pair that used to hold the retired channel's -- so the
+# notification is sent from it and delivered to it, and replies land in the
+# very inbox the poller reads. Nothing further needs configuring.
 CHANNEL_EMAIL = os.environ.get("CH1_REVIEW_EMAIL", "").strip() or "noknowncausetv@gmail.com"
 
-# Real business-inquiries contact, printed in every description.
-BUSINESS_EMAIL = CHANNEL_EMAIL
+# PUBLIC (business inquiries): printed in every published description for
+# viewers and partners to write to. This is the company address and is NOT
+# the internal one -- corrected on direct instruction: "For the business, it
+# should be the same one that was before, that is, nextlayermediallc@gmail.com.
+# That shouldn't change."
+BUSINESS_EMAIL = "nextlayermediallc@gmail.com"
 
 # HONEST NOTE (found on final audit pass): none of the 4 URLs below are
 # real, trackable affiliate links yet — they're placeholder slugs on each
@@ -10838,14 +10840,24 @@ if __name__ == "__main__":
     # App Password -- with it, emailed replies are read back from the same
     # inbox the notification landed in, so replying to the mail works.
     try:
-        from human_review_gate import set_review_recipient
+        from human_review_gate import set_review_recipient, reply_mailbox_is_correct
+        # CH1_GMAIL_APP_PASSWORD is optional and normally unnecessary: the
+        # shared GMAIL_SENDER_EMAIL secret already holds this very account, so
+        # the channel mails itself and the poller reads the same inbox. It
+        # exists only for the case where the internal address is NOT the
+        # sending account.
         _ch1_pass = os.environ.get("CH1_GMAIL_APP_PASSWORD", "").strip()
         set_review_recipient(CHANNEL_EMAIL, _ch1_pass or None)
-        log(f"Review mail for this channel -> {CHANNEL_EMAIL}"
-            + ("" if _ch1_pass else
-               "  (CH1_GMAIL_APP_PASSWORD not set: mail is delivered there, "
-               "but emailed REPLIES are still read from GMAIL_SENDER_EMAIL's "
-               "inbox — set it to close that loop. Telegram is unaffected.)"))
+        _sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+        log(f"Internal mail (checkpoints, uploads, reports) -> {CHANNEL_EMAIL}")
+        log(f"Business inquiries in the description        -> {BUSINESS_EMAIL}")
+        if reply_mailbox_is_correct(_sender):
+            log("  Emailed replies are read from that same inbox — the loop is closed.")
+        else:
+            log(f"  NOTE: mail is delivered to {CHANNEL_EMAIL} but replies would be "
+                f"read from {_sender or '(unset)'}. An emailed decision would sit "
+                f"unread. Set GMAIL_SENDER_EMAIL to {CHANNEL_EMAIL}, or supply "
+                f"CH1_GMAIL_APP_PASSWORD. Telegram is unaffected.")
     except Exception as _e:
         log(f"Review recipient wiring failed: {_e}")
     try:
