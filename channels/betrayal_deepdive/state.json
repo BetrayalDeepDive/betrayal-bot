@@ -1,5 +1,40 @@
 {
-  "viral_intel": {},
+  "viral_intel": {
+    "senior_health_longevity": {
+      "top_hook_formulas": [
+        "Unbelievable Diagnosis: A __-year-old patient with __ symptoms was found to have __",
+        "The Mysterious Case of: __, a __-year-old patient who presented with __",
+        "What the Doctors Missed: __, a __-year-old patient with __ symptoms"
+      ],
+      "winning_title_patterns": [
+        "The __ Diagnosis: A __-year-old patient's shocking __",
+        "The __-year-old patient who __: A surprising __ diagnosis",
+        "When __ Goes Wrong: A __-year-old patient's __ diagnosis"
+      ],
+      "thumbnail_text_examples": [
+        "Rare Genetic Disorder",
+        "Unexplained Weight Loss",
+        "Mysterious Muscle Weakness",
+        "Sudden Onset Dementia",
+        "Baffling Balance Problems"
+      ],
+      "retention_hooks": [
+        "At 30%, doctors were stumped by this patient's __",
+        "By 60%, the diagnosis was clear, but the cause was still a mystery",
+        "At 80%, the patient's life was forever changed by the diagnosis"
+      ],
+      "niche_power_words": [
+        "geriatric",
+        "sarcopenia",
+        "frailty",
+        "ageing",
+        "longevity",
+        "elderly"
+      ],
+      "fresh_topic_ideas": [],
+      "last_run": "2026-07-31T14:19:04.721564"
+    }
+  },
   "last_title_register": "sympathy",
   "performance": {
     "thumbnail_style_A": {

@@ -1,0 +1,20 @@
+{
+  "episode_case": {
+    "narrative": "Abstract Background Sarcopenia, an age-related decline in muscle mass and function, is one of the most important health problems in elderly with a high rate of adverse outcomes. However, several studies have investigated the prevalence of sarcopenia in the world, the results have been inconsistent. The current systematic review and meta- analysis study was conducted to estimate the overall prevalence of sarcopenia in both genders in different regions of the world. Methods Electronic databases, including MEDLINE (via PubMed), SCOPUS and Web of Science were searched between January 2009 and December 2016. The population- based studies that reported the prevalence of sarcopenia in healthy adults aged \u2265 60 years using the European Working Group on Sarcopenia in Older People (EWGSOP), the International Working Group on Sarcopenia (IWGS) and Asian Working Group for Sarcopenia (AWGS) definitions, were selected. According to these consensual definitions, sarcopenia was defined by presence of low muscle mass (adjusted appendicular muscle mass for height) and muscle strength (handgrip strength) or physical performance (the usual gait speed). The random effect model was used for estimation the prevalence of sarcopenia. The sex-specific prevalence of sarcopenia and 95% confidence interval (CI) were calculated using the Binomial Exact Method. Heterogeneity was assessed by subgroup analysis. Results Thirty- five articles met our inclusion criteria, with a total of 58404 individuals. The overall estimates of prevalence was 10% (95% CI: 8-12%) in men and 10% (95% CI: 8-13%) in women, respectively. The prevalence was higher among non- Asian than Asian individuals in both genders especially, when the Bio-electrical Impedance Analysis (BIA) was used to measure muscle mass (19% vs 10% in men; 20% vs 11% in women). Conclusion Despite the differences encountered between the studies, regarding diagnostic tools used to measure of muscle mass and different regions of the world for estimating parameters of sarcopenia, present systematic review revealed that a substantial proportion of the old people has sarcopenia, even in healthy populations. However, sarcopenia is as a consequence of the aging progress, early diagnosis can prevent some adverse outcomes. Keywords: Sarcopenia, Prevalence, General population, Systematic review",
+    "figures": [],
+    "citation": "Shafiee G, Keshtkar A, Soltani A, Ahadi Z, Larijani B, Heshmat R. Prevalence of sarcopenia in the world: a systematic review and meta- analysis of general population studies. Journal of diabetes and metabolic disorders 2017 doi:10.1186/s40200-017-0302-x \u2014 licensed CC BY",
+    "pmcid": "PMC5434551",
+    "title": "Prevalence of sarcopenia in the world: a systematic review and meta- analysis of general population studies.",
+    "year": "2017",
+    "journal": "Journal of diabetes and metabolic disorders",
+    "license": "cc by",
+    "differentials": [],
+    "timeline": [],
+    "chart_data": null,
+    "anatomy": {
+      "pathway": null,
+      "blocked_step": null
+    },
+    "quote": "Sarcopenia was defined by presence of low muscle mass (adjusted appendicular muscle mass for height) and muscle strength (handgrip strength) or physical performance (the usual gait speed)."
+  }
+}
