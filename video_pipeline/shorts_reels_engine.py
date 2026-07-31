@@ -1403,6 +1403,42 @@ def _generate_short_music_bed(duration, output_path):
         return False
 
 
+def _hook_drawtext(hook, max_width_px=980, y_top=140):
+    """
+    The hook, wrapped and sized to FIT.
+
+    It was one drawtext with no wrapping at a fixed fontsize 54. DejaVu Bold
+    at 54 runs about 32px per character, so any hook longer than ~30
+    characters is wider than the 1080px frame -- and because it is centred,
+    it gets clipped at BOTH ends. Assembling a real Short showed
+    "A newborn was being poisoned by milk." rendering as "newborn was being
+    poisoned by mi". The hook is the first thing a viewer reads and it was
+    losing its first and last words.
+    """
+    import textwrap as _tw
+    text = (hook or "").strip()
+    if not text:
+        return []
+    size = 54
+    lines = [text]
+    for size in (54, 48, 42, 38, 34):
+        # ~0.60 of the point size is a good average advance for DejaVu Bold.
+        per_line = max(8, int(max_width_px / (size * 0.60)))
+        lines = _tw.wrap(text, per_line)[:3]
+        if lines and max(len(l) for l in lines) <= per_line:
+            break
+    out = []
+    for i, line in enumerate(lines):
+        safe = line.replace("'", "").replace(":", " ").replace('"', "")
+        out.append(
+            f"drawtext=text='{safe}':"
+            "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+            f"fontsize={size}:fontcolor=white:borderw=4:bordercolor=black:"
+            f"x=(w-text_w)/2:y={y_top + i * int(size * 1.25)}:"
+            "shadowcolor=black@0.9:shadowx=3:shadowy=3")
+    return out
+
+
 def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
                           hook_text: str, output_path: str,
                           is_reel: bool = False) -> bool:
@@ -1432,19 +1468,35 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
     except Exception:
         dur = 55.0
 
-    # Escape for FFmpeg drawtext
-    hook_safe = hook_text[:50].replace("'", "").replace(":", " ").replace('"', "")
+    # Not truncated to 50 characters any more -- _hook_drawtext wraps and
+    # shrinks to fit instead of clipping.
+    hook_safe = (hook_text or "").strip()
+    # A rendered clinical card must not be darkened again; see below.
+    is_clinical_bg = bool(_CLINICAL_CASE.get("case"))
     wm_safe   = WATERMARK.replace("'", "")
 
     # Build subtitle filter
     if os.path.exists(srt_path):
         srt_esc = srt_path.replace(":", "\\:").replace("'", "\\'")
+        # PlayResX/PlayResY MUST be declared.
+        #
+        # Without them libass assumes its 384x288 default and scales the whole
+        # style by 1920/288 -- about 6.7x. Measured on a real 1080x1920 Short:
+        # "FontSize=22, MarginV=80" rendered as ink from y=654 to y=1417, i.e.
+        # 763 pixels tall sitting across the MIDDLE of the frame, covering
+        # whatever the background was showing. The style said small text near
+        # the bottom; libass drew enormous text through the centre, and every
+        # channel's Shorts have looked like that.
+        #
+        # With the real resolution declared the numbers mean what they say.
+        # Sized deliberately large (Shorts convention) but anchored in the
+        # lower third: measured y=1284..1666.
         sub_filter = (
             f"subtitles='{srt_esc}':force_style="
-            "'FontName=DejaVu Sans,FontSize=22,Bold=1,"
-            "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-            "BackColour=&H80000000,Outline=3,Shadow=2,"
-            "Alignment=2,MarginV=80,Spacing=0.5'"
+            "'PlayResX=1080,PlayResY=1920,FontName=DejaVu Sans,FontSize=96,"
+            "Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+            "BackColour=&HB0000000,Outline=6,Shadow=3,"
+            "Alignment=2,MarginL=70,MarginR=70,MarginV=260,Spacing=0.5'"
         )
     else:
         sub_filter = ""
@@ -1468,14 +1520,16 @@ def assemble_short_video(bg_path: str, audio_path: str, srt_path: str,
     except Exception as e:
         log.warning("Pattern interrupt filter unavailable (non-fatal): %s", e)
 
+    # The vignette is applied ONLY to fetched footage. On the clinical
+    # channel the background is a rendered card -- deliberately dark already
+    # -- and darkening it again crushed the differential board and the
+    # chart to near-invisible behind the caption. Assembling a real Short
+    # and looking at it is the only way that shows up.
+    if not is_clinical_bg:
+        vf_parts.append("vignette=PI/3.5")
+
+    vf_parts += _hook_drawtext(hook_safe)
     vf_parts += [
-        # Dramatic vignette
-        "vignette=PI/3.5",
-        # Hook text - top third, large
-        f"drawtext=text='{hook_safe}':"
-        "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        "fontsize=54:fontcolor=white:borderw=4:bordercolor=black:"
-        "x=(w-text_w)/2:y=140:shadowcolor=black@0.9:shadowx=3:shadowy=3",
         # Channel watermark - bottom right
         f"drawtext=text='{wm_safe}':"
         "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:"

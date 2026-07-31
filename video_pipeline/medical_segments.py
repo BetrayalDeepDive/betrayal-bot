@@ -784,15 +784,33 @@ def render_medical_segment(register, case, segment_text, duration, index,
 #
 # A Short is the same channel. It draws from the same paper.
 VW, VH = 1080, 1920
-V_CAPTION_SAFE_H = 460          # Shorts burn large captions low in frame
-V_CONTENT_BOTTOM = VH - V_CAPTION_SAFE_H
+
+# Derived from the MEASURED Shorts caption, not guessed -- the same mistake
+# was made once already on the horizontal episode, where a guessed 200px band
+# was clear in the still and crossed in the zoomed clip.
+#
+# Measured by burning a real cue with the Shorts style: ink starts at y=1284.
+# The vertical background zooms to 1.08, and a zoom magnifies outward from
+# the centre, so content low in the frame moves further down.
+V_CAPTION_INK_TOP = 1284
+V_MAX_ZOOM = 1.08
+V_CONTENT_BOTTOM = int(VH / 2 + ((V_CAPTION_INK_TOP - 6) - VH / 2) / V_MAX_ZOOM)
+V_CAPTION_SAFE_H = VH - V_CONTENT_BOTTOM
 
 
 def _vf(size, bold=True):
     return mfr._font(size, bold)
 
 
-def _v_eyebrow(d, label, y=150):
+# A Short burns its HOOK across the top of the frame -- up to three lines at
+# 54px starting at y=140, so it can reach y=342. The card's own header sat at
+# y=150 and its title at y=250, directly underneath it: assembling a real
+# Short showed the hook printed straight through the channel eyebrow and into
+# the paper title. The card therefore starts below the hook's worst case.
+V_TOP_RESERVED = 380
+
+
+def _v_eyebrow(d, label, y=V_TOP_RESERVED):
     d.line([(80, y), (140, y)], fill=TEAL, width=4)
     d.text((156, y - 18), label, font=_vf(32), fill=TEAL)
 
@@ -810,7 +828,7 @@ def render_vertical_card(kind, case, out_path, headline="",
     c = Image.new("RGB", (VW, VH), BG)
     d = ImageDraw.Draw(c)
     _v_eyebrow(d, niche_label)
-    y = 250
+    y = V_TOP_RESERVED + 100
 
     def _heading(text, size=62, fill=TEXT_C, max_lines=4):
         """Shrinks to fit rather than truncating -- a quotation cut off at
@@ -935,7 +953,14 @@ def render_vertical_card(kind, case, out_path, headline="",
                        fill=DIM)
 
         else:  # statement — always renderable
-            _heading(_tidy_display_line(headline, 200), 58, max_lines=6)
+            # Do NOT repeat the title card. The pipeline passes the paper's
+            # title as `headline`, so a statement card built from it was the
+            # title card again -- twice in a six-card Short. Prefer the
+            # mechanism explanation, which is the most interesting sentence
+            # the case has and is not shown anywhere else in the sequence.
+            _body = ((case.get("anatomy") or {}).get("explanation")
+                     or headline or case.get("title", ""))
+            _heading(_tidy_display_line(_body, 240), 54, max_lines=7)
             cred = short_credit(case.get("citation", ""))
             if cred:
                 d.line([(80, V_CONTENT_BOTTOM - 90),

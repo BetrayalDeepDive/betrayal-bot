@@ -385,6 +385,16 @@ def audit_sourcing_robustness():
           and hasattr(_ms, "render_vertical_background")
           and "set_clinical_case(get_episode_case())" in cp,
           "the main video's stock path was closed; the Shorts path was not")
+    check("B", "the Shorts caption declares its real resolution",
+          "PlayResX=1080,PlayResY=1920" in read("video_pipeline/shorts_reels_engine.py"),
+          "without it libass scales the style ~6.7x and draws enormous "
+          "captions across the MIDDLE of every Short on every channel")
+    check("B", "the Shorts hook wraps instead of clipping",
+          _hook_fits(),
+          "a single unwrapped drawtext clipped the hook at BOTH ends")
+    check("B", "vertical cards clear the measured Shorts caption",
+          _vertical_cards_clear_caption(),
+          "content low in the frame is pushed further down by the zoom")
     check("B", "every vertical card kind renders",
           _all_vertical_cards_render(),
           "a Short that cannot render its card would fall back to footage")
@@ -594,6 +604,66 @@ def _adversarial_extraction():
                     and isinstance(got["quote"], str))
                 check("B", f"extraction normalises correctly: {name}", shape_ok,
                       str(got)[:110])
+
+
+def _hook_fits(max_px=1080):
+    import shorts_reels_engine as sre
+    for hook in ("A newborn was being poisoned by milk.",
+                 "The negative result that redirected an entire investigation",
+                 "Short."):
+        parts = sre._hook_drawtext(hook)
+        if not parts:
+            return False
+        for pt in parts:
+            size = int(re.search(r"fontsize=(\d+)", pt).group(1))
+            text = pt.split("'")[1]
+            if len(text) * size * 0.62 > max_px:
+                return False
+    return True
+
+
+def _vertical_cards_clear_caption():
+    """
+    Pixel test in 9:16, zoom-aware -- the vertical twin of the horizontal
+    caption-band check, and derived from the same kind of real measurement.
+    """
+    import tempfile
+    from PIL import Image
+    import medical_segments as ms
+    from local_episode_render import CASE
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        for kind in ms.VERTICAL_SEQUENCE:
+            p = td / f"{kind}.png"
+            if not ms.render_vertical_card(kind, CASE, str(p),
+                                           headline="A baby girl stopped feeding "
+                                                    "on the second day of her life.",
+                                           progress=1.0):
+                return False
+            im = Image.open(p).convert("RGB")
+            lowest = None
+            for y in range(ms.VH - 1, 0, -1):
+                row = [im.getpixel((x, y)) for x in range(0, ms.VW, 4)]
+                if max(max(abs(px[k] - ms.BG[k]) for k in range(3))
+                       for px in row) > 12:
+                    lowest = y
+                    break
+            if lowest is None:
+                continue
+            landed = ms.VH / 2 + (lowest - ms.VH / 2) * ms.V_MAX_ZOOM
+            if landed > ms.V_CAPTION_INK_TOP - 1:
+                return False
+            # And nothing may sit under the hook band either.
+            highest = None
+            for y in range(ms.VH):
+                row = [im.getpixel((x, y)) for x in range(0, ms.VW, 4)]
+                if max(max(abs(px[k] - ms.BG[k]) for k in range(3))
+                       for px in row) > 12:
+                    highest = y
+                    break
+            if highest is not None and highest < 350:
+                return False
+    return True
 
 
 def _all_vertical_cards_render():
