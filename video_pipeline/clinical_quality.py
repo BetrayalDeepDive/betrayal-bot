@@ -165,40 +165,36 @@ _TECHNICAL_TERM = re.compile(
 
 # Density of concrete clinical detail, per 100 words, that earns full marks.
 #
-# CALIBRATION, WITH THE ACTUAL MEASUREMENTS
-# -----------------------------------------
-# The first value was 6.0, chosen with no evidence at all. The second was
-# 3.0, chosen against two references. Both were measured with a DETECTOR
-# THAT WAS ITSELF BROKEN, which made the threshold meaningless either way:
+# CALIBRATION — DERIVED, RE-RUNNABLE, AND CHECKED IN CI
+# -----------------------------------------------------
+# This threshold has been wrong twice. 6.0 was picked with no evidence at
+# all. 3.0 was picked against two references, one of which was synthetic,
+# using a detector that was itself broken (no unit for micromoles, could not
+# parse "one hundred and forty", blind to spoken decimals and to named
+# mechanisms). A third guess would have been the same mistake again.
 #
-#   * it had no unit for micromoles -- the single most common unit in the
-#     biochemistry these cases turn on
-#   * its spelled-number pattern allowed only one..ten as a continuation, so
-#     "one hundred and forty micromoles per litre" matched as far as "one
-#     hundred and" and stopped, missing the unit entirely
-#   * it could not see a spoken decimal ("an INR of two point eight"), even
-#     though the prompt REQUIRES numbers to be spelled out for TTS
-#   * it had no notion of a named mechanism, so a script saying
-#     "galactose-1-phosphate uridylyltransferase" scored the same as one
-#     saying "an enzyme"
+# It is now derived from every REAL script in the repo. tools/
+# calibrate_specificity.py measures the four model-generated production
+# scripts sitting in channels/*/pending_upload.json -- written by the actual
+# model in production, not by me -- as the negative control, and asserts
+# three properties of whatever value is set here. Measured:
 #
-# Re-measured with the detector fixed:
+#   0.10 /100w   archive          }
+#   0.28 /100w   evidence_room    }  REAL non-clinical model output.
+#   0.30 /100w   control_files    }  Ceiling: 0.55
+#   0.55 /100w   collapse_index   }
 #
-#   0.00 /100w   non-clinical documentary narration -- the floor, what
-#                storytelling prose with no clinical content looks like
-#   3.94 /100w   a realistic 1,193-word clinical episode of the kind this
-#                channel exists to make: real values, real timepoints, a
-#                full differential, named mechanisms
-#  14.66 /100w   synthetic prose that is nothing but clinical facts, which
-#                reads as a list and nobody would watch
+#   3.94 /100w   a clinical episode of the kind this channel exists to make
+#                -- 7.2x the real non-clinical ceiling
 #
-# 4.5 places that target episode at 8.8/10 -- clearly good, with headroom
-# left for a denser one -- while remaining unreachable by anything that is
-# merely storytelling and well short of the unwatchable ceiling.
+# At 4.5 the threshold sits 8.2x above what the model's ordinary documentary
+# prose actually scores, the best non-clinical script still only reaches
+# 1.2/10, and the clinical reference lands at 8.8/10 -- clearly good, with
+# headroom left so the metric can still tell good from excellent.
 #
-# Honest limitation: the 3.94 reference is ONE sample. It is the right KIND
-# of evidence, which the previous two numbers were not, but the threshold
-# should be revisited once several real accepted scripts have been measured.
+# REMAINING WEAKNESS, STATED PLAINLY: the positive reference is one sample
+# and I wrote it. The negative controls are real; the positive one is not.
+# Drop real accepted clinical scripts into the repo and re-run the tool.
 SPECIFICITY_TARGET_PER_100W = 4.5
 
 
@@ -301,6 +297,22 @@ def score_script(words, violations, script, hook, craft, clarity):
     blocked, penalty, notes = gate_deficits(hook, craft, clarity)
     s -= penalty
 
+    # FORMAT DRIFT. A prompt change can only be verified through its output,
+    # and the failure this guards against has already happened: the channel
+    # was converted to clinical while the generation prompt still asked for
+    # COMPLICITY and "the most disturbing section", and nothing noticed that
+    # a medical case report was being written as a crime story. Blocking,
+    # because a drifted script is not fixable by a rewrite of two stages --
+    # it is the wrong show.
+    _drift_ok, _drift_rate, _drift_terms = drift_ok(script)
+    report["format_drift"] = _drift_rate
+    report["format_drift_terms"] = _drift_terms
+    if not _drift_ok:
+        blocked.append(
+            f"format drift {_drift_rate}/1000w (limit {DRIFT_LIMIT_PER_1000W}) "
+            f"— reads as a crime story, not a clinical case: "
+            f"{', '.join(_drift_terms[:6])}")
+
     report["dimensions"] = {k: round(v, 2) for k, v in dims.items()}
     report["gate_penalty"] = penalty
     report["gate_notes"] = notes
@@ -310,3 +322,54 @@ def score_script(words, violations, script, hook, craft, clarity):
 
     s = round(max(0.0, min(10.0, s)), 2)
     return s, bool(dur_ok and not blocked), report
+
+
+# ── format drift ───────────────────────────────────────────────────────
+# The generation prompt was rewritten from a true-crime beat sheet to a
+# clinical case structure. A prompt change cannot be verified by reading it;
+# only the OUTPUT can be checked. This is that check.
+#
+# It exists because the failure it guards against has already happened once:
+# the channel was converted, but the prompt kept asking for COMPLICITY,
+# INSTITUTIONAL pressure and "the most disturbing section", and nothing
+# anywhere noticed that a medical case report was being written as a crime
+# story. If the model drifts back -- because of a stale cache, an edited
+# prompt, or its own priors -- this catches it in the script, before audio.
+#
+# Calibrated against REAL model output: the four production scripts in
+# channels/*/pending_upload.json are genuine dark-documentary/crime scripts
+# and MUST trip this; a clinical episode must not.
+_DRIFT_TERMS = (
+    r"\bvictims?\b", r"\bperpetrator", r"\bcover[- ]?up\b", r"\bconspirac",
+    r"\bmurder", r"\bkiller\b", r"\bcriminal\b", r"\bfraud\b",
+    r"\bscam\b", r"\bbetray", r"\bmanipulat", r"\bpredator",
+    r"\bwhistleblower\b", r"\bcorrupt", r"\bsinister\b",
+    r"\bchilling\b", r"\bhorrifying\b", r"\bdisturbing\b",
+    r"\bnobody was ever held\b", r"\bgot away with\b",
+    r"\bthey knew\b", r"\bthe truth they\b",
+)
+_DRIFT_RE = [re.compile(p, re.I) for p in _DRIFT_TERMS]
+
+# Per 1,000 words. Measured on real output (see tools/calibrate_specificity.py
+# for the same approach): genuine crime scripts run 2.6-6.5 hits/1000w, while
+# a clinical episode that happens to say "fraud" once in a historical aside
+# should not be blocked. 1.5 sits clear of both.
+DRIFT_LIMIT_PER_1000W = 1.5
+
+
+def format_drift(script):
+    """
+    (hits_per_1000_words, matched_terms). High means the script is being
+    written as a crime story rather than a clinical case.
+    """
+    text = script or ""
+    words = max(1, len(text.split()))
+    found = []
+    for rx in _DRIFT_RE:
+        found.extend(m.group(0).lower() for m in rx.finditer(text))
+    return round(len(found) / (words / 1000.0), 2), sorted(set(found))
+
+
+def drift_ok(script):
+    rate, terms = format_drift(script)
+    return rate <= DRIFT_LIMIT_PER_1000W, rate, terms

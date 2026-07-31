@@ -492,6 +492,12 @@ def prefetch_figures(case, work_dir, log_fn=None, prefix="pmcfig"):
         return case
     kept = []
     from pathlib import Path as _P
+    # Create the destination. The pipeline happens to mkdir WORK_DIR just
+    # before calling this, so the omission was invisible there -- but the
+    # function is not safe for any other caller, and the figure-fetch
+    # self-test crashed on exactly that. A helper that writes files must
+    # own the directory it writes into.
+    _P(work_dir).mkdir(parents=True, exist_ok=True)
     for i, fig in enumerate(figs):
         dest = _P(work_dir) / f"{prefix}_{len(kept)}.jpg"
         if download_figure(fig, str(dest), log_fn=log_fn):

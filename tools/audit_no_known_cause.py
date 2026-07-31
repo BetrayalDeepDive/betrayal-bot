@@ -317,6 +317,28 @@ def audit_visuals():
 
     audit_rendered_episode()
     audit_sourcing_robustness()
+    audit_calibration()
+
+
+# ── D2. CALIBRATION, AGAINST REAL SCRIPTS ──────────────────────────────
+def audit_calibration():
+    """
+    The specificity threshold is derived, not guessed. Re-check it here so a
+    change to the detector or the threshold cannot silently invalidate it.
+    """
+    import subprocess
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "calibrate_specificity.py")],
+                       capture_output=True, text=True, timeout=180)
+    check("D", "the specificity threshold is supported by real scripts",
+          r.returncode == 0,
+          (r.stdout or "")[-300:])
+
+    # And the figure-fetch path, exercised for real against a local server.
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "figure_fetch_selftest.py")],
+                       capture_output=True, text=True, timeout=300)
+    check("B", "the real figure-fetch path passes its self-test",
+          r.returncode == 0,
+          (r.stdout or "")[-300:])
 
 
 # ── B2. SOURCING, MEASURED ─────────────────────────────────────────────
@@ -370,6 +392,12 @@ def audit_sourcing_robustness():
     check("B", "case-structure extraction retries rather than failing silently",
           "_parse_structures" in cp and "for attempt in range(3)" in cp,
           "one malformed response used to leave five of six registers empty")
+    # The extraction parser has never seen a real model response. These are
+    # the shapes a model actually emits when it goes wrong -- every one of
+    # them used to be a crash or a silently malformed structure reaching a
+    # renderer.
+    _adversarial_extraction()
+
     check("B", "an invented quotation is rejected",
           "not found verbatim" in cp,
           "TEXT would otherwise put a paraphrase on screen attributed to a "
@@ -482,6 +510,92 @@ def _thumbnail_backdrop_is_visible():
         return (max(px) - min(px)) >= 25 and sum(px) / len(px) >= 8
 
 
+def _adversarial_extraction():
+    """
+    Run the pipeline's own _parse_structures against malformed model output.
+
+    Extracted from clinical_pipeline by source so the REAL parser is tested,
+    not a copy. Every case here is a shape a model genuinely produces:
+    fenced JSON, prose wrapped around JSON, a differential given as dicts
+    instead of pairs, string values where numbers belong, a chart with
+    mismatched label/value lengths, nulls everywhere, and a truncated
+    response. Any one of them reaching a renderer is a broken segment.
+    """
+    src = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    start = src.index("        def _parse_structures(raw):")
+    end = src.index("        def _score(st):")
+    body = "\n".join(l[8:] if l.startswith("        ") else l
+                     for l in src[start:end].splitlines())
+    ns = {"re": re, "json": json,
+          "case": {"narrative": "the infant deteriorated despite antibiotics"},
+          "log": lambda *a: None}
+    exec(body, ns)
+    parse = ns["_parse_structures"]
+
+    cases = [
+        ("empty string", "", None),
+        ("None", None, None),
+        ("prose with no JSON", "I could not find that information.", None),
+        ("fenced JSON", '```json\n{"differentials":[["Sepsis","EXCLUDED","x"]]}\n```', "ok"),
+        ("prose wrapped around JSON",
+         'Here is what I found:\n{"timeline":[["Day 1","admitted"]]}\nHope that helps.', "ok"),
+        ("truncated JSON", '{"differentials":[["Sepsis","EXCLUDED"', None),
+        ("a JSON list, not an object", '[1,2,3]', None),
+        ("differentials as dicts",
+         '{"differentials":[{"name":"Sepsis","verdict":"EXCLUDED"}]}', "ok"),
+        ("chart values as strings",
+         '{"chart_data":{"labels":["a","b"],"values":["1","2"]}}', "ok"),
+        ("chart label/value length mismatch",
+         '{"chart_data":{"labels":["a","b","c"],"values":[1,2]}}', "ok"),
+        ("chart with one point",
+         '{"chart_data":{"labels":["a"],"values":[1]}}', "ok"),
+        ("everything null",
+         '{"differentials":null,"timeline":null,"chart_data":null,'
+         '"anatomy":null,"quote":null}', "ok"),
+        ("anatomy as a string", '{"anatomy":"the liver"}', "ok"),
+        ("blocked_step out of range",
+         '{"anatomy":{"pathway":["a","b"],"blocked_step":9}}', "ok"),
+        ("pathway with one step",
+         '{"anatomy":{"pathway":["only one"],"blocked_step":0}}', "ok"),
+    ]
+    for name, raw, want in cases:
+        try:
+            got = parse(raw)
+        except Exception as e:
+            check("B", f"extraction survives: {name}", False,
+                  f"{type(e).__name__}: {e}")
+            continue
+        if want is None:
+            check("B", f"extraction rejects: {name}", got is None, str(got)[:80])
+        else:
+            check("B", f"extraction survives: {name}", got is not None)
+            if got:
+                # Whatever survives must be the exact shape the renderers
+                # expect, or it breaks one level further down where it is
+                # much harder to see.
+                shape_ok = (
+                    all(isinstance(r, tuple) and len(r) == 3
+                        for r in got["differentials"])
+                    and all(isinstance(r, tuple) and len(r) == 2
+                            for r in got["timeline"])
+                    and (got["chart_data"] is None
+                         or (len(got["chart_data"]["labels"])
+                             == len(got["chart_data"]["values"])
+                             and len(got["chart_data"]["values"]) >= 2
+                             and all(isinstance(v, float)
+                                     for v in got["chart_data"]["values"])))
+                    and isinstance(got["anatomy"], dict)
+                    and (got["anatomy"]["pathway"] is None
+                         or len(got["anatomy"]["pathway"]) >= 2)
+                    and (got["anatomy"]["blocked_step"] is None
+                         or (got["anatomy"]["pathway"] is not None
+                             and 0 <= got["anatomy"]["blocked_step"]
+                             < len(got["anatomy"]["pathway"])))
+                    and isinstance(got["quote"], str))
+                check("B", f"extraction normalises correctly: {name}", shape_ok,
+                      str(got)[:110])
+
+
 def _all_vertical_cards_render():
     import tempfile
     import medical_segments as ms
@@ -511,17 +625,56 @@ def _no_truncated_speech(words, cues):
     return True
 
 
+def _measured_caption_ink_top():
+    """
+    Where the REAL caption actually starts, measured by burning a two-line
+    cue with libass onto white and finding the first row of ink.
+
+    Not read from a constant. The constant is derived from this number, and
+    a check that reads its own input from the thing it is checking proves
+    nothing.
+    """
+    import subprocess, tempfile
+    from PIL import Image
+    import caption_timing as capt
+    with tempfile.TemporaryDirectory() as td:
+        td = pathlib.Path(td)
+        cue = [{"start": 0.0, "end": 5.0, "cps": 1.0,
+                "text": "Newborns tire, newborns refuse, and tired mothers "
+                        "are told gently"}]
+        ass = td / "c.ass"
+        ass.write_text(capt.build_ass(cue), encoding="utf-8")
+        white = td / "w.png"
+        Image.new("RGB", (1920, 1080), (255, 255, 255)).save(white)
+        out = td / "o.png"
+        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-t", "1.5", "-i", str(white),
+                        "-vf", f"subtitles='{ass}'", "-ss", "0.5",
+                        "-frames:v", "1", str(out)], capture_output=True, timeout=120)
+        if not out.exists():
+            return None
+        im = Image.open(out).convert("L")
+        for y in range(1080):
+            if min(im.getpixel((x, y)) for x in range(0, 1920, 4)) < 200:
+                return y
+    return None
+
+
 def _nothing_in_caption_band():
     """
-    A real PIXEL test: render one still per register and assert the bottom
-    band is empty.
+    A real PIXEL test, applied to the ZOOMED frame.
 
-    This is the check that would have caught the collision. Every renderer
-    independently chose the bottom of the frame for its secondary text, and
-    burned-in captions live there -- so the ANATOMY explanation, the
-    TIMELINE's last event, the CHART's axis labels and the CC BY credit were
-    all being overprinted. No amount of reading the source shows that; the
-    only evidence is the pixels.
+    This is the check that caught the collision -- twice, at two different
+    depths.
+      * First pass: every renderer independently chose the bottom of the
+        frame for its secondary text, and captions live there.
+      * Second pass, only visible in the finished video: still_to_clip
+        applies a zoompan, and a zoom magnifies OUTWARD from the centre, so
+        content near the bottom moves further down as the shot pushes in. A
+        band that is clear in the still can be crossed in the clip. Measured
+        on a real FIGURE shot at its 1.14 ceiling, content at y=880 landed
+        at y=928, thirty-four pixels inside the caption.
+    So this measures the caption for real, then applies each register's own
+    maximum zoom to the lowest ink in each rendered still.
     """
     import tempfile
     from PIL import Image
@@ -529,47 +682,70 @@ def _nothing_in_caption_band():
     import medical_segments as ms
     from local_episode_render import CASE
 
-    band_top = mfr.CONTENT_BOTTOM
+    ink_top = _measured_caption_ink_top()
+    if ink_top is None:
+        return False
+    # The derived constant must match what libass actually does.
+    if abs(ink_top - mfr.CAPTION_INK_TOP) > 6:
+        return False
+    if mfr.MAX_REGISTER_ZOOM < max(m["max"] for m in ms.MOTION.values()) - 1e-9:
+        return False
+
     bg = mfr.BG
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
-        made = []
+        renders = []
         p = td / "board.png"
         if ms.render_board_still(CASE["differentials"], str(p), progress=1.0):
-            made.append(p)
+            renders.append(("BOARD", p))
         p = td / "timeline.png"
         if mfr.render_timeline_frame(CASE["timeline"], str(p)):
-            made.append(p)
+            renders.append(("TIMELINE", p))
         cd = CASE["chart_data"]
         p = td / "chart.png"
         if ms.render_chart_still(cd["chart_type"], cd["title"], cd["labels"],
                                  cd["values"], str(p), y_label=cd["y_label"],
                                  citation=CASE["citation"], progress=1.0):
-            made.append(p)
+            renders.append(("CHART", p))
         a = CASE["anatomy"]
         p = td / "anatomy.png"
         if ms.render_anatomy_still(a["title"], a["explanation"], str(p),
                                    pathway=a["pathway"],
                                    blocked_index=a["blocked_step"],
                                    variant=0, progress=1.0, variant_total=6):
-            made.append(p)
+            renders.append(("ANATOMY", p))
         p = td / "text.png"
         if ms.render_text_still(CASE["quote"], str(p),
                                 attribution=mfr.short_credit(CASE["citation"])):
-            made.append(p)
+            renders.append(("TEXT", p))
         p = td / "last.png"
         if ms.render_last_resort_still("A long line of narration " * 6, str(p),
                                        citation=mfr.short_credit(CASE["citation"])):
-            made.append(p)
+            renders.append(("ANATOMY", p))
+        p = td / "title.png"
+        if ms.render_title_card(CASE["title"], str(p),
+                                source_line="J Med Case Rep 2023",
+                                citation=CASE["citation"]):
+            renders.append(("TITLE", p))
 
-        for path in made:
-            band = Image.open(path).convert("RGB").crop(
-                (0, band_top, mfr.W, mfr.H))
-            # Anything more than a few levels off the background is ink.
-            if max(max(abs(px[k] - bg[k]) for k in range(3))
-                   for px in band.getdata()) > 12:
+        if not renders:
+            return False
+        for reg, path in renders:
+            im = Image.open(path).convert("RGB")
+            lowest = None
+            for y in range(mfr.H - 1, 0, -1):
+                row = [im.getpixel((x, y)) for x in range(0, mfr.W, 4)]
+                if max(max(abs(px[k] - bg[k]) for k in range(3))
+                       for px in row) > 12:
+                    lowest = y
+                    break
+            if lowest is None:
+                continue
+            zoom = ms.MOTION.get(reg, {"max": 1.14})["max"]
+            landed = mfr.H / 2 + (lowest - mfr.H / 2) * zoom
+            if landed > ink_top - 1:
                 return False
-    return bool(made)
+    return True
 
 
 def _fallbacks_needed(ms, case, seq, reveals):

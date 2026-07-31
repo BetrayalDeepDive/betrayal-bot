@@ -5544,6 +5544,16 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     from medical_segments import act_boundaries
     _act_cards = act_boundaries(n_buckets)
     log(f"  Structure: title card at 0, act cards at {sorted(_act_cards)}")
+    # The quota must be sized for the segments it will ACTUALLY be asked to
+    # fill. Title and act cards `continue` before pick() is reached, so five
+    # of the fifty-nine segments never reach the quota -- but its total was
+    # still n_buckets, so every register's expected count was computed
+    # against a denominator ~9% larger than the real one. Measured: each
+    # register landed 0.5-1 under its target and TEXT dropped from two
+    # appearances to one. My own regression, introduced with the cards.
+    _n_register_segments = n_buckets - (1 + len(_act_cards))
+    register_quota = new_quota(_n_register_segments, figure_count=_figure_count,
+                               case=_case)
     log(f"  Register mix: {_figure_count} usable figure(s); "
         f"available={ {k: v for k, v in register_quota.mix.items() if v > 0} }")
 

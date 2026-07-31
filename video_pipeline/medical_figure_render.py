@@ -30,19 +30,36 @@ from PIL import Image, ImageDraw, ImageFont
 W, H = 1920, 1080
 
 # Burned-in captions occupy the bottom of every frame for essentially the
-# whole episode. Nothing else may be drawn there.
+# whole episode. Nothing else may be drawn there -- and "there" has to
+# account for the fact that every shot is ZOOMING.
 #
-# Found by burning the real ASS onto the real stills and looking: the caption
-# box landed directly on top of the ANATOMY explanation line, the TIMELINE's
-# last event, and the CC BY credit -- two layers of text in the same pixels,
-# on most frames. Each renderer had been designed in isolation and every one
-# of them chose the bottom of the frame for its secondary text, because in
-# isolation that is the right place.
+# Found in two stages, both by looking at real output:
 #
-# 200px clears two caption lines at 52px plus the opaque box padding and the
-# 68px bottom margin.
-CAPTION_SAFE_H = 200
-CONTENT_BOTTOM = H - CAPTION_SAFE_H
+# 1. Burning the real ASS onto the real stills showed the caption box
+#    landing on top of the ANATOMY explanation, the TIMELINE's last event,
+#    the CHART's axis labels and the CC BY credit. Each renderer had been
+#    designed in isolation and every one chose the bottom of the frame,
+#    which in isolation is correct.
+#
+# 2. A 200px band fixed the STILLS and was still wrong in the VIDEO,
+#    which is what a viewer sees. still_to_clip applies a zoompan, and a
+#    zoom magnifies outward from the centre -- so content near the bottom
+#    of the frame MOVES DOWN as the shot pushes in. Measured against the
+#    real burned caption (ink starts at y=894 for the two-line case), a
+#    FIGURE shot at its 1.14 ceiling carried content at y=880 down to
+#    y=928: thirty-four pixels inside the caption. FIGURE, ANATOMY and TEXT
+#    all did it, which is about half the episode.
+#
+# So the band is DERIVED, not chosen: from the measured caption top and the
+# largest zoom any register uses.
+CAPTION_INK_TOP = 894      # measured by burning a real two-line cue (libass)
+CAPTION_CLEARANCE = 4      # do not let content touch the box edge
+MAX_REGISTER_ZOOM = 1.14   # the largest 'max' in medical_segments.MOTION
+
+# Solve 540 + (CONTENT_BOTTOM - 540) * MAX_REGISTER_ZOOM <= CAPTION_INK_TOP
+CONTENT_BOTTOM = int(H / 2 + ((CAPTION_INK_TOP - CAPTION_CLEARANCE) - H / 2)
+                     / MAX_REGISTER_ZOOM)
+CAPTION_SAFE_H = H - CONTENT_BOTTOM
 
 # Clinical palette -- deliberately not the dark-red documentary look of the
 # previous Ch1 channel. Cool slate with a desaturated teal accent reads as

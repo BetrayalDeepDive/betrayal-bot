@@ -1776,7 +1776,16 @@ def generate_thumbnail_v2(title, thumb_text, niche_name, topic,
     """
     profile     = NICHE_PROFILES.get(niche_name, FALLBACK_PROFILE)
     seed        = abs(hash(f"{title}{niche_name}{episode}")) % 99999
-    out_path    = str(Path(work_dir) / "thumbnail.jpg")
+    # The filename must encode WHICH thumbnail this is.
+    #
+    # Every A/B variant and every one of the eleven formats wrote to the
+    # same "thumbnail.jpg". Generating variant A then variant B silently
+    # overwrote A, so the A/B system could only ever hold one image and any
+    # comparison it reported was between an image and itself. Found by
+    # rendering all four of Ch1's formats in a row and seeing one file.
+    _slug = re.sub(r"[^a-z0-9]+", "-", (format_name or "default").lower()).strip("-")
+    _var = re.sub(r"[^A-Za-z0-9]+", "", str(ab_variant or "A"))
+    out_path    = str(Path(work_dir) / f"thumbnail_{_var}_{_slug}.jpg")
 
     chosen_format = format_name
     bg_style_suffix = ""
