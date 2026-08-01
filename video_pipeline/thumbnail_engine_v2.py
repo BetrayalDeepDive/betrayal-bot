@@ -2010,8 +2010,24 @@ def score_thumbnail_text(thumb_text):
     elif len(words) > 4:      sc -= 1.0
 
     # 3. Specificity signals
+    # THE SPECIFICITY BANK WAS WRITTEN FOR TRUE CRIME.
+    #
+    # "VICTIMS", "GONE", "HIDDEN", "EXPOSED", "FILES" are the register of a
+    # crime channel -- and on the clinical channel they are close to the
+    # wording its policy gate exists to forbid. The effect was measurable: a
+    # correct clinical line like "EVERY SCAN NORMAL" scored 4.5 against an 8.5
+    # gate while "7 YEARS WRONG" scored 10, so the scorer was quietly steering
+    # the thumbnail back toward the format this channel was converted away
+    # from. The crime terms stay (four other channels still use this scorer);
+    # the clinical vocabulary is ADDED so a medically-phrased line can win on
+    # its own merits rather than by borrowing crime language.
     specific = ["DAYS", "YEARS", "HOURS", "MONTHS", "PEOPLE", "VICTIMS",
-                "CASES", "REPORTS", "FILES", "GONE", "HIDDEN", "EXPOSED"]
+                "CASES", "REPORTS", "FILES", "GONE", "HIDDEN", "EXPOSED",
+                # clinical register
+                "DOCTORS", "SCAN", "SCANS", "TEST", "TESTS", "SYMPTOM",
+                "SYMPTOMS", "DIAGNOSIS", "DIAGNOSED", "MISSED", "NORMAL",
+                "WRONG", "PATIENT", "SURGERY", "DOSE", "BLOOD", "BIOPSY",
+                "WEEKS", "NIGHTS", "MINUTES", "MILLION", "RESULT", "RESULTS"]
     if any(s in t for s in specific):
         sc += 1.0
     elif is_question and t.split()[0].rstrip("?") in ("WHO", "WHY", "WHAT", "HOW", "WHERE"):

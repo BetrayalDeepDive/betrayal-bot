@@ -429,6 +429,7 @@ def audit_sourcing_robustness():
     _video_gate_checks()
     _job_clock_checks()
     _short_answer_checks()
+    _rounds_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -843,6 +844,136 @@ def _short_answer_checks():
           '"request", "image"' in cp,
           "media models report 0/0 per token while charging per request — "
           "which is exactly how the lyria pair read as free")
+
+    # EVERY call whose PROMPT caps the answer below 100 characters. Seven more
+    # were found on the end-to-end sweep, including both halves of the Edit
+    # button -- the feature reported as "I typed that I want the title
+    # changed, but it gave me the same script."
+    for label, needle in (
+            ("Edit-button title rewrite (50-65 chars)", "tokens=60, min_chars=15"),
+            ("title rewrite at the title/thumb review", "tokens=60, min_chars=6"),
+            ("thumbnail overlay rewrite at review", "tokens=40, min_chars=3"),
+            ("NUMBER+NOUN enforcement phrase", "tokens=20, min_chars=3"),
+            ("plain-English case sentence", "tokens=120, min_chars=40"),
+            ("viral topic angle", "tokens=300, min_chars=40"),
+            ("real-case brief", "tokens=300, min_chars=50")):
+        check("D", f"reachable short-answer call: {label}", needle in cp,
+              "its own prompt caps the answer below the 100-char default floor")
+
+    # The thumbnail scorer must be able to reward a CLINICAL line, not only a
+    # crime one -- otherwise it steers the channel back to the format it was
+    # converted away from.
+    from thumbnail_engine_v2 import score_thumbnail_text as _sts
+    check("D", "the thumbnail scorer can reach its own 8.5 gate",
+          max(_sts(t) for t in ("11 DOCTORS", "400 DAYS UNDIAGNOSED",
+                                "WHO MISSED IT?")) >= 8.5,
+          "a gate nothing can clear is the defect class this channel keeps hitting")
+    check("D", "clinical vocabulary scores on its own merits",
+          _sts("11 DOCTORS") >= 8.5 and _sts("400 DAYS UNDIAGNOSED") >= 8.5,
+          "the specificity bank was VICTIMS/GONE/HIDDEN/EXPOSED — crime words "
+          "the clinical policy gate forbids")
+    check("D", "the other four channels' scoring is unchanged",
+          _sts("4380 DAYS HIDDEN") == 10.0 and _sts("47 VICTIMS") == 10.0,
+          "the clinical terms were ADDED, not swapped in")
+
+
+def _rounds_checks():
+    """
+    3 x 13 EVERYWHERE, not just at the title.
+
+    Direct instruction, Aug 1 2026: "for the thumbnail, youtube shorts,
+    editing etc I want it to be increased to three attempts, not only one
+    attempt. The current rate is 1x13 i want it to be changed to 3x13."
+
+    Only the title had rounds. Every other gate ran one round of thirteen and
+    then skipped the day. These checks hold the structure in place AND hold
+    the harder promise: that a round boundary re-seeds with genuinely new
+    input rather than re-running the same thirteen, which is the retry defect
+    this channel has already been bitten by four times.
+    """
+    import time as _t
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    sh = read("video_pipeline/shorts_reels_engine.py")
+    qa = read("video_pipeline/quality_auditor.py")
+
+    check("F", "a shared rounds engine exists",
+          (ROOT / "video_pipeline/gate_rounds.py").exists(),
+          "re-implementing rounds per gate is how they drift apart")
+
+    for label, hay, needle in (
+            ("thumbnail text", cp, "THUMB_TEXT_ROUNDS = 3"),
+            ("script",         cp, '"Script", lambda rnd, angles=None: _run_stage1_once'),
+            ("audio",          cp, "_AUDIO_ROUNDS = 3"),
+            ("video",          cp, "_VIDEO_ROUNDS = 3"),
+            ("Shorts",         sh, "SHORTS_ROUNDS = 3"),
+            ("editing/quality audit", qa, "QUALITY_GATE_ROUNDS = 3")):
+        check("F", f"{label} runs 3 rounds, not 1", needle in hay,
+              "one round of thirteen used to skip the day outright")
+
+    # A ROUND BOUNDARY MUST BRING NEW INPUT. Thirteen more attempts under
+    # identical conditions is one attempt billed thirteen times.
+    check("F", "the thumbnail round boundary researches new hooks",
+          "_thumb_research" in cp and "LEAD WITH ONE OF THESE CONCRETE HOOKS" in cp,
+          "without new material round 2 is round 1 reworded")
+    check("F", "the script round boundary fetches unused case reports",
+          "_research_script_angles" in cp and "_SCRIPT_CASES_TRIED" in cp
+          and "carried in from the round-boundary research" in cp,
+          "thirteen scripts from one pool that all missed 8.5 means the POOL "
+          "is the constraint; a fourteenth from it is the same attempt")
+    check("F", "the audio round boundary changes the ENGINE, not the voice label",
+          "_SKIP_TTS_TIERS" in cp and 'if "kokoro" in _skip' in cp
+          and '"ssml" not in _skip' in cp,
+          "thirteen attempts scored exactly 8.3 on kokoro-local because the "
+          "retry swapped only the edge-tts voice NAME while Kokoro won anyway")
+    check("F", "the Shorts round boundary re-angles the case",
+          "TAKE THIS ANGLE:" in sh,
+          "a Short that failed thirteen times needs a different story angle")
+    check("F", "the editing round restarts from the ORIGINAL draft",
+          "_enforce_quality_gate_once(stage_name, initial_content" in qa,
+          "reworking a rework compounds whatever the judge disliked")
+
+    # The video gate is the one place where honesty matters more than the
+    # round counter: 3 x 13 assemblies is 31 hours inside a 6-hour job.
+    check("F", "the video rounds admit the clock decides, not the counter",
+          "the job clock, not the round counter" in cp
+          and "does NOT reshuffle the visuals" in cp,
+          "claiming 39 reassemblies inside a 6-hour limit would be fiction")
+    check("F", "a stuck gate ends the ROUND, not the day",
+          cp.count("ending round") >= 1 and "ends the ROUND, not the day" in cp,
+          "under 3 x 13 the answer to a stuck retry is new conditions")
+
+    # The rounds engine itself.
+    import gate_rounds as gr
+    os_env = __import__("os").environ
+    os_env["JOB_START_EPOCH"] = str(_t.time())
+    got = gr.run_in_rounds("t", lambda rnd: "ok" if rnd == 3 else None,
+                           pause_sec=0, log_fn=lambda m: None)
+    check("F", "the rounds engine really runs three rounds", got == ("ok", 3, False),
+          f"got {got}")
+    seen = []
+    gr.run_in_rounds("t", lambda rnd, seed=None: seen.append((rnd, seed)),
+                     pause_sec=0, between_rounds=lambda r: f"m{r}",
+                     log_fn=lambda m: None)
+    check("F", "researched material reaches the round that needs it",
+          seen == [(1, None), (2, "m2"), (3, "m3")], f"got {seen}")
+
+    def _boom(rnd):
+        raise TypeError("a real bug inside a gate")
+    try:
+        gr.run_in_rounds("t", _boom, pause_sec=0, log_fn=lambda m: None)
+        _propagates = False
+    except TypeError:
+        _propagates = True
+    check("F", "a TypeError inside a gate propagates instead of re-running it",
+          _propagates,
+          "catching TypeError to detect arity would silently retry real bugs")
+    os_env["JOB_START_EPOCH"] = str(_t.time() - 350 * 60)
+    check("F", "rounds stop for job time and say so",
+          gr.run_in_rounds("t", lambda rnd: None, pause_sec=0,
+                           round_cost_min=50, log_fn=lambda m: None)
+          == (None, 1, True),
+          "a round that cannot finish is worse than one never started")
+    os_env.pop("JOB_START_EPOCH", None)
 
 
 def _job_clock_checks():

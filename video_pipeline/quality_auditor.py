@@ -30,7 +30,9 @@ provider-fallback chain, so callers pass that function in rather than
 this module importing a specific channel's provider code.
 """
 import json
+import os
 import re
+import time
 
 # FIX (direct user report, July 23 2026 — "the minimum is 7.9, not 6.8"): raised.
 MIN_QUALITY_SCORE = 7.9
@@ -133,8 +135,76 @@ def audit_content(stage_name, content, context, call_ai_fn, topic=""):
                 "issues": [f"Quality-audit AI call failed, passed through as neutral (non-blocking): {e}"]}
 
 
+QUALITY_GATE_ROUNDS = 3
+QUALITY_GATE_ROUND_PAUSE_SEC = int(os.environ.get("QUALITY_ROUND_PAUSE_SEC", "600"))
+
+
 def enforce_quality_gate(stage_name, initial_content, context, call_ai_fn,
-                          regenerate_fn, tg_fn=None, topic="", max_reworks=2):
+                         regenerate_fn, tg_fn=None, topic="", max_reworks=2,
+                         rounds=QUALITY_GATE_ROUNDS):
+    """
+    The editing gate, in ROUNDS — 3 x 13, not 1 x 13.
+
+    Direct instruction, Aug 1 2026: "for the thumbnail, youtube shorts,
+    editing etc I want it to be increased to three attempts, not only one
+    attempt. The current rate is 1x13 i want it to be changed to 3x13."
+
+    This is the "editing" gate: the independent AI judge that reads the
+    finished stage and reworks it before a human ever sees it. It ran one
+    round of thirteen reworks and then returned passed=False, which the
+    caller treated as final.
+
+    Each round starts from the ORIGINAL content, not from round 1's best
+    failed attempt. That matters: reworking a rework compounds whatever the
+    judge disliked, and thirteen more edits to an already-over-edited draft
+    is the retry-without-variation defect wearing a different hat. Round 2
+    is a fresh thirteen from the same starting point, after a pause.
+
+    Returns the same dict as before, plus "rounds".
+    """
+    best = None
+    rounds_run = 0
+    for rnd in range(1, max(1, rounds) + 1):
+        if rnd > 1:
+            try:
+                from gate_rounds import _fits
+                fits = _fits(6)
+            except Exception:
+                fits = True
+            if not fits:
+                if tg_fn:
+                    tg_fn(f"⏱️ Quality audit ({stage_name}): rounds {rnd}-{rounds} "
+                          f"skipped for job time, not quality.")
+                break
+            if tg_fn:
+                tg_fn(f"🔄 Quality audit ({stage_name}): round {rnd - 1} of {rounds} "
+                      f"ended below the bar after {max_reworks} reworks. Waiting "
+                      f"{QUALITY_GATE_ROUND_PAUSE_SEC // 60} minutes, then starting "
+                      f"a fresh round from the original draft. The stage is only "
+                      f"marked failed if round {rounds} also fails.")
+            time.sleep(QUALITY_GATE_ROUND_PAUSE_SEC)
+        result = _enforce_quality_gate_once(stage_name, initial_content, context,
+                                            call_ai_fn, regenerate_fn, tg_fn,
+                                            topic, max_reworks)
+        result["rounds"] = rnd
+        if result["passed"]:
+            return result
+        # Keep the best-scoring round, so a total failure still hands back the
+        # strongest draft any round produced rather than the last one.
+        if best is None or result["score"] > best["score"]:
+            best = result
+        rounds_run = rnd
+    # "rounds" must report how many rounds actually RAN, not which round
+    # happened to hold the best draft -- otherwise three rounds of identical
+    # failing scores report as one, and the log understates the real effort
+    # in exactly the situation where knowing it matters.
+    if best is not None:
+        best["rounds"] = rounds_run
+    return best
+
+
+def _enforce_quality_gate_once(stage_name, initial_content, context, call_ai_fn,
+                               regenerate_fn, tg_fn=None, topic="", max_reworks=2):
     """
     THE INTERCEPTOR. Audits `initial_content`; if it scores below
     MIN_QUALITY_SCORE, calls regenerate_fn() (a zero-arg callable the

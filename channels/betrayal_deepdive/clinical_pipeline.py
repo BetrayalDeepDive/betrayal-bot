@@ -125,7 +125,10 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
                 f"Topic: {topic[:80]}\n"
                 f"Generate 2-3 word thumbnail in NUMBER+NOUN format.\n"
                 f"Examples: '96 HOURS', 'DAY 9', '6 YEARS', '21 DAYS OLD'\n"
-                f"Return ONLY the phrase in ALL CAPS.", tokens=20)
+                # A 2-3 word NUMBER+NOUN phrase is ~10-22 characters. Without
+                # this it could never clear the 100-char default floor, so the
+                # thumbnail always fell back to the static bank below.
+                f"Return ONLY the phrase in ALL CAPS.", tokens=20, min_chars=3)
             if r and re.search(r'\d', r):
                 return re.sub(r'[^A-Z0-9$.,% ]','', r.upper()).strip()[:22]
         except:
@@ -298,7 +301,8 @@ def _retitle_from_feedback(current_title, feedback, topic, niche_name, episode, 
             f"Rules: 50-65 characters, factual clinical-documentary tone, "
             f"describe the medicine, never accuse anyone of concealing "
             f"anything, never promise medical advice.\n"
-            f"Return ONLY the new title, nothing else.", tokens=60) or ""
+            f"Return ONLY the new title, nothing else.",
+            tokens=60, min_chars=15) or ""  # a 50-65 char title cannot clear 100
         out = out.strip().strip('"').strip("'").split("\n")[0].strip()
         if len(out) >= 15 and out.lower() != (current_title or "").lower():
             return out[:110]
@@ -466,14 +470,31 @@ def _research_title_angles(topic, niche_name, ai_fn, round_no):
     failing that, asks for structural angles rather than finished titles.
     """
     lines = []
+    # THIS READ HAS NEVER RETURNED ANYTHING.
+    #
+    # It imported `competitive_research`, which does not exist in this repo --
+    # the module that actually holds the cached YouTube research is
+    # `daily_competitor_research`, and it writes
+    # daily_competitor_research.json into the channel directory. The import
+    # raised ModuleNotFoundError on every single call, was swallowed by the
+    # except, and logged as "cached competitive data unavailable" -- which
+    # reads like an empty cache rather than a wrong module name. So the title
+    # gate's round-2 research quietly lost half its input every time, leaving
+    # only the AI-angle call below.
     try:
-        from competitive_research import get_cached_research
-        _r = get_cached_research(str(SCRIPT_DIR), niche_name) or {}
-        for t in (_r.get("top_titles") or [])[:8]:
-            if t:
-                lines.append(str(t))
+        _cache_f = Path(SCRIPT_DIR) / "daily_competitor_research.json"
+        if _cache_f.exists():
+            _entry = (json.loads(_cache_f.read_text()) or {}).get(niche_name) or {}
+            for _v in (_entry.get("data") or {}).get("videos", [])[:8]:
+                if _v.get("title"):
+                    lines.append(str(_v["title"]))
+            if lines:
+                log(f"  Title research: {len(lines)} real competitor titles from "
+                    f"today's cached YouTube research.")
+        else:
+            log("  Title research: no cached competitor research on disk yet.")
     except Exception as e:
-        log(f"  Title research (cached competitive data unavailable): {e}")
+        log(f"  Title research (cached competitor data unreadable): {e}")
     try:
         out = ai_fn(
             f"Round {round_no}. List 8 DIFFERENT structural angles a factual "
@@ -2286,7 +2307,7 @@ Generate ONE stronger replacement topic sentence that:
 
 Return ONLY the topic sentence. Nothing else."""
 
-    result = ai_generate(prompt, tokens=300)
+    result = ai_generate(prompt, tokens=300, min_chars=40)  # ONE sentence
     if result:
         t = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
         if len(t) > 40:
@@ -2759,7 +2780,7 @@ Extract the single most compelling REAL case with:
 Return as: REAL CASE BRIEF (3 sentences max, plain text, use the actual facts):
 [fact 1]. [fact 2]. [core disturbing element]."""
 
-    result = ai_generate(prompt, tokens=300)
+    result = ai_generate(prompt, tokens=300, min_chars=50)  # 3 sentences max
     if result:
         brief = result.strip()[:400]
         if len(brief) > 50:
@@ -5270,12 +5291,25 @@ def run_audio_stage(script, niche_name, edge_voice):
         script = " ".join(_ssml_words[:MAX_WORDS])
         log(f"  Script truncated to {MAX_WORDS}w before audio synthesis")
 
-    log("  Trying Kokoro multi-rate audio (primary)...")
-    kokoro_path, kokoro_dur = run_audio_with_kokoro(script, niche_name, edge_voice)
+    # THE ONLY REAL VARIATION AVAILABLE TO AN AUDIO RETRY IS THE ENGINE.
+    #
+    # Run 30642538133 produced thirteen attempts scoring exactly 8.3, all on
+    # kokoro-local: the retry swaps the edge-tts voice NAME, but Kokoro is the
+    # primary tier and wins every time, so all thirteen renders were identical
+    # audio. Two hours and eleven minutes to learn nothing. A round boundary
+    # that does not change the engine repeats that at three times the cost, so
+    # rounds 2 and 3 genuinely take Kokoro (then SSML) off the table.
+    _skip = globals().get("_SKIP_TTS_TIERS", set())
+    if "kokoro" in _skip:
+        log("  Kokoro skipped for this round — the previous round exhausted it.")
+        kokoro_path, kokoro_dur = None, 0.0
+    else:
+        log("  Trying Kokoro multi-rate audio (primary)...")
+        kokoro_path, kokoro_dur = run_audio_with_kokoro(script, niche_name, edge_voice)
     kokoro_ok = bool(kokoro_path and kokoro_dur > 60 and kokoro_dur < 1800)  # 30-min max sanity cap
 
     ssml_path, ssml_dur, ssml_ok = None, 0.0, False
-    if not kokoro_ok:
+    if not kokoro_ok and "ssml" not in _skip:
         log("  Kokoro unavailable/failed — trying SSML edge-tts (fallback)...")
         ssml_path, ssml_dur = run_audio_with_ssml(script, niche_name, edge_voice)
         ssml_ok = bool(ssml_path and ssml_dur > 60 and ssml_dur < 1800)  # 30-min max sanity cap
@@ -8464,7 +8498,7 @@ def create_ch1_standalone_short(script, niche_name, short_num, edge_voice):
 # WRAPPER FUNCTIONS — bridge between main() calls and implementations
 # ================================================================
 
-def run_stage1(state):
+def _run_stage1_once(state, round_no=1, angles=None):
     """
     8-attempt script engine for Ch1 No Known Cause.
     Hard floor {MIN_GATE}/10, no relaxation tiers — if nothing clears it
@@ -8536,7 +8570,15 @@ def run_stage1(state):
     pmc_cases = []
     try:
         from pmc_data import get_real_cases, case_to_topic, MEDICAL_NICHE_NAMES
-        if niche_name in MEDICAL_NICHE_NAMES:
+        if angles:
+            # Round 2 or 3: start from the papers the round-boundary research
+            # fetched, NOT from the same pool the previous thirteen failed on.
+            # Thirteen scripts from one pool that all missed 8.5 means the pool
+            # is the constraint; a fourteenth from it is the same attempt.
+            pmc_cases = list(angles)
+            log(f"  PMC topic pool (round {round_no}): {len(pmc_cases)} DIFFERENT "
+                f"cases carried in from the round-boundary research")
+        elif niche_name in MEDICAL_NICHE_NAMES:
             pmc_cases = get_real_cases(niche_name, count=MAX_ATTEMPTS)
             log(f"  PMC topic pool: {len(pmc_cases)} real CC BY cases for {niche_name}")
             for _c in pmc_cases[:3]:
@@ -8598,7 +8640,9 @@ def run_stage1(state):
                     "explain it. Do not name any individual. Do not give advice.\n\n"
                     f"PAPER TITLE: {topic}\n"
                     f"CASE TEXT: {(attempt_case.get('narrative') or '')[:1200]}\n\n"
-                    "Return ONLY the sentence.", tokens=120)
+                    # 8-45 words is its own check below; a 15-word sentence is
+                    # ~85 characters and could not clear the 100-char default.
+                    "Return ONLY the sentence.", tokens=120, min_chars=40)
                 if _plain:
                     _plain = _plain.strip().strip('"').split("\n")[0].strip()
                     if 8 <= len(_plain.split()) <= 45 and "[" not in _plain:
@@ -8624,6 +8668,7 @@ def run_stage1(state):
             except Exception as e:
                 log(f"  Topic scoring (non-fatal): {e}")
         used_topics.append(topic)
+        globals().setdefault("_SCRIPT_CASES_TRIED", set()).add(str(topic)[:80])
 
         # Research real cases for this topic
         # FIX: get_research_context now returns (prose_string, real_cases_list)
@@ -8750,9 +8795,76 @@ def run_stage1(state):
     # (8.5) within MAX_ATTEMPTS attempts, the day is skipped —
     # never publish a script that didn't genuinely earn the real bar,
     # even as a "best available" compromise.
-    tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 after {MAX_ATTEMPTS} attempts "
-       f"(best: {best_score}/10). Per your standing instruction, nothing under {MIN_GATE} "
-       f"gets published.")
+    log(f"  Script round {round_no} never cleared {MIN_GATE}/10 after "
+        f"{MAX_ATTEMPTS} attempts (best: {best_score}/10).")
+    return None
+
+
+def _research_script_angles(round_no):
+    """
+    New material for the next thirteen scripts.
+
+    Round 1 draws its topics from the niche list and the PMC case pool. If
+    thirteen scripts from that pool all failed the 8.5 bar, a fourteenth from
+    the same pool is not a new attempt -- it is the same attempt again. This
+    pulls a genuinely different slice: fresh case reports from Europe PMC,
+    skipping the ones the failed round already used.
+    """
+    try:
+        from pmc_data import get_real_cases, case_to_topic, MEDICAL_NICHE_NAMES
+    except Exception as e:
+        log(f"  Script round research: PMC unavailable ({e}) — round "
+            f"{round_no} repeats the previous pool.")
+        return None
+    tried = globals().get("_SCRIPT_CASES_TRIED", set())
+    fresh = []
+    for _niche_name in MEDICAL_NICHE_NAMES:
+        try:
+            for c in get_real_cases(_niche_name, count=MAX_ATTEMPTS) or []:
+                if str(case_to_topic(c))[:80] not in tried:
+                    fresh.append(c)
+        except Exception as e:
+            log(f"  Script round research ({_niche_name}, non-fatal): {e}")
+        if len(fresh) >= MAX_ATTEMPTS:
+            break
+    if fresh:
+        log(f"  Script round {round_no}: {len(fresh)} case reports the failed "
+            f"round never used — a genuinely different starting pool.")
+        return fresh[:MAX_ATTEMPTS]
+    log(f"  Script round {round_no}: no unused case reports found.")
+    return None
+
+
+def run_stage1(state):
+    """
+    The script gate, in ROUNDS -- 3 x 13, not 1 x 13.
+
+    Thirteen failed attempts used to skip the day outright. Per the standing
+    instruction the day is only skipped after the THIRD round fails, with a
+    real pause and genuinely new source material in between: the same rule
+    already applied to the title, now applied here.
+
+    Exits 2 (not 0) when every round fails, so a run that produced nothing
+    is visibly red rather than a silent green no-op.
+    """
+    from gate_rounds import run_in_rounds
+    result, rounds_used, stopped_for_time = run_in_rounds(
+        "Script", lambda rnd, angles=None: _run_stage1_once(state, rnd, angles),
+        between_rounds=_research_script_angles, round_cost_min=45,
+        tg_fn=tg, log_fn=log)
+    if result:
+        return result
+    if stopped_for_time:
+        tg(f"⏱️ Ch1: script stopped after {rounds_used} round(s) because the job "
+           f"ran out of time, not because the writing failed. Nothing published.")
+        log(f"EXIT 2: script stopped for job time after {rounds_used} round(s).")
+    else:
+        tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 in {rounds_used} "
+           f"rounds x {MAX_ATTEMPTS} attempts ({rounds_used * MAX_ATTEMPTS} scripts, "
+           f"with fresh case reports researched between rounds). Per your standing "
+           f"instruction, nothing under {MIN_GATE} gets published.")
+        log(f"EXIT 2: no script cleared {MIN_GATE}/10 in {rounds_used} rounds of "
+            f"{MAX_ATTEMPTS} attempts — no video produced.")
     # exit(2), not exit(0). Skipping the day is the correct EDITORIAL
     # decision, but it is not a successful run, and exiting 0 made the whole
     # workflow report green having produced no video at all. The first live
@@ -8763,8 +8875,6 @@ def run_stage1(state):
     # to a working channel.
     #
     # 2 rather than 1 so it stays distinguishable from a crash in the logs.
-    log(f"EXIT 2: no script cleared {MIN_GATE}/10 in {MAX_ATTEMPTS} attempts "
-        f"(best {best_score}/10) — no video produced.")
     sys.exit(2)
 
 
@@ -9255,43 +9365,93 @@ def generate_thumbnail_text(niche, topic, title=""):
     # placeholder or an unscored fallback bank phrase.
     THUMB_TEXT_MIN = 8.5
     THUMB_TEXT_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
-    candidates = []
-    for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
+    THUMB_TEXT_ROUNDS = 3         # 3 x 13, direct user request Aug 1 2026
+
+    def _thumb_attempts(round_no, angles=None):
+        """
+        One round of thirteen attempts. Returns the cleared text, or None.
+
+        `angles` is the material the previous round's research turned up; a
+        round that failed thirteen times has exhausted what rewording its own
+        output can give it, so rounds 2 and 3 lead with genuinely new hooks
+        instead of re-running round 1's conditions.
+        """
+        round_prompt = prompt
+        if angles:
+            round_prompt = (prompt + "\n\nLEAD WITH ONE OF THESE CONCRETE HOOKS "
+                            "FROM THE CASE (pick the strongest, do not list them):\n"
+                            + "\n".join(f"- {a}" for a in angles[:8]))
+        candidates = []
+        for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
+            try:
+                # 22-char cap in the prompt; the 100-char default floor made
+                # every correct answer unacceptable, so all 13 attempts burned
+                # the provider chain to exhaustion. The scorer below is the
+                # real check on this text.
+                set_ai_variant(attempt + round_no * THUMB_TEXT_MAX_ATTEMPTS)
+                result = ai_generate(round_prompt, tokens=15, min_chars=3)
+                if result:
+                    # FIX (direct user report, July 24 2026): this used to strip
+                    # EVERY non-letter character including "?", which made a
+                    # genuine question-format thumbnail text impossible to ever
+                    # produce regardless of what the AI returned. Now preserves
+                    # a single trailing "?" and allows 2-4 words (was a rigid
+                    # exactly-3), since a real question often needs 3-4 words.
+                    has_question = result.strip().endswith("?")
+                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    words = result.split()[:4]
+                    if 2 <= len(words) <= 4:
+                        text = ' '.join(words) + ("?" if has_question else "")
+                        candidates.append(text)
+            except Exception as e:
+                log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS} "
+                    f"(round {round_no}, non-fatal): {e}")
+
+            if candidates:
+                scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
+                best_text, best_score = max(scored, key=lambda pair: pair[1])
+                log(f"  Thumbnail text round {round_no}, attempt "
+                    f"{attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: best so far "
+                    f"'{best_text}' ({best_score}/10)")
+                notify_stage_score(f"Thumbnail text (round {round_no})", attempt,
+                                   THUMB_TEXT_MAX_ATTEMPTS, best_score,
+                                   THUMB_TEXT_MIN, extra=f"'{best_text}'")
+                if best_score >= THUMB_TEXT_MIN:
+                    log(f"  Thumbnail text cleared {THUMB_TEXT_MIN}/10 on round "
+                        f"{round_no}, attempt {attempt}.")
+                    return best_text
+        log(f"  Thumbnail text round {round_no} never cleared {THUMB_TEXT_MIN}/10 "
+            f"after {THUMB_TEXT_MAX_ATTEMPTS} attempts.")
+        return None
+
+    def _thumb_research(round_no):
+        """
+        New INPUT for the next thirteen, not a reworded version of the last.
+
+        Without this a round boundary is just a pause, and three rounds are
+        one attempt billed three times -- the exact retry defect this channel
+        has already been bitten by at the title, audio and video gates.
+        """
         try:
-            # 22-char cap in the prompt; the 100-char default floor made
-            # every correct answer unacceptable, so all 13 attempts burned
-            # the provider chain to exhaustion. The scorer below is the
-            # real check on this text.
-            result = ai_generate(prompt, tokens=15, min_chars=3)
-            if result:
-                # FIX (direct user report, July 24 2026): this used to strip
-                # EVERY non-letter character including "?", which made a
-                # genuine question-format thumbnail text impossible to ever
-                # produce regardless of what the AI returned. Now preserves
-                # a single trailing "?" and allows 2-4 words (was a rigid
-                # exactly-3), since a real question often needs 3-4 words.
-                has_question = result.strip().endswith("?")
-                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
-                words = result.split()[:4]
-                if 2 <= len(words) <= 4:
-                    text = ' '.join(words) + ("?" if has_question else "")
-                    candidates.append(text)
+            out = ai_generate(
+                f"Round {round_no}. A thumbnail line for this clinical case has "
+                f"failed {THUMB_TEXT_MAX_ATTEMPTS} attempts. List 8 DIFFERENT "
+                f"concrete hooks it could lead with -- a number, a duration, a "
+                f"contradiction, a single finding -- one per line, no numbering, "
+                f"no finished thumbnail text.\nCase: {topic[:200]}",
+                tokens=250, min_chars=12) or ""
+            angles = [l.strip(" -\u2022*") for l in out.split("\n") if len(l.strip()) > 6]
+            return angles[:8] or None
         except Exception as e:
-            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS} (non-fatal): {e}")
+            log(f"  Thumbnail angle research failed (non-fatal): {e}")
+            return None
 
-        if candidates:
-            scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
-            best_text, best_score = max(scored, key=lambda pair: pair[1])
-            log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: best so far "
-                f"'{best_text}' ({best_score}/10)")
-            notify_stage_score("Thumbnail text", attempt, THUMB_TEXT_MAX_ATTEMPTS, best_score,
-                                THUMB_TEXT_MIN, extra=f"'{best_text}'")
-            if best_score >= THUMB_TEXT_MIN:
-                log(f"  Thumbnail text cleared {THUMB_TEXT_MIN}/10 on attempt {attempt}.")
-                return best_text
-
-    log(f"  Thumbnail text never cleared {THUMB_TEXT_MIN}/10 after {THUMB_TEXT_MAX_ATTEMPTS} attempts.")
-    return None
+    from gate_rounds import run_in_rounds as _run_in_rounds
+    best, _rounds_used, _stopped_for_time = _run_in_rounds(
+        "Thumbnail text", _thumb_attempts, rounds=THUMB_TEXT_ROUNDS,
+        between_rounds=_thumb_research, round_cost_min=5,
+        tg_fn=tg, log_fn=log)
+    return best
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
@@ -10198,8 +10358,50 @@ def main():
             from quality_scoring import score_audio_quality as _score_audio_quality_gate
             _AUDIO_MIN_GATE = 8.5
             _AUDIO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
+            _AUDIO_ROUNDS = 3         # 3 x 13, direct user request Aug 1 2026
             _expected_dur = (len(script_clean.split()) / 125.0) * 60.0
             _audio_attempt = 1
+            _audio_round = 1
+
+            def _audio_next_round(_reason):
+                """
+                End this round of thirteen and start the next, or skip the day.
+
+                Returns the regenerated audio tuple for the new round, or None
+                when no round is left (the caller then exits). The re-seed is
+                the ENGINE, not the voice name: rounds 2 and 3 take Kokoro
+                (then SSML) off the table, because a round that changes only
+                the voice label re-renders identical audio -- exactly what
+                thirteen identical 8.3s already proved.
+                """
+                nonlocal _audio_round, _audio_attempt, edge_voice
+                if _audio_round >= _AUDIO_ROUNDS:
+                    return None
+                from job_clock import can_afford as _ca, status_line as _cl
+                if not _ca(15, reserve=110):
+                    tg(f"⏱️ Ch1: audio rounds {_audio_round + 1}-{_AUDIO_ROUNDS} "
+                       f"skipped for job time, not quality ({_cl()}).")
+                    return None
+                _tier = "kokoro" if _audio_round == 1 else "ssml"
+                globals().setdefault("_SKIP_TTS_TIERS", set()).add(_tier)
+                globals()["_AUDIO_STUCK"] = []
+                _pause = 600 if _ca(15 + 10, reserve=110) else 0
+                tg(f"🔄 Ch1: audio round {_audio_round} of {_AUDIO_ROUNDS} ended "
+                   f"without clearing {_AUDIO_MIN_GATE}/10 ({_reason}). "
+                   + (f"Waiting 10 minutes, then " if _pause else "Now ") +
+                   f"retrying with a genuinely different engine — {_tier} is off "
+                   f"the table for the next round. The day is only skipped if "
+                   f"round {_AUDIO_ROUNDS} also fails.")
+                log(f"  Audio round {_audio_round} failed ({_reason}); "
+                    f"disabling '{_tier}' and starting round {_audio_round + 1}.")
+                if _pause:
+                    time.sleep(_pause)
+                _audio_round += 1
+                _audio_attempt = 1
+                set_ai_variant(_audio_round * 7)
+                return run_stage_with_retry(run_audio_stage, "Audio",
+                                            script_clean, niche_name, edge_voice)
+
             while True:
                 _integrity_ok = check_audio_quality(audio_path, _expected_dur)
                 if _integrity_ok:
@@ -10229,25 +10431,42 @@ def main():
                 _sig = (round(_audio_score, 2), edge_voice)
                 _stuck = globals().setdefault("_AUDIO_STUCK", [])
                 _stuck.append(_sig)
+                # A stuck retry ends the ROUND, not the day. Under 3 x 13 the
+                # right response to "this engine cannot clear the bar" is to
+                # change engines and try thirteen more, which is exactly what
+                # the round boundary does.
                 if len(_stuck) >= 3 and len(set(_stuck[-3:])) == 1:
-                    tg(f"🛑 Ch1: audio scored {_audio_score}/10 on three identical "
-                       f"attempts in a row (same voice, same score) — the retry is not "
-                       f"changing anything, so the remaining "
-                       f"{_AUDIO_MAX_ATTEMPTS - _audio_attempt} attempts would take "
-                       f"~{(_AUDIO_MAX_ATTEMPTS - _audio_attempt) * 10} minutes to fail "
-                       f"the same way. Stopping now.")
                     log(f"  Audio retry is stuck at {_audio_score}/10 on {edge_voice} — "
-                        f"aborting after {_audio_attempt} attempts instead of "
-                        f"{_AUDIO_MAX_ATTEMPTS}.")
-                    sys.exit(0)
+                        f"ending round {_audio_round} after {_audio_attempt} attempts.")
+                    _nxt = _audio_next_round(f"stuck at {_audio_score}/10 on {edge_voice}")
+                    if _nxt is None:
+                        tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 in "
+                           f"{_audio_round} round(s) of up to {_AUDIO_MAX_ATTEMPTS} "
+                           f"attempts, across every available TTS engine (last: "
+                           f"{_audio_score}/10). Per your standing instruction, "
+                           f"nothing under {_AUDIO_MIN_GATE} gets published.")
+                        log(f"  Audio gate exhausted all rounds. Skipping.")
+                        sys.exit(0)
+                    audio_path, audio_duration, audio_size, voice_used, tool_used = _nxt
+                    edge_voice = voice_used
+                    continue
                 if _audio_attempt >= _AUDIO_MAX_ATTEMPTS:
-                    tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 after {_AUDIO_MAX_ATTEMPTS} "
-                       f"attempts (last: {_audio_score}/10, voice {edge_voice}) — skipping today's "
-                       f"episode. Per your standing instruction, nothing under {_AUDIO_MIN_GATE} "
-                       f"gets published.")
-                    log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} after "
-                        f"{_AUDIO_MAX_ATTEMPTS} attempts. Skipping.")
-                    sys.exit(0)
+                    log(f"  Audio round {_audio_round} never cleared {_AUDIO_MIN_GATE} "
+                        f"after {_AUDIO_MAX_ATTEMPTS} attempts.")
+                    _nxt = _audio_next_round(f"{_AUDIO_MAX_ATTEMPTS} attempts, "
+                                             f"best {_audio_score}/10")
+                    if _nxt is None:
+                        tg(f"🛑 Ch1: audio never cleared {_AUDIO_MIN_GATE}/10 in "
+                           f"{_audio_round} round(s) x {_AUDIO_MAX_ATTEMPTS} attempts "
+                           f"(last: {_audio_score}/10, voice {edge_voice}) — skipping "
+                           f"today's episode. Per your standing instruction, nothing "
+                           f"under {_AUDIO_MIN_GATE} gets published.")
+                        log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} in "
+                            f"{_audio_round} rounds. Skipping.")
+                        sys.exit(0)
+                    audio_path, audio_duration, audio_size, voice_used, tool_used = _nxt
+                    edge_voice = voice_used
+                    continue
                 # Same job-clock question as the video gate below: audio
                 # regeneration is ~10 minutes, and the whole video stage still
                 # has to happen after this. Spending the last of the job here
@@ -10336,7 +10555,62 @@ def main():
             get_media_duration as _get_media_duration_gate
         _VIDEO_MIN_GATE = 8.5
         _VIDEO_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
+        _VIDEO_ROUNDS = 3         # 3 x 13, direct user request Aug 1 2026
         _video_attempt = 1
+        _video_round = 1
+
+        def _video_next_round(_reason):
+            """
+            End this round of reassemblies and start the next, or give up.
+
+            Returns a freshly assembled video path, or None when no round is
+            left or the job cannot afford one. HONEST NOTE ON THE ARITHMETIC:
+            one assembly is ~48 minutes, so 3 x 13 here is 31 hours against a
+            6-hour limit. The rounds are real and they run in order, but this
+            gate is the one place where the job clock, not the round counter,
+            decides when to stop -- and it says so out loud rather than
+            implying thirty-nine assemblies will happen.
+            """
+            nonlocal _video_round, _video_attempt
+            if _video_round >= _VIDEO_ROUNDS:
+                return None
+            from job_clock import can_afford as _cav, status_line as _clv
+            if not _cav(50):
+                tg(f"⏱️ Ch1: video rounds {_video_round + 1}-{_VIDEO_ROUNDS} skipped "
+                   f"for job time, not quality — one reassembly is ~50 min and the "
+                   f"job cannot afford it ({_clv()}). Script, title and audio stay "
+                   f"checkpointed for the make-up run.")
+                return None
+            globals()["_VIDEO_STUCK"] = []
+            # WHAT A SECOND ROUND CAN AND CANNOT FIX -- stated plainly, because
+            # the alternative is inventing a "seed" that changes nothing and
+            # calling it variation.
+            #
+            # The register schedule is deterministic for a given paper, so a
+            # rebuild does NOT reshuffle the visuals. What it genuinely redoes
+            # is every fetch and every encode: figure downloads, background
+            # imagery, the horror-FX pass, the watermark pass, the concat.
+            # Those are the failures a round actually recovers -- a figure
+            # download that 503'd, an ffmpeg pass that produced a short file --
+            # and they are exactly what `fallback_flags` costs points for.
+            #
+            # A video below the bar for a STRUCTURAL reason will score the same
+            # in round 2, which is why the stuck-check above ends each round
+            # early rather than spending thirteen attempts proving it.
+            globals()["_last_video_fallback_flags"] = {}
+            tg(f"\U0001F504 Ch1: video round {_video_round} of {_VIDEO_ROUNDS} ended "
+               f"without clearing {_VIDEO_MIN_GATE}/10 ({_reason}). Rebuilding from "
+               f"scratch — re-fetching every figure and re-running every encode, "
+               f"which is what a round can genuinely fix. The day is only skipped "
+               f"if round {_VIDEO_ROUNDS} also fails or the job runs out of time.")
+            log(f"  Video round {_video_round} failed ({_reason}); starting round "
+                f"{_video_round + 1} with a clean fetch/encode pass.")
+            _video_round += 1
+            _video_attempt = 1
+            return run_stage_with_retry(
+                assemble_video, "Video", niche_name, audio_path, audio_duration,
+                topic, script_clean, episode, real_cases, ass_path, title=title)
+
         while True:
             _v_dur = _get_media_duration_gate(video_path)
             # THREE MISCALIBRATIONS, ALL "WRITTEN FOR STOCK FOOTAGE".
@@ -10377,22 +10651,40 @@ def main():
             _vsig = round(_video_gate_score, 2)
             _vstuck = globals().setdefault("_VIDEO_STUCK", [])
             _vstuck.append(_vsig)
+            # Two identical scores end the ROUND, not the day: the answer to
+            # "this assembly cannot clear the bar" is a different assembly,
+            # which is what the round boundary re-seeds.
             if len(_vstuck) >= 2 and len(set(_vstuck[-2:])) == 1:
-                tg(f"🛑 Ch1: video scored {_video_gate_score}/10 on two identical "
-                   f"reassemblies — rebuilding it again would take ~48 minutes to "
-                   f"produce the same number. Stopping instead of spending the rest "
-                   f"of the job's 6-hour limit.\n\nBreakdown: {_video_breakdown}")
-                log(f"  Video retry is stuck at {_video_gate_score}/10 — aborting "
-                    f"after {_video_attempt} attempts instead of {_VIDEO_MAX_ATTEMPTS}. "
+                log(f"  Video retry is stuck at {_video_gate_score}/10 — ending "
+                    f"round {_video_round} after {_video_attempt} attempts. "
                     f"Breakdown: {_video_breakdown}")
-                sys.exit(0)
+                _nxtv = _video_next_round(f"stuck at {_video_gate_score}/10 on two "
+                                          f"identical reassemblies")
+                if _nxtv is None:
+                    tg(f"🛑 Ch1: video never cleared {_VIDEO_MIN_GATE}/10 in "
+                       f"{_video_round} round(s) (last: {_video_gate_score}/10) — "
+                       f"skipping today's episode. Per your standing instruction, "
+                       f"nothing under {_VIDEO_MIN_GATE} gets published.\n\n"
+                       f"Breakdown: {_video_breakdown}")
+                    sys.exit(0)
+                video_path = _nxtv
+                continue
             if _video_attempt >= _VIDEO_MAX_ATTEMPTS:
-                tg(f"🛑 Ch1: video never cleared {_VIDEO_MIN_GATE}/10 after {_VIDEO_MAX_ATTEMPTS} "
-                   f"attempts (last: {_video_gate_score}/10) — skipping today's episode. Per your "
-                   f"standing instruction, nothing under {_VIDEO_MIN_GATE} gets published.")
-                log(f"  Video gate never cleared {_VIDEO_MIN_GATE} after "
-                    f"{_VIDEO_MAX_ATTEMPTS} attempts. Skipping.")
-                sys.exit(0)
+                log(f"  Video round {_video_round} never cleared {_VIDEO_MIN_GATE} "
+                    f"after {_VIDEO_MAX_ATTEMPTS} attempts.")
+                _nxtv = _video_next_round(f"{_VIDEO_MAX_ATTEMPTS} attempts, "
+                                          f"best {_video_gate_score}/10")
+                if _nxtv is None:
+                    tg(f"🛑 Ch1: video never cleared {_VIDEO_MIN_GATE}/10 in "
+                       f"{_video_round} round(s) x {_VIDEO_MAX_ATTEMPTS} attempts "
+                       f"(last: {_video_gate_score}/10) — skipping today's episode. "
+                       f"Per your standing instruction, nothing under "
+                       f"{_VIDEO_MIN_GATE} gets published.")
+                    log(f"  Video gate never cleared {_VIDEO_MIN_GATE} in "
+                        f"{_video_round} rounds. Skipping.")
+                    sys.exit(0)
+                video_path = _nxtv
+                continue
             # THE 6-HOUR WALL IS A REAL CONSTRAINT, SO ASK BEFORE SPENDING.
             #
             # Run 30688297894 died here: cancelled at 5h58m partway through a
@@ -10891,13 +11183,15 @@ def main():
                     fb = _ttd_review["feedback"] or ""
                     _new_title = ai_generate(f"Rewrite this video title based on real feedback.\n"
                                     f"Current title: {title}\nFeedback: {fb}\n"
-                                    f"Return ONLY the new title, nothing else.", tokens=60)
+                                    f"Return ONLY the new title, nothing else.",
+                                    tokens=60, min_chars=6)
                     if _new_title and len(_new_title.strip()) > 5:
                         title = _new_title.strip()
                     _new_thumb_text = ai_generate(f"Write a new punchy 3-word max thumbnail overlay "
                                          f"text, NUMBER+NOUN format, based on real feedback.\n"
                                          f"Current text: {thumb_text}\nTopic: {topic}\n"
-                                         f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40)
+                                         f"Feedback: {fb}\nReturn ONLY the new overlay text.",
+                                         tokens=40, min_chars=3)
                     if _new_thumb_text and len(_new_thumb_text.strip()) > 0:
                         thumb_text = _new_thumb_text.strip()
                         ab_style = "B" if ab_style == "A" else "A"

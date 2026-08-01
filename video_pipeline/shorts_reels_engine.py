@@ -1892,7 +1892,7 @@ def set_short_thumbnail(video_id, thumb_path, token):
 
 # ── MAIN FUNCTIONS ────────────────────────────────────────────────────────────
 
-def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> dict:
+def _produce_standalone_short_once(mode: str, channel: str = "betrayal_deepdive") -> dict:
     """
     Produce a standalone YouTube Short (not tied to main video).
     mode: 'standalone_1' (6 AM) or 'standalone_2' (2 PM)
@@ -2181,7 +2181,7 @@ YouTube Short: {yt_url if yt_url else "⚠️ Pending"}""")
     return {"status": "failed", "reason": "max retries"}
 
 
-def produce_video_topic_short(main_topic: str, main_script: str = "", angle: str = "angle_1",
+def _produce_video_topic_short_once(main_topic: str, main_script: str = "", angle: str = "angle_1",
                                 channel: str = "betrayal_deepdive") -> dict:
     """
     v7 rebuild — replaces produce_teaser_short/produce_recap_short (kept
@@ -2370,6 +2370,83 @@ Return JSON:
         return {"status": "success", "url": url, "local_path": video_out}
 
     return {"status": "failed", "reason": "all attempts failed pre-score or assembly"}
+
+
+# ── 3 x 13, NOT 1 x 13 ────────────────────────────────────────────────────────
+# Direct instruction, Aug 1 2026: "for the thumbnail, youtube shorts, editing
+# etc I want it to be increased to three attempts, not only one attempt. The
+# current rate is 1x13 i want it to be changed to 3x13."
+#
+# Both producers above ran ONE round of thirteen and then returned
+# {"status": "failed"} -- which the pipeline logged as "0/4 Shorts produced"
+# and moved on from. The bodies are untouched (they are the round); these
+# wrappers give each producer its three rounds, with a real pause and fresh
+# research at every boundary. A round that failed thirteen times has exhausted
+# what rewording gets it, so the boundary re-seeds rather than re-runs: the
+# standalone producer re-fetches trending topics from scratch, and the
+# video-topic producer is handed new narrative angles for the same case.
+SHORTS_ROUNDS = 3
+SHORTS_ROUND_PAUSE_SEC = int(os.environ.get("SHORTS_ROUND_PAUSE_SEC", "600"))
+
+
+def _shorts_rounds(label, once_fn, research_fn=None):
+    """Run a Shorts producer for SHORTS_ROUNDS rounds of MAX_ATTEMPTS."""
+    try:
+        from gate_rounds import run_in_rounds
+    except Exception as e:
+        log.warning("gate_rounds unavailable (%s) — %s runs a single round.", e, label)
+        return once_fn(1)
+
+    def _round(round_no, seed=None):
+        r = once_fn(round_no, seed) if seed is not None else once_fn(round_no)
+        # run_in_rounds treats falsy as failure; a dict is always truthy, so
+        # translate the producer's own verdict into that vocabulary.
+        return r if (r or {}).get("status") == "success" else None
+
+    result, rounds_used, stopped_for_time = run_in_rounds(
+        label, _round, rounds=SHORTS_ROUNDS, pause_sec=SHORTS_ROUND_PAUSE_SEC,
+        between_rounds=research_fn, round_cost_min=12,
+        tg_fn=tg, log_fn=log.info)
+    if result:
+        return result
+    return {"status": "failed",
+            "reason": (f"stopped after {rounds_used} round(s) for job time"
+                       if stopped_for_time else
+                       f"all {SHORTS_ROUNDS} rounds x {MAX_ATTEMPTS} attempts failed "
+                       f"pre-score or assembly")}
+
+
+def produce_standalone_short(mode: str, channel: str = "betrayal_deepdive") -> dict:
+    """Three rounds of thirteen. Each round re-researches trending topics."""
+    return _shorts_rounds(
+        f"Shorts standalone ({mode})",
+        lambda round_no, seed=None: _produce_standalone_short_once(mode, channel))
+
+
+def produce_video_topic_short(main_topic: str, main_script: str = "",
+                              angle: str = "angle_1",
+                              channel: str = "betrayal_deepdive") -> dict:
+    """Three rounds of thirteen, re-angled between rounds."""
+    def _research(round_no):
+        try:
+            out = llm(f"Round {round_no}. A 45-second Short about this case has "
+                      f"failed {MAX_ATTEMPTS} attempts. List 6 DIFFERENT narrative "
+                      f"angles it could take -- one per line, no numbering, angles "
+                      f"only, not finished scripts.\nCase: {str(main_topic)[:200]}")
+            lines = [l.strip(" -•*") for l in (out or "").split("\n")
+                     if len(l.strip()) > 8]
+            return lines[:6] or None
+        except Exception as e:
+            log.warning("Shorts angle research (non-fatal): %s", e)
+            return None
+
+    def _once(round_no, seed=None):
+        topic = main_topic
+        if seed:
+            topic = f"{main_topic}\n\nTAKE THIS ANGLE: {seed[(round_no - 1) % len(seed)]}"
+        return _produce_video_topic_short_once(topic, main_script, angle, channel)
+
+    return _shorts_rounds(f"Shorts video-topic ({angle})", _once, _research)
 
 
 # FIX (found on direct user request, July 14 2026): produce_teaser_short
