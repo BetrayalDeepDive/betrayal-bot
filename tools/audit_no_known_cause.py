@@ -427,6 +427,7 @@ def audit_sourcing_robustness():
     _provider_rotation_checks()
     _audio_gate_checks()
     _video_gate_checks()
+    _job_clock_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -774,6 +775,78 @@ def _video_gate_checks():
     src = inspect.getsource(score_video_quality)
     check("E", "known_cuts overrides the scene-change detector",
           "if known_cuts is not None and known_cuts > 0:" in src)
+
+
+def _job_clock_checks():
+    """
+    Run 30688297894 was not killed by a bad gate decision. It was cancelled
+    at 5h58m by GitHub Actions' 6-hour hosted-runner limit, partway through a
+    sixth video reassembly, and a cancelled job commits nothing -- so an 8.9
+    script, an approved title, a 9.1 audio track and five finished 1080p
+    videos all died with the runner.
+
+    The cause was that no loop knew what time it was. Each had its own private
+    attempt budget; none was measured against the job's actual remaining
+    minutes. These checks hold the shared clock in place.
+    """
+    import os
+    import time as _t
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    hrg = read("video_pipeline/human_review_gate.py")
+    wf = read(".github/workflows/ch1_generate.yml")
+
+    check("F", "a shared job clock exists at all",
+          (ROOT / "video_pipeline/job_clock.py").exists(),
+          "every expensive loop needs the same answer to 'how long is left'")
+
+    # The anchor. Import time is roughly an hour late for human_review_gate,
+    # and late in the direction that makes the pipeline overspend.
+    check("F", "the workflow anchors the clock to the real job start",
+          "JOB_START_EPOCH=$(date +%s)" in wf and "JOB_LIMIT_MINUTES=360" in wf,
+          "module import time is not job start — the review gate is first "
+          "imported ~1h in, which would hide an hour of spent budget")
+    check("F", "the exported limit matches the declared job timeout",
+          "timeout-minutes: 360" in wf and "JOB_LIMIT_MINUTES=360" in wf,
+          "the two numbers must be edited together or the clock lies")
+
+    import job_clock as jc  # video_pipeline is already on sys.path above
+
+    # The arithmetic, replayed against run 9's real timeline: video started
+    # 81 minutes in, each reassembly costs ~48 minutes.
+    os.environ["JOB_START_EPOCH"] = str(_t.time() - 81 * 60)
+    check("F", "early in a run the clock funds real work",
+          jc.can_afford(50) and jc.review_budget_hours(4.5) > 3.0,
+          f"at 81 min: {jc.status_line()}")
+    os.environ["JOB_START_EPOCH"] = str(_t.time() - 318 * 60)
+    check("F", "near the wall the clock refuses another reassembly",
+          not jc.can_afford(50),
+          f"at 5h18m: {jc.status_line()} — run 9 started a sixth here")
+    check("F", "near the wall the review window closes instead of overrunning",
+          jc.review_budget_hours(4.5) == 0.0,
+          "a flat 4.5h counted from the first checkpoint ignored however "
+          "much of the 6 hours generation had already spent")
+    check("F", "a malformed or stale anchor cannot skip the episode",
+          (os.environ.__setitem__("JOB_START_EPOCH", "not-a-number")
+           or jc.can_afford(50))
+          and (os.environ.__setitem__("JOB_START_EPOCH", str(_t.time() - 99 * 3600))
+               or jc.can_afford(50)),
+          "an unusable anchor must fall back, not make everything unaffordable")
+    os.environ.pop("JOB_START_EPOCH", None)
+
+    check("F", "the review budget is bounded by what the job can afford",
+          "from job_clock import review_budget_hours" in hrg
+          and "_review_budget_hours()" in hrg,
+          "4.5 hours is a policy ceiling, not a promise the runner can keep")
+    check("F", "the video gate asks the clock before spending 48 minutes",
+          "from job_clock import can_afford" in cp,
+          "asked BEFORE the attempt, so the answer is actionable")
+    check("F", "the audio gate reserves time for the video stage",
+          "reserve=110" in cp,
+          "spending the last of the job on audio leaves nothing to assemble")
+    check("F", "running out of time exits cleanly rather than being killed",
+          cp.count("checkpointing and exiting cleanly") >= 2,
+          "sys.exit(0) keeps the script and audio checkpoints, so the "
+          "make-up run resumes instead of starting from an empty runner")
 
 
 def _audio_gate_checks():

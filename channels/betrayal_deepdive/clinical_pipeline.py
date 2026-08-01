@@ -10155,6 +10155,20 @@ def main():
                     log(f"  Audio gate never cleared {_AUDIO_MIN_GATE} after "
                         f"{_AUDIO_MAX_ATTEMPTS} attempts. Skipping.")
                     sys.exit(0)
+                # Same job-clock question as the video gate below: audio
+                # regeneration is ~10 minutes, and the whole video stage still
+                # has to happen after this. Spending the last of the job here
+                # would leave nothing to assemble with.
+                from job_clock import can_afford as _can_afford, \
+                    status_line as _job_status_audio
+                if not _can_afford(10, reserve=110):  # 45 finalise + ~65 video
+                    tg(f"⏱️ Ch1: audio is at {_audio_score}/10 and another attempt plus "
+                       f"the video stage no longer fits inside this job's 6-hour limit "
+                       f"({_job_status_audio()}). Stopping cleanly with the script "
+                       f"checkpointed rather than being cancelled mid-render.")
+                    log(f"  Out of job time before audio attempt {_audio_attempt + 1} "
+                        f"({_job_status_audio()}) — checkpointing and exiting cleanly.")
+                    sys.exit(0)
                 _voice_pool = [v for v in VOICES.get(niche_name, EXTENDED_VOICES)
                                if v != edge_voice]
                 _retry_voice = random.choice(_voice_pool) if _voice_pool else edge_voice
@@ -10286,9 +10300,34 @@ def main():
                 log(f"  Video gate never cleared {_VIDEO_MIN_GATE} after "
                     f"{_VIDEO_MAX_ATTEMPTS} attempts. Skipping.")
                 sys.exit(0)
+            # THE 6-HOUR WALL IS A REAL CONSTRAINT, SO ASK BEFORE SPENDING.
+            #
+            # Run 30688297894 died here: cancelled at 5h58m partway through a
+            # sixth reassembly, losing an 8.9 script, an approved title, a 9.1
+            # audio track and five finished videos, because a cancelled job
+            # commits nothing. Thirteen attempts at ~48 minutes is 10.4 hours
+            # inside a 6-hour box -- the attempt budget was never physically
+            # spendable, it just wasn't measured against a clock.
+            #
+            # Now it is. If one more assembly plus the finalisation reserve
+            # does not fit, stop cleanly instead: the script and audio
+            # checkpoints written above survive the commit, and tomorrow's
+            # make-up run resumes straight into video rather than starting
+            # from an empty runner.
+            from job_clock import can_afford, status_line as _job_status
+            _ASSEMBLY_COST_MIN = 50
+            if not can_afford(_ASSEMBLY_COST_MIN):
+                tg(f"⏱️ Ch1: video is at {_video_gate_score}/10 and another reassembly "
+                   f"needs ~{_ASSEMBLY_COST_MIN} min, which no longer fits inside this "
+                   f"job's 6-hour limit ({_job_status()}). Stopping cleanly with the "
+                   f"script, title and audio checkpointed — the make-up run resumes at "
+                   f"the video stage instead of rebuilding all of it.")
+                log(f"  Out of job time before video attempt {_video_attempt + 1} "
+                    f"({_job_status()}) — checkpointing and exiting cleanly.")
+                sys.exit(0)
             tg(f"🔄 Ch1: video scored {_video_gate_score}/10 (below {_VIDEO_MIN_GATE}) — "
                f"reassembling (attempt {_video_attempt + 1}/{_VIDEO_MAX_ATTEMPTS}) instead of "
-               f"publishing it as-is.")
+               f"publishing it as-is. {_job_status()}")
             _video_attempt += 1
             video_path = run_stage_with_retry(
                 assemble_video, "Video", niche_name, audio_path, audio_duration,

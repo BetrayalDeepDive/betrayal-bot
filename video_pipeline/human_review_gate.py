@@ -57,12 +57,38 @@ import requests
 # episode's review process and force-approves whatever's left once the
 # budget is exhausted, leaving real headroom for actual generation time.
 _REVIEW_PROCESS_START = datetime.datetime.now()
-_MAX_TOTAL_REVIEW_HOURS = 4.5  # leaves ~1.5h real headroom inside the 6h job limit
+_MAX_TOTAL_REVIEW_HOURS = 4.5  # ceiling; the real budget is whatever the job can still afford
+
+
+def _review_budget_hours():
+    """
+    The 4.5 hours above is a POLICY ceiling, not a promise the job can keep.
+
+    It used to be enforced as a flat 4.5 hours counted from the first review
+    checkpoint -- with no knowledge of how much of the job's 6 hours
+    generation had already burned getting there. Run 30688297894 spent
+    1h50m on script and audio before the video stage, so "4.5 more hours of
+    review" was arithmetic the runner could not honour: work + full review
+    window overruns the 6-hour limit, and an overrun job is cancelled, which
+    commits nothing and loses every artifact it built.
+
+    The budget is now the smaller of the policy ceiling and what the job
+    physically has left after its finalisation reserve. Early in a run the
+    two are the same and nothing changes; late in a slow run the window
+    closes early and on purpose, so review force-approves and the episode
+    finishes instead of being killed mid-sentence.
+    """
+    try:
+        from job_clock import review_budget_hours
+        return review_budget_hours(_MAX_TOTAL_REVIEW_HOURS)
+    except Exception:
+        # Outside the pipeline (tests, ad-hoc use) fall back to the ceiling.
+        return _MAX_TOTAL_REVIEW_HOURS
 
 
 def _total_review_time_exhausted():
     elapsed_hours = (datetime.datetime.now() - _REVIEW_PROCESS_START).total_seconds() / 3600
-    return elapsed_hours >= _MAX_TOTAL_REVIEW_HOURS
+    return elapsed_hours >= _review_budget_hours()
 
 
 # ── where the wall-clock actually goes ─────────────────────────────────
