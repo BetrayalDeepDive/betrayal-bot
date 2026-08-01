@@ -41,6 +41,51 @@ def read(rel):
     return (ROOT / rel).read_text()
 
 
+def read_code(rel):
+    """
+    Source with comments and docstrings stripped.
+
+    A "this string must NOT appear" check is worthless against raw source:
+    the comment EXPLAINING that '#truecrime' was removed contains the very
+    text the check forbids, so the check fails on a correct file. Absence
+    checks must look at what actually runs.
+    """
+    import io
+    import tokenize
+    src = (ROOT / rel).read_text()
+    out = []
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError):
+        return src
+    depth = 0
+    # Only a string that STARTS a logical statement is a docstring. Tracking
+    # bracket depth is what makes that true: inside a list or dict every
+    # element also follows a newline token, and without this the checker
+    # silently deleted every multi-line collection's strings -- which is
+    # exactly the false "the new topic pool is missing" it first reported.
+    prev_type = tokenize.NEWLINE
+    for tok in toks:
+        if tok.type == tokenize.COMMENT:
+            continue
+        if tok.type == tokenize.OP:
+            if tok.string in "([{":
+                depth += 1
+            elif tok.string in ")]}":
+                depth = max(0, depth - 1)
+        if (tok.type == tokenize.STRING and depth == 0
+                and prev_type in (tokenize.INDENT, tokenize.DEDENT,
+                                  tokenize.NEWLINE, tokenize.ENCODING)):
+            prev_type = tok.type
+            continue
+        if tok.type not in (tokenize.NL, tokenize.NEWLINE,
+                            tokenize.INDENT, tokenize.DEDENT):
+            out.append(tok.string)
+        if tok.type != tokenize.NL:
+            prev_type = tok.type
+    return "\n".join(out)
+
+
 # ── A. IDENTITY ────────────────────────────────────────────────────────
 def audit_identity():
     import growth_engine as ge
@@ -430,6 +475,7 @@ def audit_sourcing_robustness():
     _job_clock_checks()
     _short_answer_checks()
     _rounds_checks()
+    _format_leakage_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -875,6 +921,86 @@ def _short_answer_checks():
     check("D", "the other four channels' scoring is unchanged",
           _sts("4380 DAYS HIDDEN") == 10.0 and _sts("47 VICTIMS") == 10.0,
           "the clinical terms were ADDED, not swapped in")
+
+
+def _format_leakage_checks():
+    """
+    WHAT THE VIEWER ACTUALLY SEES, not what the comments claim.
+
+    Ch1 was converted from true crime to clinical case documentary, and the
+    conversion covered the prompts. It did not cover the things that reach
+    the public: the research SOURCE, the text burned into the video, the
+    Shorts hashtags, or the topic pools two of four daily Shorts draw from.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    sh = read("video_pipeline/shorts_reels_engine.py")
+    # Absence checks run against CODE ONLY -- the comment explaining that
+    # "#truecrime" was removed contains the string it forbids.
+    cpc = read_code("channels/betrayal_deepdive/clinical_pipeline.py")
+    shc = read_code("video_pipeline/shorts_reels_engine.py")
+
+    # 1. THE RESEARCH SOURCE. This is the big one: Google News + r/TrueCrime
+    # results were injected into the script prompt as "REAL DOCUMENTED CASE
+    # RESEARCH ... build the narrative around documented reality", and
+    # credited by name on the on-screen SOURCES card.
+    check("B", "research context is the episode's own paper, nothing else",
+          'case = get_episode_case() or {}' in cp
+          and '"source":  "europepmc"' in cp,
+          "an episode sourced from ONE case report was also being handed "
+          "three news articles and three r/TrueCrime posts as its own facts")
+    check("B", "the news/reddit search is retired, not merely unused",
+          "_retired_search_real_cases_news_and_reddit" in cp
+          and cp.index("_retired_search_real_cases_news_and_reddit")
+              > cp.index("def search_real_cases"),
+          "leaving it callable is how it comes back")
+    check("B", "the case brief reads the paper, not a 100-char stub",
+          "(c.get('summary') or '')[:2500]" in cp
+          and "It is the only source" in cp,
+          "each source used to be truncated to 100 characters, so the brief "
+          "was written from little more than a title")
+    check("C", "the case brief prompt carries the medical content rules",
+          "no medical advice" in cp
+          and "concealed or neglected anything" in cp
+          and "no warning signs for a viewer to act on" in cp,
+          "this brief goes straight into the script prompt")
+
+    # 2. TEXT BURNED INTO THE VIDEO.
+    check("A", "the outro card says case, not investigation",
+          "A NEW PUBLISHED CASE EVERY WEEKDAY" in cp
+          and "Case #\" + str(episode_num)" in cp
+          and "NEW INVESTIGATION EVERY WEEKDAY" not in cpc,
+          "burned into every episode's pixels — as public as the title")
+    check("E", "on-screen segment fallbacks are clinical beats",
+          '"the confirming test"' in cp and '"differential narrowed"' in cp
+          and "torn photograph evidence" not in cpc
+          and "shadow figure distant" not in cpc,
+          "base_kw is the LAST fallback for display_text, the text drawn ON "
+          "the card — a clinical card could read 'clock ticking tension'")
+
+    # 3. WHAT GOES OUT WITH THE UPLOAD.
+    check("A", "no crime hashtags reach a YouTube description",
+          "#truecrime" not in cpc and "#darkpsychology" not in cpc,
+          "the fallback Shorts uploaded '#shorts #darkpsychology #truecrime'")
+    check("A", "the episode hashtag set is medical",
+          "#casereport #episode" in cp,
+          "'#investigation' on a published-case-report channel")
+    check("A", "Shorts topic pools stay inside this channel's field",
+          "viral animal story" not in shc.split('"evidence_room"')[0]
+          and "trending medical research finding" in shc,
+          "two of the four daily Shorts drew from 'viral celebrity news "
+          "story' / 'trending sports moment' under @NoKnownCauseTV")
+    check("A", "the retired-format Shorts hooks are gone",
+          "THE PART NO ONE TALKS ABOUT" not in cpc
+          and "EVERY TEST CAME BACK NORMAL" in cpc,
+          "'the part no one talks about' implies something is being withheld, "
+          "which the clinical policy rules forbid implying about clinicians")
+
+    # 4. The research module the title gate reads must be one that exists.
+    check("F", "the title gate reads a research file that is really written",
+          "daily_competitor_research.json" in cp
+          and "from competitive_research import" not in cpc,
+          "it imported a module that does not exist in this repo; every call "
+          "raised ModuleNotFoundError and was logged as an empty cache")
 
 
 def _rounds_checks():

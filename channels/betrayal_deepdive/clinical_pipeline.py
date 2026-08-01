@@ -736,7 +736,7 @@ CROSS_PROMO = {
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
-                 "📺 New investigation every weekday.",
+                 "📺 A new published case every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "evidence_room": {
@@ -744,7 +744,7 @@ CROSS_PROMO = {
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
-                 "📺 New investigation every weekday.",
+                 "📺 A new published case every weekday.",
         "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🧠 Psychology: youtube.com/@TheControlFiles",
     },
     "control_files": {
@@ -752,7 +752,7 @@ CROSS_PROMO = {
                  "🩺 Real published medical cases: youtube.com/@NoKnownCauseTV\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
-                 "📺 New investigation every weekday.",
+                 "📺 A new published case every weekday.",
         "short": "\n\n🔬 Forensic: youtube.com/@TheEvidenceRoom\n🩺 Medical cases: youtube.com/@NoKnownCauseTV",
     },
     # FIX: Ch4/Ch5 entries were entirely missing — this was genuinely a
@@ -767,7 +767,7 @@ CROSS_PROMO = {
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🤖 AI & tech collapse: youtube.com/@TheCollapseIndex\n\n"
-                 "📺 New investigation every weekday.",
+                 "📺 A new published case every weekday.",
         "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
     "collapse_index": {
@@ -775,7 +775,7 @@ CROSS_PROMO = {
                  "🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom\n"
                  "🧠 Psychology documentaries: youtube.com/@TheControlFiles\n"
                  "🏛️ History & geopolitics: youtube.com/@TheArchiveFiles\n\n"
-                 "📺 New investigation every weekday.",
+                 "📺 A new published case every weekday.",
         "short": "\n\n🩺 Medical cases: youtube.com/@NoKnownCauseTV\n🔬 Forensic: youtube.com/@TheEvidenceRoom",
     },
 }
@@ -2668,9 +2668,63 @@ Write all 3 now. Zero markdown."""
 
 def search_real_cases(niche_name, topic_hint):
     """
-    Search Google News RSS and Reddit for real documented cases
-    matching this niche. Returns list of real case summaries.
-    No API key required for either source.
+    The episode's own published paper — nothing else.
+
+    THIS FUNCTION WAS A TRUE-CRIME RESEARCH ENGINE AIMED AT MEDICINE.
+
+    It searched Google News RSS and **r/TrueCrime** for "real documented
+    cases", and whatever came back was fed straight into the script prompt
+    under the heading "REAL DOCUMENTED CASE RESEARCH (use these real facts in
+    your script) ... Build the narrative around documented reality", AND
+    credited by name on the video's on-screen SOURCES card.
+
+    On a channel whose entire premise is one specific CC BY case report, that
+    is the direct mechanism behind "the videos that are generated are too
+    random, not specific to a topic": the episode was sourced from one paper
+    about one patient, and the script prompt simultaneously carried three
+    unrelated news articles and up to three r/TrueCrime posts, all labelled
+    as this episode's documented reality. The model was being asked to build
+    one narrative out of four different stories.
+
+    The queries had already been reworded into medical language during the
+    format conversion, which made the problem harder to see -- the SOURCES
+    were never changed, only the search terms.
+
+    There is exactly one real source for this channel's episode and the
+    pipeline already holds it: the Europe PMC paper in _EPISODE_CASE, with
+    its own title, narrative, licence and citation. Returning that (and only
+    that) makes the research context and the on-screen credits describe the
+    same document the episode is actually about.
+    """
+    case = get_episode_case() or {}
+    if not case.get("narrative") and not case.get("title"):
+        log("  No episode case loaded yet — no research context to build "
+            "(the script prompt gets the paper itself instead).")
+        return []
+    pmcid = case.get("pmcid") or ""
+    url = (f"https://europepmc.org/article/PMC/{pmcid}" if pmcid else "")
+    entry = {
+        "source":  "europepmc",
+        "title":   (case.get("title") or topic_hint)[:160],
+        "summary": (case.get("narrative") or "")[:600],
+        "date":    str(case.get("year") or ""),
+        "url":     url,
+        "citation": case.get("citation") or "",
+        "license": case.get("license") or "",
+        "journal": case.get("journal") or "",
+    }
+    log(f"  Research context: the episode's own paper "
+        f"({pmcid or 'no PMCID'}, {entry['license'] or 'licence unknown'}).")
+    return [entry]
+
+
+def _retired_search_real_cases_news_and_reddit(niche_name, topic_hint):
+    """
+    RETIRED. Kept only so the diff shows what was removed and why.
+
+    Google News RSS + r/TrueCrime. Never call this from the clinical channel:
+    it puts other people's stories into an episode about one patient, and
+    credits a Reddit thread on the SOURCES card of a medical documentary.
     """
     import xml.etree.ElementTree as ET
     import urllib.parse
@@ -2763,22 +2817,40 @@ def extract_real_case_facts(cases, niche_name):
     if not cases:
         return ""
 
-    cases_text = "\n".join(
-        f"- [{c['source'].upper()}] {c['title']} | {c['summary'][:100]}"
-        for c in cases[:5]
-    )
+    # ONE PAPER, NOT A SHORTLIST. The old prompt asked the model to "extract
+    # the single most compelling REAL case" from up to five, because it was
+    # written when this function returned five unrelated news and Reddit hits.
+    # There is one case now, and picking a winner from a list of one is not
+    # the job -- surfacing that paper's concrete clinical anchors is.
+    #
+    # It also truncated each summary to 100 characters, so the paper's actual
+    # narrative barely reached the model at all; the "brief" was being written
+    # from little more than a title.
+    c = cases[0]
+    case_text = (f"TITLE: {c.get('title','')}\n"
+                 f"JOURNAL/YEAR: {c.get('journal','')} {c.get('date','')}\n"
+                 f"CASE NARRATIVE:\n{(c.get('summary') or '')[:2500]}")
 
-    prompt = f"""From these REAL documented cases in the {niche_name.replace('_', ' ')} niche:
+    prompt = f"""This is the ONE published case report today's episode is
+built from. It is the only source. Do not introduce any other case, patient
+or study.
 
-{cases_text}
+{case_text}
 
-Extract the single most compelling REAL case with:
-1. ONE specific verifiable fact (exact number, date, duration, or amount)
-2. ONE detail that makes it feel completely real and documented
-3. The core disturbing element that would make someone watch a full documentary
+Pull out what a viewer needs to follow THIS case, using only facts present
+above:
+1. ONE concrete clinical anchor stated in the paper — a lab value, a
+   duration, a count of visits or years, an age, a dose.
+2. The answer that looked right first and turned out to be wrong, or the
+   finding everyone had missed.
+3. What finally explained it, in one plain sentence.
 
-Return as: REAL CASE BRIEF (3 sentences max, plain text, use the actual facts):
-[fact 1]. [fact 2]. [core disturbing element]."""
+Rules: no medical advice, no warning signs for a viewer to act on, no
+suggestion that anyone concealed or neglected anything — clinicians acted on
+the information they had. If a detail is not in the text above, leave it out.
+
+Return as: CASE BRIEF (3 sentences max, plain text, real facts only):
+[anchor]. [the wrong answer or missed finding]. [what explained it]."""
 
     result = ai_generate(prompt, tokens=300, min_chars=50)  # 3 sentences max
     if result:
@@ -4043,7 +4115,7 @@ def _inject_ctas_ch1(script_clean, niche_name):
             "60pct": ["Subscribe now. The shared exposure is about to be identified.",
                       "Subscribe to No Known Cause before the mechanism is revealed."],
             "80pct": ["Subscribe. A new published case every weekday.",
-                      "Subscribe to No Known Cause. Real epidemiological investigations."],
+                      "Subscribe to No Known Cause. Published epidemiological case reports."],
         },
         "surgical_case_studies": {
             "30pct": ["Subscribe to No Known Cause. The finding that explains this is thirty seconds away.",
@@ -4430,13 +4502,13 @@ those are added separately afterward."""
         "neurology_cases":         f"PUBLISHED CASE: {topic[:45]}.",
         "rare_disease_cases":      f"RARE PRESENTATION: {topic[:45]}.",
         "senior_health_longevity": f"THE RESEARCH: {topic[:45]}.",
-        "medical_mystery_outbreak":f"INVESTIGATED: {topic[:45]}.",
+        "medical_mystery_outbreak":f"OUTBREAK CASE: {topic[:45]}.",
         "surgical_case_studies":   f"PUBLISHED CASE: {topic[:45]}.",
         "drug_discovery_stories":  f"HOW IT WAS FOUND: {topic[:45]}.",
         "sleep_science":           f"PUBLISHED CASE: {topic[:45]}.",
         "medical_history":         f"MEDICAL HISTORY: {topic[:45]}.",
     }
-    seo_first_line = seo_hooks.get(niche["name"], f"INVESTIGATION: {topic[:55]}.")
+    seo_first_line = seo_hooks.get(niche["name"], f"PUBLISHED CASE: {topic[:55]}.")
 
     # FIX (v6 addition, per explicit request — "multiple hashtags for
     # more viewers"): this whole thing used to be a buried, unverified
@@ -4490,7 +4562,7 @@ those are added separately afterward."""
     # chapters section in its description on an AI outage. Now included,
     # same as the primary path.
     return (f"{title}\n\nEpisode {episode} of {niche['series']}.\n\n"
-            f"Subscribe for new investigations every week.\n\n"
+            f"Subscribe for a new published case every week.\n\n"
             f"{chapters_text or '0:00 Introduction'}"
             f"{cross_promo_txt}"
             f"{fiction_disclosure_txt}\n\n"
@@ -5670,11 +5742,15 @@ def generate_basic_shorts(video_path, audio_duration, title, niche_name, work_di
     # that entire system fails. Produces 4 clips (matching the real
     # daily count) from 4 different points in the finished video, since
     # that's the most honest thing available without network access.
+    # These hook lines were written for the retired true-crime format
+    # ("THE PART NO ONE TALKS ABOUT" implies something is being withheld,
+    # which is exactly what the clinical policy rules forbid this channel
+    # from implying about clinicians). Reworded for a case documentary.
     clips = [
-        ("standalone_1", 0.20, "YOU NEED TO SEE THIS"),
-        ("standalone_2", 0.40, "THIS ACTUALLY HAPPENED"),
-        ("standalone_3", 0.60, "WAIT UNTIL YOU HEAR THIS"),
-        ("standalone_4", 0.80, "THE PART NO ONE TALKS ABOUT"),
+        ("standalone_1", 0.20, "EVERY TEST CAME BACK NORMAL"),
+        ("standalone_2", 0.40, "THE DIAGNOSIS THAT DIDNT FIT"),
+        ("standalone_3", 0.60, "THEN ONE RESULT CHANGED IT"),
+        ("standalone_4", 0.80, "WHAT FINALLY EXPLAINED IT"),
     ]
 
     for name, start_frac, hook_text in clips:
@@ -5734,8 +5810,13 @@ def upload_basic_shorts(shorts, upload_fn, token, playlist_id, main_title, niche
         try:
             name = s.get("name", "clip")
             short_title = f"{main_title[:80]} #shorts"
-            short_desc  = (f"{main_title}\n\nFull investigation on the channel.\n"
-                            f"#shorts #darkpsychology #truecrime")
+            # #darkpsychology and #truecrime on a published-case-report
+            # channel. These are uploaded to YouTube verbatim, so this was
+            # real format leakage reaching the public listing -- not a
+            # comment, not a prompt, the actual description field.
+            short_desc  = (f"{main_title}\n\nFrom a published, peer-reviewed case "
+                           f"report. Full case on the channel.\n"
+                           f"#shorts #medicine #casereport")
             url, vid_id = upload_fn(s["path"], short_title, short_desc, [], token=token)
             if url:
                 urls.append(url)
@@ -6136,27 +6217,43 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # (open -> unease -> escalation -> reveal -> aftermath), so even
     # segments without a strong extracted keyword still get a
     # mood-appropriate fallback term.
+    # THIS LIST IS ON SCREEN, NOT JUST IN A SEARCH QUERY.
+    #
+    # It was written as stock-footage mood phrases for the retired true-crime
+    # format -- "shadow figure distant", "torn photograph evidence", "clock
+    # ticking tension", "abandoned building interior". Ch1 no longer fetches
+    # stock footage at all (every frame is a rendered clinical card), so the
+    # search half of its job is gone. But `base_kw` is still the LAST fallback
+    # for `display_text` further down, which is the text actually BURNED onto
+    # the card whenever a segment yields no concrete term and no nation. So a
+    # clinical case documentary could, and would, render a card reading
+    # "torn photograph evidence" over narration about a lab result.
+    #
+    # That is a direct cause of "the visuals are not properly corrected" and
+    # "there is too much noise around this". Replaced with the beats a case
+    # report actually moves through, so the worst-case on-screen fallback is
+    # still a phrase that belongs in this episode.
     theme_cycle = [
-        "dark discovery opening", "ordinary life before dark", "quiet unease",
-        "warning signs shadows", "growing dread", "isolation loneliness",
-        "dark escalation danger", "chase pursuit tension", "trapped confined space",
-        "surveillance watching", "documents evidence records", "empty corridor dread",
-        "closing in danger", "false safety calm", "before the truth",
-        "dark revelation truth exposed", "shocking discovery", "confrontation tension",
-        "aftermath consequences", "empty aftermath", "quiet devastation",
-        "haunting memory", "unresolved dread", "lingering shadow",
-        "final warning", "closing image", "haunting final image", "dark fade out",
-        "first signs missed", "silent house dread", "empty street night",
-        "locked door tension", "shadow figure distant", "rain window dark",
-        "phone call unanswered", "footsteps behind", "flickering light dread",
-        "abandoned building interior", "clock ticking tension", "search investigation",
-        "hidden room discovery", "torn photograph evidence", "handwritten note dread",
-        "empty chair absence", "broken window entry", "dark basement stairs",
-        "streetlight flicker night", "closed curtains hidden", "silent phone dread",
-        "waiting room tension", "night drive alone", "empty parking lot",
-        "locked drawer secret", "dust covered room", "old newspaper clipping",
-        "security camera static", "dark hallway mirror", "half open door",
-        "candle burning dark", "storm approaching dread", "final silence",
+        "presentation", "first symptoms", "the initial complaint",
+        "history taking", "the working diagnosis", "first line treatment",
+        "no improvement", "symptoms worsening", "referred onward",
+        "specialist review", "the differential", "ruling it out",
+        "bloodwork", "imaging", "the normal result",
+        "an unexpected finding", "repeat testing", "the second opinion",
+        "biopsy", "laboratory analysis", "the reported value",
+        "reviewing the timeline", "re-examining the history", "a missed detail",
+        "the turning point", "the confirming test", "the diagnosis",
+        "mechanism explained", "why it was missed", "the treatment change",
+        "response to treatment", "recovery", "follow up",
+        "what the case changed", "reported in the literature", "the published record",
+        "clinical course", "day by day", "the readings",
+        "on examination", "the referral letter", "the ward round",
+        "monitoring", "the chart", "the trend line",
+        "differential narrowed", "one finding left", "the explanation",
+        "case discussion", "what the authors concluded", "the evidence",
+        "the patient's account", "the clinician's note", "the record",
+        "reassessment", "the correction", "outcome",
+        "the lesson", "closing summary", "the citation",
     ]
     bucket_words = max(1, total // n_buckets)
     segment_dur  = audio_duration / n_buckets
@@ -7067,9 +7164,13 @@ def create_outro(series_name="Dark Hours", episode_num=1):
         "drawbox=x=0:y=0:w=iw:h=ih:color=red@0.3:t=4,"
         "drawtext=text='SUBSCRIBE TO " + series_name.upper() + "':fontsize=42:"
         "fontcolor=red:x=(w-text_w)/2:y=260:enable='between(t,0,8)',"
-        "drawtext=text='NEW INVESTIGATION EVERY WEEKDAY':fontsize=28:"
+        # Burned into every episode's pixels, so this text is as public as
+        # the title. "INVESTIGATION" is the retired true-crime framing; this
+        # channel publishes case reports, and its own description already
+        # says "a new published case every weekday".
+        "drawtext=text='A NEW PUBLISHED CASE EVERY WEEKDAY':fontsize=28:"
         "fontcolor=white:x=(w-text_w)/2:y=340:enable='between(t,0,8)',"
-        "drawtext=text='Investigation #" + str(episode_num) + "':fontsize=26:"
+        "drawtext=text='Case #" + str(episode_num) + "':fontsize=26:"
         "fontcolor=gray:x=40:y=H-60:enable='between(t,0,8)'",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "44100", path
     ], label="outro-card")
@@ -8013,10 +8114,10 @@ def post_creator_comment(token, video_id, niche_name, title, episode):
     comment = (
         f"👁️ {hook}\n\n"
         f"Drop your answer below — I read every reply.\n\n"
-        f"🔔 Subscribe for a new investigation every weekday\n"
+        f"🔔 Subscribe for a new published case every weekday\n"
         f"📋 Full case sources in the description\n"
         f"🔎 Evidence Room channel: youtube.com/@TheEvidenceRoom\n\n"
-        f"#{niche_name.replace('_','')} #documentary #investigation #episode{episode}"
+        f"#{niche_name.replace('_','')} #documentary #casereport #episode{episode}"
     )
     try:
         r = requests.post(
@@ -8097,7 +8198,7 @@ def post_short_creator_comment(token, video_id, niche_name, main_title):
     hook = short_hooks.get(niche_name, "What do you think happened?")
     comment = (
         f"💬 {hook}\n\n"
-        f"Full investigation ↑ above.\n"
+        f"Full case ↑ above.\n"
         f"🔔 New case every weekday → subscribe\n"
         f"🔬 Forensic crimes: youtube.com/@TheEvidenceRoom\n"
         f"🧠 Mass manipulation: youtube.com/@TheControlFiles\n\n"
@@ -8133,7 +8234,7 @@ def build_three_channel_cross_promo(niche_name, is_short=False):
     return (
         "\n\n🔬 Forensic crime investigations: youtube.com/@TheEvidenceRoom"
         "\n🧠 Mass manipulation & propaganda: youtube.com/@TheControlFiles"
-        "\n\n📺 New investigation every weekday on all three channels."
+        "\n\n📺 A new published case every weekday."
     )
 
 
@@ -8416,7 +8517,7 @@ def generate_ch1_short_script(niche_name, topic, short_num):
         f"Line 1 (HOOK 3sec): Specific number/date/fact. Mid-action. No intro.\n"
         f"Lines 2-4 (BUILD 20sec): Three short sentences max 10 words each.\n"
         f"Lines 5-6 (REVEAL 15sec): Most disturbing documented detail.\n"
-        f"Line 7 (CTA 5sec): Follow for the full investigation.\n\n"
+        f"Line 7 (CTA 5sec): Follow for the full case.\n\n"
         f"RULES: 120-130 words total. No markdown. Plain text only."
     )
     result = ai_generate(prompt, tokens=350)

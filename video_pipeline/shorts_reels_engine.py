@@ -164,14 +164,32 @@ CHANNEL_CONFIGS = {
         # rebuilt as genuinely cross-niche, broad-appeal categories
         # (real trend research below narrows these further to what's
         # actually current).
+        # OFF-CHANNEL BY CONSTRUCTION.
+        #
+        # These pools were "viral celebrity news story", "trending sports
+        # moment", "viral animal story", "shocking world record", "viral
+        # challenge explained" -- and TWO of this channel's four daily Shorts
+        # come from here. They were written when Ch1 was a true-crime channel
+        # and the brief was "2 Shorts on genuinely different, trending topics
+        # so they aren't a recap of today's video". That brief is still
+        # honoured below; what changed is that @NoKnownCauseTV now publishes
+        # published-case-report documentaries, and shipping a sports Short
+        # under that handle is both confusing to a subscriber and a direct
+        # contradictory signal to YouTube's topic classifier for the channel.
+        #
+        # Kept: genuinely different subjects from today's episode, chosen by
+        # real trend research, never a recap. Changed: the search space is
+        # this channel's own field, so the channel reads as one channel.
         "standalone_topics": {
             "standalone_1": [
-                "viral celebrity news story", "trending sports moment", "surprising tech breakthrough",
-                "viral life hack", "unexpected science discovery", "trending internet story"
+                "trending medical research finding", "surprising human body fact",
+                "new treatment breakthrough explained", "medical history turning point",
+                "unexpected physiology discovery", "trending public health story"
             ],
             "standalone_2": [
-                "shocking world record", "viral animal story", "trending travel discovery",
-                "surprising history fact", "unexpected food trend", "viral challenge explained"
+                "rare condition explained simply", "famous diagnostic mystery solved",
+                "how a common drug was discovered", "sleep science finding",
+                "surprising nutrition research", "medical myth corrected by evidence"
             ],
         },
         "default_niche": "hospital medical",
