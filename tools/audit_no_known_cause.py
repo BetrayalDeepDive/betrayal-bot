@@ -426,6 +426,7 @@ def audit_sourcing_robustness():
     _model_discovery_checks()
     _provider_rotation_checks()
     _audio_gate_checks()
+    _video_gate_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -720,6 +721,59 @@ def _provider_rotation_checks():
     check("D", "rotation changes the order without dropping any provider",
           covered and len(seen_first) == len(live),
           f"{len(seen_first)} distinct providers asked first across 8 attempts")
+
+
+def _video_gate_checks():
+    """
+    The video gate, scored the way THIS channel's video actually looks.
+
+    Run 30688297894 assembled the whole episode five times, ~48 minutes each,
+    scoring exactly 7.8/10 against an 8.5 gate, and was killed by the 6-hour
+    job limit on the sixth. Three defaults were wrong, all of them "written
+    for stock footage" on a channel that has none.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    # BOTH call sites -- the retry GATE and the human-review scorer. I fixed
+    # the review one first and the gate (the loop that actually burns the 48
+    # minutes) still had every default wrong; only pyflakes caught it.
+    check("E", "every video scorer call is corrected, not just one",
+          cp.count('content_type="animated"') >= 2
+          and cp.count("expected_width=1920, expected_height=1080") >= 2,
+          "the gate loop and the review scorer are separate calls")
+    check("E", "the video gate expects the resolution actually composed",
+          "expected_width=1920, expected_height=1080" in cp,
+          "the scorer defaulted to 1280x720 while the pipeline composes "
+          "1920x1080, so a CORRECT file failed the resolution check")
+    check("E", "the video gate knows this channel renders, not films",
+          'content_type="animated"' in cp,
+          "rendered clinical cards compress far smaller than filmed footage; "
+          "judged as stock footage a healthy 69MB file reads as corrupt")
+    check("E", "pacing uses the real cut count, not scene detection",
+          "known_cuts=" in cp and "_LAST_SEGMENT_COUNT" in cp,
+          "a cross-fade between two dark cards does not trip ffmpeg's "
+          "scene-change filter, so 61 real cuts measured as zero")
+    check("F", "a stuck video retry stops instead of burning the job limit",
+          "_VIDEO_STUCK" in cp,
+          "13 reassemblies at 48 minutes each is 10.4 hours — longer than "
+          "the 6-hour limit, so the budget could never actually be spent")
+
+    # The arithmetic, reproducing run 9's real file.
+    def ceiling(stream, size, pacing):
+        return 10 * 0.28 + stream * 0.22 + size * 0.18 + 10 * 0.22 + pacing * 0.10
+    check("E", "the video gate was genuinely unreachable before this",
+          ceiling(6.0, 6.0, 3.0) < 8.5,
+          f"as-scored ceiling was {ceiling(6.0, 6.0, 3.0):.1f}")
+    check("E", "a correct episode can now clear the video gate",
+          ceiling(10.0, 10.0, 10.0) >= 8.5,
+          f"corrected ceiling is {ceiling(10.0, 10.0, 10.0):.1f}")
+
+    # known_cuts must actually override the detector.
+    from quality_scoring import score_video_quality
+    import inspect
+    src = inspect.getsource(score_video_quality)
+    check("E", "known_cuts overrides the scene-change detector",
+          "if known_cuts is not None and known_cuts > 0:" in src)
 
 
 def _audio_gate_checks():

@@ -6117,6 +6117,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     from medical_segments import act_boundaries
     _act_cards = act_boundaries(n_buckets)
     log(f"  Structure: title card at 0, act cards at {sorted(_act_cards)}")
+    # The real number of hard cuts in the finished episode: one per segment.
+    # Published so the video scorer can be told rather than having to infer
+    # it from a scene-change filter that cannot see a cross-fade between two
+    # dark clinical cards (it read 61 real cuts as zero, see the video gate).
+    globals()["_LAST_SEGMENT_COUNT"] = n_buckets
     # The quota must be sized for the segments it will ACTUALLY be asked to
     # fill. Title and act cards `continue` before pick() is reached, so five
     # of the fifty-nine segments never reach the quota -- but its total was
@@ -10227,13 +10232,53 @@ def main():
         _video_attempt = 1
         while True:
             _v_dur = _get_media_duration_gate(video_path)
-            _video_gate_score, _ = _score_video_quality_gate(
-                video_path, _v_dur, audio_duration, content_type="stock_footage",
+            # THREE MISCALIBRATIONS, ALL "WRITTEN FOR STOCK FOOTAGE".
+            #
+            # Run 30688297894 assembled the whole video FIVE times, ~48
+            # minutes each, scoring exactly 7.8/10 every time, and was killed
+            # by the 6-hour job limit on the sixth. The video was fine:
+            #
+            #  1. expected_width/height default to 1280x720 and were never
+            #     overridden. The pipeline now composes 1920x1080 (my own
+            #     change), so the resolution check failed a CORRECT file.
+            #  2. content_type="stock_footage" on a channel that has none --
+            #     every frame is a rendered clinical card, and rendered
+            #     graphics compress far smaller than filmed footage, so a
+            #     healthy 69MB file read as "suspiciously small".
+            #  3. Pacing was inferred from ffmpeg's scene-change filter,
+            #     which cannot see a cross-fade between two dark, similarly
+            #     composed cards: 61 real cuts measured as zero.
+            _video_gate_score, _video_breakdown = _score_video_quality_gate(
+                video_path, _v_dur, audio_duration,
+                expected_width=1920, expected_height=1080,
+                content_type="animated",
+                known_cuts=globals().get("_LAST_SEGMENT_COUNT"),
                 fallback_flags=_last_video_fallback_flags)
             log(f"  Video attempt {_video_attempt}/{_VIDEO_MAX_ATTEMPTS}: {_video_gate_score}/10")
             notify_stage_score("Video", _video_attempt, _VIDEO_MAX_ATTEMPTS, _video_gate_score, _VIDEO_MIN_GATE)
             if _video_gate_score >= _VIDEO_MIN_GATE:
                 break
+            # A REASSEMBLY THAT CHANGES NOTHING COSTS 48 MINUTES.
+            #
+            # This is the most expensive loop in the pipeline and it was the
+            # only gate without a stuck-check. Run 30688297894 rebuilt the
+            # entire video five times -- 366 segment renders -- scoring
+            # exactly 7.8/10 every time, and was killed by the 6-hour job
+            # limit partway through the sixth. Thirteen attempts at this cost
+            # is 10.4 hours: the budget cannot physically be spent, so
+            # "13 attempts" was never a real policy here.
+            _vsig = round(_video_gate_score, 2)
+            _vstuck = globals().setdefault("_VIDEO_STUCK", [])
+            _vstuck.append(_vsig)
+            if len(_vstuck) >= 2 and len(set(_vstuck[-2:])) == 1:
+                tg(f"🛑 Ch1: video scored {_video_gate_score}/10 on two identical "
+                   f"reassemblies — rebuilding it again would take ~48 minutes to "
+                   f"produce the same number. Stopping instead of spending the rest "
+                   f"of the job's 6-hour limit.\n\nBreakdown: {_video_breakdown}")
+                log(f"  Video retry is stuck at {_video_gate_score}/10 — aborting "
+                    f"after {_video_attempt} attempts instead of {_VIDEO_MAX_ATTEMPTS}. "
+                    f"Breakdown: {_video_breakdown}")
+                sys.exit(0)
             if _video_attempt >= _VIDEO_MAX_ATTEMPTS:
                 tg(f"🛑 Ch1: video never cleared {_VIDEO_MIN_GATE}/10 after {_VIDEO_MAX_ATTEMPTS} "
                    f"attempts (last: {_video_gate_score}/10) — skipping today's episode. Per your "
@@ -10308,8 +10353,33 @@ def main():
                     _audio_score, _audio_breakdown = None, None
                 try:
                     _real_video_duration = get_media_duration(video_path)
+                    # THREE MISCALIBRATIONS, ALL "BUILT FOR STOCK FOOTAGE".
+                    #
+                    # Run 30688297894 assembled the whole video FIVE times,
+                    # ~48 minutes each, scoring exactly 7.8/10 every time, and
+                    # was killed by the 6-hour job limit on the sixth. The
+                    # video was fine. Three defaults were not:
+                    #
+                    #  1. expected_width/height defaulted to 1280x720 and were
+                    #     never overridden. The pipeline now composes at
+                    #     1920x1080 (my own change), so the resolution check
+                    #     read "wrong size" on a CORRECT file. My regression.
+                    #  2. content_type="stock_footage" on a channel that has
+                    #     no stock footage at all -- every frame is a rendered
+                    #     clinical card. Rendered graphics compress far
+                    #     smaller than filmed footage, so a healthy 69MB file
+                    #     was judged "suspiciously small" against a range
+                    #     built for real video.
+                    #  3. Pacing was inferred from ffmpeg's scene-change
+                    #     filter, which cannot see a cross-fade between two
+                    #     dark, similarly-composed cards -- 61 real cuts read
+                    #     as zero. The assembler knows the true count, so it
+                    #     passes it.
                     _video_score, _video_breakdown = score_video_quality(
-                        video_path, _real_video_duration, audio_duration, content_type="stock_footage",
+                        video_path, _real_video_duration, audio_duration,
+                        expected_width=1920, expected_height=1080,
+                        content_type="animated",
+                        known_cuts=globals().get("_LAST_SEGMENT_COUNT"),
                         fallback_flags=_last_video_fallback_flags)
                 except Exception as e:
                     log(f"  Video scoring (non-fatal): {e}")

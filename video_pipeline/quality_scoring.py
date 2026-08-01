@@ -198,7 +198,19 @@ def _detect_cut_frequency(path, duration, scene_threshold=0.28):
 
 def score_video_quality(video_path, video_duration, audio_duration,
                          expected_width=1280, expected_height=720,
-                         fallback_flags=None, content_type="stock_footage"):
+                         fallback_flags=None, content_type="stock_footage",
+                         known_cuts=None):
+    # known_cuts — WHEN THE CALLER ALREADY KNOWS HOW MANY CUTS IT MADE.
+    #
+    # The pacing check infers cuts from ffmpeg's scene-change filter, which
+    # is reliable on real footage and blind to this channel's material: a
+    # clinical card sequence cross-fades between two dark, similarly-composed
+    # graphics, and that transition does not cross the scene-change
+    # threshold. A correctly paced episode with 61 real cuts therefore reads
+    # as ZERO cuts and loses most of the pacing mark for editing that is
+    # actually right. A pipeline that assembles one clip per segment already
+    # knows the true number; measuring is only better than knowing when you
+    # don't already know.
     """
     Real 0-10 video quality score from four independently-checkable signals:
 
@@ -300,7 +312,13 @@ def score_video_quality(video_path, video_duration, audio_duration,
     # real footage but less battle-tested on flat/vector animated content
     # in this codebase — a real signal worth surfacing and factoring in,
     # not yet trusted enough to swing the gate on its own.
-    num_cuts, longest_gap = _detect_cut_frequency(video_path, video_duration)
+    if known_cuts is not None and known_cuts > 0:
+        num_cuts = int(known_cuts)
+        longest_gap = (video_duration / num_cuts) if num_cuts else video_duration
+        _cut_source = "assembled"
+    else:
+        num_cuts, longest_gap = _detect_cut_frequency(video_path, video_duration)
+        _cut_source = "scene-detect"
     cuts_per_min = (num_cuts / (video_duration / 60)) if video_duration > 0 else 0.0
     pacing_score = 10.0
     if longest_gap > 30:
@@ -313,7 +331,8 @@ def score_video_quality(video_path, video_duration, audio_duration,
         pacing_score -= 1.0
     pacing_score = max(0.0, pacing_score)
     breakdown["pacing"] = {"num_cuts": num_cuts, "cuts_per_min": round(cuts_per_min, 1),
-                            "longest_gap_s": round(longest_gap, 1), "score": pacing_score}
+                            "longest_gap_s": round(longest_gap, 1), "score": pacing_score,
+                            "source": _cut_source}
 
     final = (duration_score * 0.28 + stream_score * 0.22 +
              size_score * 0.18 + completeness_score * 0.22 +
