@@ -428,6 +428,7 @@ def audit_sourcing_robustness():
     _audio_gate_checks()
     _video_gate_checks()
     _job_clock_checks()
+    _short_answer_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -775,6 +776,73 @@ def _video_gate_checks():
     src = inspect.getsource(score_video_quality)
     check("E", "known_cuts overrides the scene-change detector",
           "if known_cuts is not None and known_cuts > 0:" in src)
+
+
+def _short_answer_checks():
+    """
+    Run 30703316566 cleared script (8.6), title (9.3), audio (9.8) and video
+    (9.3) -- then spent 57 minutes failing the thumbnail-text gate 13 times
+    with "no AI provider available". Every provider was answering correctly.
+
+    The thumbnail prompt asks for a line of AT MOST 22 characters and every
+    provider entrypoint hardcoded `len(response) > 100` as success, so a
+    perfect 19-character answer was discarded, the provider was marked dead
+    for the run, and the chain walked itself to exhaustion. Four calls in
+    this pipeline were structurally unable to succeed on any provider, ever.
+    """
+    import re as _re
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+
+    check("D", "no provider hardcodes a length floor any more",
+          "len(t.strip()) > 100" not in cp and "len(text.strip()) > 100" not in cp,
+          "a 22-character answer cannot clear a 100-character bar")
+    check("D", "every provider entrypoint accepts a caller's floor",
+          cp.count("min_chars=100):") >= 10 and "fn(prompt, tokens, min_chars)" in cp,
+          "the parameter is useless unless ai_generate passes it down")
+
+    # The four calls whose prompts cap the answer below 100 characters.
+    for label, needle in (
+            ("thumbnail text (22-char cap)", "tokens=15, min_chars=3"),
+            ("thumbnail number-noun phrase", "tokens=60, min_chars=3"),
+            ("two hashtags", "tokens=30, min_chars=3"),
+            ("Shorts title (<55 chars)", "tokens=80, min_chars=12")):
+        check("D", f"short-answer call is reachable: {label}", needle in cp,
+              "its prompt caps the answer below the 100-char default floor")
+
+    # Titles: the enumeration is not part of the title.
+    check("D", "numbered-list markers are stripped from titles",
+          "def strip_list_marker" in cp and "strip_list_marker(l)" in cp,
+          'run 9 rendered "1. Every Test Was Normal Until Day 28..." — the '
+          '"1. " survived every filter and reached the thumbnail')
+    _strip = _re.compile(r'^\s*(?:\d{1,2}[\.\)]|[-*•–—])\s+')
+    check("D", "the marker pattern matches what models actually emit",
+          all(_strip.sub("", s).startswith("Every")
+              for s in ("1. Every Test Was Normal", "2) Every Test Was Normal",
+                        "- Every Test Was Normal", "• Every Test Was Normal"))
+          and _strip.sub("", "2026 Was The Year") == "2026 Was The Year",
+          "a leading year must NOT be mistaken for a list marker")
+
+    # Discovery must ask what a model does, not only what it costs.
+    import job_clock  # noqa: F401  — keeps video_pipeline on the path
+    ns = {}
+    _src = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    exec(_src[_src.index("_NON_TEXT_MODEL_HINTS = ("):
+              _src.index("def _discover_models(")], ns)
+    is_text = ns["_is_text_model"]
+    check("D", "model discovery rejects music/speech/image models",
+          not is_text({"id": "google/lyria-3-pro-preview"}, "google/lyria-3-pro-preview")
+          and not is_text({}, "openai/whisper-large-v3")
+          and not is_text({"architecture": {"output_modalities": ["audio"]}}, "x/y"),
+          "run 9 sent script prompts to two Google MUSIC generators, which "
+          "answered 402 and killed OpenRouter for the rest of the run")
+    check("D", "model discovery still accepts real chat models",
+          is_text({}, "meta-llama/llama-3.3-70b-instruct")
+          and is_text({"architecture": {"modality": "text+image->text"}}, "x/y"),
+          "the filter must not starve the chain it exists to protect")
+    check("D", "free-tier filtering looks past per-token pricing",
+          '"request", "image"' in cp,
+          "media models report 0/0 per token while charging per request — "
+          "which is exactly how the lyria pair read as free")
 
 
 def _job_clock_checks():

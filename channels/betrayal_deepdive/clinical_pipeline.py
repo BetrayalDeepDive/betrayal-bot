@@ -1541,6 +1541,35 @@ def ckpt_clear():
 _MODEL_CACHE = {}
 
 
+# Families that appear in OpenAI-compatible /models catalogues but cannot
+# answer a chat prompt: music, speech, image, video, embedding and safety
+# models. Matched on the id because not every catalogue reports modality.
+_NON_TEXT_MODEL_HINTS = (
+    "lyria", "musicgen", "audiogen", "bark", "whisper", "tts", "speech",
+    "voice", "embed", "rerank", "moderation", "guard", "clip-preview",
+    "stable-diffusion", "sdxl", "flux", "imagen", "dall-e", "veo", "sora",
+    "kling", "runway", "upscal", "vision-encoder",
+)
+
+
+def _is_text_model(d, mid):
+    """
+    True only if this catalogue row can plausibly return text for a prompt.
+
+    Prefers the provider's own modality declaration; falls back to the id
+    when the catalogue does not report one.
+    """
+    arch = d.get("architecture") or {}
+    outs = arch.get("output_modalities")
+    if isinstance(outs, (list, tuple)) and outs:
+        return "text" in [str(o).lower() for o in outs]
+    modality = str(arch.get("modality") or d.get("modality") or "").lower()
+    if "->" in modality:
+        return modality.split("->")[-1].strip().startswith("text")
+    low = str(mid).lower()
+    return not any(h in low for h in _NON_TEXT_MODEL_HINTS)
+
+
 def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
     """
     Ask a provider what it can actually serve today.
@@ -1564,12 +1593,33 @@ def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
                 mid = d.get("id") or d.get("name") or d.get("model")
                 if not mid:
                     continue
+                # A CATALOGUE IS NOT A LIST OF CHAT MODELS.
+                #
+                # Run 30703316566 sent script prompts to lyria-3-pro-preview
+                # and lyria-3-clip-preview -- Google's MUSIC generators. They
+                # answered 402 "Insufficient credits", the provider was marked
+                # dead for the rest of the run, and two of OpenRouter's six
+                # discovery slots were spent on models that cannot emit text
+                # at all. Discovery asked what was free; it never asked what
+                # the model does.
+                if not _is_text_model(d, mid):
+                    continue
                 if free_only:
                     # A model is free when the provider says both its prompt
                     # and completion prices are zero. This is the live answer
                     # to the question the ":free" suffix used to encode.
+                    #
+                    # Zero per-TOKEN is not zero: media models often price by
+                    # request, image, or audio second while reporting 0/0 for
+                    # tokens, which is exactly how the lyria pair read as
+                    # free. Any non-zero price on ANY axis disqualifies.
                     pr = d.get("pricing") or {}
                     try:
+                        if any(float(pr.get(k, 0) or 0) != 0.0 for k in
+                               ("prompt", "completion", "request", "image",
+                                "audio", "video", "internal_reasoning",
+                                "web_search")):
+                            continue
                         if float(pr.get("prompt", 1) or 1) != 0.0 or \
                            float(pr.get("completion", 1) or 1) != 0.0:
                             continue
@@ -1613,7 +1663,7 @@ CEREBRAS_MODELS = [
 ]  # NOTE: this constant isn't actually read by call_cerebras() below (it has its own
    # inline _models list, now fixed to match). Kept in sync here for anyone reading top-down.
 
-def call_cerebras(prompt, tokens=8000):
+def call_cerebras(prompt, tokens=8000, min_chars=100):
     """
     Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
     URL + models hardcoded — never relies on module scope.
@@ -1656,7 +1706,7 @@ def call_cerebras(prompt, tokens=8000):
                 timeout=120)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK Cerebras ({model})")
                     return t
             elif r.status_code == 401:
@@ -1675,7 +1725,7 @@ def call_cerebras(prompt, tokens=8000):
             break
     return None
 
-def call_groq(prompt, tokens=8000):
+def call_groq(prompt, tokens=8000, min_chars=100):
     if not GROQ_KEY: return None
     # FIX (direct user report, July 24 2026 — real provider audit):
     # confirmed llama-3.3-70b-versatile and llama-3.1-8b-instant were
@@ -1701,14 +1751,14 @@ def call_groq(prompt, tokens=8000):
                       "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK Groq ({model})"); return t
                 # FIX (found on live-run investigation, July 24 2026): a
                 # 200 with a too-short response fell through every
                 # branch below with ZERO log line — genuinely
                 # indistinguishable from "never tried this model at
                 # all" when reading the log. Real gap, now visible.
-                log(f"Groq {model}: 200 but response too short ({len(t.strip()) if t else 0} chars) — trying next")
+                log(f"Groq {model}: 200 but response too short ({len(t.strip()) if t else 0} < {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
                 log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
             else:
@@ -1717,7 +1767,7 @@ def call_groq(prompt, tokens=8000):
             log(f"Groq {model}: {e}")
     return None
 
-def call_gemini(prompt, tokens=8000):
+def call_gemini(prompt, tokens=8000, min_chars=100):
     """
     Tries primary GEMINI_API_KEY first.
     If 429 quota exhausted, tries backup GEMINI_API_KEY_2.
@@ -1744,7 +1794,7 @@ def call_gemini(prompt, tokens=8000):
                     c = r.json().get("candidates", [])
                     if c:
                         t = c[0]["content"]["parts"][0]["text"]
-                        if t and len(t.strip()) > 100:
+                        if t and len(t.strip()) >= min_chars:
                             log(f"  OK Gemini ({model})")
                             return t
                 elif r.status_code == 429:
@@ -1784,7 +1834,7 @@ OR_FREE_MODELS = [
     "nousresearch/hermes-3-llama-3.1-405b:free",  # last resort
 ]
 
-def call_openrouter(prompt, tokens=8000):
+def call_openrouter(prompt, tokens=8000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
         return None
@@ -1814,7 +1864,7 @@ def call_openrouter(prompt, tokens=8000):
                       "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK OpenRouter ({model.split('/')[-1]})")
                     return t
             else:
@@ -1830,7 +1880,7 @@ def call_openrouter(prompt, tokens=8000):
 # ================================================================
 COHERE_URL = "https://api.cohere.com/v2/chat"
 
-def call_cohere(prompt, tokens=8000):
+def call_cohere(prompt, tokens=8000, min_chars=100):
     """Cohere Command free tier — 20 RPM, excellent for structured long-form scripts."""
     if not COHERE_KEY:
         log("  Cohere: COHERE_API_KEY not set — skipping")
@@ -1854,9 +1904,11 @@ def call_cohere(prompt, tokens=8000):
             if r.status_code == 200:
                 t = r.json().get("message", {}).get("content", [{}])
                 text = t[0].get("text", "") if t else ""
-                if text and len(text.strip()) > 100:
+                if text and len(text.strip()) >= min_chars:
                     log(f"OK Cohere ({_cohere_model})")
                     return text
+                log(f"  Cohere {_cohere_model}: 200 but response too short "
+                    f"({len(text.strip()) if text else 0} < {min_chars} chars) — trying next")
                 continue
             else:
                 log(f"  Cohere {_cohere_model} {r.status_code}: {r.text[:150]}")
@@ -1876,7 +1928,7 @@ MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 # ================================================================
 GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions"
 
-def call_github_models(prompt, tokens=8000):
+def call_github_models(prompt, tokens=8000, min_chars=100):
     """
     Free tier, no new account/key needed on GitHub Actions — the
     workflow's own GITHUB_TOKEN works once granted "models: read"
@@ -1902,10 +1954,10 @@ def call_github_models(prompt, tokens=8000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK GitHub Models ({model})")
                     return t
-                log(f"GitHub Models {model}: 200 but response too short — trying next")
+                log(f"GitHub Models {model}: 200 but response too short (< {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
                 log(f"GitHub Models {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
@@ -1921,7 +1973,7 @@ def call_github_models(prompt, tokens=8000):
     return None
 
 
-def call_cloudflare(prompt, tokens=8000):
+def call_cloudflare(prompt, tokens=8000, min_chars=100):
     """
     Cloudflare Workers AI — 10,000 free Neurons/day, no credit card
     required to start (Cloudflare's own docs: a card is only needed to
@@ -1947,10 +1999,10 @@ def call_cloudflare(prompt, tokens=8000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK Cloudflare ({model})")
                     return t
-                log(f"Cloudflare {model}: 200 but response too short — trying next")
+                log(f"Cloudflare {model}: 200 but response too short (< {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
                 log(f"Cloudflare {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
@@ -1962,7 +2014,7 @@ def call_cloudflare(prompt, tokens=8000):
     return None
 
 
-def call_nvidia_nim(prompt, tokens=8000):
+def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
     """
     NVIDIA build.nvidia.com (NIM API Catalog) — confirmed no credit card
     required for the free developer tier, real OpenAI-compatible
@@ -1991,10 +2043,10 @@ def call_nvidia_nim(prompt, tokens=8000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK NVIDIA NIM ({model})")
                     return t
-                log(f"NVIDIA NIM {model}: 200 but response too short — trying next")
+                log(f"NVIDIA NIM {model}: 200 but response too short (< {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
                 log(f"NVIDIA NIM {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
@@ -2006,7 +2058,7 @@ def call_nvidia_nim(prompt, tokens=8000):
     return None
 
 
-def call_sambanova(prompt, tokens=8000):
+def call_sambanova(prompt, tokens=8000, min_chars=100):
     """
     SambaNova Cloud — free tier, no daily quota wall, llama-3.3-70b.
     Sign up free at https://cloud.sambanova.ai — takes 2 minutes.
@@ -2035,7 +2087,7 @@ def call_sambanova(prompt, tokens=8000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK SambaNova ({model.split('-')[2]})")
                     return t
             elif r.status_code == 401:
@@ -2050,7 +2102,7 @@ def call_sambanova(prompt, tokens=8000):
             log(f"  SambaNova: {e}")
     return None
 
-def call_mistral(prompt, tokens=8000):
+def call_mistral(prompt, tokens=8000, min_chars=100):
     """Mistral AI free tier — reliable European servers, strong at structured writing."""
     if not MISTRAL_KEY:
         log("  Mistral: MISTRAL_API_KEY not set — skipping")
@@ -2075,7 +2127,7 @@ def call_mistral(prompt, tokens=8000):
             timeout=120)
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            if t and len(t.strip()) > 100:
+            if t and len(t.strip()) >= min_chars:
                 log("OK Mistral")
                 return t
         else:
@@ -2128,8 +2180,24 @@ def _strip_reasoning(text):
     text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
     return text.strip()
 
-def ai_generate(prompt, tokens=8000):
+def ai_generate(prompt, tokens=8000, min_chars=100):
     """
+    A CORRECT ANSWER THAT IS SHORT IS STILL A CORRECT ANSWER.
+
+    Run 30703316566 cleared script (8.6), title (9.3), audio (9.8) and video
+    (9.3) and then spent 57 minutes failing the thumbnail-text gate 13 times
+    with "no AI provider available". Every provider was in fact answering.
+    The thumbnail prompt asks for a punchy line of AT MOST 22 characters, and
+    every provider entrypoint hardcoded `len(response) > 100` as its
+    definition of success -- so a perfect 19-character answer was thrown away
+    as a failure, the provider was marked dead for the rest of the run, and
+    the chain walked itself to exhaustion asking the same impossible question.
+
+    Same shape as the gate defects on this channel: an acceptance threshold
+    set above the maximum score the correct answer can achieve. The 100-char
+    floor exists to catch genuinely truncated long-form output, which is real
+    -- so it stays the default, and short-answer callers say what they need.
+
     Provider order: Cerebras -> GitHub Models -> Cloudflare -> NVIDIA NIM ->
     SambaNova -> Gemini -> Groq -> OpenRouter -> Cohere -> Mistral
     FIX (July 14 2026 audit): providers that fail once are skipped for the
@@ -2162,7 +2230,7 @@ def ai_generate(prompt, tokens=8000):
         _off = _AI_VARIANT[0] % len(live)
         live = live[_off:] + live[:_off]
     for i, (name, fn) in enumerate(live):
-        r = fn(prompt, tokens)
+        r = fn(prompt, tokens, min_chars)
         if r:
             return _strip_reasoning(r)
         _DEAD_PROVIDERS_THIS_RUN.add(name)
@@ -4138,6 +4206,25 @@ compelling part in the first 40 characters. No quotes.
 Return ONLY 5 titles, one per line."""
     raw  = ai_generate(prompt, tokens=400)
 
+    def strip_list_marker(t):
+        """
+        "Return ONLY 5 titles, one per line" reliably produces a NUMBERED
+        list, and the enumeration is not part of any title.
+
+        Run 30703316566 scored, approved and rendered
+        "1. Every Test Was Normal Until Day 28 One Scan Changed It All" --
+        the leading "1. " survived every filter, went onto the thumbnail, and
+        would have gone to YouTube. The old filter rejected "-" and bullet
+        prefixes but nothing recognised a digit-and-dot, which is the form
+        models actually use when asked for N of something.
+        Strip the marker rather than discard the line: what follows it is a
+        perfectly good title. Wrapping quotes go too, for the same reason.
+        """
+        t = re.sub(r'^\s*(?:\d{1,2}[\.\)]|[-*•–—])\s+', '', t).strip()
+        if len(t) > 1 and t[0] in '"“‘\'' and t[-1] in '"”’\'':
+            t = t[1:-1].strip()
+        return t
+
     def looks_like_title(t):
         # FIX: the AI sometimes returns a formatted fact list instead of a
         # title (e.g. "* *Numbers:* 3 years, 1095 days, 4 walls, 1 child,
@@ -4154,8 +4241,10 @@ Return ONLY 5 titles, one per line."""
         return True
 
     if raw:
-        lines = [l.strip() for l in raw.strip().splitlines()
-                 if 30 <= len(l.strip()) <= 80 and looks_like_title(l.strip())]
+        # Strip the list marker BEFORE measuring: "1. " counted toward the
+        # 80-character ceiling and could push a good title out of range.
+        _cands = [strip_list_marker(l) for l in raw.strip().splitlines()]
+        lines = [l for l in _cands if 30 <= len(l) <= 80 and looks_like_title(l)]
         if lines:
             # FIX: this used to score candidates with a simple additive
             # word-count/hook-word/number-bonus check. There was already a
@@ -4257,7 +4346,7 @@ NARRATION EXCERPT:
 {sample}
 
 Return ONLY the 2-4 word phrase in ALL CAPS. Nothing else."""
-    raw = ai_generate(prompt, tokens=60)
+    raw = ai_generate(prompt, tokens=60, min_chars=3)  # a 2-4 word phrase
     if raw:
         phrase = re.sub(r'[^A-Z0-9 ]', '', raw.strip().upper()).strip()
         if 2 <= len(phrase.split()) <= 4:
@@ -4414,7 +4503,7 @@ def generate_episode_hashtags(niche, topic):
         tag_prompt = (f"Give exactly 2 real YouTube hashtags (short, no spaces, CamelCase, "
                       f"starting with #) that specifically match this documentary topic: "
                       f"{topic[:200]}. Return ONLY the 2 hashtags separated by a space, nothing else.")
-        raw_tags = ai_generate(tag_prompt, tokens=30) or ""
+        raw_tags = ai_generate(tag_prompt, tokens=30, min_chars=3) or ""  # two hashtags
         topic_tags = [t for t in raw_tags.split() if t.startswith("#") and len(t) < 30][:2]
     except Exception:
         topic_tags = []
@@ -7940,7 +8029,7 @@ def generate_dedicated_short_title(main_title, short_type, niche_name):
     }
     type_key = "standalone_1" if "1" in short_type or "teaser" in short_type.lower() else "standalone_2"
     try:
-        result = ai_generate(prompts[type_key], tokens=80)
+        result = ai_generate(prompts[type_key], tokens=80, min_chars=12)  # <55 char title
         if result:
             title = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
             if 15 < len(title) < 65:
@@ -9169,7 +9258,11 @@ def generate_thumbnail_text(niche, topic, title=""):
     candidates = []
     for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
         try:
-            result = ai_generate(prompt, tokens=15)
+            # 22-char cap in the prompt; the 100-char default floor made
+            # every correct answer unacceptable, so all 13 attempts burned
+            # the provider chain to exhaustion. The scorer below is the
+            # real check on this text.
+            result = ai_generate(prompt, tokens=15, min_chars=3)
             if result:
                 # FIX (direct user report, July 24 2026): this used to strip
                 # EVERY non-letter character including "?", which made a
