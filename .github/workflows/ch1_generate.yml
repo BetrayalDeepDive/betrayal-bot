@@ -150,6 +150,18 @@ jobs:
       # half of itself outside the frame, and a fourteen-event timeline
       # stopped at day six with the diagnosis off screen. All three logged as
       # success. ~70s, no network, no API spend.
+      # Six defect CLASSES have each cost a full run to discover: an
+      # acceptance threshold above the best score a correct answer can reach,
+      # a retry with no source of variation, an import that never resolved, an
+      # exit that discarded finished work, format leakage into viewer-facing
+      # text, and a rewrite reporting success without checking it changed
+      # anything. Finding instance number seven by burning four hours of a
+      # live job is the waste this step exists to end. It fails only on leads
+      # that are NOT in the triaged baseline, so it stays quiet until
+      # something genuinely new appears.
+      - name: Preflight — known defect classes
+        run: python tools/defect_classes.py --check
+
       - name: Preflight — fuzz the case shape
         run: |
           python tools/fuzz_case_shapes.py --render-dir "${RUNNER_TEMP}/fuzz" || {

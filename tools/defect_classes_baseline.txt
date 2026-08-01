@@ -1,0 +1,18 @@
+# Triaged, accepted leads. Anything NOT here fails the preflight.
+# Regenerate deliberately: python tools/defect_classes.py --update-baseline
+1-unreachable-acceptance|channels/archive/archive_pipeline.py|ai_fn(...) prompt caps output near N chars
+1-unreachable-acceptance|channels/betrayal_deepdive/clinical_pipeline.py|ai_fn(...) prompt caps output near N chars
+1-unreachable-acceptance|channels/collapse_index/collapse_index_pipeline.py|ai_fn(...) prompt caps output near N chars
+1-unreachable-acceptance|channels/collapse_index/collapse_index_pipeline.py|ai_generate(..., tokens=N) with no min_chars
+1-unreachable-acceptance|channels/control_files/control_files_pipeline.py|ai_fn(...) prompt caps output near N chars
+1-unreachable-acceptance|channels/evidence_room/evidence_room_pipeline.py|ai_fn(...) prompt caps output near N chars
+2-retry-without-variation|channels/archive/archive_pipeline.py|retry loop with no visible source of variation
+2-retry-without-variation|channels/collapse_index/collapse_index_pipeline.py|retry loop with no visible source of variation
+2-retry-without-variation|channels/control_files/control_files_pipeline.py|retry loop with no visible source of variation
+2-retry-without-variation|channels/evidence_room/evidence_room_pipeline.py|retry loop with no visible source of variation
+2-retry-without-variation|video_pipeline/human_review_gate.py|retry loop with no visible source of variation
+3-phantom-dependency|channels/betrayal_deepdive/clinical_pipeline.py|imports 'revenue_engine', which does not resolve
+3-phantom-dependency|channels/collapse_index/collapse_index_pipeline.py|imports 'revenue_engine', which does not resolve
+3-phantom-dependency|video_pipeline/upwork_assistant.py|imports 'service_catalog', which does not resolve
+6-success-without-verification|video_pipeline/authenticity_guard.py|check_editorial_fingerprint() never compares its output to its input
+6-success-without-verification|video_pipeline/human_review_gate.py|regenerate_description_until_good() never compares its output to its input

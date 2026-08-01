@@ -126,7 +126,7 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
                 f"Topic: {topic[:80]}\n"
                 f"Generate 2-3 word thumbnail in NUMBER+NOUN format.\n"
                 f"Examples: '$2.4M GONE', '47 REPORTS', '14 VICTIMS', '4380 DAYS'\n"
-                f"Return ONLY the phrase in ALL CAPS.", tokens=20)
+                f"Return ONLY the phrase in ALL CAPS.", tokens=20, min_chars=3)
             if r and re.search(r'\d', r):
                 return re.sub(r'[^A-Z0-9$.,% ]','', r.upper()).strip()[:22]
         except:
@@ -170,7 +170,7 @@ def build_authority_title(topic, niche_name, ai_fn=None):
                 f"'{credential} EXPLAINS: [specific claim]' or "
                 f"'{credential} REVEALS: [specific claim]'.\n"
                 f"The claim must be specific (real numbers/timeframes), not vague. "
-                f"40-65 characters total. Return ONLY the title.", tokens=60)
+                f"40-65 characters total. Return ONLY the title.", tokens=60, min_chars=6)
             if r and credential.split()[0] in r.upper() and len(r.strip()) > 20:
                 return r.strip()[:70]
         except Exception:
@@ -200,7 +200,7 @@ def enforce_before_after_format(thumb_text, topic, niche_name, ai_fn=None):
                 f"transformation format proven to drive high CTR in finance content.\n"
                 f"Examples: '540 TO 720', '$1M TO $5M', '$0 TO $12K SAVED', '30% TO 8% DEBT'\n"
                 f"Must show a genuine FROM-TO change with two real numbers, under 24 characters.\n"
-                f"Return ONLY the phrase in ALL CAPS.", tokens=25)
+                f"Return ONLY the phrase in ALL CAPS.", tokens=25, min_chars=3)
             if r and len(re.findall(r'\d', r)) >= 2:
                 return re.sub(r'[^A-Z0-9$.,%→ ]','', r.upper()).strip()[:24]
         except Exception:
@@ -1157,7 +1157,7 @@ def _strip_reasoning(text):
     text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
     return text.strip()
 
-def call_cerebras(prompt, tokens=8000):
+def call_cerebras(prompt, tokens=8000, min_chars=100):
     """
     Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
     URL + models hardcoded — never relies on module scope.
@@ -1180,7 +1180,7 @@ def call_cerebras(prompt, tokens=8000):
                 timeout=120)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK Cerebras ({model})")
                     return t
             elif r.status_code == 401:
@@ -1199,7 +1199,7 @@ def call_cerebras(prompt, tokens=8000):
             break
     return None
 
-def call_groq(prompt, tokens=8000):
+def call_groq(prompt, tokens=8000, min_chars=100):
     if not GROQ_KEY: return None
     # Groq announced deprecation of llama-3.3-70b-versatile on June 17 2026.
     # Try the recommended replacements first, keep the old name as last-resort.
@@ -1212,7 +1212,7 @@ def call_groq(prompt, tokens=8000):
                       "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-                if t and len(t.strip()) > 100: log(f"OK Groq ({model})"); return t
+                if t and len(t.strip()) >= min_chars: log(f"OK Groq ({model})"); return t
             elif r.status_code in (400, 404):
                 log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
             else:
@@ -1221,7 +1221,7 @@ def call_groq(prompt, tokens=8000):
             log(f"Groq {model}: {e}")
     return None
 
-def call_gemini(prompt, tokens=8000):
+def call_gemini(prompt, tokens=8000, min_chars=100):
     """
     Tries primary GEMINI_API_KEY first.
     If 429 quota exhausted, tries backup GEMINI_API_KEY_2.
@@ -1248,7 +1248,7 @@ def call_gemini(prompt, tokens=8000):
                     c = r.json().get("candidates", [])
                     if c:
                         t = c[0]["content"]["parts"][0]["text"]
-                        if t and len(t.strip()) > 100:
+                        if t and len(t.strip()) >= min_chars:
                             log(f"  OK Gemini ({model})")
                             return t
                 elif r.status_code == 429:
@@ -1288,7 +1288,7 @@ OR_FREE_MODELS = [
     "nousresearch/hermes-3-llama-3.1-405b:free",  # last resort
 ]
 
-def call_openrouter(prompt, tokens=8000):
+def call_openrouter(prompt, tokens=8000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
         return None
@@ -1303,7 +1303,7 @@ def call_openrouter(prompt, tokens=8000):
                       "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"OK OpenRouter ({model.split('/')[-1]})")
                     return t
             else:
@@ -1319,7 +1319,7 @@ def call_openrouter(prompt, tokens=8000):
 # ================================================================
 COHERE_URL = "https://api.cohere.com/v2/chat"
 
-def call_cohere(prompt, tokens=8000):
+def call_cohere(prompt, tokens=8000, min_chars=100):
     """Cohere Command free tier — 20 RPM, excellent for structured long-form scripts."""
     if not COHERE_KEY:
         log("  Cohere: COHERE_API_KEY not set — skipping")
@@ -1342,7 +1342,7 @@ def call_cohere(prompt, tokens=8000):
             if r.status_code == 200:
                 t = r.json().get("message", {}).get("content", [{}])
                 text = t[0].get("text", "") if t else ""
-                if text and len(text.strip()) > 100:
+                if text and len(text.strip()) >= min_chars:
                     log(f"OK Cohere ({_cohere_model})")
                     return text
                 continue
@@ -1359,7 +1359,7 @@ def call_cohere(prompt, tokens=8000):
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 
 
-def call_sambanova(prompt, tokens=8000):
+def call_sambanova(prompt, tokens=8000, min_chars=100):
     """
     SambaNova Cloud — free tier, no daily quota wall, llama-3.3-70b.
     Sign up free at https://cloud.sambanova.ai — takes 2 minutes.
@@ -1381,7 +1381,7 @@ def call_sambanova(prompt, tokens=8000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK SambaNova ({model.split('-')[2]})")
                     return t
             elif r.status_code == 401:
@@ -1396,7 +1396,7 @@ def call_sambanova(prompt, tokens=8000):
             log(f"  SambaNova: {e}")
     return None
 
-def call_mistral(prompt, tokens=8000):
+def call_mistral(prompt, tokens=8000, min_chars=100):
     """Mistral AI free tier — reliable European servers, strong at structured writing."""
     if not MISTRAL_KEY:
         log("  Mistral: MISTRAL_API_KEY not set — skipping")
@@ -1412,7 +1412,7 @@ def call_mistral(prompt, tokens=8000):
             timeout=120)
         if r.status_code == 200:
             t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-            if t and len(t.strip()) > 100:
+            if t and len(t.strip()) >= min_chars:
                 log("OK Mistral")
                 return t
         else:
@@ -1436,8 +1436,25 @@ def call_mistral(prompt, tokens=8000):
 # provider the moment it fails once, for the rest of this run only.
 _DEAD_PROVIDERS_THIS_RUN = set()
 
-def ai_generate(prompt, tokens=8000):
+def ai_generate(prompt, tokens=8000, min_chars=100):
     """
+    A CORRECT ANSWER THAT IS SHORT IS STILL A CORRECT ANSWER.
+
+    Every provider entrypoint hardcoded `len(response) > 100` as its
+    definition of success, so any prompt asking for a SHORT answer -- a
+    thumbnail line, a title, two hashtags -- could never succeed on ANY
+    provider: the correct reply was discarded as "too short", the provider
+    was marked dead for the rest of the run, and the chain walked itself to
+    exhaustion asking the same impossible question.
+
+    Found the expensive way on Channel 1: a whole run lost, 57 minutes of a
+    live job, and "200 but response too short (19 chars)" in the log
+    thirteen times while every provider was answering correctly. Fixed here
+    BEFORE this channel is run rather than after.
+
+    The 100-char floor does real work against truncated long-form output, so
+    it stays the default; short-answer callers declare what they need.
+
     Provider order: Cerebras → SambaNova → Gemini → Groq → OpenRouter → Cohere → Mistral
     7 layers of fallback. Sleep 10s between failures. Providers that fail
     once are skipped for the rest of this run (see _DEAD_PROVIDERS_THIS_RUN).
@@ -1453,7 +1470,7 @@ def ai_generate(prompt, tokens=8000):
         live = providers
         _DEAD_PROVIDERS_THIS_RUN.clear()
     for i, (name, fn) in enumerate(live):
-        r = fn(prompt, tokens)
+        r = fn(prompt, tokens, min_chars)
         if r:
             return _strip_reasoning(r)
         _DEAD_PROVIDERS_THIS_RUN.add(name)
@@ -3078,7 +3095,7 @@ NARRATION EXCERPT:
 {sample}
 
 Return ONLY the 2-4 word phrase in ALL CAPS. Nothing else."""
-    raw = ai_generate(prompt, tokens=60)
+    raw = ai_generate(prompt, tokens=60, min_chars=6)
     if raw:
         phrase = re.sub(r'[^A-Z0-9 ]', '', raw.strip().upper()).strip()
         if 2 <= len(phrase.split()) <= 4:
@@ -3214,7 +3231,7 @@ def generate_episode_hashtags(niche, topic):
         tag_prompt = (f"Give exactly 2 real YouTube hashtags (short, no spaces, CamelCase, "
                       f"starting with #) that specifically match this documentary topic: "
                       f"{topic[:200]}. Return ONLY the 2 hashtags separated by a space, nothing else.")
-        raw_tags = ai_generate(tag_prompt, tokens=30) or ""
+        raw_tags = ai_generate(tag_prompt, tokens=30, min_chars=6) or ""
         topic_tags = [t for t in raw_tags.split() if t.startswith("#") and len(t) < 30][:2]
     except Exception:
         topic_tags = []
@@ -6093,7 +6110,7 @@ def generate_dedicated_short_title(main_title, short_type, niche_name):
     }
     type_key = "standalone_1" if "1" in short_type or "teaser" in short_type.lower() else "standalone_2"
     try:
-        result = ai_generate(prompts[type_key], tokens=80)
+        result = ai_generate(prompts[type_key], tokens=80, min_chars=12)
         if result:
             title = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
             if 15 < len(title) < 65:
@@ -7162,7 +7179,7 @@ def generate_thumbnail_text(niche, topic, title=""):
     candidates = []
     for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
         try:
-            result = ai_generate(prompt, tokens=15)
+            result = ai_generate(prompt, tokens=15, min_chars=3)
             if result:
                 # FIX (direct user report, July 24 2026): preserve a
                 # trailing "?" (previously stripped, making a genuine
@@ -8190,13 +8207,13 @@ def main():
                     fb = _ttd_review["feedback"] or ""
                     _new_title = ai_generate(f"Rewrite this video title based on real feedback.\n"
                                     f"Current title: {title}\nFeedback: {fb}\n"
-                                    f"Return ONLY the new title, nothing else.", tokens=60)
+                                    f"Return ONLY the new title, nothing else.", tokens=60, min_chars=6)
                     if _new_title and len(_new_title.strip()) > 5:
                         title = _new_title.strip()
                     _new_thumb_text = ai_generate(f"Write a new punchy 3-word max thumbnail overlay "
                                          f"text, NUMBER+NOUN format, based on real feedback.\n"
                                          f"Current text: {thumb_text}\nTopic: {topic}\n"
-                                         f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40)
+                                         f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40, min_chars=6)
                     if _new_thumb_text and len(_new_thumb_text.strip()) > 0:
                         thumb_text = _new_thumb_text.strip()
                         ab_style = "B" if ab_style == "A" else "A"

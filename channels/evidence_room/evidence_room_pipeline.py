@@ -132,7 +132,7 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
                 f"Topic: {topic[:80]}\n"
                 f"Generate 2-3 word thumbnail in NUMBER+NOUN format.\n"
                 f"Examples: '$2.4M GONE', '47 REPORTS', '14 VICTIMS', '4380 DAYS'\n"
-                f"Return ONLY the phrase in ALL CAPS.", tokens=20)
+                f"Return ONLY the phrase in ALL CAPS.", tokens=20, min_chars=3)
             if r and re.search(r'\d', r):
                 return re.sub(r'[^A-Z0-9$.,% ]','', r.upper()).strip()[:22]
         except:
@@ -886,7 +886,7 @@ def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 # Same architecture as Channel 1 (master_pipeline.py)
 # ═══════════════════════════════════════════════════════════
 
-def _call_cerebras(prompt, tokens=9000):
+def _call_cerebras(prompt, tokens=9000, min_chars=100):
     if not CEREBRAS_KEY:
         log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
         return None
@@ -903,7 +903,7 @@ def _call_cerebras(prompt, tokens=9000):
                       "temperature": 0.88}, timeout=120)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK Cerebras ({model})")
                     return t
             elif r.status_code == 404:
@@ -916,7 +916,7 @@ def _call_cerebras(prompt, tokens=9000):
             break
     return None
 
-def _call_gemini(prompt, tokens=9000):
+def _call_gemini(prompt, tokens=9000, min_chars=100):
     if not GEMINI_KEY:
         log("  Gemini: SKIPPED (GEMINI_API_KEY not set)")
         return None
@@ -940,7 +940,7 @@ def _call_gemini(prompt, tokens=9000):
                 c = r.json().get("candidates", [])
                 if c:
                     t = c[0]["content"]["parts"][0]["text"]
-                    if t and len(t.strip()) > 100:
+                    if t and len(t.strip()) >= min_chars:
                         log("  OK Gemini")
                         return t
             elif r.status_code == 429:
@@ -952,7 +952,7 @@ def _call_gemini(prompt, tokens=9000):
             log(f"  Gemini: {e}")
     return None
 
-def _call_groq(prompt, tokens=9000):
+def _call_groq(prompt, tokens=9000, min_chars=100):
     if not GROQ_KEY: return None
     # Groq announced deprecation of llama-3.3-70b-versatile on June 17 2026.
     # Try the recommended replacements first, keep the old name as last-resort
@@ -969,7 +969,7 @@ def _call_groq(prompt, tokens=9000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK Groq ({model})")
                     return t
             elif r.status_code in (400, 404):
@@ -981,7 +981,7 @@ def _call_groq(prompt, tokens=9000):
             log(f"  Groq {model}: {e}")
     return None
 
-def _call_openrouter(prompt, tokens=9000):
+def _call_openrouter(prompt, tokens=9000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY secret not set — skipping")
         return None
@@ -1011,14 +1011,14 @@ def _call_openrouter(prompt, tokens=9000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK OpenRouter ({model.split('/')[-1]})")
                     return t
         except Exception as e:
             log(f"  OpenRouter: {e}")
     return None
 
-def _call_cohere(prompt, tokens=9000):
+def _call_cohere(prompt, tokens=9000, min_chars=100):
     if not COHERE_KEY:
         log("  Cohere: COHERE_API_KEY secret not set — skipping")
         return None
@@ -1039,14 +1039,14 @@ def _call_cohere(prompt, tokens=9000):
             if r.status_code == 200:
                 t = r.json().get("message",{}).get("content",[{}])
                 text = t[0].get("text","") if t else ""
-                if text and len(text.strip()) > 100:
+                if text and len(text.strip()) >= min_chars:
                     log(f"  OK Cohere ({_cohere_model})")
                     return text
         except Exception as e:
             log(f"  Cohere {_cohere_model}: {e}")
     return None
 
-def _call_mistral(prompt, tokens=9000):
+def _call_mistral(prompt, tokens=9000, min_chars=100):
     if not MISTRAL_KEY:
         log("  Mistral: MISTRAL_API_KEY secret not set — skipping")
         return None
@@ -1060,7 +1060,7 @@ def _call_mistral(prompt, tokens=9000):
             timeout=120)
         if r.status_code == 200:
             t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-            if t and len(t.strip()) > 100:
+            if t and len(t.strip()) >= min_chars:
                 log("  OK Mistral")
                 return t
     except Exception as e:
@@ -1069,7 +1069,7 @@ def _call_mistral(prompt, tokens=9000):
 
 
 # v12: SambaNova — added to Ch2 (was only in Ch1 before)
-def _call_sambanova(prompt, tokens=9000):
+def _call_sambanova(prompt, tokens=9000, min_chars=100):
     """
     SambaNova Cloud — free tier, 1000 req/day, llama-3.3-70b.
     Sign up free at https://cloud.sambanova.ai
@@ -1090,7 +1090,7 @@ def _call_sambanova(prompt, tokens=9000):
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
-                if t and len(t.strip()) > 100:
+                if t and len(t.strip()) >= min_chars:
                     log(f"  OK SambaNova ({model.split('-')[2]})")
                     return t
             elif r.status_code == 401:
@@ -1103,7 +1103,7 @@ def _call_sambanova(prompt, tokens=9000):
 
 
 # v12: GEMINI_KEY_2 dual-key for Ch2 (doubles Gemini quota)
-def _call_gemini_with_fallback(prompt, tokens=9000):
+def _call_gemini_with_fallback(prompt, tokens=9000, min_chars=100):
     """Try primary Gemini key then backup key, each across GEMINI_URL (2.5-flash) then GEMINI_LITE_URL (2.5-flash-lite)."""
     keys = [k for k in [GEMINI_KEY, GEMINI_KEY_2] if k]
     if not keys:
@@ -1130,7 +1130,7 @@ def _call_gemini_with_fallback(prompt, tokens=9000):
                     c = r.json().get("candidates", [])
                     if c:
                         t = c[0]["content"]["parts"][0]["text"]
-                        if t and len(t.strip()) > 100:
+                        if t and len(t.strip()) >= min_chars:
                             log(f"  OK Gemini ({key_label}, {url_label})")
                             return t
                 elif r.status_code == 429:
@@ -1290,8 +1290,25 @@ def _strip_reasoning(text):
     text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
     return text.strip()
 
-def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
+def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras", min_chars=100):
     """
+    A CORRECT ANSWER THAT IS SHORT IS STILL A CORRECT ANSWER.
+
+    Every provider entrypoint hardcoded `len(response) > 100` as its
+    definition of success, so any prompt asking for a SHORT answer -- a
+    thumbnail line, a title, two hashtags -- could never succeed on ANY
+    provider: the correct reply was discarded as "too short", the provider
+    was marked dead for the rest of the run, and the chain walked itself to
+    exhaustion asking the same impossible question.
+
+    Found the expensive way on Channel 1: a whole run lost, 57 minutes of a
+    live job, and "200 but response too short (19 chars)" in the log
+    thirteen times while every provider was answering correctly. Fixed here
+    BEFORE this channel is run rather than after.
+
+    The 100-char floor does real work against truncated long-form output, so
+    it stays the default; short-answer callers declare what they need.
+
     v12: 7-provider chain: Cerebras -> SambaNova -> Gemini(+backup key) -> Groq -> OR -> Cohere -> Mistral
     FIX (July 14 2026 audit): providers that fail once are skipped for the
     rest of this run instead of retried from scratch on every call.
@@ -1305,7 +1322,7 @@ def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
         live = providers
         _DEAD_PROVIDERS_THIS_RUN.clear()
     for i, (name, fn) in enumerate(live):
-        result = fn(prompt, tokens)
+        result = fn(prompt, tokens, min_chars)
         if result:
             return _strip_reasoning(result)
         _DEAD_PROVIDERS_THIS_RUN.add(name)
@@ -1315,10 +1332,10 @@ def ai(prompt, temp=0.88, tokens=9000, prefer="cerebras"):
     raise Exception("All 7 AI providers failed")
 
 # Compatibility alias
-def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0"):
+def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0", min_chars=100):
     return _call_gemini_with_fallback(prompt, tokens) or ai(prompt, tokens=tokens)
 
-def call_groq(prompt, temp=0.7, tokens=2000):
+def call_groq(prompt, temp=0.7, tokens=2000, min_chars=100):
     return _call_groq(prompt, min(tokens, 4800)) or ai(prompt, tokens=min(tokens, 4800))
 
 def strip_md(text):
@@ -1534,7 +1551,7 @@ Return ONLY 3 words. Example: PAPER TRAIL FOUND or NOBODY EVER LISTENED"""
     for _round in range(2):
         try:
             for _ in range(3):
-                result = ai(prompt, temp=0.82, tokens=15, prefer="groq")
+                result = ai(prompt, temp=0.82, tokens=15, min_chars=3, prefer="groq")
                 if result:
                     result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
                     words = result.split()[:3]
@@ -4090,7 +4107,7 @@ def generate_dedicated_short_title_ch2(main_title, short_type, niche_name):
     }
     type_key = "standalone_1" if "1" in short_type else "standalone_2"
     try:
-        result = ai(prompts[type_key], tokens=80)
+        result = ai(prompts[type_key], tokens=80, min_chars=12)
         if result:
             title = re.sub(r'[#*_`]', '', result.strip().split("\n")[0].strip())
             if 15 < len(title) < 65:
@@ -5448,7 +5465,7 @@ def generate_episode_hashtags(niche, topic):
         tag_prompt = (f"Give exactly 2 real YouTube hashtags (short, no spaces, CamelCase, "
                       f"starting with #) that specifically match this documentary topic: "
                       f"{topic[:200]}. Return ONLY the 2 hashtags separated by a space, nothing else.")
-        raw_tags = ai(tag_prompt, tokens=30) or ""
+        raw_tags = ai(tag_prompt, tokens=30, min_chars=6) or ""
         topic_tags = [t for t in raw_tags.split() if t.startswith("#") and len(t) < 30][:2]
     except Exception:
         topic_tags = []
@@ -6724,7 +6741,7 @@ def main():
                             f"for a forensic investigative documentary about: {_t[:200]}. "
                             f"Specific, evidence-focused, no clickbait, no markdown. "
                             f"Return ONLY the 2 sentences.")
-            _hook = ai(_hook_prompt, tokens=120, prefer="groq")
+            _hook = ai(_hook_prompt, tokens=120, min_chars=40, prefer="groq")
             _hook = strip_md(_hook).strip() if _hook else \
                 "Every case. Every document. Every piece of evidence — animated."
         except Exception:
@@ -7041,13 +7058,13 @@ def main():
                 fb = _ttd_review["feedback"] or ""
                 _new_title = ai(f"Rewrite this video title based on real feedback.\n"
                                 f"Current title: {title_str}\nFeedback: {fb}\n"
-                                f"Return ONLY the new title, nothing else.", tokens=60)
+                                f"Return ONLY the new title, nothing else.", tokens=60, min_chars=6)
                 if _new_title and len(_new_title.strip()) > 5:
                     title_str = _new_title.strip()
                 _new_thumb_text = ai(f"Write a new punchy 3-word max thumbnail overlay text, "
                                      f"NUMBER+NOUN format, based on real feedback.\n"
                                      f"Current text: {thumbnail_text}\nTopic: {topic}\n"
-                                     f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40)
+                                     f"Feedback: {fb}\nReturn ONLY the new overlay text.", tokens=40, min_chars=6)
                 if _new_thumb_text and len(_new_thumb_text.strip()) > 0:
                     thumbnail_text = _new_thumb_text.strip()
                     ab_style = "B" if ab_style == "A" else "A"
