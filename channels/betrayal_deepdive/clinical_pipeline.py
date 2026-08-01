@@ -361,6 +361,13 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     tried = [best_title]
     while attempt < max_attempts:
         attempt += 1
+        # A different model each attempt (see set_ai_variant): the previous
+        # behaviour sent every one of these to the same provider, which is
+        # half of why twelve consecutive attempts returned one string.
+        try:
+            set_ai_variant(attempt)
+        except NameError:
+            pass
         # Regenerate with targeted fix based on exactly which dimension is weak
         _, bd = score_title_v2(best_title)
         weak  = [k for k,v in bd.items() if "WEAK" in str(v) or "ABSENT" in str(v)]
@@ -1942,6 +1949,25 @@ def call_mistral(prompt, tokens=8000):
 
 _DEAD_PROVIDERS_THIS_RUN = set()
 
+# WHICH PROVIDER GOES FIRST — ROTATED PER ATTEMPT.
+#
+# ai_generate walked a FIXED provider order on every call, so once the dead
+# ones were marked, every call for the rest of the run went to the same
+# surviving model. That is the missing source of variation behind every
+# "thirteen attempts, same result" failure this channel has had: 13 script
+# attempts, 39 title attempts and 13 audio attempts were all one model being
+# asked almost the same thing over and over. Rotating the start index by
+# attempt number makes a retry genuinely sample a different model.
+_AI_VARIANT = [0]
+
+
+def set_ai_variant(n):
+    """Rotate which working provider gets asked first. Call it per attempt."""
+    try:
+        _AI_VARIANT[0] = int(n)
+    except (TypeError, ValueError):
+        _AI_VARIANT[0] = 0
+
 def _strip_reasoning(text):
     """FIX (July 14 2026 audit): strip reasoning-model chain-of-thought
     (gpt-oss-120b via Cerebras/Groq) so it never leaks into a script."""
@@ -1992,6 +2018,12 @@ def ai_generate(prompt, tokens=8000):
     if not live:
         live = providers
         _DEAD_PROVIDERS_THIS_RUN.clear()
+    # Start at a different working provider each attempt. Every provider is
+    # still tried before giving up -- this changes the ORDER, never the
+    # coverage, so a rotation can't cost a response that would have come.
+    if len(live) > 1:
+        _off = _AI_VARIANT[0] % len(live)
+        live = live[_off:] + live[:_off]
     for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens)
         if r:
@@ -8370,6 +8402,10 @@ def run_stage1(state):
         # has many call sites elsewhere.
         research_ctx, real_cases = get_research_context(niche_name, topic)
 
+        # Ask a DIFFERENT model this attempt. Without this, all thirteen
+        # attempts went to whichever provider happened to be first alive,
+        # so "try again" meant "ask the same model the same thing again".
+        set_ai_variant(attempt)
         log(f"\nAttempt {attempt}/{MAX_ATTEMPTS} (gate:{gate})...")
         log(f"Topic: {topic[:80]}")
 
@@ -9985,6 +10021,7 @@ def main():
                    f"{_retry_voice}) instead of publishing it as-is.")
                 edge_voice = _retry_voice
                 _audio_attempt += 1
+                set_ai_variant(_audio_attempt)
                 audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(
                     run_audio_stage, "Audio", script_clean, niche_name, edge_voice)
                 edge_voice = voice_used

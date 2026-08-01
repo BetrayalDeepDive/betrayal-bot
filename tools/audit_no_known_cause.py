@@ -423,6 +423,7 @@ def audit_sourcing_robustness():
           "of Toxicology and Signal Transduction research papers — no patient, "
           "no chronology, no differential to build an episode from")
     _title_checks()
+    _provider_rotation_checks()
     _audio_gate_checks()
     _email_routing_checks()
     _format_leak_checks()
@@ -636,6 +637,40 @@ def _hook_fits(max_px=1080):
             if len(text) * size * 0.62 > max_px:
                 return False
     return True
+
+
+def _provider_rotation_checks():
+    """
+    A retry must ask a DIFFERENT model, or thirteen attempts are one attempt
+    repeated thirteen times.
+
+    ai_generate walked a fixed provider order on every call, so once the dead
+    providers were marked, every call for the rest of the run went to the same
+    survivor. That is the missing variation behind every "N attempts, same
+    result" failure this channel has had -- 13 script attempts, 39 title
+    attempts, 13 audio attempts.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    check("D", "the provider order rotates per attempt",
+          "_AI_VARIANT" in cp and "def set_ai_variant" in cp
+          and "live = live[_off:] + live[:_off]" in cp,
+          "without it, 'try again' means 'ask the same model again'")
+    for loop, marker in (("script", "set_ai_variant(attempt)"),
+                         ("audio", "set_ai_variant(_audio_attempt)")):
+        check("D", f"the {loop} retry loop rotates the provider", marker in cp)
+
+    # Rotation must never REDUCE coverage -- every provider still gets tried.
+    live = ["a", "b", "c", "d"]
+    seen_first, covered = set(), True
+    for a in range(1, 9):
+        off = a % len(live)
+        order = live[off:] + live[:off]
+        seen_first.add(order[0])
+        if sorted(order) != sorted(live):
+            covered = False
+    check("D", "rotation changes the order without dropping any provider",
+          covered and len(seen_first) == len(live),
+          f"{len(seen_first)} distinct providers asked first across 8 attempts")
 
 
 def _audio_gate_checks():
