@@ -423,6 +423,7 @@ def audit_sourcing_robustness():
           "of Toxicology and Signal Transduction research papers — no patient, "
           "no chronology, no differential to build an episode from")
     _title_checks()
+    _model_discovery_checks()
     _provider_rotation_checks()
     _audio_gate_checks()
     _email_routing_checks()
@@ -637,6 +638,54 @@ def _hook_fits(max_px=1080):
             if len(text) * size * 0.62 > max_px:
                 return False
     return True
+
+
+def _model_discovery_checks():
+    """
+    Model IDs must be ASKED FOR, not hardcoded.
+
+    Every "provider outage" in this project has been a stale model id.
+    Run 30655118228: Cerebras 404'd on all five hardcoded names, and
+    OpenRouter 404'd on all five ":free" ids because the free tiers had been
+    withdrawn while the paid ids kept the same names. Editing the lists by
+    hand only resets the clock -- it had already been done twice.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    check("F", "model catalogues are discovered at runtime",
+          "def _discover_models" in cp,
+          "a hand-written model list goes stale silently and looks like an "
+          "outage")
+    for prov in ("Cerebras", "OpenRouter", "Groq", "Mistral", "SambaNova",
+                 "NvidiaNIM"):
+        check("F", f"{prov} asks for its own model list",
+              f'_discover_models(\n        "{prov}"' in cp
+              or f'"{prov}", "http' in cp,
+              "otherwise it dies the next time that provider renames a model")
+    check("F", "OpenRouter picks models by REAL price, not an id suffix",
+          "free_only=True" in cp and 'pr.get("prompt"' in cp,
+          "which models are free changes; the ':free' suffix encoded it once "
+          "and then rotted")
+    check("F", "discovery failure falls back to the built-in list",
+          "or OR_FREE_MODELS" in cp or "if not _models:" in cp,
+          "a catalogue outage must never be worse than the old behaviour")
+
+    # Exercise it: the free filter must not let a paid model through.
+    import types as _t
+    blk = cp[cp.index("_MODEL_CACHE = {}"):cp.index("# Known Cerebras model names")]
+    class _R:
+        payload = {"data": [
+            {"id": "openai/gpt-4o", "pricing": {"prompt": "0.0000025",
+                                                "completion": "0.00001"}},
+            {"id": "deepseek/deepseek-r1:free", "pricing": {"prompt": "0",
+                                                           "completion": "0"}},
+        ]}
+        def get(self, *a, **k):
+            return _t.SimpleNamespace(status_code=200, json=lambda: _R.payload)
+    ns = {"requests": _R(), "log": lambda m: None}
+    exec(blk, ns)
+    got = ns["_discover_models"]("OR", "u", {}, free_only=True)
+    check("F", "a paid model never enters the free pool",
+          got == ["deepseek/deepseek-r1:free"], str(got))
 
 
 def _provider_rotation_checks():

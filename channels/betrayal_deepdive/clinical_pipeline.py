@@ -1516,6 +1516,92 @@ def ckpt_clear():
 # ================================================================
 # AI CALLERS
 # ================================================================
+# ── STOP HARDCODING MODEL NAMES. ASK THE PROVIDER. ─────────────────────
+#
+# Every provider outage in this project so far has been a stale model ID,
+# not an outage. Run 30655118228:
+#
+#   Cerebras    404 on ALL FIVE hardcoded names
+#   OpenRouter  404 on ALL FIVE ":free" ids — the free tiers were withdrawn
+#               and the paid ids kept the same names
+#
+# Both are the same failure: a list of strings written by hand months ago,
+# against catalogues that change without notice. Fixing the list by hand
+# again just resets the clock — it was already "fixed by hand" twice, and
+# the comments above CEREBRAS_MODELS record both times.
+#
+# All of these providers are OpenAI-compatible and expose GET /models. So
+# ask them. Discovery runs once per provider per run, is cached, and falls
+# back to the hand-written list if the endpoint is unreachable — so this can
+# only ever do better than the old behaviour, never worse.
+#
+# For OpenRouter it also solves the free-tier problem exactly: the catalogue
+# reports each model's real price, so "which models are free RIGHT NOW" is a
+# question with a live answer instead of a guess encoded in an id suffix.
+_MODEL_CACHE = {}
+
+
+def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
+    """
+    Ask a provider what it can actually serve today.
+
+    Returns a ranked list of model ids, or [] if the catalogue is
+    unreachable (the caller then uses its hand-written fallback).
+    """
+    if name in _MODEL_CACHE:
+        return _MODEL_CACHE[name]
+    ids = []
+    try:
+        r = requests.get(url, headers=headers, timeout=30)
+        if r.status_code == 200:
+            body = r.json()
+            rows = body.get("data") or body.get("models") or body.get("result") or []
+            if isinstance(rows, dict):
+                rows = list(rows.values())
+            for d in rows:
+                if not isinstance(d, dict):
+                    continue
+                mid = d.get("id") or d.get("name") or d.get("model")
+                if not mid:
+                    continue
+                if free_only:
+                    # A model is free when the provider says both its prompt
+                    # and completion prices are zero. This is the live answer
+                    # to the question the ":free" suffix used to encode.
+                    pr = d.get("pricing") or {}
+                    try:
+                        if float(pr.get("prompt", 1) or 1) != 0.0 or \
+                           float(pr.get("completion", 1) or 1) != 0.0:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                ids.append((str(mid), int(d.get("context_length") or
+                                          d.get("context_window") or 0)))
+        else:
+            log(f"  {name}: model catalogue returned {r.status_code} — "
+                f"using the built-in list")
+    except Exception as e:
+        log(f"  {name}: model catalogue unreachable ({e}) — using the built-in list")
+
+    if not ids:
+        _MODEL_CACHE[name] = []
+        return []
+
+    # Rank: anything explicitly preferred first (in the given order), then
+    # everything else by context length, biggest first.
+    def rank(item):
+        mid = item[0].lower()
+        for i, p in enumerate(prefer):
+            if p.lower() in mid:
+                return (0, i, -item[1])
+        return (1, 0, -item[1])
+
+    ordered = [m for m, _c in sorted(ids, key=rank)][:limit]
+    _MODEL_CACHE[name] = ordered
+    log(f"  {name}: {len(ids)} models available, using {ordered}")
+    return ordered
+
+
 # Known Cerebras model names (they change naming without notice)
 CEREBRAS_MODELS = [
     "gpt-oss-120b",        # current Cerebras free-tier default (June 2026)
@@ -1547,8 +1633,17 @@ def call_cerebras(prompt, tokens=8000):
     # an account/key-level issue more than a naming issue — same shape
     # as Gemini's confirmed 403 project-denial in the same run. Worth
     # checking the Cerebras dashboard/key directly, not just code.
-    _models = ["gpt-oss-120b", "zai-glm-4.7",
-               "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
+    # Ask Cerebras what it actually serves today, rather than replaying a
+    # list that has now 404'd in two consecutive live runs. The hand-written
+    # names stay as the fallback for when the catalogue itself is down.
+    _models = _discover_models(
+        "Cerebras", "https://api.cerebras.ai/v1/models",
+        {"Authorization": f"Bearer {CEREBRAS_KEY}"},
+        prefer=("gpt-oss-120b", "qwen-3-235b", "llama-4-maverick",
+                "llama-4-scout", "llama-3.3-70b", "qwen-3-32b", "llama3.1-8b"))
+    if not _models:
+        _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b",
+                   "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
     for model in _models:
         try:
             r = requests.post(_url,
@@ -1591,7 +1686,13 @@ def call_groq(prompt, tokens=8000):
     # openai/gpt-oss-20b — are what's tried now.
     # FIX (real live-run data, run 30126085986): qwen/qwen3-32b confirmed
     # "404 (model gone)" for real — removed.
-    for model in ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"]:
+    _groq_models = _discover_models(
+        "Groq", "https://api.groq.com/openai/v1/models",
+        {"Authorization": f"Bearer {GROQ_KEY}"},
+        prefer=("gpt-oss-120b", "llama-3.3-70b", "qwen", "gpt-oss-20b",
+                "llama-3.1-8b")) or \
+        ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"]
+    for model in _groq_models:
         try:
             r = requests.post(GROQ_URL,
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
@@ -1687,7 +1788,22 @@ def call_openrouter(prompt, tokens=8000):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
         return None
-    for model in OR_FREE_MODELS:
+    # THE FIX FOR "unavailable for free".
+    #
+    # OpenRouter withdrew the ":free" tier from every model this code had
+    # hardcoded, so all five returned 404 with "The paid version is available
+    # now". Which models are free is not a fact that can be encoded in an id
+    # suffix and left alone -- it changes. OpenRouter's catalogue reports each
+    # model's real prompt/completion price, so ask it, and take only the ones
+    # that genuinely cost nothing today.
+    _or_models = _discover_models(
+        "OpenRouter", "https://openrouter.ai/api/v1/models",
+        {"Authorization": f"Bearer {OPENROUTER_KEY}"},
+        free_only=True,
+        prefer=("deepseek", "llama-3.3-70b", "qwen", "gemma", "mistral",
+                "glm", "kimi"),
+        limit=8) or OR_FREE_MODELS
+    for model in _or_models:
         try:
             r = requests.post(OPENROUTER_URL,
                 headers={"Authorization": f"Bearer {OPENROUTER_KEY}",
@@ -1858,7 +1974,12 @@ def call_nvidia_nim(prompt, tokens=8000):
         log("  NVIDIA NIM: NVIDIA_API_KEY not set — skipping")
         return None
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
-    for model in ["meta/llama-3.3-70b-instruct", "mistralai/mixtral-8x7b-instruct-v0.1",
+    _nim_models = _discover_models(
+        "NvidiaNIM", "https://integrate.api.nvidia.com/v1/models",
+        {"Authorization": f"Bearer {NVIDIA_NIM_KEY}"},
+        prefer=("llama-3.3-70b", "llama-3.1-405b", "qwen", "mixtral",
+                "nemotron"))
+    for model in _nim_models or ["meta/llama-3.3-70b-instruct", "mistralai/mixtral-8x7b-instruct-v0.1",
                   "meta/llama-3.1-70b-instruct"]:
         try:
             r = requests.post(url,
@@ -1895,7 +2016,14 @@ def call_sambanova(prompt, tokens=8000):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
-    for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
+    # The hand-written list here was the SAME model twice, so a single bad
+    # response meant the provider was marked dead with nothing else tried.
+    _sn_models = _discover_models(
+        "SambaNova", "https://api.sambanova.ai/v1/models",
+        {"Authorization": f"Bearer {SAMBANOVA_KEY}"},
+        prefer=("Llama-3.3-70B", "Llama-4", "DeepSeek", "Qwen",
+                "Llama-3.1-8B")) or ["Meta-Llama-3.3-70B-Instruct"]
+    for model in _sn_models:
         try:
             r = requests.post(SAMBANOVA_URL,
                 headers={"Authorization": f"Bearer {SAMBANOVA_KEY}",
@@ -1927,11 +2055,20 @@ def call_mistral(prompt, tokens=8000):
     if not MISTRAL_KEY:
         log("  Mistral: MISTRAL_API_KEY not set — skipping")
         return None
+    # Mistral has been carrying almost the whole pipeline while the other
+    # providers are down, and it was pinned to ONE hardcoded model with no
+    # fallback: the day "mistral-small-latest" is renamed or rate-limited,
+    # the last working provider goes with it.
+    _MISTRAL_MODEL = _discover_models(
+        "Mistral", "https://api.mistral.ai/v1/models",
+        {"Authorization": f"Bearer {MISTRAL_KEY}"},
+        prefer=("mistral-large", "mistral-medium", "mistral-small",
+                "open-mixtral", "ministral")) or ["mistral-small-latest"]
     try:
         r = requests.post(MISTRAL_URL,
             headers={"Authorization": f"Bearer {MISTRAL_KEY}",
                      "Content-Type": "application/json"},
-            json={"model": "mistral-small-latest",
+            json={"model": _MISTRAL_MODEL[0],
                   "messages": [{"role": "user", "content": prompt}],
                   "max_tokens": min(tokens, 4000),
                   "temperature": 0.88},
