@@ -134,86 +134,109 @@ def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
 
 
 def score_title_v2(title):
-    # FIX (direct user report, July 24 2026 — real production data, run
-    # 30126085986: 13 real title attempts, capped at 7.5/10, zero
-    # clearing 8.5, killed the entire day): same root-cause class as the
-    # Shorts scoring miscalibration fixed earlier — two entire scoring
-    # dimensions (curiosity_gap, revelation) required one of a tiny set
-    # of exact literal phrases, so a genuinely strong title like "They
-    # Knew Exactly What This Would Cost: The 7-Year Collapse" scored
-    # WEAK on curiosity_gap (doesn't contain "nobody knew" etc. verbatim)
-    # and ABSENT on revelation (doesn't contain "exposed"/"revealed"
-    # etc. verbatim), capping it near 7.5 no matter how many times it
-    # regenerated. Widened both phrase lists with real natural synonyms
-    # rather than only the original narrow set.
-    t  = title.lower()
+    """
+    CTR score for a clinical case title, 0-10.
+
+    RECALIBRATED AGAINST REAL OUTPUT (run 30655118228). The previous version
+    scored four SEPARATE phrase banks -- curiosity gap, revelation, pattern
+    interrupt -- and required a hit in each to reach the 8.5 gate, inside a
+    50-65 character title. Those three banks all describe the SAME property
+    (the diagnostic reversal), so it was triple-counting one thing and
+    demanding four simultaneous hits in sixty characters. Thirty-nine real
+    attempts across three rounds produced genuinely good titles that capped at
+    7.5:
+
+        "At 73, troponin 1.2 revealed the misread ECG"          7.2
+        "10 Tests Failed-Then Gender Explained Men's Heart..."   7.5
+        "After 10 Tests, What Finally Explained the Men's..."    7.5
+
+    Those are specific, numeric, and name the reversal. They are not 7.5
+    titles. Two structural faults made them unreachable:
+
+      1. `specificity` awarded full marks only for a number AND a proper
+         NAME -- two consecutive capitalised words. Patients in case reports
+         are anonymised. There is never a name. So the strongest clinical
+         specificity available ("troponin 1.2", "3-day", "10 tests") was
+         permanently scored as second-best.
+      2. The three reversal banks competed for the same characters.
+
+    Now: specificity is measured in clinical terms (a real number AND a real
+    clinical noun beats a number alone), and the reversal is ONE dimension
+    that rewards saying it well rather than saying it three ways.
+    """
+    t = title.lower()
     sc = 3.0
     bd = {}
-    # Curiosity gap
-    # CLINICAL curiosity, not cover-up.
-    #
-    # This bank still spoke the retired true-crime format: "covered up",
-    # "kept secret", "concealed". On a channel about real named hospitals and
-    # real clinicians, a title that scores well for implying concealment is a
-    # title the medical policy rules exist to prevent -- and the scorer was
-    # actively rewarding it. The curiosity in a case report is diagnostic:
-    # the test that was normal, the answer that was wrong, the thing the
-    # scan did not show.
-    cg = ["nobody knew","no one could explain","every test was normal",
-          "the scans showed nothing","came back negative","came back normal",
-          "the real cause","what the tests missed","went unnoticed",
-          "for years nobody","misread","mistaken","looked like",
-          "treated as","the wrong diagnosis","nobody thought to",
-          "no one could","nobody could","for years",
-          "no one had seen","what nobody expected","never expected",
-          "didn't see it coming","before anyone noticed","too late",
-          "until one test","the one test","what changed everything"]
-    cg_hits = sum(1 for s in cg if s in t)
-    if cg_hits >= 2:   sc += 2.5; bd["curiosity_gap"] = "STRONG"
-    elif cg_hits == 1: sc += 1.5; bd["curiosity_gap"] = "OK"
-    else:              bd["curiosity_gap"] = "WEAK"
-    # Specificity
-    has_num    = bool(re.search(r'\b\d[\d,\.]*\b', title))
-    has_dollar = bool(re.search(r'\$[\d,\.]+', title))
-    has_name   = bool(re.search(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b', title))
-    if (has_num or has_dollar) and has_name: sc += 2.0; bd["specificity"] = "STRONG"
-    elif has_num or has_dollar or has_name:  sc += 1.2; bd["specificity"] = "OK"
-    else:                                    bd["specificity"] = "WEAK"
-    # Revelation
-    rev = ["revealed","documented","proved","evidence","traced","uncovered",
-           "confirmed","discovered","diagnosed","identified","the case that",
-           "published","reported","the answer","turned out to be",
-           "was actually","the real diagnosis","finally explained",
-           "solved","explained"]
-    if any(s in t for s in rev): sc += 1.5; bd["revelation"] = "PRESENT"
-    else:                        bd["revelation"] = "ABSENT"
-    # Pattern interrupt
-    # FIX (direct user report, July 25 2026 — real run 30150605869: Title
-    # gate reached all 13 attempts capped at exactly 8.2/10, one real
-    # title-scoring fix already closed the gap from 7.5 to here, still
-    # 0.3 short): "Nobody Knew What the Records Show: A Hiker's Dark
-    # Survival" scored ABSENT on pattern_interrupt despite genuinely
-    # carrying that "this was known/unaddressed" implication — it just
-    # doesn't happen to say "they knew" verbatim. Widened with real
-    # natural variants of the same idea.
-    # The interrupt on a clinical channel is the reversal -- the moment the
-    # obvious answer turns out to be wrong -- not an accusation. "went
-    # unpunished" and "and did nothing" are allegations about real named
-    # clinicians and have no place in this scorer.
-    pi = ["nobody knew","no one knew","everyone assumed","it wasn't",
-          "it was not","but it wasn't","turned out","instead",
-          "the opposite","not what","never was","wasn't the",
-          "was never","except","only after","until"]
-    if any(s in t for s in pi): sc += 1.5; bd["pattern_interrupt"] = "PRESENT"
-    else:                       bd["pattern_interrupt"] = "ABSENT"
-    # Length
+
+    # ── SPECIFICITY (0-2.5): a real number from the case, and what it IS ──
+    has_num = bool(re.search(r"\b\d[\d,\.]*\b", title))
+    _CLINICAL_NOUN = (
+        "troponin", "bilirubin", "sodium", "potassium", "creatinine", "enzyme",
+        "haemoglobin", "hemoglobin", "platelet", "white cell", "lactate",
+        "glucose", "ecg", "ekg", "mri", "ct ", "scan", "biopsy", "culture",
+        "cultures", "test", "tests", "bloodwork", "blood work", "result",
+        "results", "x-ray", "ultrasound", "marker", "level", "levels",
+        "count", "assay", "diagnosis", "diagnoses", "day", "days", "hour",
+        "hours", "year", "years", "week", "weeks", "month", "months",
+        "-year-old", "year-old", "newborn", "neonate", "infant", "patient",
+    )
+    has_clin = any(w in t for w in _CLINICAL_NOUN)
+    if has_num and has_clin:
+        sc += 2.5; bd["specificity"] = "STRONG"
+    elif has_num or has_clin:
+        sc += 1.4; bd["specificity"] = "OK"
+    else:
+        bd["specificity"] = "WEAK"
+
+    # ── THE REVERSAL (0-3.5): the obvious answer turning out to be wrong ──
+    # One dimension, not three. Saying it well scores; saying it three
+    # different ways in sixty characters is not a quality signal.
+    _REVERSAL = (
+        # the puzzle
+        "nobody knew", "no one knew", "no one could", "nobody could",
+        "every test was normal", "tests missed", "missed", "came back normal",
+        "came back negative", "the scans showed nothing", "went unnoticed",
+        "misread", "misdiagnos", "mistaken", "looked like", "treated as",
+        "the wrong diagnosis", "nobody thought", "for years", "what nobody",
+        "never expected", "didn't see it coming", "before anyone",
+        # the answer
+        "revealed", "documented", "traced", "uncovered", "confirmed",
+        "diagnosed", "identified", "turned out", "was actually",
+        "the real diagnosis", "the real cause", "finally explained",
+        "explained", "solved", "the answer", "what changed everything",
+        # the turn
+        "but it wasn't", "it wasn't", "it was not", "instead", "the opposite",
+        "not what", "never was", "wasn't the", "was never", "except",
+        "only after", "until", "then",
+    )
+    hits = sum(1 for w in _REVERSAL if w in t)
+    if hits >= 3:   sc += 3.5; bd["reversal"] = f"STRONG ({hits})"
+    elif hits == 2: sc += 2.8; bd["reversal"] = "GOOD (2)"
+    elif hits == 1: sc += 1.8; bd["reversal"] = "OK (1)"
+    else:           bd["reversal"] = "ABSENT"
+
+    # ── LENGTH (0-1.0) — mobile truncation is real ────────────────────────
     n = len(title)
     if 50 <= n <= 65:    sc += 1.0
-    elif 45 <= n <= 70:  sc += 0.5
-    elif n < 40 or n > 80: sc -= 0.5
-    # Generic penalty
-    generic = ["incredible","unbelievable","shocking","amazing","you won't believe"]
+    elif 42 <= n <= 70:  sc += 0.7
+    elif 35 <= n < 42:   sc += 0.2
+    elif n < 35 or n > 80: sc -= 0.5
+    bd["length"] = n
+
+    # ── HARD PENALTIES ────────────────────────────────────────────────────
+    generic = ["incredible", "unbelievable", "shocking", "amazing",
+               "you won't believe", "miracle", "cure"]
     sc -= sum(0.8 for g in generic if g in t)
+    # Accusation has no place on a channel about real named hospitals and
+    # real clinicians acting in good faith on the information they had.
+    accusatory = ["covered up", "cover-up", "they knew", "kept secret",
+                  "concealed", "unpunished", "did nothing", "let it happen",
+                  "negligence", "malpractice", "hid the"]
+    _acc = sum(1.5 for a in accusatory if a in t)
+    if _acc:
+        bd["accusatory"] = "PENALISED"
+    sc -= _acc
+
     return round(min(max(sc, 0), 10), 1), bd
 
 

@@ -882,9 +882,12 @@ def _title_checks():
     #    Before the phrase banks were re-based, the best a factual clinical
     #    headline could score was about 7.0 -- the gate was unreachable by
     #    construction, so every run ended the same way.
+    # These are REAL titles the generator produced on run 30655118228. All
+    # three are specific, numeric and name the reversal; all three scored
+    # 7.2-7.5 against an 8.5 gate and the day was skipped.
     reachable = [
-        "Nobody Knew Why: The 21-Day-Old Diagnosed Too Late",
-        "The One Test That Finally Explained A 14-Year Illness",
+        "At 73, troponin 1.2 revealed the misread ECG",
+        "10 Tests Failed-Then Gender Explained Men's Heart Attacks",
         "Treated As Sepsis For 96 Hours. It Was Never Infection",
     ]
     check("D", "a factual clinical title can clear the 8.5 title gate",
@@ -898,11 +901,19 @@ def _title_checks():
     accusatory = [
         "Doctors Covered Up What They Knew: 14 Years Of Silence",
         "The Hospital That Let It Happen And Went Unpunished",
+        "The Miracle Cure Doctors Missed For 10 Years",
     ]
     check("C", "the title scorer does not reward cover-up framing",
-          all(score(t)[0] < 7.5 for t in accusatory),
+          all(score(t)[0] < 7.0 for t in accusatory),
           "titles alleging concealment by real named clinicians must not "
           "outscore factual clinical ones on a medical channel")
+
+    weak = ["5 older Spanish men had twice the heart attacks. Why?",
+            "A rare inherited disorder of galactose metabolism"]
+    check("D", "a vague title still cannot clear the gate",
+          all(score(t)[0] < 7.0 for t in weak),
+          "the ceiling was raised by measuring clinical specificity properly, "
+          "not by inflating every score")
 
     # 3. Every retry must ASK SOMETHING DIFFERENT. This is the actual bug:
     #    a deterministic provider given an identical prompt returns an
