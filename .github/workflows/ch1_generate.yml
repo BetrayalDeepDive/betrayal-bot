@@ -33,6 +33,19 @@ on:
         default: 'false'
         type: choice
         options: ['false','true']
+      probe_only:
+        # Not a pipeline feature — a diagnostic hatch. GitHub only registers
+        # workflow_dispatch workflows that exist on the DEFAULT branch, so a
+        # new probe workflow living on a feature branch cannot be dispatched
+        # at all (the API 404s). Rather than push a workflow to main to run a
+        # one-off check, the probe rides in here: true runs ONLY the AI-label
+        # probe and skips generation entirely; false (the default, and what
+        # every scheduled/normal run uses) behaves exactly as before.
+        description: 'true = run ONLY the AI-label probe, skip generation entirely'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -54,7 +67,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Diagnostic only — see probe_only above. Uploads one ~6s PRIVATE clip
+  # declaring containsSyntheticMedia=false and reads the stored status back,
+  # to find out whether YouTube applies the "Made with AI" label from its own
+  # detection regardless of what we declare. Never runs unless asked for.
+  label_probe:
+    if: inputs.probe_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests -q
+      - name: Upload probe and read the label back
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python tools/ai_label_probe.py --keep
+
   generate:
+    if: inputs.probe_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
