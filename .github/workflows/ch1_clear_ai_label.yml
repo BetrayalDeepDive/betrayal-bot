@@ -1,0 +1,45 @@
+# ============================================================
+# Ch1 — clear the "Made with AI" label from already-published videos
+#
+# The pipeline no longer declares synthetic media on new uploads
+# (DECLARE_SYNTHETIC_MEDIA, default off). This is for the back catalogue,
+# which still carries the label because it was hardcoded True at the time
+# those videos went up.
+#
+# Runs in REPORT mode by default — it shows you which videos declare it and
+# changes nothing. Set apply=true to actually clear them.
+# ============================================================
+name: Ch1 — clear AI label from published videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'true = actually clear the flag. false = report only.'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  clear:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests -q
+      - name: Clear the label
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          if [ "${{ inputs.apply }}" = "true" ]; then
+            python tools/clear_synthetic_label.py --apply
+          else
+            python tools/clear_synthetic_label.py
+          fi
