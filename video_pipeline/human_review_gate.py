@@ -1921,3 +1921,30 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
 # Removed; they never executed and pyflakes-style analysis wouldn't
 # catch this specific class of mistake (unreachable-but-valid code),
 # only a real line-by-line read does.
+
+
+def notify_degraded(what, detail):
+    """
+    Tell the human that this episode is missing something, before they
+    approve it.
+
+    A degraded episode used to be indistinguishable from a healthy one at
+    the review checkpoint. Run 30717615638 reported SUCCESS while shipping
+    with ZERO of its case report's real figures -- the FIGURE register, the
+    largest share of the visual mix, had silently failed on every episode
+    this channel has ever produced -- and the only evidence was one line in
+    a 2400-line console log that nobody reads during an approval.
+
+    Whoever taps Approve should know what they are approving.
+    """
+    msg = (f"⚠️ DEGRADED: {what}\n\n{detail}\n\n"
+           f"The episode still completed; this is a heads-up about what it "
+           f"is missing, not a failure.")
+    try:
+        tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        tg_chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+        if tg_token and tg_chat:
+            _tg_send_message(tg_token, tg_chat, msg)
+    except Exception as e:
+        print(f"  Degraded-notice send failed (non-fatal): {e}")
+    print(f"  DEGRADED — {what}: {detail}")

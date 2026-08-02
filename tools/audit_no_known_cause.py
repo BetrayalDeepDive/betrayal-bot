@@ -476,6 +476,7 @@ def audit_sourcing_robustness():
     _short_answer_checks()
     _rounds_checks()
     _format_leakage_checks()
+    _green_run_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -887,9 +888,11 @@ def _short_answer_checks():
           and is_text({"architecture": {"modality": "text+image->text"}}, "x/y"),
           "the filter must not starve the chain it exists to protect")
     check("D", "free-tier filtering looks past per-token pricing",
-          '"request", "image"' in cp,
-          "media models report 0/0 per token while charging per request — "
-          "which is exactly how the lyria pair read as free")
+          "for v in pr.values()" in cp,
+          "media models report 0/0 per token while charging on another axis — "
+          "which is how the lyria pair read as free. This started as a fixed "
+          "list of keys to check; it now enumerates whatever the provider "
+          "actually sent, because a fixed list cannot cover a key added later")
 
     # EVERY call whose PROMPT caps the answer below 100 characters. Seven more
     # were found on the end-to-end sweep, including both halves of the Edit
@@ -921,6 +924,74 @@ def _short_answer_checks():
     check("D", "the other four channels' scoring is unchanged",
           _sts("4380 DAYS HIDDEN") == 10.0 and _sts("47 VICTIMS") == 10.0,
           "the clinical terms were ADDED, not swapped in")
+
+
+def _green_run_checks():
+    """
+    WHAT A SUCCESSFUL RUN WAS STILL HIDING.
+
+    Run 30717615638 finished green in 3h49m with every gate cleared on its
+    first round — script 8.9, title 10.0, audio 9.8, video 9.3, thumbnail
+    9.5, 4/4 Shorts. Reading its log line by line found five defects that a
+    green result cannot surface on its own.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    pm = read("video_pipeline/pmc_data.py")
+    hrg = read("video_pipeline/human_review_gate.py")
+
+    # 1. The scored 3-variant cold open had NEVER run: KeyError on every call.
+    check("A", "the cold open reads a niche key that exists",
+          'niche["dread_style"]' not in read_code(
+              "channels/betrayal_deepdive/clinical_pipeline.py"),
+          "the 3-variant scored cold open — the 30 seconds that decide "
+          "whether YouTube promotes the video — raised KeyError on EVERY "
+          "attempt and logged as a non-fatal note")
+
+    # 2. The FIGURE register: 77 downloads, 0 successes, every episode.
+    check("E", "figure URLs come from the article page, not a guess",
+          "_article_image_urls" in pm and "page_urls" in pm,
+          "three hand-written path templates produced 77 failures and 0 "
+          "successes; the page's own <img> URLs cannot go stale the same way")
+    check("E", "the right figure is matched, not just any image",
+          "stem and stem in u.lower()" in pm,
+          "otherwise figure 3 silently renders figure 1")
+    check("E", "page furniture is not mistaken for a figure",
+          "corehtml|coreutils|icons?|logos?|spacer" in pm,
+          "the site logo is an <img> on the same page")
+    check("F", "losing the FIGURE register reaches the human",
+          "notify_degraded" in pm and "def notify_degraded" in hrg,
+          "a green run shipped with zero of its paper's real images and the "
+          "only trace was one line in a 2400-line log")
+
+    # 3. Groq: 17 x 413 per run because only the completion was capped.
+    check("F", "the Groq budget counts the prompt, not just the answer",
+          "GROQ_TPM_LIMIT = 8000" in cp and "_groq_budget" in cp
+          and "max_tokens\": _budget" in cp,
+          "the free tier limits prompt+completion TOGETHER; capping only "
+          "the completion asked for 9060 against a limit of 8000, 17 times")
+    import re as _re2
+    _ns = {}
+    _i = cp.index("GROQ_TPM_LIMIT = 8000")
+    _j = cp.index("def call_groq(")
+    exec(cp[_i:_j], _ns)
+    _b = _ns["_groq_budget"]
+    check("F", "every prompt size now fits under the real limit",
+          all(v is None or (len("x" * n) // 4 + 1) + v <= 8000
+              for n, v in ((400, _b("x" * 400, 8000)),
+                           (17000, _b("x" * 17000, 8000)),
+                           (34000, _b("x" * 34000, 8000)))),
+          "including the ~4260-token script prompt that caused every 413")
+
+    # 4. Model discovery: lyria was selected AGAIN after the first fix.
+    check("D", "the model filter has no fallback branch to slip through",
+          "EVERY SIGNAL GETS A VETO" in cp,
+          "the first version only consulted the model NAME when no modality "
+          "was declared, so a music model declaring text output passed — and "
+          "lyria was picked again on the very next run")
+    check("D", "free-tier pricing checks every axis the provider reports",
+          "for v in pr.values()" in cp,
+          "a fixed key list cannot cover an axis the provider adds later, "
+          "which is how a 402-charging model read as free")
 
 
 def _format_leakage_checks():

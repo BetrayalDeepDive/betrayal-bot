@@ -398,6 +398,76 @@ def extract_figures(xml, pmcid):
     return figures
 
 
+_ARTICLE_IMG_CACHE = {}
+
+
+def _article_image_urls(pmcid, log_fn=None):
+    """
+    The figure URLs the article page itself publishes.
+
+    WHY THIS EXISTS, AND WHY IT IS NOT A FOURTH GUESS.
+
+    Every figure URL in this module was a hand-written path template, and the
+    comment above FIGURE_URL_PATTERNS said plainly that the sandbox could not
+    reach either host so none had ever been exercised. Run 30717615638 was
+    the first to actually try them at scale and the answer was unambiguous:
+    77 download attempts across 10 candidate papers, ZERO successes.
+
+      www.ncbi.nlm.nih.gov/pmc/articles/PMCxxxxx/bin/f1.jpg  -> 404
+      pmc.ncbi.nlm.nih.gov/articles/PMCxxxxx/bin/f1.jpg      -> 404
+      europepmc.org/articles/PMCxxxxx/bin/f1.jpg             -> 403
+
+    So the FIGURE register -- the largest single share of the visual mix, and
+    the only register that shows the REAL images from the real paper -- has
+    been silently disabled on every episode this channel has ever produced.
+    The 404s prove the host is reachable and only the path is wrong; the 403
+    is Europe PMC refusing a bot, not a missing file.
+
+    Adding a fourth template would repeat the mistake that caused this: an
+    unverifiable guess, wrong for months, costing a third of the visuals. So
+    this does not guess. It fetches the article page and reads the image URLs
+    the page itself links, which is by construction whatever PMC currently
+    serves, and survives any future CDN path change without a code edit.
+    """
+    if pmcid in _ARTICLE_IMG_CACHE:
+        return _ARTICLE_IMG_CACHE[pmcid]
+    urls = []
+    for page in (f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/",
+                 f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"):
+        try:
+            r = requests.get(page, headers=_headers(), timeout=30)
+            if r.status_code != 200 or not r.text:
+                if log_fn:
+                    log_fn(f"    article page {r.status_code} {page[:70]}")
+                continue
+            html = r.text
+            found = re.findall(r'<img[^>]+src="([^"]+)"', html, flags=re.I)
+            found += re.findall(r'<source[^>]+srcset="([^"\s]+)', html, flags=re.I)
+            for u in found:
+                if not re.search(r"\.(jpg|jpeg|png|gif)(\?|$)", u, flags=re.I):
+                    continue
+                if u.startswith("//"):
+                    u = "https:" + u
+                elif u.startswith("/"):
+                    u = "https://pmc.ncbi.nlm.nih.gov" + u
+                elif not u.startswith("http"):
+                    u = page + u.lstrip("./")
+                # Interface furniture, not article figures.
+                if re.search(r"(?i)/(corehtml|coreutils|icons?|logos?|spacer)/", u):
+                    continue
+                if u not in urls:
+                    urls.append(u)
+            if urls:
+                if log_fn:
+                    log_fn(f"    article page listed {len(urls)} image URL(s)")
+                break
+        except Exception as e:
+            if log_fn:
+                log_fn(f"    article page error {type(e).__name__} {page[:60]}")
+    _ARTICLE_IMG_CACHE[pmcid] = urls
+    return urls
+
+
 def download_figure(figure, out_path, min_bytes=6000, log_fn=None, retries=2):
     """
     Fetch one screened figure to disk, trying each known URL pattern.
@@ -424,7 +494,22 @@ def download_figure(figure, out_path, min_bytes=6000, log_fn=None, retries=2):
     """
     fname = figure.get("filename") or ""
     pmcid = figure.get("pmcid") or ""
-    urls = [figure["url"]] if figure.get("url") else []
+
+    # WHAT THE PAGE SAYS BEATS WHAT WE GUESSED. The templates below produced
+    # 77 failures and 0 successes on run 30717615638; the page's own <img>
+    # URLs are tried first, and the guessed patterns are kept only as a last
+    # resort in case the page fetch is the thing that is blocked.
+    urls = []
+    stem = re.sub(r"\.\w+$", "", fname).lower()
+    page_urls = _article_image_urls(pmcid, log_fn=log_fn) if pmcid else []
+    # Prefer the page image whose filename stem matches this figure's, so
+    # figure 3 does not silently render figure 1.
+    matched = [u for u in page_urls if stem and stem in u.lower()]
+    for u in matched + [u for u in page_urls if u not in matched]:
+        if u not in urls:
+            urls.append(u)
+    if figure.get("url") and figure["url"] not in urls:
+        urls.append(figure["url"])
     for pat in FIGURE_URL_PATTERNS:
         if pmcid and fname:
             u = pat.format(pmcid=pmcid, fname=fname)
@@ -534,6 +619,30 @@ def prefetch_figures(case, work_dir, log_fn=None, prefix="pmcfig"):
     if log_fn:
         log_fn(f"  Figures on disk: {len(kept)}/{len(figs)} "
                f"({'FIGURE register disabled' if not kept else 'ok'})")
+    # A DEGRADED EPISODE MUST NOT LOOK LIKE A HEALTHY ONE.
+    #
+    # "Figures on disk: 0/6 (FIGURE register disabled)" was a console line in
+    # a 2400-line log, and losing the largest visual register is exactly the
+    # kind of thing a run should be unable to hide. Run 30717615638 reported
+    # SUCCESS while shipping an episode with zero of its paper's real images
+    # -- and the only trace was that one line. It now reaches Telegram, where
+    # the same person who approves the episode can see what it is missing
+    # before approving it.
+    case["figures_expected"] = len(figs)
+    case["figures_missing"] = len(figs) - len(kept)
+    if figs and not kept:
+        try:
+            from human_review_gate import notify_degraded
+            notify_degraded(
+                "FIGURE register",
+                f"{len(figs)} figure(s) were found in the paper and none could "
+                f"be downloaded, so this episode renders with no real images "
+                f"from its own case report — the visual mix falls back to "
+                f"charts, timelines and text cards. The paper's own page is "
+                f"the source of truth for these URLs; if this repeats, the "
+                f"article page fetch is being blocked.")
+        except Exception:
+            pass  # notification is best-effort; the log line above still stands
     return case
 
 

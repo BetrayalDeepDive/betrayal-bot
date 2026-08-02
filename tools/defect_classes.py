@@ -69,6 +69,51 @@ def rel(p):
     return str(pathlib.Path(p).relative_to(ROOT))
 
 
+def blank_noncode(src):
+    """
+    Same source, with comment text and docstring bodies replaced by spaces —
+    line numbers and offsets preserved, so a regex match still reports the
+    right line.
+
+    Needed because half of this repo's value is in comments that QUOTE the
+    defect they fixed ("referenced niche[\"search_query\"], a key that..."),
+    and a scanner reading raw source reports those as live bugs. The first
+    run of the missing-key check did exactly that: eight confident findings
+    across four channels, every one of them a comment about an old fix.
+    Strings are KEPT — the real Ch1 instance lived inside an f-string prompt.
+    """
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return src
+    lines = src.splitlines(keepends=True)
+    blanks = []
+    prev = tokenize.NEWLINE
+    depth = 0
+    for t in toks:
+        if t.type == tokenize.OP:
+            if t.string in "([{":
+                depth += 1
+            elif t.string in ")]}":
+                depth = max(0, depth - 1)
+        is_doc = (t.type == tokenize.STRING and depth == 0
+                  and prev in (tokenize.INDENT, tokenize.DEDENT,
+                               tokenize.NEWLINE, tokenize.ENCODING))
+        if t.type == tokenize.COMMENT or is_doc:
+            blanks.append((t.start, t.end))
+        if t.type != tokenize.NL:
+            prev = t.type
+    for (sr, sc), (er, ec) in blanks:
+        for r in range(sr, er + 1):
+            if r - 1 >= len(lines):
+                break
+            line = lines[r - 1]
+            a = sc if r == sr else 0
+            b = ec if r == er else len(line.rstrip("\n"))
+            lines[r - 1] = line[:a] + " " * max(0, b - a) + line[b:]
+    return "".join(lines)
+
+
 def code_only(src):
     """Source with comments and docstrings removed (see audit's read_code)."""
     out, depth, prev = [], 0, tokenize.NEWLINE
@@ -394,12 +439,61 @@ def _key(cls, path, what):
     return f"{cls}|{path}|{normalised}"
 
 
+# ── CLASS 7: CONFIG KEY THAT DOES NOT EXIST ───────────────────────────────
+def scan_missing_config_keys():
+    """
+    `niche["dread_style"]` on a config that has no such key.
+
+    Run 30717615638 SUCCEEDED with this live: the 3-variant scored cold open
+    -- the most important 30 seconds of the episode, and the one thing that
+    decides whether YouTube promotes it -- raised KeyError on every single
+    attempt, was swallowed by a try/except, and logged as
+    "Cold open scoring (non-fatal): 'dread_style'". It had never once run.
+    `dread_style` was the true-crime key; the clinical conversion renamed it
+    to `clinical_frame` and missed this reference.
+
+    A green run is not evidence the features inside it executed. This
+    compares every subscripted key against the keys the config literal
+    actually defines.
+    """
+    for p in py_files():
+        # Comments in this repo routinely QUOTE the defect they fixed, so the
+        # subscript search must run against code only or it reports the fix
+        # notes as live bugs.
+        src = blank_noncode(p.read_text())
+        for cfg_name, var in (("NICHES", "niche"),):
+            m = re.search(rf"^{cfg_name}\s*=\s*\[", src, re.M)
+            if not m:
+                continue
+            depth, j = 0, m.end() - 1
+            while j < len(src):
+                if src[j] == "[":
+                    depth += 1
+                elif src[j] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            defined = set(re.findall(r'"(\w+)"\s*:', src[m.end():j]))
+            if not defined:
+                continue
+            for km in re.finditer(rf'{var}\[\s*"(\w+)"\s*\]', src):
+                key = km.group(1)
+                if key in defined:
+                    continue
+                finding("7-missing-config-key", rel(p),
+                        src[:km.start()].count("\n") + 1,
+                        f'{var}["{key}"] — {cfg_name} defines no such key',
+                        "raises KeyError; inside a try/except that reads as a "
+                        "non-fatal note, so the feature silently never runs")
+
+
 def main():
     argv = sys.argv[1:]
     for fn in (scan_unreachable_acceptance, scan_gate_ceilings,
                scan_retry_without_variation, scan_phantom_imports,
                scan_exit_discards_work, scan_format_leakage,
-               scan_unverified_success):
+               scan_unverified_success, scan_missing_config_keys):
         try:
             fn()
         except Exception as e:

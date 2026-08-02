@@ -1577,9 +1577,22 @@ def _is_text_model(d, mid):
     """
     True only if this catalogue row can plausibly return text for a prompt.
 
-    Prefers the provider's own modality declaration; falls back to the id
-    when the catalogue does not report one.
+    EVERY SIGNAL GETS A VETO. The first version of this check trusted the
+    provider's modality declaration and only consulted the model id when no
+    declaration was present -- so a row that says `output_modalities: ["text"]`
+    passed no matter what it was called. Run 30717615638 proved that wrong the
+    only way that counts: lyria-3-pro-preview and lyria-3-clip-preview, both
+    music generators, were selected AGAIN, answered 402, and killed OpenRouter
+    for the rest of the run. Exactly the failure the check was written to stop,
+    surviving the check.
+
+    A filter with a fallback branch is a filter you have to be lucky with.
+    Now the name and the modality can each reject on their own; only a row
+    that survives both is offered a prompt.
     """
+    low = str(mid).lower()
+    if any(h in low for h in _NON_TEXT_MODEL_HINTS):
+        return False
     arch = d.get("architecture") or {}
     outs = arch.get("output_modalities")
     if isinstance(outs, (list, tuple)) and outs:
@@ -1587,8 +1600,7 @@ def _is_text_model(d, mid):
     modality = str(arch.get("modality") or d.get("modality") or "").lower()
     if "->" in modality:
         return modality.split("->")[-1].strip().startswith("text")
-    low = str(mid).lower()
-    return not any(h in low for h in _NON_TEXT_MODEL_HINTS)
+    return True
 
 
 def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
@@ -1636,10 +1648,17 @@ def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
                     # free. Any non-zero price on ANY axis disqualifies.
                     pr = d.get("pricing") or {}
                     try:
-                        if any(float(pr.get(k, 0) or 0) != 0.0 for k in
-                               ("prompt", "completion", "request", "image",
-                                "audio", "video", "internal_reasoning",
-                                "web_search")):
+                        # Check EVERY pricing axis the provider reports, not a
+                        # list I guessed at. The lyria pair passed a fixed-key
+                        # check and still answered 402 "Insufficient credits",
+                        # which means they charge on an axis that was not in
+                        # my list -- and enumerating the keys the provider
+                        # actually sent is the only version of this that
+                        # cannot be out of date.
+                        if any(float(v or 0) != 0.0 for v in pr.values()
+                               if isinstance(v, (int, float, str))
+                               and str(v).replace(".", "", 1)
+                                         .replace("-", "", 1).isdigit()):
                             continue
                         if float(pr.get("prompt", 1) or 1) != 0.0 or \
                            float(pr.get("completion", 1) or 1) != 0.0:
@@ -1746,8 +1765,41 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
             break
     return None
 
+GROQ_TPM_LIMIT = 8000  # free "on_demand" tier, prompt + completion COMBINED
+
+
+def _groq_budget(prompt, tokens):
+    """
+    How many completion tokens Groq will actually accept for this prompt.
+
+    Groq's free tier limits prompt + completion TOGETHER to 8000 tokens per
+    minute, but this call only ever capped the completion -- at 4800, with a
+    comment claiming the limit was 6000. So a script prompt of ~4,260 tokens
+    asked for 9,060 and got a 413 every time. Run 30717615638 collected
+    SEVENTEEN of them: "Limit 8000, Requested 9060". Groq is the second
+    provider in the chain, so that is seventeen round-trips, seventeen
+    ten-second back-offs, and a provider marked dead for the rest of the run
+    while it was working fine and simply being asked for too much.
+
+    Returns None when the prompt alone leaves no room for a usable answer --
+    better to skip Groq for this one call than to spend a round-trip proving
+    it cannot fit.
+    """
+    prompt_tokens = len(prompt) // 4 + 1      # ~4 chars/token, deliberately rough
+    room = GROQ_TPM_LIMIT - prompt_tokens - 200   # 200 = headroom for the envelope
+    if room < 256:
+        return None
+    return max(1, min(tokens, room))
+
+
 def call_groq(prompt, tokens=8000, min_chars=100):
     if not GROQ_KEY: return None
+    _budget = _groq_budget(prompt, tokens)
+    if _budget is None:
+        log(f"  Groq skipped: this prompt is ~{len(prompt)//4} tokens and the "
+            f"free tier's combined limit is {GROQ_TPM_LIMIT} — no room for an "
+            f"answer, so asking would only spend a round-trip on a 413.")
+        return None
     # FIX (direct user report, July 24 2026 — real provider audit):
     # confirmed llama-3.3-70b-versatile and llama-3.1-8b-instant were
     # BOTH formally deprecated by Groq on June 17 2026 (already past —
@@ -1769,7 +1821,7 @@ def call_groq(prompt, tokens=8000, min_chars=100):
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
+                      "temperature": 0.88, "max_tokens": _budget}, timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
@@ -2530,7 +2582,7 @@ def generate_best_cold_open(niche, topic, trending_titles=None):
     prompt = f"""Generate exactly 3 different cold open variants for a clinical
 case documentary narration, drawn from a real published case report.
 Topic: {topic}
-Niche style: {niche["dread_style"]}
+Niche style: {niche.get("clinical_frame") or niche.get("implication") or niche["series"]}
 {trend_hint}
 
 Each cold open must:
