@@ -8042,6 +8042,53 @@ def get_yt_token():
     log("OK YouTube token")
     return d["access_token"]
 
+# ══════════════════════════════════════════════════════════════════════
+# YOUTUBE "ALTERED OR SYNTHETIC CONTENT" DECLARATION
+# ══════════════════════════════════════════════════════════════════════
+# This flag, not YouTube, is why the label appears. It was hardcoded True
+# with the comment "mandatory AI disclosure since Mar 2024", which overstates
+# the actual policy — and on a HEALTH channel that is the expensive kind of
+# mistake, because health is one of the sensitive categories that gets the
+# louder label ON THE PLAYER rather than a line in the expanded description.
+#
+# WHAT THE POLICY ACTUALLY REQUIRES (verified against YouTube's published
+# guidance, Aug 2026): disclosure is for REALISTIC content — content a viewer
+# "could easily mistake for a real person, place, scene, or event". The test
+# is realism plus deception potential.
+#
+# EXPLICITLY EXEMPT, and this is the list that matters here:
+#   * AI voiceover over illustrations / animated faceless content
+#   * generative AI used for production assistance — scripts, ideas, titles,
+#     descriptions, captions
+#   * content that is clearly unrealistic or animated
+#   * changes that are inconsequential
+#
+# WHAT THIS CHANNEL ACTUALLY SHIPS:
+#   * visuals: rendered charts, timelines, differential boards, text cards,
+#     and REAL figures taken from the real CC BY paper. Nothing photoreal is
+#     synthesised. There is no synthetic person, no fabricated scene, no
+#     altered footage of a real event.
+#   * narration: synthetic voice over those graphics — the exempt case above.
+#   * script: written from a real published case report. Production assistance.
+#
+# On the published policy this episode format sits outside the requirement,
+# so declaring it was over-disclosure, not compliance.
+#
+# THE TRIP-WIRES. Set this back to True the moment ANY of these becomes true,
+# because then the content really is what the policy is aimed at:
+#   * a photoreal AI-generated image or video of a person, patient, clinician
+#     or hospital is used as anything other than an obvious illustration
+#   * a real person's voice or likeness is synthesised
+#   * footage of a real event is altered
+#   * a scene is generated that a viewer could take for documentary footage
+#
+# Consistently failing to disclose when disclosure IS required risks content
+# removal and YPP suspension, so this is a judgement to revisit whenever the
+# visual system changes — not a setting to forget.
+DECLARE_SYNTHETIC_MEDIA = os.environ.get(
+    "DECLARE_SYNTHETIC_MEDIA", "false").strip().lower() in ("1", "true", "yes")
+
+
 def upload_yt(path, title, desc, tags, token=None, privacy="public"):
     token = token or get_yt_token()
     fs    = Path(path).stat().st_size
@@ -8055,7 +8102,7 @@ def upload_yt(path, title, desc, tags, token=None, privacy="public"):
                           "tags": tags[:15], "categoryId": "27"},
               "status": {"privacyStatus": privacy,
                          "selfDeclaredMadeForKids": False, "madeForKids": False,
-                         "containsSyntheticMedia": True}},  # mandatory AI disclosure since Mar 2024
+                         "containsSyntheticMedia": DECLARE_SYNTHETIC_MEDIA}},
         timeout=30)
     url = init.headers.get("Location")
     if not url:

@@ -477,6 +477,7 @@ def audit_sourcing_robustness():
     _rounds_checks()
     _format_leakage_checks()
     _green_run_checks()
+    _synthetic_declaration_checks()
     _email_routing_checks()
     _format_leak_checks()
     _review_gate_checks()
@@ -924,6 +925,44 @@ def _short_answer_checks():
     check("D", "the other four channels' scoring is unchanged",
           _sts("4380 DAYS HIDDEN") == 10.0 and _sts("47 VICTIMS") == 10.0,
           "the clinical terms were ADDED, not swapped in")
+
+
+def _synthetic_declaration_checks():
+    """
+    The "Altered or synthetic content" label was SELF-INFLICTED.
+
+    containsSyntheticMedia was hardcoded True with a comment calling it
+    "mandatory AI disclosure since Mar 2024". YouTube's published policy is
+    narrower: disclosure is for REALISTIC content a viewer could mistake for
+    a real person, place, scene or event. AI voiceover over illustrations,
+    animated faceless content, and AI used for scripts/titles/captions are
+    explicitly exempt — which is this channel's entire format.
+
+    Health is one of the sensitive categories that gets the louder label on
+    the player rather than a line in the description, so over-declaring cost
+    this channel the most visible version of a label it did not owe.
+
+    These checks keep the decision explicit and reversible rather than a
+    boolean buried in an API body.
+    """
+    cp = read("channels/betrayal_deepdive/clinical_pipeline.py")
+    check("A", "the synthetic-media declaration is a named, documented decision",
+          "DECLARE_SYNTHETIC_MEDIA" in cp
+          and '"containsSyntheticMedia": DECLARE_SYNTHETIC_MEDIA' in cp,
+          "it was a hardcoded True inside the upload payload")
+    check("A", "the declaration can be turned back on without a code change",
+          'os.environ.get(\n    "DECLARE_SYNTHETIC_MEDIA"' in cp
+          or 'os.environ.get(' in cp.split("DECLARE_SYNTHETIC_MEDIA =")[1][:120],
+          "the trip-wires must be actionable the day the format changes")
+    check("A", "the trip-wires for re-enabling it are written down",
+          "TRIP-WIRES" in cp and "photoreal" in cp
+          and "YPP suspension" in cp,
+          "a judgement with no recorded conditions is a judgement nobody can "
+          "revisit safely")
+    check("C", "the MEDICAL disclaimer is untouched by this",
+          "build_disclaimer_block" in cp,
+          "the AI label and the medical disclaimer are different obligations; "
+          "only the first was over-applied")
 
 
 def _green_run_checks():
