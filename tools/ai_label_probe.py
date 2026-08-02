@@ -164,9 +164,14 @@ def main():
         print("        The label will still appear. Our declaration is not")
         print("        the only input — their own detection overrode it.")
     else:
-        print("RESULT: YouTube stored containsSyntheticMedia = false.")
-        print("        Our declaration held. No 'Made with AI' label from")
-        print("        the disclosure field on this upload.")
+        # Observed 2026-08-02: YouTube does not echo the field back at all
+        # when it is false — it only appears in the status object when it is
+        # true. Absent and false are the same state here: nothing declared,
+        # and nothing added by their own detection.
+        print("RESULT: YouTube did not set containsSyntheticMedia.")
+        print("        Our declaration held — the field comes back absent,")
+        print("        which is how the API represents 'not declared'. No")
+        print("        'Made with AI' label from the disclosure field.")
         print()
         print("        Caveat worth knowing: this probe is a plain colour")
         print("        card with a sine tone. It does not contain synthetic")

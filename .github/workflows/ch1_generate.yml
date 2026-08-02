@@ -41,11 +41,11 @@ on:
         # one-off check, the probe rides in here: true runs ONLY the AI-label
         # probe and skips generation entirely; false (the default, and what
         # every scheduled/normal run uses) behaves exactly as before.
-        description: 'true = run ONLY the AI-label probe, skip generation entirely'
+        description: 'probe = upload a private AI-label probe. report = read-only scan of published videos. false = normal run.'
         required: false
         default: 'false'
         type: choice
-        options: ['false','true']
+        options: ['false','probe','report','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -72,7 +72,7 @@ jobs:
   # to find out whether YouTube applies the "Made with AI" label from its own
   # detection regardless of what we declare. Never runs unless asked for.
   label_probe:
-    if: inputs.probe_only == 'true'
+    if: inputs.probe_only != 'false' && inputs.probe_only != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -89,14 +89,25 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core -qq
       - name: Upload probe and read the label back
+        if: inputs.probe_only != 'report'
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: python tools/ai_label_probe.py --keep
+      # Read-only: lists which already-published videos still declare
+      # synthetic media. Changes nothing — clearing them is a separate,
+      # deliberate call.
+      - name: Report which published videos still carry the label
+        if: inputs.probe_only == 'report'
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python tools/clear_synthetic_label.py
 
   generate:
-    if: inputs.probe_only != 'true'
+    if: inputs.probe_only == 'false' || inputs.probe_only == ''
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
