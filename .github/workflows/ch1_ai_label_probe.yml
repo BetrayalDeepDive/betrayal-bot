@@ -1,0 +1,47 @@
+# ============================================================
+# Ch1 — does YouTube apply the "Made with AI" label anyway?
+#
+# The pipeline now declares containsSyntheticMedia = false. Reading the code
+# proves what we SEND. It cannot prove what YouTube DOES with it — they can
+# label from their own detection regardless of the declaration.
+#
+# This uploads one ~6 second PRIVATE clip with the flag explicitly false and
+# reads the stored status straight back, then deletes it. Private means it
+# never appears on the channel, in search, or in subscriber feeds.
+#
+# Set keep=true to leave it up so you can look at it in Studio yourself.
+# ============================================================
+name: Ch1 — AI label probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: 'true = leave the private probe up for manual inspection.'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests -q
+      - name: Upload probe and read the label back
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          if [ "${{ inputs.keep }}" = "true" ]; then
+            python tools/ai_label_probe.py --keep
+          else
+            python tools/ai_label_probe.py
+          fi
