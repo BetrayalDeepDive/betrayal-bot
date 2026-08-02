@@ -195,7 +195,19 @@ _TECHNICAL_TERM = re.compile(
 # REMAINING WEAKNESS, STATED PLAINLY: the positive reference is one sample
 # and I wrote it. The negative controls are real; the positive one is not.
 # Drop real accepted clinical scripts into the repo and re-run the tool.
-SPECIFICITY_TARGET_PER_100W = 4.5
+# 4.2, derived from TWO clinical samples now that a real accepted one exists
+# (run 30717615638's 8.9/10 script, 3.28 details per 100 words) alongside the
+# authored reference (3.94). At the previous 4.5 the real accepted script
+# scored 7.3/10 -- below the "clearly good" band -- so the threshold, not the
+# script, was the thing out of step.
+#
+# 4.2 is deliberately NOT the value tools/calibrate_specificity.py suggests
+# on its own (3.7): that would place the stronger sample at a capped 10.0 and
+# leave the metric no headroom to tell good from excellent, which is the
+# failure mode the band exists to prevent. 4.2 puts the weakest real sample
+# at 7.8 and the strongest at 9.4, both inside the band, at 7.6x the real
+# non-clinical ceiling of 0.55.
+SPECIFICITY_TARGET_PER_100W = 4.2
 
 
 def clinical_specificity(script, max_points=2.8):
