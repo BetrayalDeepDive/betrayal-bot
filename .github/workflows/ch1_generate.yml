@@ -81,6 +81,13 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests -q
+      # The runner image no longer ships ffmpeg (the generate job below
+      # installs it too) — without this the probe dies before it uploads
+      # anything, which looks like a probe failure but is just a missing
+      # binary.
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core -qq
       - name: Upload probe and read the label back
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
