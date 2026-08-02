@@ -1311,6 +1311,18 @@ def _download_stock_background(niche: str, output_path: str, topic: str = "") ->
             "historical map candlelight", "ancient temple columns dramatic",
             "archaeological dig site dramatic"
         ],
+        # Ch1 had NO entry here, so every one of its Shorts fell through to
+        # "default" below and searched "cinematic dark drama" / "mystery
+        # thriller" — run 30717615638 logged
+        # "Background matched: 'shocking cinematic dark drama'" on a published
+        # case report. That is the "the shorts kept talking about some other
+        # thing which is not really correct" report, in the visuals.
+        "hospital medical": [
+            "hospital corridor calm", "medical scan monitor closeup",
+            "laboratory analysis closeup", "clinician reviewing notes",
+            "microscope slide detail", "medical chart paperwork closeup",
+            "hospital ward night quiet", "blood sample vial laboratory"
+        ],
         "default":      ["cinematic dark drama","mystery thriller","emotional shadow"],
     }
     keywords = niche_keywords.get(niche, niche_keywords["default"])
@@ -1726,6 +1738,35 @@ def get_yt_token() -> str:
     return r.json().get("access_token", "") if r.status_code == 200 else ""
 
 
+def build_short_description(title, tags_str, cfg, topic_line=""):
+    """
+    A Short's description is not a transcript.
+
+    Both upload sites pasted the ENTIRE narration script into the YouTube
+    description. Direct report after run 30717615638: "you have mentioned
+    every detail of what it is talking about. That shouldn't be there... Why
+    will people look at the shot? Everything is already there."
+
+    Exactly right, and it is worse than redundant. A Short earns its watch
+    time from curiosity; printing the whole answer under the player removes
+    the reason to watch, and a wall of narration is also the weakest possible
+    signal to YouTube about what the Short is ABOUT.
+
+    So: the topic, the hashtags, and one line pointing at the full episode.
+    Nothing that answers the question the Short is asking.
+    """
+    parts = [str(title).strip()]
+    if topic_line and topic_line.strip().lower() != str(title).strip().lower():
+        parts.append(topic_line.strip())
+    parts.append(f"🎬 Full case on {cfg.get('watermark', '')} — the complete "
+                 f"report, start to finish.")
+    tags = (tags_str or "").strip()
+    if "#shorts" not in tags.lower():
+        tags = (tags + " #Shorts").strip()
+    parts.append(tags)
+    return "\n\n".join(p for p in parts if p)
+
+
 def upload_youtube_short(video_path: str, title: str, description: str,
                           tags: list) -> str:
     """Upload to YouTube as Short. Returns URL or ''."""
@@ -2009,7 +2050,9 @@ def _produce_standalone_short_once(mode: str, channel: str = "betrayal_deepdive"
         # at all. Real bridge line added here, every channel, pointing
         # viewers at the full-length episodes.
         bridge_line = f"🎬 Full-length episodes daily on {cfg['watermark']} — subscribe for the complete story."
-        description = f"{script}\n\n{tags_str}\n\n{cfg['tagline']}\n\n{bridge_line}"
+        # Was: the whole narration script. See build_short_description.
+        description = build_short_description(title, tags_str, cfg,
+                                              topic_data.get("topic", ""))
         yt_url = upload_youtube_short(video_out, title, description, tags)
 
         # 9.5 Upload the custom thumbnail now that a real video_id exists
@@ -2346,8 +2389,11 @@ Return JSON:
         has_thumb = bool(thumb_out and os.path.exists(thumb_out))
 
         tags = [t.strip("#") for t in script_data["hashtags"].split() if t.startswith("#")]
-        url = upload_youtube_short(video_out, script_data["title"],
-                                    script_data["script"] + "\n\n#Shorts", tags)
+        # Was: script_data["script"], i.e. the entire narration.
+        _desc = build_short_description(script_data["title"],
+                                        script_data.get("hashtags", ""), cfg,
+                                        str(main_topic)[:120])
+        url = upload_youtube_short(video_out, script_data["title"], _desc, tags)
 
         if url and has_thumb:
             try:

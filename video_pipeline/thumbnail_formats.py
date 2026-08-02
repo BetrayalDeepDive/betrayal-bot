@@ -272,9 +272,35 @@ def select_thumbnail_format(cache_dir, channel_name, niche_name, episode):
          episode number so every format in the pool gets real exposure.
     """
     history = load_format_history(cache_dir)
-    channel_history = [e for e in history if e.get("channel") == channel_name]
+    # Same case mismatch splits one channel's learning history into two
+    # buckets ("BetrayalDeepDive" and "NO KNOWN CAUSE" are both in the file),
+    # so "don't repeat the last format" silently stopped working too.
+    _cn = str(channel_name).strip().lower()
+    channel_history = [e for e in history
+                       if str(e.get("channel", "")).strip().lower() == _cn]
 
-    pool_formats = CHANNEL_PREFERRED_FORMATS.get(channel_name, ALL_FORMATS)
+    # THE POOL RESTRICTION WAS SILENTLY NOT APPLYING.
+    #
+    # The keys here are display names ("No Known Cause"), but the Shorts
+    # engine passes its config's display_name, which is UPPERCASE
+    # ("NO KNOWN CAUSE"). A dict .get() miss falls through to ALL_FORMATS,
+    # so run 30717615638 produced thumbnails in `big_face_reaction` and
+    # `candid_shot` — a reaction face and a paparazzi-style candid, on a
+    # channel about published case reports. That is the "it's a text-type
+    # thumbnail and it's not even proper, I told you what type I need"
+    # report: the four formats chosen FOR this channel were never used.
+    #
+    # Matched case-insensitively, and a miss is now loud rather than a
+    # silent widening to every format in the library.
+    _pool_key = next((k for k in CHANNEL_PREFERRED_FORMATS
+                      if k.lower() == str(channel_name).strip().lower()), None)
+    if _pool_key is None:
+        print(f"  [thumbnail_formats] WARNING: no preferred-format pool for "
+              f"channel {channel_name!r} — falling back to ALL_FORMATS, which "
+              f"is how off-brand formats reach a channel. Add a key for it.")
+        pool_formats = ALL_FORMATS
+    else:
+        pool_formats = CHANNEL_PREFERRED_FORMATS[_pool_key]
     last_format = channel_history[-1]["format"] if channel_history else None
     candidates = [f for f in pool_formats if f != last_format] or list(pool_formats)
 

@@ -247,9 +247,17 @@ def scan_retry_without_variation():
     no variation hook (set_ai_variant, a seed change, a provider/voice/engine
     swap, or feedback threaded into the next attempt).
     """
+    # A TIMED BACKOFF IS A REAL SOURCE OF VARIATION -- when the thing being
+    # retried is a TRANSIENT failure. Re-asking Whisper after a 502, ten
+    # seconds later, is not "the same attempt billed twice": the input that
+    # changed is the server's state, and that is the entire point. This
+    # detector exists for loops that re-roll a GENERATOR with identical
+    # inputs, not for network retries, and flagging the latter would teach
+    # someone to delete a correct backoff to quiet the scanner.
     VARY = ("set_ai_variant", "random.choice", "random.shuffle", "seed",
             "feedback", "_SKIP_", "variant", "rotate", "angles", "prev_score",
-            "reject", "tried", "_STUCK", "round_no")
+            "reject", "tried", "_STUCK", "round_no",
+            "time.sleep", "backoff", "retrying in")
     for p in py_files():
         src = p.read_text()
         try:

@@ -4837,14 +4837,49 @@ def _captions_for(audio_path, ass_path, script, audio_duration):
     duration -- less precise, but a readable caption track beats none, and
     YouTube's auto-captions are worse than either.
     """
-    if generate_real_synced_ass(audio_path, ass_path):
-        return True
-    log("  Real caption sync unavailable — building duration-distributed "
-        "captions from the script so the video is never shipped uncaptioned.")
+    # A SINGLE TRANSIENT 502 DESYNCED THE WHOLE EPISODE.
+    #
+    # Direct report after run 30717615638: "the narrator was talking about a
+    # different line and the subtitle was showing a different line." Exactly
+    # right, and this function caused it. Whisper returned ONE 502, this gave
+    # up immediately, and the fallback spread the script evenly across the
+    # runtime — which is guaranteed to drift, because narration is not evenly
+    # paced. A 502 is a transient server error, not a verdict; it deserves a
+    # retry before an 18-minute episode is captioned by estimation.
+    for _attempt in range(1, 4):
+        if generate_real_synced_ass(audio_path, ass_path):
+            if _attempt > 1:
+                log(f"  Real caption sync succeeded on attempt {_attempt}.")
+            return True
+        if _attempt < 3:
+            _wait = 10 * _attempt
+            log(f"  Real caption sync attempt {_attempt}/3 failed — retrying "
+                f"in {_wait}s (a transient 5xx must not cost the episode its "
+                f"synced subtitles).")
+            time.sleep(_wait)
+
+    log("  Real caption sync unavailable after 3 attempts — building "
+        "duration-distributed captions from the script so the video is never "
+        "shipped uncaptioned. These are ESTIMATED, not synced.")
     try:
         generate_fallback_ass(script, audio_duration, ass_path)
         ok = Path(ass_path).exists() and Path(ass_path).stat().st_size > 200
         log(f"  Fallback captions: {'built' if ok else 'FAILED'}")
+        # Estimated captions drift against real narration, and drift is the
+        # single most visible defect in a finished episode. The person
+        # approving it must be told which kind they are looking at.
+        if ok:
+            try:
+                from human_review_gate import notify_degraded
+                notify_degraded(
+                    "Subtitle sync",
+                    "Whisper word-level sync failed 3 times, so this episode's "
+                    "subtitles are ESTIMATED by spreading the script across the "
+                    "runtime. They will drift against the narration — visibly, "
+                    "in places. Decline at the video checkpoint if that is not "
+                    "acceptable for this episode.")
+            except Exception:
+                pass
         return ok
     except Exception as e:
         log(f"  Fallback captions failed: {e}")
@@ -6259,9 +6294,30 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     # direct user request ("stock footage of 55 to 65... based on the
     # niche") regardless of exact video length so a 15-min and an 18-min
     # video both stay in the requested density band.
-    TARGET_SECONDS_PER_CLIP = 13.5
+    # THE CLAMP WAS OVERRIDING THE TARGET IT SAT NEXT TO.
+    #
+    # Direct report after run 30717615638: "it should keep changing within 13
+    # seconds, that didn't work out — it stood for some time." Correct. The
+    # 13.5s target was computed and then thrown away: an 18.8-minute episode
+    # wants 1128/13.5 = 84 segments, min(65, 84) forced it to 65, and 1128/65
+    # is 17.4 SECONDS PER CARD. The longer the episode, the more static it
+    # got — exactly backwards.
+    #
+    # The 55-65 band came from the retired stock-footage era, where each clip
+    # was a paid API fetch and the count had to be capped. Ch1 renders every
+    # frame locally now; a segment costs a render, not a request, so the
+    # ceiling can follow the audio instead of fighting it. The floor stays
+    # (a very short episode still needs enough cuts to breathe) and a high
+    # ceiling remains only as a guard against a runaway duration.
+    TARGET_SECONDS_PER_CLIP = 13.0
     n_buckets = int(round(audio_duration / TARGET_SECONDS_PER_CLIP))
-    n_buckets = max(55, min(65, n_buckets))
+    n_buckets = max(55, min(200, n_buckets))
+    _secs_per_card = audio_duration / max(1, n_buckets)
+    log(f"  Visual pace: {n_buckets} segments over {audio_duration/60:.1f} min "
+        f"= {_secs_per_card:.1f}s per card (target {TARGET_SECONDS_PER_CLIP}s)")
+    if _secs_per_card > TARGET_SECONDS_PER_CLIP + 1.5:
+        log(f"  WARNING: cards are holding {_secs_per_card:.1f}s, longer than "
+            f"the {TARGET_SECONDS_PER_CLIP}s target — the clamp is binding.")
 
     # Expanded theme list (was 28, now 60) so segments this close together
     # don't hit the same theme label repeatedly — each tagged with a
@@ -7043,16 +7099,22 @@ def generate_ambient_music(duration):
 # which is the actual bug being fixed) rather than silently doing nothing.
 # ══════════════════════════════════════════════════════════════════
 
+# "eerie" and "dread" are horror moods on a channel about clinicians doing
+# careful work with incomplete information. Direct report: the background
+# should carry the CLINICAL setting, not a haunting. "unease" is kept where
+# the case genuinely turns on something not adding up; the rest move to beds
+# that sound like a hospital and a mind working, which is what these stories
+# actually are.
 NICHE_MUSIC_MOOD = {
     "toxicology_cases":        "unease",
     "diagnostic_odyssey":      "unease",
-    "neurology_cases":         "eerie",
+    "neurology_cases":         "clinical",
     "rare_disease_cases":      "unease",
     "senior_health_longevity": "reflective",
-    "medical_mystery_outbreak":"dread",
-    "surgical_case_studies":   "unease",
+    "medical_mystery_outbreak":"unease",
+    "surgical_case_studies":   "clinical",
     "drug_discovery_stories":  "reflective",
-    "sleep_science":           "eerie",
+    "sleep_science":           "clinical",
     "medical_history":         "reflective",
 }
 
@@ -7067,6 +7129,11 @@ MOOD_TRACK_RECOMMENDATIONS = {
     "unease": ["Search Pixabay Music for: 'unsettling ambient', 'psychological tension', 'disorienting drone'"],
     "eerie": ["Search Pixabay Music for: 'eerie ambient', 'paranormal atmosphere', 'ghostly drone'"],
     "obsessive_tension": ["Search Pixabay Music for: 'relentless tension', 'driving dark ambient', 'obsessive pulse'"],
+    # The clinical bed: a room tone with a slow pulse under it, not a haunting.
+    "clinical": ["Search Pixabay Music for: 'medical ambient', 'hospital atmosphere', "
+                 "'slow clinical drone', 'minimal heartbeat pulse'"],
+    "reflective": ["Search Pixabay Music for: 'reflective ambient', 'thoughtful piano drone', "
+                   "'calm documentary underscore'"],
 }
 
 MUSIC_BANK_ROOT = Path(__file__).parent / "music_bank"
@@ -7085,6 +7152,17 @@ def _synthesize_mood_track(mood, duration):
     # Each mood gets a genuinely different real ffmpeg synthesis recipe —
     # not just a volume tweak on the same base.
     recipes = {
+        # CLINICAL: a steady low room tone with a slow, soft pulse over it —
+        # the sound of a ward at night, not a haunted house. Built from the
+        # same primitives as the moods above so it needs no new dependency.
+        "clinical": (
+            ["-f","lavfi","-i",f"sine=frequency=98:duration={dur}",
+             "-f","lavfi","-i",f"sine=frequency=147:duration={dur}",
+             "-f","lavfi","-i",f"anoisesrc=d={dur}:c=brown:a=0.06"],
+            "[0:a]volume=0.9[a];[1:a]volume=0.4,tremolo=f=0.6:d=0.45[b];"
+            "[2:a]volume=0.5,lowpass=f=900[c];"
+            "[a][b][c]amix=inputs=3:duration=first,"
+            "highpass=f=55,lowpass=f=2600,volume=0.14[out]"),
         "dread": (
             ["-f","lavfi","-i",f"sine=frequency=40:duration={dur}",
              "-f","lavfi","-i",f"sine=frequency=41:duration={dur}",  # near-unison beat -> slow throb
@@ -11546,8 +11624,10 @@ def main():
                 # it manually (see review_community_tab's docstring).
                 try:
                     from human_review_gate import draft_community_post, review_community_tab
-                    _cp_draft = draft_community_post(topic, niche["name"], title,
-                                                      lambda p, tokens=200: ai_generate(p, tokens=tokens))
+                    _cp_draft = draft_community_post(
+                        topic, niche["name"], title,
+                        lambda p, tokens=260, min_chars=100:
+                            ai_generate(p, tokens=tokens, min_chars=min_chars))
                     _cp_result = review_community_tab(
                         "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
                         check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
