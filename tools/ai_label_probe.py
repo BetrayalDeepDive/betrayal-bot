@@ -164,25 +164,29 @@ def main():
         print("        The label will still appear. Our declaration is not")
         print("        the only input — their own detection overrode it.")
     else:
-        # Observed 2026-08-02: YouTube does not echo the field back at all
-        # when it is false — it only appears in the status object when it is
-        # true. Absent and false are the same state here: nothing declared,
-        # and nothing added by their own detection.
-        print("RESULT: YouTube did not set containsSyntheticMedia.")
-        print("        Our declaration held — the field comes back absent,")
-        print("        which is how the API represents 'not declared'. No")
-        print("        'Made with AI' label from the disclosure field.")
+        # PROVEN BLIND, 2026-08-02. The field came back absent here -- and it
+        # ALSO came back absent for all 7 already-published videos, every one
+        # of which was uploaded with containsSyntheticMedia hardcoded True and
+        # one of which visibly carries the label in Studio right now. So the
+        # API does not echo this field on read at all: absent means "not
+        # returned", NOT "not set". Reading it back proves nothing either way,
+        # and this branch must not claim otherwise.
+        print("RESULT: INCONCLUSIVE — and it always will be from the API.")
+        print("        The field came back absent. That is NOT evidence our")
+        print("        declaration held: videos known to carry the label read")
+        print("        back exactly the same way. videos.list does not return")
+        print("        containsSyntheticMedia; it is write-only in practice.")
         print()
-        print("        Caveat worth knowing: this probe is a plain colour")
-        print("        card with a sine tone. It does not contain synthetic")
-        print("        SPEECH. If YouTube's detection reacts to TTS narration")
-        print("        specifically, a real episode could still differ — the")
-        print("        only way to close that gap completely is one real")
-        print("        episode uploaded private.")
+        print("        The only real read is the Studio UI:")
+        print("          Studio -> Content -> the video -> Edit ->")
+        print("          'Altered content' -> see what it says.")
 
     if keep:
-        print(f"\nLeft up as PRIVATE for you to inspect: "
-              f"https://studio.youtube.com/video/{vid}/edit")
+        print(f"\nLeft up as PRIVATE — THIS is where the answer is:\n"
+              f"  https://studio.youtube.com/video/{vid}/edit\n"
+              f"  Open 'Altered content'. If it reads No, our declaration\n"
+              f"  held. Compare against an already-published episode, which\n"
+              f"  should read Yes.")
     else:
         d = requests.delete(f"{API}/videos", params={"id": vid},
                             headers={"Authorization": f"Bearer {tok}"},

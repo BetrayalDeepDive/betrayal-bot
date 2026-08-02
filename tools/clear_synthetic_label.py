@@ -24,14 +24,23 @@ Reads every video on the channel, reports which ones currently declare
 synthetic media, and — with --apply — sends videos.update to clear the flag.
 Without --apply it changes nothing and just shows you the list.
 
-HONEST ABOUT THE UNCERTAINTY
-----------------------------
-I could not verify from this sandbox whether YouTube's API permits CLEARING
-this field once set; the disclosure may be sticky by design, and a refusal
-would be a defensible product decision on their side rather than a bug here.
-So this tool does not assume. It reports exactly what the API returns per
-video, and if the API refuses it says so plainly and tells you the manual
-route, which definitely works:
+THE API IS BLIND HERE — PROVEN, NOT ASSUMED
+-------------------------------------------
+videos.list does not return containsSyntheticMedia. Measured on 2026-08-02:
+all 7 videos on this channel came back with the field absent, even though
+every one was uploaded with it hardcoded True and at least one visibly
+carries the label in Studio right now.
+
+That has two consequences this tool is built around:
+  * It cannot list which videos are flagged. So it does not try to filter —
+    every video gets the clear attempt. (An earlier version filtered on the
+    read, found 0, and cheerfully reported "nothing to do" on a channel
+    where the label was on screen.)
+  * A 200 from the update means ACCEPTED, not VERIFIED. Nothing in the
+    response can confirm the label is gone.
+
+The only real read is the Studio UI, which is also the manual route if the
+API refuses:
 
     YouTube Studio -> Content -> select the video -> Edit -> "Altered content"
     -> answer No -> Save
@@ -114,30 +123,37 @@ def main():
     vids = all_video_ids(token, pl)
     print(f"{len(vids)} video(s) on the channel.\n")
 
-    flagged, cleared, refused, skipped = [], [], [], []
+    # PROVEN 2026-08-02: videos.list does NOT return containsSyntheticMedia.
+    # All 7 videos on this channel read back with the field absent, despite
+    # every one having been uploaded with it hardcoded True and at least one
+    # visibly carrying the label in Studio. So there is no way to ask the API
+    # "which videos are flagged?" -- an earlier version of this tool did
+    # exactly that, found 0, and reported "nothing to do" on a channel where
+    # the label was on screen.
+    #
+    # So we do not filter. Every video gets the clear attempt.
+    flagged, cleared, refused = [], [], []
     for i in range(0, len(vids), 50):
         batch = vids[i:i + 50]
         r = requests.get(f"{API}/videos",
-                         params={"part": "snippet,status", "id": ",".join(batch)},
+                         params={"part": "snippet", "id": ",".join(batch)},
                          headers={"Authorization": f"Bearer {token}"}, timeout=30)
         for v in r.json().get("items", []):
-            st = v.get("status", {}) or {}
-            title = (v.get("snippet", {}).get("title") or "")[:60]
-            if not st.get("containsSyntheticMedia"):
-                skipped.append(title)
-                continue
-            flagged.append((v["id"], title))
+            flagged.append((v["id"], (v.get("snippet", {}).get("title") or "")[:60]))
 
-    print(f"declaring synthetic media: {len(flagged)}")
+    print("NOTE: the API does not report containsSyntheticMedia on read, so")
+    print("      which videos currently carry the label cannot be listed.")
+    print("      Every video is treated as a candidate.\n")
+    print(f"videos that would be cleared: {len(flagged)}")
     for vid, title in flagged:
         print(f"   {vid}  {title}")
-    print(f"already clear: {len(skipped)}\n")
+    print()
 
     if not flagged:
         print("Nothing to do.")
         return 0
     if not apply:
-        print("Report only. Re-run with --apply to clear these.")
+        print("Report only. Re-run with --apply to send the clear.")
         return 0
 
     for vid, title in flagged:
@@ -160,16 +176,15 @@ def main():
                                   "Content-Type": "application/json"},
                          data=json.dumps(body), timeout=30)
         if r.status_code == 200:
-            still = (r.json().get("status", {}) or {}).get("containsSyntheticMedia")
-            if still:
-                refused.append((vid, title, "API returned 200 but the flag is "
-                                            "still set — YouTube is keeping it"))
-            else:
-                cleared.append((vid, title))
+            # 200 means the update was ACCEPTED, not that the label is gone.
+            # The response echoes status without containsSyntheticMedia (see
+            # the note above), so there is nothing here to check it against.
+            # Verification is the Studio UI, not this exit code.
+            cleared.append((vid, title))
         else:
             refused.append((vid, title, f"{r.status_code}: {r.text[:160]}"))
 
-    print(f"\ncleared: {len(cleared)}")
+    print(f"\nupdate accepted (200) — NOT the same as verified: {len(cleared)}")
     for vid, title in cleared:
         print(f"   {vid}  {title}")
     if refused:
@@ -179,6 +194,10 @@ def main():
         print("\nThe API would not clear these. Do it by hand — this route works:")
         print("  YouTube Studio -> Content -> the video -> Edit ->")
         print("  'Altered content' -> answer No -> Save")
+    print("\nNow go and LOOK. A 200 above only says YouTube accepted the")
+    print("request; the API will not tell us whether the label is gone,")
+    print("because it never reports this field back. Open one video in")
+    print("Studio -> Edit -> 'Altered content' and confirm with your eyes.")
     return 0
 
 
