@@ -82,12 +82,13 @@
       "last_run": "2026-08-01T06:47:30.464735"
     }
   },
-  "last_title_register": "sympathy",
+  "last_title_register": "dread",
   "performance": {
     "thumbnail_style_A": {
       "scores": [
         9.2,
-        9.2
+        9.2,
+        8.9
       ]
     },
     "obsession_dark": {
@@ -122,7 +123,7 @@
       ]
     }
   },
-  "episode_count": 7,
+  "episode_count": 8,
   "playlists": {
     "obsession_dark": "PLbqqA3yvFSbI",
     "dark_horror": "PLbqqA3yvFSbI"
@@ -149,5 +150,6 @@
       "cold_open_style": "",
       "date": "2026-07-21"
     }
-  ]
+  ],
+  "ie_female_trial_done": true
 }

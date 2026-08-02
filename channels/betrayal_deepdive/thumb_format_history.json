@@ -34,5 +34,50 @@
     "video_id": null,
     "timestamp": "2026-07-24T14:39:28.850544",
     "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "drug_discovery_stories",
+    "episode": 8,
+    "format": "object_evidence_closeup",
+    "video_id": null,
+    "timestamp": "2026-08-02T00:26:12.950473",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "hospital medical",
+    "episode": 6,
+    "format": "comparison_grid",
+    "video_id": null,
+    "timestamp": "2026-08-02T00:27:32.953037",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "hospital medical",
+    "episode": 7,
+    "format": "map_evidence_highlight",
+    "video_id": null,
+    "timestamp": "2026-08-02T00:28:27.293830",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "true crime",
+    "episode": 8,
+    "format": "big_face_reaction",
+    "video_id": null,
+    "timestamp": "2026-08-02T00:30:00.529197",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "wildlife myth-busting",
+    "episode": 9,
+    "format": "candid_shot",
+    "video_id": null,
+    "timestamp": "2026-08-02T00:32:35.907786",
+    "ctr_pct": null
   }
 ]

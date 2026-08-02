@@ -190,5 +190,29 @@
     "mode": "standalone_2",
     "format": "countdown_list",
     "timestamp": "2026-07-24T14:41:52.166352"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_1",
+    "format": "question_hook",
+    "timestamp": "2026-08-02T00:26:40.890679"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_2",
+    "format": "before_after",
+    "timestamp": "2026-08-02T00:27:39.433627"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "myth_bust",
+    "timestamp": "2026-08-02T00:28:35.871608"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "direct_reveal",
+    "timestamp": "2026-08-02T00:30:53.350049"
   }
 ]
