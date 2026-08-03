@@ -18,21 +18,33 @@ marked, with the fewest possible words next to it.
 
 THE THREE FORMATS
 -----------------
-Every one is drawn here, from shapes and text. Nothing depends on an image
+An earlier pass at this was clean, teal and geometric — a lightbox, a scan
+window, a heart trace — and it had no human element anywhere in it. That is
+the single largest lever on click-through, and without it the ceiling is
+somewhere around three to five percent no matter how tidy the rest is. So
+all three formats now put a BODY on the canvas, at scale, with the affected
+part marked.
+
+Two things make each one specific to its episode rather than a template with
+the words swapped: the body part comes from what the case is actually about
+(clinical_anatomy.shape_for), and the finding is filled in the colour the
+case itself names (anomaly_colour) — a story about blue hands renders blue
+hands, which is the strangest true thing the episode owns and the most
+clickable.
+
+  MARK   Bright bone field, body dark against it, the affected region in the
+         case's colour and ringed. The light tile in a dark grid.
+  SPLIT  The same body twice, normal beside affected, a red divider between
+         and the headline in a band beneath. A comparison is the cheapest
+         curiosity gap there is.
+  COUNT  One enormous number — a digit survives shrinking further than any
+         word, and "28 DAYS" asks a question that "a diagnostic delay" does
+         not.
+
+Everything is drawn here, from shapes and text. Nothing depends on an image
 model returning something usable, which is what made the old path
 unpredictable — and nothing here can generate a realistic-looking scene, so
 the synthetic-media question does not arise (see synthetic_media_policy.py).
-
-  LIGHTBOX   A radiology lightbox: pale, cold, backlit. Dark text on a
-             bright field. In a feed of dark thumbnails the bright one is
-             the one the eye lands on, which is the entire job.
-  ANOMALY    Deep teal field, scan window on the right, one finding ringed
-             in red with a leader line to it. The red ring is the visual
-             convention of medical mystery content and it survives being
-             shrunk further than any other element.
-  VITALS     A monitor trace across the whole frame that spikes and then
-             flatlines, with the text sitting on the baseline. The most
-             kinetic of the three — it reads as something going wrong.
 
 Each takes the same inputs and returns a 1280x720 JPEG.
 """
@@ -41,6 +53,8 @@ import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+import clinical_anatomy as ca
 
 W, H = 1280, 720
 
@@ -60,7 +74,7 @@ TEAL = (34, 168, 156)
 TEAL_DEEP = (12, 74, 78)
 ALERT = (232, 62, 58)
 
-FORMATS = ("lightbox", "anomaly", "vitals")
+FORMATS = ("mark", "split", "count")
 
 
 def _font(paths, size):
@@ -194,88 +208,161 @@ def _scan_window(rng, w, h, warm=False):
     return img
 
 
-def _lightbox(rng, headline, tag):
-    img = _vgrad((W, H), (232, 240, 242), (196, 214, 218))
-    img = _grid(img, 40, (150, 176, 182), 60)
+
+def _paint_region(img, shape, box, colour, soft=True):
+    """Fill the affected area of the body with the case's colour.
+
+    Two things this has to get right, both of which the first version got
+    wrong. The colour must be clipped to the SILHOUETTE, or it spills into
+    the background as a rectangle that reads as a rendering bug rather than
+    a finding. And the region mask must be soft-edged, or the finding has
+    perfect square corners no scan or symptom ever had.
+
+    Returns the region box so the caller can put the ring in the right place.
+    """
+    rb = ca.region_box(shape, box)
+    # The body, in the finding's colour, transparent everywhere else.
+    lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ca.draw_shape(ImageDraw.Draw(lay), shape, box, colour + (255,), detail=False)
+    # The region, as a soft ellipse.
+    reg = Image.new("L", img.size, 0)
+    ImageDraw.Draw(reg).ellipse(rb, fill=255)
+    if soft:
+        reg = reg.filter(ImageFilter.GaussianBlur(radius=14))
+    # Intersect: colour only where the body IS and the region says so.
+    alpha = lay.split()[3].point(lambda v: 255 if v > 128 else 0)
+    from PIL import ImageChops
+    lay.putalpha(ImageChops.multiply(alpha, reg))
+    img.paste(lay, (0, 0), lay)
+    return rb
+
+
+def _body(rng, headline, tag, shape, colour):
+    """MARK — the body, the finding, three words.
+
+    Bright bone field so the tile is the light one in a dark grid; the body
+    dark against it; the affected region filled in the colour the case itself
+    names, ringed. Everything a viewer needs to know something is wrong,
+    before they have read a word.
+    """
+    img = _vgrad((W, H), (240, 245, 246), (203, 219, 222))
+    img = _grid(img, 40, (152, 178, 184), 55)
     d = ImageDraw.Draw(img)
 
-    # Four film panels along the top — the lightbox read, in one gesture.
-    for i in range(4):
-        x = 44 + i * 306
-        panel = _scan_window(rng, 268, 214).point(lambda v: min(255, int(v * 1.5) + 40))
-        img.paste(panel, (x, 40))
-        d.rectangle([x, 40, x + 268, 254], outline=(120, 150, 158), width=3)
-    # One panel holds the finding.
-    hit = rng.randint(0, 3)
-    hx = 44 + hit * 306 + 134
-    d2 = ImageDraw.Draw(img)
-    _ring(d2, hx, 147, 56, ALERT, width=9)
+    box = (742, 22, 1258, 700)
+    ca.draw_shape(d, shape, box, INK)
 
-    d.rectangle([0, 292, W, 300], fill=TEAL)
-    font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, W - 110, 300, 108)
-    y = 336
+    # The finding, in the case's own colour, clipped to the body.
+    rb = _paint_region(img, shape, box, colour)
+
+    d = ImageDraw.Draw(img)
+    cx, cy = (rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2
+    _ring(d, cx, cy, max(72, (rb[2] - rb[0]) * 0.46), ALERT, width=11)
+
+    font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, 660, 380, 118)
+    y = (H - len(lines) * lh) // 2 - 30
     for ln in lines:
         d.text((56, y), ln, font=font, fill=INK)
         y += lh
-    _badge(d, tag, 56, H - 76, BONE, TEAL_DEEP)
+    d.rectangle([56, y + 22, 356, y + 36], fill=ALERT)
+    _badge(d, tag, 56, H - 84, BONE, TEAL_DEEP)
     return img
 
 
-def _anomaly(rng, headline, tag):
-    img = _vgrad((W, H), (14, 62, 66), (9, 26, 34))
-    img = _grid(img, 48, (90, 190, 180), 26)
+def _split(rng, headline, tag, shape, colour):
+    """SPLIT — before and after, side by side, with the question between.
 
-    scan = _scan_window(rng, 560, 560)
-    mask = Image.new("L", (560, 560), 0)
-    ImageDraw.Draw(mask).ellipse([0, 0, 559, 559], fill=255)
-    img.paste(scan, (664, 80), mask)
+    A comparison is the cheapest curiosity gap there is: two of the same
+    thing, one of them wrong, and the viewer wants to know which and why.
 
+    The headline sits in a full-width band along the bottom rather than
+    floating over the artwork: the first version put it across the top,
+    where it landed straight on top of the anomaly marker and hid the one
+    element the whole design exists to show.
+    """
+    img = _vgrad((W, H), (28, 40, 48), (12, 18, 24))
     d = ImageDraw.Draw(img)
-    d.ellipse([664, 80, 1223, 639], outline=(120, 214, 204), width=6)
 
-    ax, ay = 1000, 300
-    _ring(d, ax, ay, 74, ALERT, width=10)
-    d.line([(ax - 74, ay + 40), (600, 470)], fill=ALERT, width=6)
-    d.ellipse([592, 462, 608, 478], fill=ALERT)
+    BAND = 468
+    d.rectangle([0, 0, W // 2 - 4, BAND], fill=(232, 238, 240))
+    d.rectangle([W // 2 + 4, 0, W, BAND], fill=(16, 22, 28))
 
-    font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, 560, 330, 96)
-    y = 150
+    # Inset from the top: the anomaly ring is drawn OUTSIDE the region
+    # box, so shapes flush to the edge get their marker cropped by the
+    # frame -- which loses the single most important element.
+    lbox = (120, 86, 500, 452)
+    rbox = (786, 86, 1166, 452)
+    ca.draw_shape(d, shape, lbox, (150, 164, 172))
+    # Light enough to read against the dark half — the first version drew
+    # it at (46,56,64) on a (20,28,34) field, which vanished.
+    ca.draw_shape(d, shape, rbox, (78, 92, 104))
+
+    rb = _paint_region(img, shape, rbox, colour)
+    d = ImageDraw.Draw(img)
+    _ring(d, (rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2,
+          max(62, (rb[2] - rb[0]) * 0.46), ALERT, width=11)
+    d.rectangle([W // 2 - 5, 0, W // 2 + 5, BAND], fill=ALERT)
+
+    d.rectangle([0, BAND, W, H], fill=(12, 18, 24))
+    d.rectangle([0, BAND, W, BAND + 9], fill=ALERT)
+    font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, W - 260, 190, 96)
+    y = BAND + (H - BAND - len(lines) * lh) // 2 + 4
     for ln in lines:
-        d.text((56, y + 4), ln, font=font, fill=(0, 0, 0))
-        d.text((54, y), ln, font=font, fill=BONE)
+        d.text(((W - _text_w(d, ln, font)) // 2, y), ln, font=font, fill=BONE)
         y += lh
-    d.rectangle([56, y + 18, 56 + 240, y + 28], fill=TEAL)
-    _badge(d, tag, 56, H - 84, INK, TEAL)
+    _badge(d, tag, 30, H - 66, INK, TEAL)
     return img
 
 
-def _vitals(rng, headline, tag):
-    img = _vgrad((W, H), (10, 30, 36), (6, 14, 18))
-    img = _grid(img, 32, (60, 150, 150), 30)
+def _count(rng, headline, tag, shape, colour):
+    """COUNT — one enormous number, because numbers stop a scroll.
+
+    A digit survives being shrunk further than any word, and "28 DAYS" asks
+    a question that "a long diagnostic delay" does not.
+    """
+    num, rest = _split_number(headline)
+    img = _vgrad((W, H), (14, 66, 70), (8, 22, 30))
+    img = _grid(img, 48, (96, 196, 186), 30)
     d = ImageDraw.Draw(img)
 
-    glow = Image.new("RGB", (W, H), (0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    flat = rng.randint(880, 1010)
-    _trace(gd, 0, W, 470, 150, rng, TEAL, 16, flatline_at=flat)
-    img = Image.blend(img, glow.filter(ImageFilter.GaussianBlur(18)), 0.55)
-
+    # (17,44,52) on this gradient was near-invisible — a silhouette has to
+    # clear its background by more than a few values or it reads as a stain.
+    box = (656, 30, 1268, 690)
+    ca.draw_shape(d, shape, box, (44, 104, 108))
+    rb = _paint_region(img, shape, box, colour)
     d = ImageDraw.Draw(img)
-    _trace(d, 0, W, 470, 150, rng, (150, 255, 236), 7, flatline_at=flat)
-    d.line([(flat, 470), (W, 470)], fill=ALERT, width=7)
-    _ring(d, flat, 470, 52, ALERT, width=9, ticks=False)
+    _ring(d, (rb[0] + rb[2]) / 2, (rb[1] + rb[3]) / 2,
+          max(64, (rb[2] - rb[0]) * 0.44), ALERT, width=10)
 
-    font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, W - 120, 300, 104)
-    y = 92
+    if num:
+        nf = _font(FONT_BOLD, 300)
+        d.text((58, 96), num, font=nf, fill=ALERT)
+        nb = d.textbbox((58, 96), num, font=nf)
+        font, lines, lh = _fit_block(d, rest.upper(), FONT_BOLD, 620, 220, 88)
+        y = nb[3] + 6
+    else:
+        font, lines, lh = _fit_block(d, headline.upper(), FONT_BOLD, 620, 380, 104)
+        y = (H - len(lines) * lh) // 2 - 20
     for ln in lines:
-        d.text((60, y + 5), ln, font=font, fill=(0, 0, 0))
+        d.text((60, y + 4), ln, font=font, fill=(0, 0, 0))
         d.text((58, y), ln, font=font, fill=BONE)
         y += lh
-    _badge(d, tag, 58, H - 86, INK, TEAL)
+    _badge(d, tag, 58, H - 84, INK, TEAL)
     return img
 
 
-_RENDER = {"lightbox": _lightbox, "anomaly": _anomaly, "vitals": _vitals}
+def _split_number(headline):
+    """Pull a leading number out so COUNT can set it enormous."""
+    words = headline.split()
+    for i, w in enumerate(words):
+        digits = "".join(c for c in w if c.isdigit())
+        if digits and len(digits) <= 3:
+            rest = " ".join(words[:i] + words[i + 1:])
+            return digits, rest or headline
+    return "", headline
+
+
+_RENDER = {"mark": _body, "split": _split, "count": _count}
 
 
 def pick_format(episode, history=None):
@@ -292,17 +379,22 @@ def pick_format(episode, history=None):
     return FORMATS[int(episode) % len(FORMATS)]
 
 
-def render(headline, out_path, episode=1, fmt=None, history=None, seed=None):
+def render(headline, out_path, episode=1, fmt=None, history=None, seed=None,
+           niche_name="", topic=""):
     """Render one thumbnail. Returns the format actually used.
 
     headline should already be the short 3-6 word hook, not the video title —
     a title is written to be read, a thumbnail is written to be glanced at.
+    niche_name and topic decide WHICH body part is shown and what colour the
+    finding is, so two episodes never look the same even in the same format.
     """
     fmt = fmt or pick_format(episode, history)
     if fmt not in _RENDER:
         raise ValueError(f"unknown format {fmt!r}; expected one of {FORMATS}")
     rng = random.Random(seed if seed is not None else int(episode) * 7919)
-    img = _RENDER[fmt](rng, headline, f"CASE {int(episode):02d}")
+    shape = ca.shape_for(niche_name, f"{topic} {headline}")
+    colour = ca.anomaly_colour(f"{topic} {headline}")
+    img = _RENDER[fmt](rng, headline, f"CASE {int(episode):02d}", shape, colour)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     img.save(out_path, "JPEG", quality=92)
     return fmt
