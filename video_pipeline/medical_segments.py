@@ -68,34 +68,46 @@ MOTION = {
     "BOARD":    {"zoom": 0.00016, "max": 1.04},
     "TIMELINE": {"zoom": 0.00016, "max": 1.04},
     "TITLE":    {"zoom": 0.00012, "max": 1.03},
+    "CASEFILE": {"zoom": 0.00014, "max": 1.04},
+    "LAB":      {"zoom": 0.00016, "max": 1.04},
 }
 
 
 def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True,
-                  register=None):
+                  register=None, transition="fade"):
     """
     Turn a rendered still into a clip with continuous slow motion.
 
     A held 14-15s shot that is genuinely static reads as a slideshow -- the
     specific failure this channel already hit twice. The zoompan below keeps
-    something moving inside every held frame, and the 0.4s fade prevents the
-    hard cut-to-fully-formed-graphic that was flagged as the most jarring
-    transition in the previous pipeline.
+    something moving inside every held frame.
 
     The rate is per register (MOTION): a diagram covered in small labels that
     is slowly scaling is measurably harder to read than one that is holding
     still, and the previous single rate was tuned for photographs.
+
+    TRANSITION. This used to end in a hardcoded `fade=t=in:st=0:d=0.4` -- the
+    same opening move on all ~60 cards of every episode. clinical_transitions
+    supplies a different one per card now; some need a second input to slide
+    across the frame, so the chain is built as a filter_complex rather than a
+    plain -vf.
     """
     m = MOTION.get(register or "", {"zoom": 0.00045, "max": 1.12})
-    vf = ("scale=1920:1080,"
-          + (f"zoompan=z='min(zoom+{m['zoom']},{m['max']})':"
-             f"d={max(1, int(duration * 24))}"
-             f":s=1920x1080:fps=24," if zoom else "")
-          + "fade=t=in:st=0:d=0.4")
-    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still_path),
-           "-vf", vf, "-t", f"{duration:.2f}",
-           "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-           "-an", str(out_path)]
+    base = ("scale=1920:1080"
+            + (f",zoompan=z='min(zoom+{m['zoom']},{m['max']})':"
+               f"d={max(1, int(duration * 24))}"
+               f":s=1920x1080:fps=24" if zoom else ""))
+    try:
+        import clinical_transitions as ctr
+        extra, frag = ctr.build(transition, w=1920, h=1080)
+    except Exception:
+        extra, frag = [], "[base]fade=t=in:st=0:d=0.40[vout]"
+
+    cmd = (["ffmpeg", "-y", "-loop", "1", "-i", str(still_path)] + extra +
+           ["-filter_complex", f"[0:v]{base}[base];{frag}",
+            "-map", "[vout]", "-t", f"{duration:.2f}",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-an", str(out_path)])
     if run_ffmpeg:
         run_ffmpeg(cmd, label="medical-segment")
     else:
