@@ -1189,6 +1189,14 @@ def render_vertical_card(kind, case, out_path, headline="",
 VERTICAL_SEQUENCE = ("title", "board", "timeline", "chart", "quote", "statement")
 
 
+# Vertical card kinds mapped to the register whose camera behaviour suits
+# them, so a Short's moves are chosen on the same logic as the main video's.
+_VCARD_REGISTER = {
+    "title": "TITLE", "statement": "TEXT", "quote": "TEXT",
+    "board": "BOARD", "timeline": "TIMELINE", "chart": "CHART",
+}
+
+
 def render_vertical_background(case, out_path, duration, headline="",
                                niche_label="NO KNOWN CAUSE", run_ffmpeg=None,
                                work_dir=None):
@@ -1209,30 +1217,86 @@ def render_vertical_background(case, out_path, duration, headline="",
              or (k == "quote" and (case.get("quote") or "").strip())]
     if not kinds:
         kinds = ["statement"]
-    # ~4s a card keeps a Short moving; never fewer than three cuts.
-    n = max(3, min(len(kinds) * 2, int(round(duration / 4.0))))
-    per = duration / n
-    clips = []
+    # ACCELERATING PACE.
+    #
+    # Cards were a flat ~4s each. On a Short a constant cut rate tells the
+    # viewer nothing is building, and the drop-off is in the middle. Opening
+    # card gets the most room (it is the hook and it has to be read), then
+    # each card is shorter than the last, so the Short feels like it is
+    # speeding toward something. Same total length either way.
+    n = max(3, min(len(kinds) * 2, int(round(duration / 3.6))))
+
+    # RENDER THE STILLS FIRST, THEN DIVIDE THE TIME.
+    #
+    # Time used to be divided up front and a card that failed to render was
+    # skipped with `continue` -- taking its slice of the Short with it.
+    # Measured: a 26.0s Short came out 22.08s, because one card of the seven
+    # did not render. A Short that is four seconds shorter than its audio is
+    # desynced for its whole second half.
+    #
+    # Deciding the split only over the cards that actually exist makes the
+    # total exact regardless of how many fail.
+    stills = []
     for i in range(n):
         kind = kinds[i % len(kinds)]
         still = work / f"vcard_{i}_{kind}.png"
-        if not render_vertical_card(kind, case, str(still), headline=headline,
-                                    niche_label=niche_label,
-                                    progress=(i + 1) / n):
-            continue
+        if render_vertical_card(kind, case, str(still), headline=headline,
+                                niche_label=niche_label, progress=(i + 1) / n):
+            stills.append((kind, still))
+    if not stills:
+        return False
+
+    # Opening card gets the most room -- it is the hook and it has to be read
+    # -- then each card is shorter than the last, so the Short feels like it
+    # is speeding toward something. A constant cut rate tells a viewer
+    # nothing is building, and the drop-off on Shorts is in the middle.
+    weights = [1.45] + [1.0 - 0.055 * i for i in range(len(stills) - 1)]
+    wsum = sum(weights) or 1.0
+    durs = [duration * w / wsum for w in weights]
+
+    try:
+        import clinical_camera as ccam
+        import clinical_transitions as ctr
+    except Exception:
+        ccam = ctr = None
+
+    clips = []
+    last_move = None
+    last_trans = None
+    for i, (kind, still) in enumerate(stills):
+        per = durs[i]
         clip = work / f"vclip_{i}.mp4"
-        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still),
-               "-vf", (f"scale={VW}:{VH},zoompan=z='min(zoom+0.0004,1.08)':"
-                       f"d={max(1, int(per * 24))}:s={VW}x{VH}:fps=24,"
-                       # 0.3 was a main-video fade length applied to a Short.
-                       # Measured on a real 25s assembly: with six cards it
-                       # put a visible dip to black at every one of the five
-                       # cuts, up to 0.29s each -- roughly 4% of the Short is
-                       # black, in the format least able to afford it. 0.12
-                       # still softens the cut without reading as a flash.
-                       f"fade=t=in:st=0:d=0.12"),
-               "-t", f"{per:.2f}", "-c:v", "libx264", "-preset", "ultrafast",
-               "-pix_fmt", "yuv420p", "-an", str(clip)]
+
+        # Same treatment the main video just got: a camera move suited to the
+        # card and a transition that is never the one before it. A Short is
+        # the format least able to afford looking automated.
+        if ccam and ctr:
+            move = ccam.move_for(_VCARD_REGISTER.get(kind, "TEXT"), i, last=last_move)
+            last_move = move
+            base = ccam.filter_for(move, per, w=VW, h=VH)
+            pool = [t for t in ("scanline", "slice", "shutter", "contrast", "fade")
+                    if t != last_trans]
+            trans = pool[i % len(pool)]
+            last_trans = trans
+            extra, frag = ctr.build(trans, duration=min(0.28, per / 4), w=VW, h=VH)
+            cmd = (["ffmpeg", "-y", "-loop", "1", "-i", str(still)] + extra +
+                   ["-filter_complex", f"[0:v]{base}[base];{frag}",
+                    "-map", "[vout]", "-t", f"{per:.2f}",
+                    "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-an", str(clip)])
+        else:
+            cmd = ["ffmpeg", "-y", "-loop", "1", "-i", str(still),
+                   "-vf", (f"scale={VW}:{VH},zoompan=z='min(zoom+0.0004,1.08)':"
+                           f"d={max(1, int(per * 24))}:s={VW}x{VH}:fps=24,"
+                           # 0.3 was a main-video fade length applied to a
+                           # Short. Measured on a real 25s assembly: with six
+                           # cards it put a visible dip to black at every one
+                           # of the five cuts, up to 0.29s each -- roughly 4%
+                           # of the Short is black, in the format least able
+                           # to afford it.
+                           f"fade=t=in:st=0:d=0.12"),
+                   "-t", f"{per:.2f}", "-c:v", "libx264", "-preset", "ultrafast",
+                   "-pix_fmt", "yuv420p", "-an", str(clip)]
         (run_ffmpeg(cmd, label="short-card") if run_ffmpeg
          else subprocess.run(cmd, capture_output=True, timeout=180))
         if clip.exists() and clip.stat().st_size > 1000:
