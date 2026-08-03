@@ -7728,6 +7728,39 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
     ab_style = get_thumbnail_style(state, episode)
     save_state(state)
 
+    # ── CLINICAL RENDERER (primary) ─────────────────────────────────
+    # The search-and-composite path below was built for the channel this
+    # used to be. On a clinical channel it fetched whatever the image
+    # search returned for medical keywords -- on the two episodes actually
+    # published, a scientific figure from the source paper, complete with
+    # its own baked-in caption -- and laid it under text on a near-black
+    # field (bg 14,18,22, brightness 0.40, vignette 0.55). At the ~210px a
+    # thumbnail is really seen at, that is a smudge. Correctly called
+    # boring.
+    #
+    # Darkening was never the thing to solve: YouTube's interface is dark,
+    # so a dark thumbnail is camouflage. clinical_thumbnail draws all three
+    # of its formats from shapes and text -- deterministic, no network, no
+    # image model to return something unusable, and nothing that could be
+    # mistaken for a photograph of a real person or place.
+    #
+    # The old chain stays below as the fallback. It is not the plan; it is
+    # what happens if the renderer somehow raises.
+    try:
+        from clinical_thumbnail import render as _clinical_render
+        _hist = (state.get("clinical_thumb_formats") or [])[-6:]
+        _out = str(WORK_DIR / f"thumbnail_{ab_style}_clinical.jpg")
+        _fmt = _clinical_render(thumb_text, _out, episode=episode or 1,
+                                history=_hist)
+        state.setdefault("clinical_thumb_formats", []).append(_fmt)
+        state["clinical_thumb_formats"] = state["clinical_thumb_formats"][-24:]
+        save_state(state)
+        log(f"  Thumbnail: clinical renderer, format '{_fmt}' -> {_out}")
+        return _out
+    except Exception as e:
+        log(f"  Clinical thumbnail renderer failed, falling back to the old "
+            f"search-and-composite chain (non-fatal): {e}")
+
     # Fetch case-relevant image (real photo or AI-generated)
     bg_path = str(WORK_DIR / "thumb_bg.jpg")
     got_image, bg_type = fetch_case_relevant_image(topic or thumb_text, niche_name, bg_path)
