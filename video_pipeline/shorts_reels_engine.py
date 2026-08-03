@@ -58,6 +58,8 @@ import os, json, re, logging, subprocess, uuid, random, time
 from datetime import datetime
 import requests
 
+from synthetic_media_policy import declare_synthetic_media
+
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [SHORTS] %(message)s")
 log = logging.getLogger(__name__)
@@ -1787,6 +1789,15 @@ def upload_youtube_short(video_path: str, title: str, description: str,
             "privacyStatus": "public",
             "selfDeclaredMadeForKids": False,
             "notifySubscribers": True,
+            # The four long-form uploaders all set this explicitly; this one
+            # simply omitted the field, which happens to mean the same thing
+            # (not declared) but only by accident. Stating it makes Shorts
+            # obey the same switch as everything else instead of quietly
+            # doing its own thing. This function has no channel argument, so
+            # it reads the global var rather than a per-channel one -- if a
+            # single channel ever needs to declare, that trip-wire is in
+            # synthetic_media_policy.py and this needs the channel plumbed in.
+            "containsSyntheticMedia": declare_synthetic_media(""),
         }
     }
 

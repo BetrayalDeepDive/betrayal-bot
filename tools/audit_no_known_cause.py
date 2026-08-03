@@ -959,6 +959,39 @@ def _synthetic_declaration_checks():
           and "YPP suspension" in cp,
           "a judgement with no recorded conditions is a judgement nobody can "
           "revisit safely")
+    # The same hardcoded True sat in all five pipelines plus the shared
+    # Shorts uploader. Fixing one channel and leaving four is how a fix
+    # becomes folklore, so every upload site is checked here.
+    _others = {
+        "evidence_room":  "channels/evidence_room/evidence_room_pipeline.py",
+        "control_files":  "channels/control_files/control_files_pipeline.py",
+        "archive":        "channels/archive/archive_pipeline.py",
+        "collapse_index": "channels/collapse_index/collapse_index_pipeline.py",
+    }
+    for _chan, _path in _others.items():
+        _src = read(_path)
+        check("A", f"{_chan} no longer hardcodes the synthetic-media declaration",
+              '"containsSyntheticMedia": True' not in _src
+              and '"containsSyntheticMedia": DECLARE_SYNTHETIC_MEDIA' in _src,
+              "it was True with a comment calling it mandatory, which it is not")
+        check("A", f"{_chan} reads the shared policy rather than its own copy",
+              f'declare_synthetic_media("{_chan}")' in _src,
+              "five private copies of a policy judgement drift apart")
+
+    _pol = read("video_pipeline/synthetic_media_policy.py")
+    check("A", "the policy module records the trip-wires and the evidence",
+          "TRIP-WIRES" in _pol and "photoreal" in _pol
+          and "YPP suspension" in _pol and "2026-08-02" in _pol,
+          "a judgement with no recorded conditions cannot be revisited safely")
+    check("A", "the declaration can be flipped per channel, not just globally",
+          "DECLARE_SYNTHETIC_MEDIA_" in _pol,
+          "the five formats differ, so the trip-wires fire per channel")
+
+    _sh = read("video_pipeline/shorts_reels_engine.py")
+    check("A", "Shorts declare deliberately instead of by omission",
+          '"containsSyntheticMedia": declare_synthetic_media(' in _sh,
+          "the field was simply absent — right answer, no decision behind it")
+
     check("C", "the MEDICAL disclaimer is untouched by this",
           "build_disclaimer_block" in cp,
           "the AI label and the medical disclaimer are different obligations; "

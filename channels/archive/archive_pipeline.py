@@ -4354,6 +4354,25 @@ def get_yt_token():
     _tok_cache["expires_at"] = now + d.get("expires_in", 3600)
     return d["access_token"]
 
+# ══════════════════════════════════════════════════════════════════════
+# YOUTUBE "ALTERED OR SYNTHETIC CONTENT" DECLARATION
+# ══════════════════════════════════════════════════════════════════════
+# This flag, not YouTube, is why the "Made with AI" label appears. Proven on
+# 2026-08-02 with a private probe: YouTube stores what we declare and adds
+# nothing of its own for narration over graphics.
+#
+# The policy reasoning, this channel's assessment, and the trip-wires that
+# mean this has to go back to True all live in one place so they cannot
+# drift apart across five pipelines:
+#     video_pipeline/synthetic_media_policy.py
+#
+# Turn it back on without a code change:
+#     DECLARE_SYNTHETIC_MEDIA_ARCHIVE=true   (this channel)
+#     DECLARE_SYNTHETIC_MEDIA=true          (all channels)
+from synthetic_media_policy import declare_synthetic_media
+DECLARE_SYNTHETIC_MEDIA = declare_synthetic_media("archive")
+
+
 def upload_yt(path, title, description, tags, is_short=False, token=None, privacy="public"):
     """Chunked resumable upload with retry — same as Channel 1."""
     token = token or get_yt_token()
@@ -4371,7 +4390,13 @@ def upload_yt(path, title, description, tags, is_short=False, token=None, privac
                   "privacyStatus": privacy,
                   "selfDeclaredMadeForKids": False,
                   "madeForKids": False,
-                  "containsSyntheticMedia": True   # mandatory AI disclosure since Mar 2024
+                  # Was hardcoded True with a comment calling it "mandatory
+                  # AI disclosure since Mar 2024" — it is not mandatory for
+                  # narration over motion graphics, maps and unaltered stock.
+                  # See video_pipeline/synthetic_media_policy.py for the
+                  # policy, the per-channel assessment, and the trip-wires
+                  # that mean this has to go back to True.
+                  "containsSyntheticMedia": DECLARE_SYNTHETIC_MEDIA
               }},
                 timeout=30)
     upload_url = init.headers.get("Location")
