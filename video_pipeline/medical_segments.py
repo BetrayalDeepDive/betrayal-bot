@@ -74,7 +74,8 @@ MOTION = {
 
 
 def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True,
-                  register=None, transition="fade"):
+                  register=None, transition="fade", index_hint=0,
+                  last_move=None):
     """
     Turn a rendered still into a clip with continuous slow motion.
 
@@ -92,11 +93,24 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True,
     across the frame, so the chain is built as a filter_complex rather than a
     plain -vf.
     """
-    m = MOTION.get(register or "", {"zoom": 0.00045, "max": 1.12})
-    base = ("scale=1920:1080"
-            + (f",zoompan=z='min(zoom+{m['zoom']},{m['max']})':"
-               f"d={max(1, int(duration * 24))}"
-               f":s=1920x1080:fps=24" if zoom else ""))
+    # CAMERA. Was one zoompan, the same slow push, on all ~60 cards. The eye
+    # stops reading an unchanging move as motion within a couple of cards and
+    # starts reading it as drift. clinical_camera picks a move suited to the
+    # register -- a dense panel is panned because there is something to pan
+    # across, a figure is pushed into because the interest is in one place --
+    # and never repeats the same move back to back.
+    try:
+        import clinical_camera as ccam
+        move = ccam.move_for(register, index_hint, last=last_move)
+        base = ccam.filter_for(move, duration) if zoom else "scale=1920:1080"
+    except Exception:
+        move = "push_in"
+        m = MOTION.get(register or "", {"zoom": 0.00045, "max": 1.12})
+        base = ("scale=1920:1080"
+                + (f",zoompan=z='min(zoom+{m['zoom']},{m['max']})':"
+                   f"d={max(1, int(duration * 24))}:s=1920x1080:fps=24"
+                   if zoom else ""))
+
     try:
         import clinical_transitions as ctr
         extra, frag = ctr.build(transition, w=1920, h=1080)
@@ -112,6 +126,7 @@ def still_to_clip(still_path, duration, out_path, run_ffmpeg=None, zoom=True,
         run_ffmpeg(cmd, label="medical-segment")
     else:
         subprocess.run(cmd, capture_output=True, timeout=180)
+    still_to_clip.last_move = move
     return Path(out_path).exists() and Path(out_path).stat().st_size > 1000
 
 
@@ -759,7 +774,7 @@ def render_medical_segment(register, case, segment_text, duration, index,
                            out_path, work_dir, niche_label="NO KNOWN CAUSE",
                            chart_fn=None, run_ffmpeg=None, log_fn=print,
                            progress=1.0, variant=None, variant_total=1,
-                           accent=None, transition="fade"):
+                           accent=None, transition="fade", last_move=None):
     """
     Render one segment. Returns True on success.
 
@@ -940,7 +955,8 @@ def render_medical_segment(register, case, segment_text, duration, index,
     # FIGURE holds are panned more gently -- aggressive zoom on diagnostic
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
-                         zoom=True, register=register, transition=transition)
+                         zoom=True, register=register, transition=transition,
+                         index_hint=index, last_move=last_move)
 
 
 # ── VERTICAL (9:16) — Shorts ───────────────────────────────────────────────

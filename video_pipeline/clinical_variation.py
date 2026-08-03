@@ -38,8 +38,12 @@ import random
 # ── card duration ──────────────────────────────────────────────────────
 # The old constant. Kept as the centre of the range so total episode length
 # lands where it always did; only the distribution around it changes.
-BASE_SECONDS = 13.0
-MIN_SECONDS, MAX_SECONDS = 9.0, 17.0
+# Narrowed from 9-17 on direct instruction: 17s is long enough for a viewer
+# to decide nothing further is going to happen on this card. The mean has to
+# sit mid-range or the clamp binds and everything piles on the ceiling, so
+# TARGET_SECONDS_PER_CLIP in the pipeline moved to 11.0 alongside this.
+BASE_SECONDS = 11.0
+MIN_SECONDS, MAX_SECONDS = 9.0, 13.5
 
 # Words that mark a beat worth holding on, and one worth cutting away from.
 # A revelation earns screen time; a transitional sentence does not.

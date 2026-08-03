@@ -6376,7 +6376,10 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     # ceiling can follow the audio instead of fighting it. The floor stays
     # (a very short episode still needs enough cuts to breathe) and a high
     # ceiling remains only as a guard against a runaway duration.
-    TARGET_SECONDS_PER_CLIP = 13.0
+    # 11.0, not 13.0: the per-card range is 9-13.5s, so the mean has to sit
+    # mid-range. At 13.0 almost every card clamped to the 13.5 ceiling and
+    # the variation collapsed back to a flat pace.
+    TARGET_SECONDS_PER_CLIP = 11.0
     n_buckets = int(round(audio_duration / TARGET_SECONDS_PER_CLIP))
     n_buckets = max(55, min(200, n_buckets))
     _secs_per_card = audio_duration / max(1, n_buckets)
