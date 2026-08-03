@@ -4557,6 +4557,38 @@ def format_citations_block(real_cases):
     return "\n\n" + "\n".join(lines)
 
 
+def _seo_clip(topic, limit=52):
+    """Trim a topic for the description's first line without cutting a word.
+
+    This was `topic[:45]` with a "." appended -- a blind character slice. On a
+    real published episode it produced, as the FIRST LINE A VIEWER READS:
+
+        HOW IT WAS FOUND: Cancer patients experienced unexpected brain .
+
+    Cut mid-phrase, with the space the slice left behind sitting in front of
+    the full stop. All ten niche hooks used the same slice, so every episode
+    carried it.
+
+    Cuts on a word boundary, drops a dangling connective so the line cannot
+    end on "and" or "from", and never leaves a space before the full stop.
+    """
+    t = " ".join(str(topic or "").split())
+    if not t:
+        return ""
+    if len(t) > limit:
+        t = t[:limit + 1]
+        if " " in t:
+            t = t[:t.rfind(" ")]
+    words = t.rstrip(" ,;:-").split()
+    dangling = {"and", "but", "or", "from", "with", "the", "a", "an", "of",
+                "to", "for", "in", "on", "at", "by", "as", "that", "which",
+                "was", "were", "is", "are", "after", "before", "when"}
+    while words and words[-1].lower().strip(",;:") in dangling:
+        words.pop()
+    out = " ".join(words).rstrip(" ,;:-")
+    return f"{out}." if out else ""
+
+
 def generate_seo_description(niche, topic, title, episode, chapters_text, audio_duration=0, citations_block="",
                               needs_fiction_disclosure=True):
     dur_min = int(audio_duration / 60) if audio_duration > 60 else 15
@@ -4583,18 +4615,18 @@ those are added separately afterward."""
     # Build SEO hook for first 100 chars (shown in YouTube search results)
     # Format: [SPECIFIC CLAIM]. [EMOTIONAL HOOK]. Full investigation below.
     seo_hooks = {
-        "toxicology_cases":        f"PUBLISHED CASE: {topic[:45]}.",
-        "diagnostic_odyssey":      f"MISDIAGNOSED: {topic[:45]}.",
-        "neurology_cases":         f"PUBLISHED CASE: {topic[:45]}.",
-        "rare_disease_cases":      f"RARE PRESENTATION: {topic[:45]}.",
-        "senior_health_longevity": f"THE RESEARCH: {topic[:45]}.",
-        "medical_mystery_outbreak":f"OUTBREAK CASE: {topic[:45]}.",
-        "surgical_case_studies":   f"PUBLISHED CASE: {topic[:45]}.",
-        "drug_discovery_stories":  f"HOW IT WAS FOUND: {topic[:45]}.",
-        "sleep_science":           f"PUBLISHED CASE: {topic[:45]}.",
-        "medical_history":         f"MEDICAL HISTORY: {topic[:45]}.",
+        "toxicology_cases":        f"PUBLISHED CASE: {_seo_clip(topic)}",
+        "diagnostic_odyssey":      f"MISDIAGNOSED: {_seo_clip(topic)}",
+        "neurology_cases":         f"PUBLISHED CASE: {_seo_clip(topic)}",
+        "rare_disease_cases":      f"RARE PRESENTATION: {_seo_clip(topic)}",
+        "senior_health_longevity": f"THE RESEARCH: {_seo_clip(topic)}",
+        "medical_mystery_outbreak":f"OUTBREAK CASE: {_seo_clip(topic)}",
+        "surgical_case_studies":   f"PUBLISHED CASE: {_seo_clip(topic)}",
+        "drug_discovery_stories":  f"HOW IT WAS FOUND: {_seo_clip(topic)}",
+        "sleep_science":           f"PUBLISHED CASE: {_seo_clip(topic)}",
+        "medical_history":         f"MEDICAL HISTORY: {_seo_clip(topic)}",
     }
-    seo_first_line = seo_hooks.get(niche["name"], f"PUBLISHED CASE: {topic[:55]}.")
+    seo_first_line = seo_hooks.get(niche["name"], f"PUBLISHED CASE: {_seo_clip(topic)}")
 
     # FIX (v6 addition, per explicit request — "multiple hashtags for
     # more viewers"): this whole thing used to be a buried, unverified
