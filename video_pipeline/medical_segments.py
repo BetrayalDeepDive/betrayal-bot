@@ -864,6 +864,33 @@ def render_medical_segment(register, case, segment_text, duration, index,
                                            reached=_n)
 
         elif register == "ANATOMY":
+            # MOTION FIRST.
+            #
+            # This register answers "what was physically happening inside
+            # this patient", and that question is about CHANGE -- something
+            # spread, something was blocked, something recovered. It used to
+            # answer it with one fetched still held for the length of the
+            # card. At 18% of the episode that is roughly three minutes of a
+            # static picture, and it was the weakest thing in the pipeline.
+            #
+            # medical_anatomy_motion renders a real frame sequence, choosing
+            # the motion from what the narration actually says rather than by
+            # rotation: animating recovery over narration about deterioration
+            # would be a factual error made in pictures.
+            #
+            # The still path below stays as the fallback, so a failure here
+            # degrades to exactly what shipped before rather than to nothing.
+            try:
+                from medical_anatomy_motion import render_anatomy_motion
+                if render_anatomy_motion(
+                        case, segment_text, out_path, duration, work_dir,
+                        niche_name=case.get("niche_name", ""), accent=accent,
+                        run_ffmpeg=run_ffmpeg):
+                    return True
+            except Exception as _e:
+                log_fn(f"  Segment {index + 1} anatomy motion "
+                       f"(non-fatal, using the still): {_e}")
+
             anat = case.get("anatomy") or {}
             img = None
             kw = anat.get("search")
