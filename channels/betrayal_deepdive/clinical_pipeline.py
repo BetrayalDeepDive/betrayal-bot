@@ -6196,7 +6196,8 @@ def get_episode_case():
     return _EPISODE_CASE
 
 
-def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
+def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
+                            episode=1):
     """
     Sequential audio-matched footage: the script is split into 55-75
     proportional segments (~12-15s of narration each), scaled dynamically
@@ -6399,6 +6400,37 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
     ]
     bucket_words = max(1, total // n_buckets)
     segment_dur  = audio_duration / n_buckets
+
+    # PER-CARD LENGTH AND TRANSITION.
+    #
+    # Every card used to be exactly audio_duration/n_buckets seconds long and
+    # opened with the same 0.4s fade. Sixty identical-length cards with one
+    # identical opening move is the loudest tell an assembled video has.
+    #
+    # EpisodeVariation weights each card by what its segment is doing -- a
+    # revelation holds, a linking sentence does not -- and normalises so the
+    # total still equals the audio exactly, because a drifting sum desyncs
+    # the episode. It is seeded from the episode number, so the same episode
+    # renders identically every time and a review decision keeps meaning
+    # something.
+    _variation = None
+    _seg_durs = [segment_dur] * n_buckets
+    _seg_starts = [i * segment_dur for i in range(n_buckets)]
+    try:
+        from clinical_variation import EpisodeVariation
+        _variation = EpisodeVariation(episode or 1, n_buckets)
+        _seg_texts = [" ".join(words[i * bucket_words:(i + 1) * bucket_words])
+                      for i in range(n_buckets)]
+        _seg_durs = _variation.durations(audio_duration, _seg_texts)
+        _acc = 0.0
+        _seg_starts = []
+        for _d in _seg_durs:
+            _seg_starts.append(_acc)
+            _acc += _d
+        log(f"  Card length: {min(_seg_durs):.1f}-{max(_seg_durs):.1f}s "
+            f"(was a flat {segment_dur:.1f}s), accent {_variation.tint}")
+    except Exception as e:
+        log(f"  Variation engine unavailable, using flat pacing (non-fatal): {e}")
 
     fetched_clips = []
     black_fallback_count = 0
@@ -6639,7 +6671,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
         display_text = (f"{nation_context.title()} — {specific_term}"
                          if nation_context and specific_term
                          else (specific_term or nation_context or base_kw))
-        seg_start_t, seg_end_t = i * segment_dur, (i + 1) * segment_dur
+        # Per-card values from the variation engine; falls back to the flat
+        # ones if it was unavailable.
+        segment_dur = _seg_durs[i]
+        seg_start_t = _seg_starts[i]
+        seg_end_t = seg_start_t + segment_dur
         audio_cue_hit = any(seg_start_t <= t < seg_end_t for t in audio_cue_times)
         # NOTE: the old location_hit / map_eligible anchoring is gone with the
         # MAP register. Left as a comment rather than silently dropped because
@@ -6717,7 +6753,10 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title=""):
                     work_dir=str(WORK_DIR), niche_label=niche["series"].upper(),
                     run_ffmpeg=run_ffmpeg, log_fn=log,
                     progress=_reg_progress, variant=_occ - 1,
-                    variant_total=_exp)
+                    variant_total=_exp,
+                    accent=(_variation.tint if _variation else None),
+                    transition=(_variation.transition(i, register)
+                                if _variation else "fade"))
             if ok:
                 fetched_clips.append(clip_path)
                 continue
@@ -9586,7 +9625,8 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # FIX (direct user report, July 24 2026): title threaded through so
     # get_stage_matched_video can detect the real nation/setting of the
     # story from it, not just the shorter topic string.
-    bg_path     = get_stage_matched_video(niche, script, audio_duration, topic=topic, title=title)
+    bg_path     = get_stage_matched_video(niche, script, audio_duration, topic=topic,
+                                          title=title, episode=episode)
     if not bg_path:
         log("  Stage-matched video unavailable — falling back to single looped clip")
         bg_path = get_background_video(niche, audio_duration, search_kw)

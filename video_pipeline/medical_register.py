@@ -30,17 +30,28 @@ failure that sank stock footage on Ch1), the quota redistributes to ANATOMY
 and CHART -- see new_quota(figure_count=...).
 """
 
-FIGURE, CHART, BOARD, TIMELINE, ANATOMY, TEXT = (
-    "FIGURE", "CHART", "BOARD", "TIMELINE", "ANATOMY", "TEXT"
+FIGURE, CHART, BOARD, TIMELINE, ANATOMY, TEXT, CASEFILE, LAB = (
+    "FIGURE", "CHART", "BOARD", "TIMELINE", "ANATOMY", "TEXT",
+    "CASEFILE", "LAB"
 )
 
+# Rebalanced when CASEFILE and LAB were added.
+#
+# CASEFILE is the channel's signature opening and recurs a few times as the
+# facts accumulate; it is small because a record card is punctuation, not
+# content. LAB takes its share from CHART, which was carrying two different
+# jobs -- one value over time, and a panel of values at once -- and doing the
+# second badly. FIGURE stays the largest single register: real figures from
+# the actual paper are what this channel has that nothing else does.
 TARGET_MIX = {
-    FIGURE:   0.30,
-    CHART:    0.22,
-    BOARD:    0.18,
+    FIGURE:   0.26,
+    ANATOMY:  0.18,
     TIMELINE: 0.14,
-    ANATOMY:  0.10,
-    TEXT:     0.06,
+    CHART:    0.12,
+    LAB:      0.10,
+    CASEFILE: 0.08,
+    BOARD:    0.08,
+    TEXT:     0.04,
 }
 
 # Real content signals per register. A clinical narrative is unusually rich
@@ -72,6 +83,18 @@ _TIMELINE_KEYWORDS = [
     "over the next", "that evening", "the next morning", "on the fourth day",
     "eventually", "three days before", "two weeks earlier",
 ]
+_CASEFILE_KEYWORDS = [
+    "presented", "presenting", "admitted", "referred", "year-old",
+    "year old", "month-old", "history of", "prior to admission",
+    "was brought", "attended", "first seen", "on arrival",
+    "past medical history", "no relevant history",
+]
+_LAB_KEYWORDS = [
+    "panel", "bloods", "blood tests", "laboratory", "labs", "serology",
+    "biochemistry", "haematology", "hematology", "full blood count",
+    "reference range", "normal range", "elevated", "raised", "deranged",
+    "abnormal results", "within normal limits", "markedly", "grossly",
+]
 _ANATOMY_KEYWORDS = [
     "artery", "vein", "ventricle", "atrium", "cortex", "cerebral", "hepatic",
     "renal", "pulmonary", "cardiac", "gastric", "thyroid", "adrenal",
@@ -102,10 +125,19 @@ def classify_hint(segment_text):
     # while "sodium rose to 148" with no imaging language is a chart moment.
     if _hit(low, _FIGURE_KEYWORDS):
         return FIGURE
+    # CASEFILE before TIMELINE: "presented on day 3 with chest pain" is the
+    # patient arriving, not a chronology being drawn, and the record card is
+    # the more specific answer.
+    if _hit(low, _CASEFILE_KEYWORDS):
+        return CASEFILE
     if _hit(low, _TIMELINE_KEYWORDS):
         return TIMELINE
     if _hit(low, _BOARD_KEYWORDS):
         return BOARD
+    # LAB before CHART: a panel being described ("bloods were deranged") is a
+    # dashboard moment; a single value moving over time is a chart moment.
+    if _hit(low, _LAB_KEYWORDS):
+        return LAB
     if _hit(low, _CHART_KEYWORDS):
         return CHART
     if _hit(low, _ANATOMY_KEYWORDS):
@@ -152,6 +184,16 @@ ANATOMY_CAPACITY_SEGMENTS = 12.0
 # episode.
 TEXT_CAPACITY_SEGMENTS = 2.0
 
+# CASEFILE shows six fields that fill in progressively, so it sustains about
+# as many distinct frames as it has rows -- past that it is the same card.
+CASEFILE_CAPACITY_SEGMENTS = 6.0
+
+# LAB reveals its panel row by row. Its real ceiling is how many results the
+# paper reports, which is not known here, so this is the ceiling for a
+# well-reported case; render_lab_still returns False when there is nothing to
+# draw, and the segment falls through rather than showing an empty panel.
+LAB_CAPACITY_SEGMENTS = 8.0
+
 
 def _capacity_shares(mix, counts):
     """{register: max share it can sustain}."""
@@ -165,6 +207,10 @@ def _capacity_shares(mix, counts):
         caps[ANATOMY] = ANATOMY_CAPACITY_SEGMENTS / 60.0
     if mix.get(TEXT, 0) > 0:
         caps[TEXT] = TEXT_CAPACITY_SEGMENTS / 60.0
+    if mix.get(CASEFILE, 0) > 0:
+        caps[CASEFILE] = CASEFILE_CAPACITY_SEGMENTS / 60.0
+    if mix.get(LAB, 0) > 0:
+        caps[LAB] = LAB_CAPACITY_SEGMENTS / 60.0
     return caps
 
 
@@ -427,6 +473,33 @@ def available_from_case(case):
     the pipeline already builds. ANATOMY is procedural so it is always True.
     """
     case = case or {}
+
+    # LAB is scheduled only when the paper actually reports values. Without
+    # this it behaved exactly like the registers the availability model was
+    # built to stop: scheduled by quota, unable to render, falling through to
+    # the plain fallback card. Caught by the audit check that asserts a
+    # well-formed case never needs that card.
+    #
+    # The same extractor the renderer uses decides, so schedulability and
+    # renderability cannot disagree.
+    try:
+        from medical_lab import extract_labs
+        _has_labs = bool(extract_labs(
+            " ".join(str(case.get(k, "")) for k in ("narrative", "title"))))
+    except Exception:
+        _has_labs = False
+
+    # CASEFILE needs at least one stated patient fact. A card reading
+    # NOT STATED six times is not an opening, it is an apology.
+    try:
+        from medical_casefile import extract_case_facts, NOT_STATED
+        _facts = extract_case_facts(case, case.get("narrative", ""))
+        _has_facts = sum(1 for k, v in _facts.items()
+                         if k in ("age", "sex", "presentation", "onset")
+                         and v != NOT_STATED) >= 2
+    except Exception:
+        _has_facts = False
+
     return {
         FIGURE:   bool(case.get("figures")),
         CHART:    bool((case.get("chart_data") or {}).get("labels")),
@@ -434,6 +507,8 @@ def available_from_case(case):
         TIMELINE: len(case.get("timeline") or []) >= 2,
         TEXT:     bool((case.get("quote") or "").strip()),
         ANATOMY:  True,
+        LAB:      _has_labs,
+        CASEFILE: _has_facts,
     }
 
 

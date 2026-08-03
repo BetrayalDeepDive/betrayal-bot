@@ -758,7 +758,8 @@ def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE
 def render_medical_segment(register, case, segment_text, duration, index,
                            out_path, work_dir, niche_label="NO KNOWN CAUSE",
                            chart_fn=None, run_ffmpeg=None, log_fn=print,
-                           progress=1.0, variant=None, variant_total=1):
+                           progress=1.0, variant=None, variant_total=1,
+                           accent=None, transition="fade"):
     """
     Render one segment. Returns True on success.
 
@@ -780,7 +781,29 @@ def render_medical_segment(register, case, segment_text, duration, index,
     ok = False
 
     try:
-        if register == "FIGURE":
+        if register == "CASEFILE":
+            # The channel's signature opening, and the record filling in as
+            # the episode learns more. Reads only what the paper states; any
+            # field the paper omits shows as NOT STATED rather than being
+            # invented, because a plausible fabricated age carrying a real
+            # citation is the worst possible failure on a medical channel.
+            from medical_casefile import render_casefile_still
+            ok = render_casefile_still(
+                case, str(still), narrative=segment_text or case.get("narrative", ""),
+                niche_label=niche_label, accent=accent, reveal=max(0.34, progress))
+
+        elif register == "LAB":
+            # A panel of results at once, each against its reference range.
+            # Returns False when the paper reports no values at all, which
+            # sends the segment to another register instead of drawing an
+            # empty dashboard that would imply results the paper never gave.
+            from medical_lab import render_lab_still
+            _src = " ".join(x for x in (case.get("narrative", ""), segment_text) if x)
+            ok = render_lab_still(case, _src, str(still),
+                                  niche_label=niche_label, accent=accent,
+                                  reveal=max(0.25, progress))
+
+        elif register == "FIGURE":
             figs = case.get("figures") or []
             if figs:
                 # Rotate through available figures so a 6-figure paper shows
@@ -890,7 +913,7 @@ def render_medical_segment(register, case, segment_text, duration, index,
     # FIGURE holds are panned more gently -- aggressive zoom on diagnostic
     # imaging starts to crop anatomy out of frame.
     return still_to_clip(still, duration, out_path, run_ffmpeg=run_ffmpeg,
-                         zoom=True, register=register)
+                         zoom=True, register=register, transition=transition)
 
 
 # ── VERTICAL (9:16) — Shorts ───────────────────────────────────────────────

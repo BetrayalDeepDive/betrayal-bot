@@ -547,8 +547,16 @@ def audit_rendered_episode():
 
     from collections import Counter
     counts = Counter(seq)
-    check("E", "all six registers are used on a case that supports them",
-          len(counts) == 6, str(dict(counts)))
+    # Was "all six". CASEFILE and LAB were added, so the expectation is now
+    # every register the CASE ITSELF supports -- which is the stronger check
+    # anyway: it fails if a schedulable register never gets scheduled, and it
+    # does not fail for a register the paper genuinely cannot render.
+    from medical_register import available_from_case, TARGET_MIX
+    _avail = available_from_case(case)
+    _expect = {r for r in TARGET_MIX if _avail.get(r, True)}
+    check("E", "every register the case supports is actually used",
+          set(counts) == _expect,
+          f"scheduled={sorted(counts)} supported={sorted(_expect)}")
 
     longest, cur = 1, 1
     for a, b in zip(seq, seq[1:]):
