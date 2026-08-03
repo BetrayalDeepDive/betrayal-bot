@@ -41,11 +41,11 @@ on:
         # one-off check, the probe rides in here: true runs ONLY the AI-label
         # probe and skips generation entirely; false (the default, and what
         # every scheduled/normal run uses) behaves exactly as before.
-        description: 'probe = upload a private AI-label probe. report = read-only list. clear = untick the AI box on every published video. cleanup = delete leftover probes. false = normal run.'
+        description: 'probe/report/clear = AI-label probe, read-only list, untick the box everywhere. drafts/drafts_apply = list or delete stranded review previews. cleanup = delete leftover probes. false = normal run.'
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','report','clear','cleanup','true']
+        options: ['false','probe','report','clear','drafts','drafts_apply','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -114,6 +114,21 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: python tools/clear_synthetic_label.py --apply
+      # Read-only unless drafts_apply. Removes review previews stranded by
+      # generate runs that were never followed by an upload run — the leak
+      # itself is fixed in save_pending, this is for the ones already there.
+      - name: Report stranded review previews
+        if: inputs.probe_only == 'drafts' || inputs.probe_only == 'drafts_apply'
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          if [ "${{ inputs.probe_only }}" = "drafts_apply" ]; then
+            python tools/clean_draft_previews.py --apply
+          else
+            python tools/clean_draft_previews.py
+          fi
       - name: Delete leftover probe videos
         if: inputs.probe_only == 'clear' || inputs.probe_only == 'cleanup'
         env:

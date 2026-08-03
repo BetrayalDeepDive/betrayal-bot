@@ -64,6 +64,40 @@ def _pending_path(channel_dir):
 
 def save_pending(channel_dir, data: dict):
     pf = _pending_path(channel_dir)
+
+    # ORPHANED REVIEW PREVIEWS.
+    #
+    # The generate phase uploads the finished video to YouTube as UNLISTED so
+    # the audio+video review has a real full-quality link (Telegram cannot
+    # carry a 100MB+ file). Its id is recorded here, and the Upload phase
+    # reuses it: real metadata pushed on, then flipped public.
+    #
+    # But the id only lives in THIS file, and a fresh generate run overwrites
+    # it. So any generate run not followed by an upload run left its preview
+    # stranded on the channel forever, carrying the placeholder description
+    # "Draft — under review, description finalized before publish." — with no
+    # record anywhere pointing at it, so nothing would ever clean it up.
+    # Found on the live channel: two unlisted drafts sitting in Studio.
+    #
+    # Overwriting the record is exactly the moment the old preview becomes
+    # unreachable, so that is the moment to delete it. Non-fatal: losing a
+    # stale unlisted draft must never take down a run that just produced a
+    # real episode.
+    _old_id = None
+    if pf.exists():
+        try:
+            _old = json.loads(pf.read_text())
+            if _old.get("status") != "uploaded":
+                _old_id = _old.get("prerendered_yt_video_id")
+        except Exception:
+            _old_id = None
+    if _old_id and _old_id != data.get("prerendered_yt_video_id"):
+        try:
+            delete_yt_video(_old_id, token=get_yt_token())
+            log(f"  Removed orphaned review preview from a previous run: {_old_id}")
+        except Exception as e:
+            log(f"  Orphaned preview cleanup (non-fatal): {e}")
+
     data["generated_at"] = datetime.datetime.now().isoformat()
     pf.write_text(json.dumps(data, indent=2))
     return str(pf)

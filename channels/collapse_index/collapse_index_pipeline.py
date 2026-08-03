@@ -5469,8 +5469,15 @@ def fetch_case_relevant_image(topic, niche_name, out_path):
 
     # Fallback: Pollinations AI-generated atmospheric
     import urllib.parse
-    prompt = (f"{search_kw} {mod} ultra dark atmospheric cinematic "
-              f"documentary no faces no text 8k dramatic")
+    # This one asked outright for "cinematic documentary ... 8k" against a
+    # real economic event — a generated scene a viewer could take for
+    # documentary footage, which is the exact trip-wire in
+    # synthetic_media_policy.py. derealise() strips the photoreal request and
+    # pins it to illustration, the same rule every other prompt now passes
+    # through in thumbnail_engine_v2.
+    from thumbnail_engine_v2 import derealise
+    prompt = derealise(f"{search_kw} {mod} ultra dark atmospheric "
+                       f"no faces no text dramatic")
     url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}"
            f"?width=1280&height=720&nologo=true&seed={abs(hash(topic)) % 9999}")
     try:

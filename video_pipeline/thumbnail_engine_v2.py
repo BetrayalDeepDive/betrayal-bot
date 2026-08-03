@@ -1240,6 +1240,51 @@ FALLBACK_PROFILE = {
 # LAYER 1: BACKGROUND — Pollinations.ai
 # ═══════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════
+# NON-PHOTOREAL ENFORCEMENT
+# ═══════════════════════════════════════════════════════════════════
+# Ninety-five of these prompts ended in "cinematic 8k", three asked for
+# "photorealistic", and one asked outright for "cinematic documentary".
+# Against a topic drawn from a REAL case, that is a request for an image a
+# viewer could take for documentary footage of a real event — which is the
+# one thing YouTube's synthetic-content policy is actually aimed at, and the
+# trip-wire written down in synthetic_media_policy.py.
+#
+# Editing 95 strings by hand would fix today and drift by next month: the
+# next profile anyone adds would carry the same tail, because every existing
+# one does. So it is enforced at the single point where a prompt is built.
+# Every prompt goes through here; nothing can route around it.
+#
+# The result is also the better thumbnail. A flat, high-contrast illustration
+# survives being shrunk to a 210px grid tile; a moody photoreal render turns
+# into a dark smudge, which is exactly the complaint that started this.
+_PHOTOREAL_TERMS = (
+    "photorealistic", "photo realistic", "photoreal", "hyperrealistic",
+    "hyper realistic", "cinematic documentary", "documentary photo",
+    "documentary photography", "realistic photo", "8k", "4k", "raw photo",
+    "dslr", "shot on", "film still", "cinematic",
+)
+
+_ILLUSTRATION_DIRECTIVE = (
+    "bold editorial illustration, flat vector poster art, strong graphic "
+    "shapes, high contrast, clearly illustrated not photographic, no text"
+)
+
+
+def derealise(prompt: str) -> str:
+    """Strip photoreal requests and pin the prompt to illustration.
+
+    Word-boundary matching, so "8k" does not eat the "8k" inside another
+    token and "cinematic" does not survive as part of "cinematically".
+    """
+    import re as _re
+    out = prompt
+    for term in _PHOTOREAL_TERMS:
+        out = _re.sub(rf"\b{_re.escape(term)}\b", " ", out, flags=_re.I)
+    out = _re.sub(r"\s{2,}", " ", out).strip(" ,")
+    return f"{out}, {_ILLUSTRATION_DIRECTIVE}"
+
+
 def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
     """
     Fetch background image from Pollinations.ai.
@@ -1268,7 +1313,7 @@ def fetch_background(topic, niche_name, seed, work_dir, bg_style_suffix=""):
     if bg_style_suffix:
         style = f"{style} {bg_style_suffix}"
     topic_w = " ".join(topic.replace('"', '').split()[:6])
-    prompt  = f"{topic_w} {style}"
+    prompt  = derealise(f"{topic_w} {style}")
     url     = (
         f"https://image.pollinations.ai/prompt/"
         f"{urllib.parse.quote(prompt)}"
