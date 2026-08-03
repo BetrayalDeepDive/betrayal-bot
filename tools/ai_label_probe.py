@@ -26,8 +26,9 @@ Private means only the channel owner can see it. It never appears on the
 channel, in search, or in subscriber feeds.
 
 Usage:
-    python tools/ai_label_probe.py           # upload, check, delete
-    python tools/ai_label_probe.py --keep    # leave it up so you can look in Studio
+    python tools/ai_label_probe.py            # upload, check, delete
+    python tools/ai_label_probe.py --keep     # leave it up to look at in Studio
+    python tools/ai_label_probe.py --cleanup  # delete probes left by --keep
 
 Needs: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN.
 """
@@ -78,11 +79,61 @@ def render_probe(path):
     return True
 
 
+PROBE_TITLE_PREFIX = "internal label probe "
+
+
+def cleanup(tok):
+    """Delete every probe left behind by --keep.
+
+    Matches on the title prefix rather than a hardcoded id, so this stays
+    correct however many probes were run. Nothing else on the channel is
+    named this, and a mistake here deletes a real episode -- so the match is
+    an exact prefix on the title, and anything else is left alone.
+    """
+    r = requests.get(f"{API}/channels", params={"part": "contentDetails",
+                                                "mine": "true"},
+                     headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+    items = r.json().get("items", [])
+    if not items:
+        print(f"Could not read the channel: {r.status_code} {r.text[:200]}")
+        return 1
+    playlist = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+    ids, page = [], None
+    while True:
+        d = requests.get(f"{API}/playlistItems",
+                         params={"part": "snippet", "playlistId": playlist,
+                                 "maxResults": 50, "pageToken": page or ""},
+                         headers={"Authorization": f"Bearer {tok}"},
+                         timeout=30).json()
+        for it in d.get("items", []):
+            sn = it.get("snippet", {}) or {}
+            if (sn.get("title") or "").startswith(PROBE_TITLE_PREFIX):
+                ids.append((sn.get("resourceId", {}).get("videoId"),
+                            sn.get("title")))
+        page = d.get("nextPageToken")
+        if not page:
+            break
+
+    if not ids:
+        print("No probe videos left on the channel.")
+        return 0
+    for vid, title in ids:
+        d = requests.delete(f"{API}/videos", params={"id": vid},
+                            headers={"Authorization": f"Bearer {tok}"},
+                            timeout=30)
+        ok = d.status_code in (200, 204)
+        print(f"{'deleted' if ok else f'FAILED {d.status_code}'}  {vid}  {title}")
+    return 0
+
+
 def main():
     keep = "--keep" in sys.argv[1:]
     tok = token()
     if not tok:
         return 1
+    if "--cleanup" in sys.argv[1:]:
+        return cleanup(tok)
 
     with tempfile.TemporaryDirectory() as td:
         vid_path = os.path.join(td, "probe.mp4")
@@ -93,7 +144,7 @@ def main():
 
         body = {
             "snippet": {
-                "title": f"internal label probe {int(time.time())}",
+                "title": f"{PROBE_TITLE_PREFIX}{int(time.time())}",
                 "description": "Private technical probe. Delete on sight.",
                 "categoryId": "27",
             },

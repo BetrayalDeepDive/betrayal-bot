@@ -41,11 +41,11 @@ on:
         # one-off check, the probe rides in here: true runs ONLY the AI-label
         # probe and skips generation entirely; false (the default, and what
         # every scheduled/normal run uses) behaves exactly as before.
-        description: 'probe = upload a private AI-label probe. report = read-only scan of published videos. false = normal run.'
+        description: 'probe = upload a private AI-label probe. report = read-only list. clear = untick the AI box on every published video. cleanup = delete leftover probes. false = normal run.'
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','report','true']
+        options: ['false','probe','report','clear','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -89,7 +89,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core -qq
       - name: Upload probe and read the label back
-        if: inputs.probe_only != 'report'
+        if: inputs.probe_only == 'probe' || inputs.probe_only == 'true'
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -105,6 +105,22 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: python tools/clear_synthetic_label.py
+      # Edits live published videos: unticks the AI-use box on each one.
+      # Reversible (Studio can tick it back), and explicitly asked for.
+      - name: Clear the AI label from every published video
+        if: inputs.probe_only == 'clear'
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python tools/clear_synthetic_label.py --apply
+      - name: Delete leftover probe videos
+        if: inputs.probe_only == 'clear' || inputs.probe_only == 'cleanup'
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python tools/ai_label_probe.py --cleanup
 
   generate:
     if: inputs.probe_only == 'false' || inputs.probe_only == ''
