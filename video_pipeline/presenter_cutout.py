@@ -81,11 +81,17 @@ FLOOR = 6.0
 CLOSE = 12
 
 # Radius of the second close, applied to the finished mask to seal channels the
-# flood crawled down. Measured across all 23 poses this moves at most 0.25% of
-# the frame -- a notch at the temple -- and the gesture poses, where a genuine
-# gap must survive, move by 0.02% or less. So there is a wide safe band and
-# this sits in the middle of it rather than at an edge.
+# flood crawled down and left as notches in the outline.
+#
+# There are two numbers because there are two kinds of plate. On a gesture pose
+# the gap between the raised hand and the shoulder is REAL and has to survive:
+# measured across those five poses, a seal of 32 still leaves them alone and a
+# seal of 44 starts eating the gap. On a head-and-shoulders portrait there is
+# no legitimate background anywhere inside the silhouette -- nothing separates
+# the man from himself -- so every intrusion is an artefact and the seal can be
+# far more aggressive.
 SEAL = 20
+SEAL_PORTRAIT = 40
 
 
 def _blur(a, radius):
@@ -126,7 +132,7 @@ def _close(a, px):
     return (_blur(d, px * 0.55) > 0.90).astype(np.float32)
 
 
-def alpha(plate, floor=FLOOR, close=CLOSE):
+def alpha(plate, floor=FLOOR, close=CLOSE, seal=SEAL):
     """Coverage for a plate shot on black. Returns float [0,1], plate-sized."""
     # max() rather than mean(): the navy shirt carries almost all its signal in
     # blue, and averaging it with two near-zero channels pushes it under any
@@ -142,10 +148,13 @@ def alpha(plate, floor=FLOOR, close=CLOSE):
 
     h, w = dark.shape
     # Seal the bottom across the subject so the flood cannot climb the shirt.
-    seal = np.zeros(w, dtype=bool)
+    # Named for what it is rather than "seal", which is also the radius
+    # argument -- the two shadowed each other and the close silently received a
+    # boolean array where it wanted a number.
+    floor_run = np.zeros(w, dtype=bool)
     lit = np.nonzero(~dark[h - 1])[0]
     if lit.size:
-        seal[lit.min():lit.max() + 1] = True
+        floor_run[lit.min():lit.max() + 1] = True
 
     canvas = np.zeros((h + 2, w + 2), np.uint8)
     canvas[1:-1, 1:-1] = np.where(dark, 255, 0)
@@ -153,7 +162,7 @@ def alpha(plate, floor=FLOOR, close=CLOSE):
     canvas[:, 0] = 255
     canvas[:, -1] = 255
     canvas[-1, :] = 255
-    canvas[-1, 1:-1][seal] = 0  # ...the bottom does not, under him
+    canvas[-1, 1:-1][floor_run] = 0  # ...the bottom does not, under him
 
     # Pillow's floodfill silently no-ops on an image that still shares its
     # buffer with the numpy array it came from; .copy() detaches it. Without
@@ -172,7 +181,7 @@ def alpha(plate, floor=FLOOR, close=CLOSE):
     # the finished mask fills anything a channel that thin can lead to, while
     # the gaps that must stay open -- between the pointing hand and the
     # shoulder -- are three times wider than this radius.
-    solid = _close(solid, SEAL)
+    solid = _close(solid, seal)
 
     # There is deliberately no soft ramp on the dim pixels outside the
     # silhouette. It sounds right -- a dim pixel is a half-covered hair strand
@@ -298,9 +307,12 @@ def stand(canvas, name, head_h, head_at, mirror=False, stroke=9,
     x0 = int(round(cw * head_at[0] - g["head_cx"] * scale))
     y0 = int(round(ch * head_at[1] - g["crown_y"] * scale - head_h * 0.5))
 
-    key = (name, mirror)
+    # A portrait has no real gap inside its outline, so it gets the stronger
+    # seal; a gesture pose has one that must survive, so it does not.
+    seal = SEAL if keep_to else SEAL_PORTRAIT
+    key = (name, mirror, seal)
     if key not in _CACHE:
-        _CACHE[key] = alpha(plate)
+        _CACHE[key] = alpha(plate, seal=seal)
     return place_on_photo(canvas, plate, _CACHE[key], (x0, y0, x0 + nw, y0 + nh),
                           stroke=stroke, stroke_rgb=stroke_rgb, shadow=shadow,
                           anchor="fill")

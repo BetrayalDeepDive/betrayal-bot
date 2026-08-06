@@ -309,12 +309,15 @@ def _focus_point(im, zone=(0.0, 0.0, 1.0, 1.0), prefer="detail", min_salience=2.
     return int((xx + 0.5) / gw * W), int((yy + 0.5) / gh * H)
 
 
-def _recede(im, blur=5.0, dark=0.52, tint=(0.92, 0.98, 1.06)):
-    """Push a photograph back so a person and some type can sit in front of it.
+def _recede(im, blur=2.0, dark=0.74, tint=(0.94, 0.99, 1.05)):
+    """Push a photograph back a little, without throwing it away.
 
-    Blur is doing the real work here, not the darkening. A sharp background
-    competes with the presenter's face for the eye no matter how dark it is,
-    and at 120px two sharp things at different depths read as clutter.
+    The first version pushed it back so far that the picture stopped being a
+    picture: a corridor blurred by 8 and dimmed to 46% is a grey smear, and a
+    viewer cannot tell it is a hospital, which is the only reason it was there.
+    The background still has to lose to the face, but losing is not the same as
+    being unreadable, so both numbers are now much gentler and the separation
+    comes from the white stroke and the shadow instead.
     """
     a = np.asarray(im.filter(ImageFilter.GaussianBlur(blur))).astype(np.float32)
     a *= dark
@@ -333,11 +336,12 @@ def _panel(canvas, photo_path, box, rot=0.0, stroke=10, blur=0.0):
     im = _cover(photo_path, w, h)
     if blur:
         im = im.filter(ImageFilter.GaussianBlur(blur))
-    pad = stroke + 4
-    card = Image.new("RGBA", (w + pad * 2, h + pad * 2), WHITE + (255,))
-    card.paste(im, (pad, pad))
-    d = ImageDraw.Draw(card)
-    d.rectangle([0, 0, card.width - 1, card.height - 1], outline=BLACK, width=4)
+    # No frame. The white border and the black keyline were drawn lines on a
+    # photograph, and a drawn line is exactly what this module is not allowed
+    # to put on a picture. The shadow alone lifts the inset off the background,
+    # which is what the frame was there to do.
+    pad = 0
+    card = im.convert("RGBA")
     if rot:
         card = card.rotate(rot, Image.BICUBIC, expand=True)
     base = Image.fromarray(canvas.astype(np.uint8))
@@ -375,7 +379,7 @@ def _shoulder(head_at, head_h, side=1):
 def _f_reaction(spec, rng):
     """Presenter reacts; the evidence sits beside him, marked."""
     box = (640, 96, 1204, 508)
-    c = _recede(_cover(spec["scene"], W, H), blur=7, dark=0.42)
+    c = _recede(_cover(spec["scene"], W, H), blur=3.0, dark=0.62)
     c = _panel(c, spec["evidence"], box, rot=-2.2)
     head_at = (0.20, 0.36)
     c = pcut.stand(c, spec["pose"], head_h=250, head_at=head_at,
@@ -406,7 +410,7 @@ def _f_reaction(spec, rng):
 
 def _f_bubbles(spec, rng):
     """What everyone said, in their own boxes, over a real corridor."""
-    c = _recede(_cover(spec["scene"], W, H), blur=8, dark=0.46)
+    c = _recede(_cover(spec["scene"], W, H), blur=2.6, dark=0.66)
     c = pcut.stand(c, spec["pose"], head_h=268, head_at=(0.30, 0.40),
                    mirror=spec.get("mirror", False))
     im = Image.fromarray(c.astype(np.uint8))
@@ -427,7 +431,7 @@ def _f_bubbles(spec, rng):
 def _f_pointing(spec, rng):
     """He points at the thing, and the thing is a photograph of the thing."""
     shot = _cover(spec["evidence"], W, H, focus=0.38)
-    c = _recede(shot, blur=2.4, dark=0.72)
+    c = _recede(shot, blur=1.2, dark=0.84)
     head_at = (0.76, 0.38)
     c = pcut.stand(c, "directing", head_h=246, head_at=head_at, mirror=True)
     im = Image.fromarray(c.astype(np.uint8))
@@ -459,7 +463,7 @@ def _f_verdict(spec, rng):
     """Two states of the same patient, and a mark over the one that matters."""
     a = (338, 92, 786, 424)
     b = (818, 92, 1246, 424)
-    c = _recede(_cover(spec["scene"], W, H), blur=12, dark=0.30)
+    c = _recede(_cover(spec["scene"], W, H), blur=6.0, dark=0.44)
     c = _panel(c, spec["evidence"], a, rot=1.6)
     c = _panel(c, spec.get("evidence_b") or spec["evidence"], b, rot=-1.6)
     # He belongs on this one too. Without a face the card is two documents, and
@@ -515,7 +519,7 @@ def _f_hero(spec, rng):
 def _f_banner(spec, rng):
     """Full-bleed scene, headline banded across the top, presenter in the corner."""
     shot = _cover(spec["scene"], W, H, focus=0.42)
-    c = _recede(shot, blur=3.0, dark=0.62)
+    c = _recede(shot, blur=1.6, dark=0.78)
     head_at = (0.80, 0.46)
     c = pcut.stand(c, spec["pose"], head_h=232, head_at=head_at,
                    mirror=spec.get("mirror", True))
