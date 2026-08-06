@@ -1,0 +1,236 @@
+{
+  "edge": 1000,
+  "poses": {
+    "alert": {
+      "crown_y": 58,
+      "file": "alert.webp",
+      "gaze": "away_left",
+      "gesture": "hand_to_ear",
+      "head_cx": 479,
+      "head_w": 368,
+      "keep_to": 0.62,
+      "register": "alert"
+    },
+    "authority": {
+      "crown_y": 30,
+      "file": "authority.webp",
+      "gaze": "camera",
+      "gesture": "arms_crossed",
+      "head_cx": 481,
+      "head_w": 294,
+      "keep_to": 0.94,
+      "register": "authority"
+    },
+    "calm": {
+      "crown_y": 15,
+      "file": "calm.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 491,
+      "head_w": 367,
+      "keep_to": null,
+      "register": "neutral"
+    },
+    "concern": {
+      "crown_y": 41,
+      "file": "concern.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 463,
+      "head_w": 366,
+      "keep_to": null,
+      "register": "concern"
+    },
+    "concern_b": {
+      "crown_y": 26,
+      "file": "concern_b.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 489,
+      "head_w": 386,
+      "keep_to": null,
+      "register": "concern"
+    },
+    "confusion": {
+      "crown_y": 38,
+      "file": "confusion.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 442,
+      "head_w": 374,
+      "keep_to": null,
+      "register": "confusion"
+    },
+    "curiosity": {
+      "crown_y": 39,
+      "file": "curiosity.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 394,
+      "head_w": 373,
+      "keep_to": null,
+      "register": "curiosity"
+    },
+    "deliberation": {
+      "crown_y": 22,
+      "file": "deliberation.webp",
+      "gaze": "away_left",
+      "gesture": "hand_to_chin",
+      "head_cx": 478,
+      "head_w": 391,
+      "keep_to": 0.74,
+      "register": "deliberation"
+    },
+    "directing": {
+      "crown_y": 34,
+      "file": "directing.webp",
+      "gaze": "away_right",
+      "gesture": "pointing",
+      "head_cx": 346,
+      "head_w": 354,
+      "keep_to": 0.72,
+      "register": "directing"
+    },
+    "grief": {
+      "crown_y": 43,
+      "file": "grief.webp",
+      "gaze": "down",
+      "gesture": "none",
+      "head_cx": 478,
+      "head_w": 376,
+      "keep_to": null,
+      "register": "grief"
+    },
+    "grief_b": {
+      "crown_y": 35,
+      "file": "grief_b.webp",
+      "gaze": "down",
+      "gesture": "none",
+      "head_cx": 524,
+      "head_w": 393,
+      "keep_to": null,
+      "register": "grief"
+    },
+    "neutral_front": {
+      "crown_y": 34,
+      "file": "neutral_front.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 496,
+      "head_w": 367,
+      "keep_to": null,
+      "register": "neutral"
+    },
+    "neutral_three_quarter": {
+      "crown_y": 52,
+      "file": "neutral_three_quarter.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 449,
+      "head_w": 375,
+      "keep_to": null,
+      "register": "neutral"
+    },
+    "presenting": {
+      "crown_y": 35,
+      "file": "presenting.webp",
+      "gaze": "camera",
+      "gesture": "open_palm",
+      "head_cx": 499,
+      "head_w": 321,
+      "keep_to": 0.86,
+      "register": "presenting"
+    },
+    "profile_left": {
+      "crown_y": 43,
+      "file": "profile_left.webp",
+      "gaze": "away_left",
+      "gesture": "none",
+      "head_cx": 441,
+      "head_w": 399,
+      "keep_to": null,
+      "register": "neutral"
+    },
+    "profile_right": {
+      "crown_y": 34,
+      "file": "profile_right.webp",
+      "gaze": "away_right",
+      "gesture": "none",
+      "head_cx": 490,
+      "head_w": 443,
+      "keep_to": null,
+      "register": "neutral"
+    },
+    "recall": {
+      "crown_y": 42,
+      "file": "recall.webp",
+      "gaze": "up",
+      "gesture": "none",
+      "head_cx": 454,
+      "head_w": 362,
+      "keep_to": null,
+      "register": "recall"
+    },
+    "recall_b": {
+      "crown_y": 35,
+      "file": "recall_b.webp",
+      "gaze": "up",
+      "gesture": "none",
+      "head_cx": 458,
+      "head_w": 387,
+      "keep_to": null,
+      "register": "recall"
+    },
+    "resolve": {
+      "crown_y": 22,
+      "file": "resolve.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 483,
+      "head_w": 395,
+      "keep_to": null,
+      "register": "resolve"
+    },
+    "skepticism": {
+      "crown_y": 35,
+      "file": "skepticism.webp",
+      "gaze": "away_left",
+      "gesture": "none",
+      "head_cx": 460,
+      "head_w": 379,
+      "keep_to": null,
+      "register": "suspicion"
+    },
+    "surprise": {
+      "crown_y": 22,
+      "file": "surprise.webp",
+      "gaze": "camera",
+      "gesture": "none",
+      "head_cx": 474,
+      "head_w": 396,
+      "keep_to": null,
+      "register": "surprise"
+    },
+    "suspicion": {
+      "crown_y": 36,
+      "file": "suspicion.webp",
+      "gaze": "away_left",
+      "gesture": "none",
+      "head_cx": 462,
+      "head_w": 393,
+      "keep_to": null,
+      "register": "suspicion"
+    },
+    "suspicion_b": {
+      "crown_y": 29,
+      "file": "suspicion_b.webp",
+      "gaze": "away_left",
+      "gesture": "none",
+      "head_cx": 485,
+      "head_w": 376,
+      "keep_to": null,
+      "register": "suspicion"
+    }
+  },
+  "screen_composite": true
+}
