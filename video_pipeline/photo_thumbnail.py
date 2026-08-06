@@ -140,6 +140,56 @@ def organ_terms(text):
     return out
 
 
+# ── where the card is allowed to put anything that matters ─────────────
+#
+# YouTube stamps the video's duration over the bottom-right corner of every
+# thumbnail in every feed. It is not optional and it is not previewed in the
+# upload dialog, so it is invisible until the video is live -- which is exactly
+# how a headline ends up with its last word covered by "12:47". Measured at
+# roughly 90x34px at 1280x720, and the guidance is to keep anything that
+# matters 150x60 clear of the corner.
+#
+# The rest is the standard safe area: feeds, cards and TV crop differently, so
+# critical content stays inside a 90px inset.
+SAFE = (90, 90, 1190, 630)
+BADGE = (1060, 640, 1280, 720)
+
+# The one element that never moves. Channels that are recognised in a feed keep
+# roughly 80% of the card fixed and vary the rest; this red case chip, always
+# the same colour in the same corner, is this channel's fixed part. It is worth
+# more than it looks: a returning viewer identifies the channel before reading
+# a single word.
+BRAND_AT = (96, 96)
+
+# Words in the headline. Three or fewer tests best, and three to five is the
+# band where the gain still holds; past that the type has to shrink to fit and
+# the shrink is what costs the click, so the cap is enforced rather than
+# advised.
+MAX_WORDS = 5
+
+# Filler that carries no meaning at a glance. Dropping these is what turns
+# "IT WAS IN THE FIRST BLOOD TEST" (seven words, small type) into
+# "IN THE FIRST BLOOD TEST" and then "FIRST BLOOD TEST" (three words, huge).
+_FILLER = ("the", "a", "an", "of", "to", "in", "on", "at", "it", "is", "was",
+           "were", "that", "this", "and", "for", "with", "his", "her", "their")
+
+
+def trim_words(text, cap=MAX_WORDS):
+    """Cut a headline to `cap` words, dropping filler before content.
+
+    Truncating from the end would throw away the payload -- the last word of a
+    clinical headline is usually the finding. Filler goes first, and only if
+    that is not enough does the tail go.
+    """
+    words = [w for w in (text or "").split() if w]
+    if len(words) <= cap:
+        return " ".join(words)
+    keep = [w for w in words if w.lower().strip(".,;:") not in _FILLER]
+    if len(keep) > cap:
+        keep = keep[-cap:]          # the finding sits at the end
+    return " ".join(keep or words[:cap])
+
+
 def _font(path, size):
     return ImageFont.truetype(path, size)
 
@@ -149,6 +199,54 @@ def _font(path, size):
 def _measure(d, text, font, ow):
     b = d.textbbox((0, 0), text, font=font, stroke_width=ow)
     return b[2] - b[0], b[3] - b[1]
+
+
+def _heavy(text, font, weight, ow):
+    """Render text as a genuinely fatter letterform, plus its outline.
+
+    Returns (fill_mask, outline_mask) as L-mode images.
+
+    This machine has no display face -- DejaVu and Liberation are text faces,
+    and the thumbnails that work in this niche are set in something like Anton:
+    very heavy, very condensed. Anton is free, but the proxy blocks GitHub and
+    PyPI has no package carrying it, so it cannot be fetched.
+
+    Rather than fake the weight with a thick outline -- which reads as a thin
+    letter wearing a border -- the glyphs are dilated in raster space. That is
+    what emboldening physically IS: the outline offset outwards. The stems
+    genuinely thicken, the counters genuinely close up, and the result is a
+    display weight rather than a text weight with decoration.
+    """
+    pad = weight + ow + 8
+    tmp = Image.new("L", (1, 1))
+    b = ImageDraw.Draw(tmp).textbbox((0, 0), text, font=font)
+    w, h = b[2] - b[0] + pad * 2, b[3] - b[1] + pad * 2
+    m = Image.new("L", (max(1, w), max(1, h)), 0)
+    ImageDraw.Draw(m).text((pad - b[0], pad - b[1]), text, font=font, fill=255)
+
+    def grow(im, px):
+        for _ in range(max(0, int(round(px / 2)))):
+            im = im.filter(ImageFilter.MaxFilter(5))
+        return im
+
+    fill = grow(m, weight)
+    return fill, grow(fill, ow)
+
+
+def _draw_heavy(img, xy, text, font, colour, weight=6, ow=9, outline=BLACK,
+                anchor="la"):
+    """Paste heavy outlined caps onto img. Returns the box it occupied."""
+    fill, out = _heavy(text, font, weight, ow)
+    x, y = xy
+    if anchor[0] == "m":
+        x -= out.width // 2
+    elif anchor[0] == "r":
+        x -= out.width
+    if anchor[1] == "b":
+        y -= out.height
+    img.paste(Image.new("RGB", out.size, outline), (x, y), out)
+    img.paste(Image.new("RGB", fill.size, colour), (x, y), fill)
+    return (x, y, x + out.width, y + out.height)
 
 
 def _fit(d, lines, path, box_w, box_h, start, ow, lead=1.02, floor=22):
@@ -171,15 +269,37 @@ def _caps(d, xy, text, font, fill, ow=7, outline=BLACK, anchor="la"):
            stroke_width=ow, stroke_fill=outline)
 
 
-def _block(d, lines, path, box, fill, start=120, ow=8, align="left"):
-    """A heavy outlined caps block fitted into box, returns its bottom y."""
+def _block(img, lines, path, box, fill, start=120, ow=None, align="left",
+           weight=6, anchor_bottom=True):
+    """A heavy caps block fitted into box.
+
+    Bottom-anchored by default: a headline sitting on the floor of its box is
+    predictable, whereas a top-anchored one moves up and down the card as the
+    fitted size changes, which is how a two-line headline ends up overlapping
+    whatever is below it.
+    """
+    d = ImageDraw.Draw(img)
     x0, y0, x1, y1 = box
-    f = _fit(d, lines, path, x1 - x0, y1 - y0, start, ow)
-    lead = int(f.size * 1.02)
-    y = y0
+    f = _fit(d, lines, path, x1 - x0, y1 - y0, start, (ow or 9) + weight)
+
+    # Weight has to be a FRACTION of the size, not a pixel count. A flat 6px
+    # dilation is invisible on 110pt type and closes every counter on 40pt --
+    # "EVERY TEST CAME BACK CLEAN" came out as a solid white blob with no
+    # letters in it at all, while "NINE MONTHS APART" on the same setting was
+    # fine. Emboldening is proportional in every real type family, and 5.5% of
+    # the em is about the step from a bold to a black.
+    weight = max(2, int(round(f.size * 0.055)))
+    # ow=0 means the caller wants no outline at all -- black caps on the yellow
+    # banner, where an outline is the same colour as the type and welds the
+    # whole line into one black slab. Only "unspecified" gets the auto value.
+    ow = 0 if ow == 0 else max(3, int(round(f.size * 0.085)))
+    lead = int(f.size * 1.06) + weight
+    total = lead * len(lines)
+    y = (y1 - total) if anchor_bottom else y0
     for ln in lines:
         x = x0 if align == "left" else (x0 + x1) // 2
-        _caps(d, (x, y), ln, f, fill, ow, anchor="la" if align == "left" else "ma")
+        _draw_heavy(img, (x, y), ln, f, fill, weight=weight, ow=ow,
+                    anchor="la" if align == "left" else "ma")
         y += lead
     return y
 
@@ -503,11 +623,11 @@ def _shoulder(head_at, head_h, side=1):
 
 def _f_reaction(spec, rng):
     """Presenter reacts; the evidence sits beside him, marked."""
-    box = (640, 96, 1204, 508)
+    box = (628, 100, 1150, 424)
     c = _recede(_cover(spec["scene"], W, H), blur=3.0, dark=0.62)
     c = _panel(c, spec["evidence"], box, rot=-2.2)
-    head_at = (0.20, 0.36)
-    c = pcut.stand(c, spec["pose"], head_h=250, head_at=head_at,
+    head_at = (0.19, 0.33)
+    c = pcut.stand(c, spec["pose"], head_h=300, head_at=head_at,
                    mirror=spec.get("mirror", False))
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
@@ -519,24 +639,24 @@ def _f_reaction(spec, rng):
     # always something on it worth ringing, and a sheet of 24 near-identical
     # slices has a flat saliency field precisely BECAUSE it is all findings.
     at = _focus_point(_cover(spec["evidence"], box[2] - box[0], box[3] - box[1]),
-                      zone=(0.18, 0.18, 0.86, 0.84), min_salience=1.25)
+                      zone=(0.24, 0.26, 0.80, 0.76), min_salience=1.25)
     if at:
         mx = box[0] + int(at[0] / float(W) * (box[2] - box[0]))
         my = box[1] + int(at[1] / float(H) * (box[3] - box[1]))
         _ring(d, mx, my, 96, 78, rng=rng)
-        _arrow(d, _shoulder(head_at, 250), (mx - 112, my - 20), bend=-0.24, rng=rng)
+        _arrow(d, _shoulder(head_at, 300), (mx - 112, my - 20), bend=-0.24, rng=rng)
     if spec.get("mark"):
-        _label(d, spec["mark"], (1204, 96), YELLOW, size=46, anchor="rt")
-    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+        _label(d, spec["mark"], (1178, 108), YELLOW, size=46, anchor="rt")
+    _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
 
-    _block(d, spec["lines"], _COND, (500, 540, 1244, 692), WHITE, start=86, ow=9)
+    _block(im, spec["lines"], _COND, (470, 448, 1040, 618), WHITE, start=92)
     return np.asarray(im).astype(np.float32)
 
 
 def _f_bubbles(spec, rng):
     """What everyone said, in their own boxes, over a real corridor."""
     c = _recede(_cover(spec["scene"], W, H), blur=2.6, dark=0.66)
-    c = pcut.stand(c, spec["pose"], head_h=268, head_at=(0.30, 0.40),
+    c = pcut.stand(c, spec["pose"], head_h=310, head_at=(0.27, 0.36),
                    mirror=spec.get("mirror", False))
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
@@ -544,12 +664,17 @@ def _f_bubbles(spec, rng):
     # Tails aim down and away, never back at him. Pointed at his head they put
     # a white spike through his ear -- and they would be wrong anyway: these are
     # what everyone ELSE said to the patient, not what he is saying.
+    #
+    # Two bubbles and NO separate headline. With one as well the card carried
+    # four things competing for the same second -- face, bubble, bubble,
+    # headline -- and two or three is the working limit. The second bubble IS
+    # the headline, so nothing is lost: the dismissal sets it up and the
+    # episode's own line lands underneath it.
     quotes = spec["quotes"][:2]
     _bubble(d, quotes[0], 900, 162, (836, 292), size=50, bg=WHITE, max_w=430)
     if len(quotes) > 1:
         _bubble(d, quotes[1], 934, 424, (876, 548), size=50, bg=YELLOW, max_w=430)
-    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
-    _block(d, spec["lines"], _COND, (520, 566, 1244, 690), WHITE, start=78, ow=9)
+    _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
     return np.asarray(im).astype(np.float32)
 
 
@@ -557,8 +682,8 @@ def _f_pointing(spec, rng):
     """He points at the thing, and the thing is a photograph of the thing."""
     shot = _cover(spec["evidence"], W, H, focus=0.38)
     c = _recede(shot, blur=1.2, dark=0.84)
-    head_at = (0.76, 0.38)
-    c = pcut.stand(c, "directing", head_h=246, head_at=head_at, mirror=True)
+    head_at = (0.77, 0.35)
+    c = pcut.stand(c, "directing", head_h=286, head_at=head_at, mirror=True)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
 
@@ -579,8 +704,8 @@ def _f_pointing(spec, rng):
         below = my + 150
         _label(d, spec["mark"], (mx, below if below < 500 else my - 128),
                YELLOW, size=48, anchor="ct")
-    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
-    _block(d, spec["lines"], _COND, (36, 556, 660, 690), WHITE, start=82, ow=9)
+    _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
+    _block(im, spec["lines"], _COND, (92, 440, 660, 616), WHITE, start=88)
     return np.asarray(im).astype(np.float32)
 
 
@@ -594,7 +719,7 @@ def _f_verdict(spec, rng):
     # He belongs on this one too. Without a face the card is two documents, and
     # a channel whose thumbnails have no person in them has nothing for a
     # returning viewer to recognise in a feed.
-    c = pcut.stand(c, spec["pose"], head_h=214, head_at=(0.13, 0.50),
+    c = pcut.stand(c, spec["pose"], head_h=236, head_at=(0.12, 0.46),
                    mirror=False)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
@@ -604,9 +729,9 @@ def _f_verdict(spec, rng):
     _label(d, spec["state_b"], ((b[0] + b[2]) // 2, b[1] + 18), WHITE, size=40,
            anchor="ct")
     _cross(d, (b[0] + b[2]) // 2, (b[1] + b[3]) // 2, 128, rng=rng)
-    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
-    _block(d, spec["lines"], _COND, (352, 486, 1246, 668), WHITE, start=92,
-           ow=10, align="centre")
+    _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
+    _block(im, spec["lines"], _COND, (92, 452, 1046, 618), WHITE, start=104,
+           align="centre")
     return np.asarray(im).astype(np.float32)
 
 
@@ -635,9 +760,9 @@ def _f_hero(spec, rng):
         lx = mx + 168 if mx < W * 0.62 else mx - 168
         _label(d, spec["mark"], (lx, my - 34), YELLOW, size=52,
                anchor="lt" if mx < W * 0.62 else "rt")
-    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
-    _block(d, spec["lines"], _COND, (40, 512, 1240, 700), WHITE, start=134, ow=12,
-           align="centre")
+    _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
+    _block(im, spec["lines"], _COND, (92, 430, 1046, 618), WHITE, start=132,
+           weight=8, align="centre")
     return np.asarray(im).astype(np.float32)
 
 
@@ -645,8 +770,8 @@ def _f_banner(spec, rng):
     """Full-bleed scene, headline banded across the top, presenter in the corner."""
     shot = _cover(spec["scene"], W, H, focus=0.42)
     c = _recede(shot, blur=1.6, dark=0.78)
-    head_at = (0.80, 0.46)
-    c = pcut.stand(c, spec["pose"], head_h=232, head_at=head_at,
+    head_at = (0.81, 0.44)
+    c = pcut.stand(c, spec["pose"], head_h=268, head_at=head_at,
                    mirror=spec.get("mirror", True))
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
@@ -658,8 +783,8 @@ def _f_banner(spec, rng):
     # One band, so the headline is joined rather than truncated. Taking
     # lines[:1] silently shipped "EVERY TEST" and dropped "CAME BACK CLEAN",
     # which reads as a sentence someone forgot to finish.
-    _block(d, [" ".join(spec["lines"])], _COND, (44, 26, 1236, 148), BLACK,
-           start=118, ow=0, align="centre")
+    _block(im, [" ".join(spec["lines"])], _COND, (96, 26, 1184, 148), BLACK,
+           start=118, ow=0, weight=5, align="centre")
 
     # An empty corridor has no finding in it. When the scene is just a place,
     # the banner and the presenter carry the card on their own.
@@ -667,10 +792,10 @@ def _f_banner(spec, rng):
     if at:
         mx, my = at
         _ring(d, mx, my, 104, 92, rng=rng)
-        _arrow(d, _shoulder(head_at, 232, side=-1), (mx + 118, my + 24),
+        _arrow(d, _shoulder(head_at, 268, side=-1), (mx + 118, my + 24),
                bend=0.22, rng=rng)
     if spec.get("mark"):
-        _label(d, spec["mark"], (48, 688), RED, fg=WHITE, size=52, anchor="lb")
+        _label(d, spec["mark"], (96, 618), RED, fg=WHITE, size=52, anchor="lb")
     return np.asarray(im).astype(np.float32)
 
 
@@ -688,6 +813,37 @@ def pick_format(episode, history=None):
     return pool[episode % len(pool)]
 
 
+def punch(arr, contrast=1.16, sat=1.24):
+    """Final grade. High-contrast thumbnails measurably out-click flat ones.
+
+    Applied once at the end rather than to each layer, so the photograph, the
+    presenter and the type all shift together and the card still reads as one
+    image rather than as a person pasted onto a scene.
+    """
+    a = arr.astype(np.float32)
+    grey = a.mean(axis=2, keepdims=True)
+    a = grey + (a - grey) * sat                      # saturation
+    a = 128.0 + (a - 128.0) * contrast               # contrast about mid grey
+    return np.clip(a, 0, 255)
+
+
+def badge_clear(arr, ink=0.035):
+    """True if the duration badge will not cover anything that matters.
+
+    The badge is drawn by YouTube after upload, so this cannot be checked by
+    looking at the file -- which is exactly why headlines end up half-hidden.
+    The test is whether the corner carries strong local detail (type or a hard
+    graphic edge) rather than photograph.
+    """
+    x0, y0, x1, y1 = BADGE
+    g = np.asarray(Image.fromarray(arr.astype(np.uint8)).convert("L")
+                   ).astype(np.float32)[y0:y1, x0:x1]
+    if g.size == 0:
+        return True
+    edge = (np.abs(np.diff(g, axis=1))[:, :] > 70).mean()
+    return float(edge) <= ink
+
+
 def legible_at(arr, px=120):
     """Contrast that survives a 120px mobile row.
 
@@ -699,6 +855,20 @@ def legible_at(arr, px=120):
         (px, int(px * H / W)), Image.LANCZOS)
     g = np.asarray(small.convert("L")).astype(np.float32)
     return float(g.std())
+
+
+# What a patient actually gets told before anyone believes them. The bubble
+# format needs two lines and the pipeline only has one -- the episode headline
+# -- so the first bubble comes from here and rotates by episode, and the second
+# is the episode's own line. Without this every bubbles thumbnail the channel
+# ever published would carry the same two sentences.
+DISMISSALS = ("IT'S JUST STRESS", "YOU'RE FINE", "ALL TESTS NORMAL",
+              "IT'S ANXIETY", "NOTHING ON THE SCAN", "COME BACK IN SIX MONTHS",
+              "PROBABLY A VIRUS", "TRY SLEEPING MORE")
+
+
+def _default_quotes(episode, lines):
+    return [DISMISSALS[(episode or 1) % len(DISMISSALS)], " ".join(lines)]
 
 
 def render(out_path, headline, photos, fmt=None, episode=1, history=None,
@@ -718,7 +888,15 @@ def render(out_path, headline, photos, fmt=None, episode=1, history=None,
         raise ValueError("photo_thumbnail needs at least one real photograph")
     any_one = next(iter(have.values()))
 
-    lines = [s for s in (headline or "").upper().split("\n") if s.strip()][:2]
+    # Trim to the word cap first, then lay out. Doing it the other way round
+    # caps each LINE at five words and lets a two-line headline reach ten.
+    flat = trim_words(" ".join((headline or "").split()), MAX_WORDS).upper()
+    words = flat.split()
+    if len(words) <= 3:
+        lines = [flat]
+    else:
+        half = (len(words) + 1) // 2
+        lines = [" ".join(words[:half]), " ".join(words[half:])]
     spec = {
         "scene": have.get("scene", any_one),
         "evidence": have.get("evidence", any_one),
@@ -727,8 +905,7 @@ def render(out_path, headline, photos, fmt=None, episode=1, history=None,
         "lines": lines or ["NO CAUSE FOUND"],
         "kicker": (kicker or "CASE").upper(),
         "mark": (mark or "").upper() or None,
-        "quotes": [q.upper() for q in (quotes or ["ALL TESTS NORMAL",
-                                                  "SHE KEPT GETTING WORSE"])],
+        "quotes": [q.upper() for q in (quotes or _default_quotes(episode, lines))],
         "pose": pose or rng.choice(_POSES[fmt]),
         "mirror": rng.random() < 0.5,
         "state_a": state_a.upper(),
@@ -738,7 +915,9 @@ def render(out_path, headline, photos, fmt=None, episode=1, history=None,
     if not spec["mark_at"]:
         spec.pop("mark_at")
 
-    arr = _RENDER[fmt](spec, rng)
+    arr = punch(_RENDER[fmt](spec, rng))
     Image.fromarray(arr.astype(np.uint8)).save(out_path, quality=94)
     return {"path": out_path, "format": fmt, "pose": spec["pose"],
-            "contrast_120px": round(legible_at(arr), 1)}
+            "contrast_120px": round(legible_at(arr), 1),
+            "words": len(flat.split()),
+            "badge_clear": badge_clear(arr)}
