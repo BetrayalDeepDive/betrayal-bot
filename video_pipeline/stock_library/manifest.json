@@ -1,0 +1,132 @@
+{
+  "license": "Pixabay Content License \u2014 free for commercial use, no attribution required",
+  "note": "Seeded from photographs supplied by the channel owner, downloaded from Pixabay.",
+  "photos": [
+    {
+      "file": "evidence_1000032074.jpg",
+      "h": 1067,
+      "role": "evidence",
+      "tags": "mri ct scan lightbox brain radiology film",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032075.jpg",
+      "h": 1067,
+      "role": "scene",
+      "tags": "ct scanner patient hospital imaging room",
+      "w": 1600
+    },
+    {
+      "file": "evidence_1000032076.jpg",
+      "h": 1141,
+      "role": "evidence",
+      "tags": "ct scan sheet brain slices radiology film",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032078.jpg",
+      "h": 1600,
+      "role": "scene",
+      "tags": "mri machine scanner hospital imaging room",
+      "w": 1231
+    },
+    {
+      "file": "scene_1000032080.jpg",
+      "h": 1600,
+      "role": "scene",
+      "tags": "hospital corridor dark empty hallway",
+      "w": 1067
+    },
+    {
+      "file": "scene_1000032081.jpg",
+      "h": 897,
+      "role": "scene",
+      "tags": "hospital corridor ward bright hallway",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032082.jpg",
+      "h": 1600,
+      "role": "scene",
+      "tags": "hospital corridor dark night hallway",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032083.jpg",
+      "h": 1600,
+      "role": "scene",
+      "tags": "clinic waiting room door examination",
+      "w": 1205
+    },
+    {
+      "file": "scene_1000032084.jpg",
+      "h": 1067,
+      "role": "scene",
+      "tags": "hospital corridor ward wide hallway",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032085.jpg",
+      "h": 1600,
+      "role": "scene",
+      "tags": "clinic corridor chairs waiting area",
+      "w": 1052
+    },
+    {
+      "file": "evidence_1000032086.jpg",
+      "h": 1200,
+      "role": "evidence",
+      "tags": "blood sample tube gloved hand laboratory",
+      "w": 1600
+    },
+    {
+      "file": "evidence_1000032087.jpg",
+      "h": 893,
+      "role": "evidence",
+      "tags": "blood test pipette laboratory gloved hand",
+      "w": 1600
+    },
+    {
+      "file": "scene_1000032092.jpg",
+      "h": 1067,
+      "role": "scene",
+      "tags": "paramedic ecg leads emergency patient resuscitation",
+      "w": 1600
+    },
+    {
+      "file": "evidence_1000032093.jpg",
+      "h": 1067,
+      "role": "evidence",
+      "tags": "clinical examination hands arm patient",
+      "w": 1600
+    },
+    {
+      "file": "hero_1000032095.jpg",
+      "h": 1067,
+      "role": "hero",
+      "tags": "human eye macro iris close up",
+      "w": 1600
+    },
+    {
+      "file": "hero_1000032096.jpg",
+      "h": 1068,
+      "role": "hero",
+      "tags": "human eye macro iris eyelash close up",
+      "w": 1600
+    },
+    {
+      "file": "hero_1000032097.jpg",
+      "h": 1067,
+      "role": "hero",
+      "tags": "human eye macro iris pupil close up",
+      "w": 1600
+    },
+    {
+      "file": "hero_1000032098.jpg",
+      "h": 1064,
+      "role": "hero",
+      "tags": "human eye macro iris dark close up",
+      "w": 1600
+    }
+  ]
+}

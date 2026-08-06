@@ -1390,6 +1390,21 @@ def run_ctr_recovery(channel_id, token, growth_state):
     except Exception as e:
         log(f"  thumb_format_history CTR record (non-fatal): {e}")
 
+    # The same real signal for Shorts. shorts_format_history recorded which
+    # presentation format ran and nothing about whether it worked, so 36
+    # entries of genuine history taught the picker exactly nothing. Both files
+    # are keyed on video_id, so one analytics pull feeds both.
+    try:
+        ch_cfg = CHANNELS.get(channel_id, {})
+        if ch_cfg.get("state_file"):
+            from shorts_formats import record_format_ctr as _shorts_ctr
+            cache_dir = str(Path(ch_cfg["state_file"]).parent)
+            for row in data.get("rows", []):
+                if len(row) >= 2:
+                    _shorts_ctr(cache_dir, row[0], float(row[1]))
+    except Exception as e:
+        log(f"  shorts_format_history CTR record (non-fatal): {e}")
+
     # FIX (found on deep re-audit): title_score_history real learning
     # signal — same real CTR pull, feeding title_scoring_history so
     # get_title_calibration_notes() has real data to compare against

@@ -1831,6 +1831,21 @@ def upload_youtube_short(video_path: str, title: str, description: str,
     vid_id = ur.json()["id"]
     url = f"https://youtube.com/shorts/{vid_id}"
     log.info("YouTube Short uploaded: %s", url)
+
+    # Bridge the presentation format chosen at write time to the video id that
+    # only exists now. Without this the CTR that YouTube Analytics reports for
+    # this Short later has no entry to attach itself to, and the Shorts format
+    # history stays a diary of what ran rather than a record of what worked.
+    try:
+        from shorts_formats import attach_video_id as _attach_short
+        # _cache_dir is a local in the two functions that record formats, so it
+        # is recomputed here from the module-level active channel rather than
+        # closed over -- referencing it directly raises NameError at exactly
+        # the moment a Short has just uploaded successfully.
+        _attach_short(_channel_cache_dir(_active_channel_id),
+                      _active_channel_id, vid_id)
+    except Exception as e:
+        log.warning("shorts_format_history video_id attach (non-fatal): %s", e)
     return url
 
 

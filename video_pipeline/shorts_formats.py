@@ -17,6 +17,7 @@ Real Shorts feature set shared by shorts_reels_engine.py:
      principle as thumb_format_history.json.
 """
 import json
+import random
 import re
 from pathlib import Path
 
@@ -228,7 +229,15 @@ def _save_format_history(cache_dir, history):
         pass
 
 
-def record_format_used(cache_dir, channel_id, mode, format_name):
+# How many real results a format needs before its average is trusted, and how
+# often to try something else anyway so data keeps arriving. Same numbers as
+# the long-form thumbnail loop, for the same reason: below four samples one
+# viral Short would lock the channel into whatever format it happened to use.
+MIN_SAMPLES_TO_TRUST = 4
+EXPLORE_PROBABILITY = 0.30
+
+
+def record_format_used(cache_dir, channel_id, mode, format_name, video_id=None):
     """Appends one real history entry — never overwrites, same principle
     as thumb_format_history.json."""
     import datetime
@@ -237,29 +246,90 @@ def record_format_used(cache_dir, channel_id, mode, format_name):
         "channel": channel_id,
         "mode": mode,
         "format": format_name,
+        # video_id and ctr_pct are what turn this from a diary into a
+        # feedback loop. Without them the file recorded which format ran and
+        # nothing whatsoever about whether it worked, so 36 entries of real
+        # history taught the picker exactly nothing.
+        "video_id": video_id,
+        "ctr_pct": None,
         "timestamp": datetime.datetime.utcnow().isoformat(),
     })
     _save_format_history(cache_dir, history)
     return history
 
 
+def attach_video_id(cache_dir, channel_id, video_id):
+    """Fill in the video_id on the most recent entry that lacks one.
+
+    The format is chosen while the Short is being written; the YouTube id only
+    exists after it uploads. Without this bridge the CTR that arrives later has
+    nothing to attach itself to.
+    """
+    if not video_id:
+        return False
+    history = load_format_history(cache_dir)
+    for entry in reversed(history):
+        if entry.get("channel") == channel_id and not entry.get("video_id"):
+            entry["video_id"] = video_id
+            _save_format_history(cache_dir, history)
+            return True
+    return False
+
+
+def record_format_ctr(cache_dir, video_id, ctr_pct):
+    """Called once YouTube Analytics has real numbers for a Short."""
+    if not video_id:
+        return False
+    history = load_format_history(cache_dir)
+    hit = False
+    for entry in history:
+        if entry.get("video_id") == video_id:
+            entry["ctr_pct"] = ctr_pct
+            hit = True
+    if hit:
+        _save_format_history(cache_dir, history)
+    return hit
+
+
+def _format_avg_ctr(history, format_name):
+    vals = [e["ctr_pct"] for e in history
+            if e.get("format") == format_name and e.get("ctr_pct") is not None]
+    return (sum(vals) / len(vals), len(vals)) if vals else (None, 0)
+
+
 def select_presentation_format(cache_dir, channel_id):
     """
-    Real variety enforcement: never repeats the immediately previous
-    presentation format for this channel; otherwise rotates round-robin
-    through all 5 by how many times each has been used so far, so every
-    format gets genuinely even real-world exposure over time.
+    Never repeats the immediately previous format for this channel. Beyond
+    that, once a format has enough real CTR behind it the best-performing one
+    is mostly chosen, and the rest of the time an under-sampled one is tried so
+    the data keeps coming in.
+
+    Before any CTR exists -- and on a new channel that is every Short for the
+    first few weeks -- it falls back to the original least-used rotation, so
+    every format still gets genuinely even exposure while the evidence builds.
     """
     history = load_format_history(cache_dir)
     channel_history = [e for e in history if e.get("channel") == channel_id]
     last_format = channel_history[-1]["format"] if channel_history else None
 
-    candidates = [f for f in ALL_PRESENTATION_FORMATS if f != last_format] or list(ALL_PRESENTATION_FORMATS)
+    candidates = [f for f in ALL_PRESENTATION_FORMATS if f != last_format] \
+        or list(ALL_PRESENTATION_FORMATS)
+
+    proven = {}
+    for f in candidates:
+        avg, n = _format_avg_ctr(channel_history, f)
+        if avg is not None and n >= MIN_SAMPLES_TO_TRUST:
+            proven[f] = avg
+    if proven and random.random() > EXPLORE_PROBABILITY:
+        return max(proven, key=proven.get)
+
     counts = {f: 0 for f in candidates}
     for e in channel_history:
         if e.get("format") in counts:
             counts[e["format"]] += 1
-    return min(candidates, key=lambda f: counts[f])
+    unproven = [f for f in candidates if f not in proven]
+    pool = unproven or candidates
+    return min(pool, key=lambda f: counts[f])
 
 
 def presentation_format_instruction(format_name):

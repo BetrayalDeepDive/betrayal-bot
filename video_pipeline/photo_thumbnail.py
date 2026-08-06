@@ -167,6 +167,15 @@ BRAND_AT = (96, 96)
 # advised.
 MAX_WORDS = 5
 
+# Outline on the presenter. It was 9px, which is the reference channels' look
+# but reads as a sticker pasted onto the scene -- the channel owner asked for
+# him to sit IN the photograph, not on top of it. At 3px the edge still
+# separates him from a busy background at 120px, but at full size it reads as
+# depth of field rather than as a border. The shadow does more of the work now,
+# which is what actually makes something look like it is standing in a room.
+STROKE = 2
+SHADOW = 0.66
+
 # Filler that carries no meaning at a glance. Dropping these is what turns
 # "IT WAS IN THE FIRST BLOOD TEST" (seven words, small type) into
 # "IN THE FIRST BLOOD TEST" and then "FIRST BLOOD TEST" (three words, huge).
@@ -458,11 +467,15 @@ def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence
     For the evidence role the episode's own subject comes first, so a case
     about a heart gets a photograph of a heart rather than generic glassware.
     """
+    import stock_library as sl
+
     out = {}
+    all_terms = {}
     for role in roles:
         terms = list(SEARCH_TERMS.get(role, []))
         if role == "evidence":
             terms = (organ_terms(topic) or []) + [topic] + terms
+        all_terms[role] = terms
         path = os.path.join(str(work_dir), "thumb_%s.jpg" % role)
         for q in terms:
             if not q:
@@ -480,6 +493,25 @@ def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence
             out[role] = path
             log("    thumbnail photo [%s]: '%s'" % (role, q))
             break
+
+        # Nothing came back for this role: a rate limit, a dead key, a network
+        # blip, or a search that returned only diagrams. The library is what
+        # stops any of those turning into a drawn thumbnail.
+        if role not in out:
+            local = sl.pick(role, terms, seed=hash(topic or "") & 0xffff)
+            if local:
+                out[role] = local
+                log("    thumbnail photo [%s]: from the local library "
+                    "(the search returned nothing usable)" % role)
+
+    # Top the library up with whatever this episode's searches found. Small,
+    # so it compounds over weeks rather than hammering the free tier now.
+    try:
+        n = sl.harvest(fetch, all_terms, work_dir, verify=looks_drawn, log=log)
+        if n:
+            log("    stock library: %d new, %d held" % (n, sl.count()))
+    except Exception as e:
+        log("    stock library harvest (non-fatal): %s" % e)
     return out
 
 
@@ -610,6 +642,44 @@ def _panel(canvas, photo_path, box, rot=0.0, stroke=10, blur=0.0):
 # detected afterwards, because a check that runs afterwards has nothing to do
 # about it except shrink the type.
 
+# ── the channel mark ───────────────────────────────────────────────────
+
+# Same ring-and-single-ECG-beat as the channel avatar, drawn small in the
+# corner. Reusing the avatar's mark rather than inventing a second one is the
+# point: a viewer who has seen the channel once recognises the card before
+# reading it, and the mark is doing brand work rather than watermark work.
+MARK_TEAL = (95, 168, 160)
+
+
+def _mark(im, size=58, pad=26):
+    """Channel mark, bottom right, clear of YouTube's duration badge.
+
+    The badge covers the true corner, so a mark placed there would be hidden
+    in every feed -- which is the opposite of what a mark is for. It sits at
+    the bottom-right of the SAFE area instead: still bottom right to the eye,
+    still visible everywhere.
+    """
+    x1, y1 = SAFE[2] - pad, SAFE[3] - pad
+    x0, y0 = x1 - size, y1 - size
+    plate = Image.new("RGBA", (size * 3, size * 3), (0, 0, 0, 0))
+    d = ImageDraw.Draw(plate)
+    s3 = size * 3
+
+    # A soft dark disc under it so the mark survives a bright photograph
+    # without needing an opaque box, which would read as a sticker.
+    d.ellipse([0, 0, s3 - 1, s3 - 1], fill=(10, 14, 18, 150))
+    d.ellipse([9, 9, s3 - 10, s3 - 10], outline=MARK_TEAL + (235,), width=7)
+
+    # One beat: flat, up, down, flat. Unmistakably medical at any size.
+    cx, cy, sp = s3 / 2.0, s3 / 2.0, s3 * 0.46
+    pts = [(cx - sp / 2, cy), (cx - sp * 0.18, cy), (cx - sp * 0.07, cy - sp * 0.30),
+           (cx + sp * 0.05, cy + sp * 0.26), (cx + sp * 0.16, cy), (cx + sp / 2, cy)]
+    d.line(pts, fill=(238, 244, 246, 245), width=9, joint="curve")
+
+    plate = plate.resize((size, size), Image.LANCZOS)
+    im.paste(plate, (x0, y0), plate)
+
+
 def _shoulder(head_at, head_h, side=1):
     """Roughly where the presenter's near shoulder is, for anchoring an arrow.
 
@@ -628,7 +698,7 @@ def _f_reaction(spec, rng):
     c = _panel(c, spec["evidence"], box, rot=-2.2)
     head_at = (0.19, 0.33)
     c = pcut.stand(c, spec["pose"], head_h=300, head_at=head_at,
-                   mirror=spec.get("mirror", False))
+                   mirror=spec.get("mirror", False), stroke=STROKE, shadow=SHADOW)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
 
@@ -650,6 +720,7 @@ def _f_reaction(spec, rng):
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
 
     _block(im, spec["lines"], _COND, (470, 448, 1040, 618), WHITE, start=92)
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
@@ -657,7 +728,7 @@ def _f_bubbles(spec, rng):
     """What everyone said, in their own boxes, over a real corridor."""
     c = _recede(_cover(spec["scene"], W, H), blur=2.6, dark=0.66)
     c = pcut.stand(c, spec["pose"], head_h=310, head_at=(0.27, 0.36),
-                   mirror=spec.get("mirror", False))
+                   mirror=spec.get("mirror", False), stroke=STROKE, shadow=SHADOW)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
 
@@ -675,6 +746,7 @@ def _f_bubbles(spec, rng):
     if len(quotes) > 1:
         _bubble(d, quotes[1], 934, 424, (876, 548), size=50, bg=YELLOW, max_w=430)
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
@@ -683,7 +755,8 @@ def _f_pointing(spec, rng):
     shot = _cover(spec["evidence"], W, H, focus=0.38)
     c = _recede(shot, blur=1.2, dark=0.84)
     head_at = (0.77, 0.35)
-    c = pcut.stand(c, "directing", head_h=286, head_at=head_at, mirror=True)
+    c = pcut.stand(c, "directing", head_h=286, head_at=head_at, mirror=True,
+                   stroke=STROKE, shadow=SHADOW)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
 
@@ -706,6 +779,7 @@ def _f_pointing(spec, rng):
                YELLOW, size=48, anchor="ct")
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
     _block(im, spec["lines"], _COND, (92, 440, 660, 616), WHITE, start=88)
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
@@ -732,6 +806,7 @@ def _f_verdict(spec, rng):
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
     _block(im, spec["lines"], _COND, (92, 452, 1046, 618), WHITE, start=104,
            align="centre")
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
@@ -763,6 +838,7 @@ def _f_hero(spec, rng):
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
     _block(im, spec["lines"], _COND, (92, 430, 1046, 618), WHITE, start=132,
            weight=8, align="centre")
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
@@ -772,7 +848,7 @@ def _f_banner(spec, rng):
     c = _recede(shot, blur=1.6, dark=0.78)
     head_at = (0.81, 0.44)
     c = pcut.stand(c, spec["pose"], head_h=268, head_at=head_at,
-                   mirror=spec.get("mirror", True))
+                   mirror=spec.get("mirror", True), stroke=STROKE, shadow=SHADOW)
     im = Image.fromarray(c.astype(np.uint8))
     d = ImageDraw.Draw(im)
 
@@ -796,6 +872,7 @@ def _f_banner(spec, rng):
                bend=0.22, rng=rng)
     if spec.get("mark"):
         _label(d, spec["mark"], (96, 618), RED, fg=WHITE, size=52, anchor="lb")
+    _mark(im)
     return np.asarray(im).astype(np.float32)
 
 
