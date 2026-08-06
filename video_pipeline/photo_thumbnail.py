@@ -1,0 +1,615 @@
+"""
+Photographic thumbnails for the clinical channel.
+
+WHAT CHANGED, AND WHY
+---------------------
+The first version of this drew its subjects: a lightbox, a heart, a flatline,
+all as flat polygons. Held next to a real medical channel's thumbnail it read
+as a diagram, and a diagram is something a viewer scrolls past. The rule now is
+absolute: EVERY pictorial element on the card is a photograph. Nothing here
+depicts an object. The only marks this module draws are annotation -- a ring, an
+arrow, a cross -- which is what a clinician does ON a photograph, not instead of
+one.
+
+THE GRAMMAR
+-----------
+Pulled off six thumbnails from channels that already work in this niche. All
+six shared the same five things, and none of them is a stylistic preference:
+
+  1. The background is a real photograph.
+  2. The presenter is cut out with a hard white stroke, 6-10px. The stroke is
+     what makes a photographed person read as a graphic element rather than as
+     a second, competing photograph.
+  3. Text sits in a filled box or a bubble with a heavy black outline. Bare
+     text on a photograph disappears -- the photograph has every value in it,
+     so there is no colour that contrasts everywhere.
+  4. One curved arrow points at the thing.
+  5. Saturated yellow, red and white. Not the muted channel teal, which is a
+     video palette and vanishes at 120px.
+
+WORDS
+-----
+The loud element is a clinical fact, not a brand: BEFORE, DAY 9, 0.4 mm,
+NEGATIVE. The channel name is never the headline -- a viewer who already knows
+the channel does not need telling, and one who does not is not persuaded by it.
+Twelve characters is the working ceiling for the loudest element; past that the
+type has to shrink to fit and the shrink is what actually costs the click.
+
+SIZE
+----
+Every format is checked at 120px, because that is what most of the audience
+sees. The check is in the render path, not in a test, so a format that fails it
+cannot ship quietly.
+"""
+import math
+import os
+import random
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+import presenter_cutout as pcut
+
+W, H = 1280, 720
+
+YELLOW = (255, 209, 26)
+RED = (219, 30, 38)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+INK = (14, 17, 21)
+
+_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_COND = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
+
+FORMATS = ("reaction", "bubbles", "pointing", "verdict", "hero", "banner")
+
+# Which pose register suits each format's job. The presenter is reacting to the
+# evidence in some formats and presenting it in others, and those are different
+# faces.
+_POSES = {
+    "reaction": ("surprise", "concern", "confusion"),
+    "bubbles":  ("confusion", "skepticism", "curiosity"),
+    "pointing": ("directing",),
+    "verdict":  ("skepticism", "suspicion", "authority"),
+    "hero":     ("concern", "grief"),
+    "banner":   ("concern", "resolve", "authority"),
+}
+
+# What to ask Pixabay/Pexels for, per role. Ordered most specific first, the
+# same way the stock-footage search is ordered, so a real match wins and the
+# generic term is only a floor.
+SEARCH_TERMS = {
+    "scene": ["hospital corridor", "hospital ward night", "emergency department",
+              "clinic hallway", "hospital"],
+    "evidence": ["mri brain scan", "ct scan film", "blood sample tube",
+                 "laboratory blood test", "medical scan"],
+    "hero": ["human eye macro", "eye close up", "iris macro", "human eye"],
+}
+
+
+def _font(path, size):
+    return ImageFont.truetype(path, size)
+
+
+# ── type ───────────────────────────────────────────────────────────────
+
+def _measure(d, text, font, ow):
+    b = d.textbbox((0, 0), text, font=font, stroke_width=ow)
+    return b[2] - b[0], b[3] - b[1]
+
+
+def _fit(d, lines, path, box_w, box_h, start, ow, lead=1.02, floor=22):
+    """Largest size at which every line fits the width and the block fits the
+    height. Measured WITH the outline, because the outline is what actually
+    overran the frame the last time this was done by eye."""
+    size = start
+    while size > floor:
+        f = _font(path, size)
+        wide = max(_measure(d, ln, f, ow)[0] for ln in lines)
+        tall = len(lines) * int(size * lead) + ow * 2
+        if wide <= box_w and tall <= box_h:
+            return f
+        size -= 2
+    return _font(path, floor)
+
+
+def _caps(d, xy, text, font, fill, ow=7, outline=BLACK, anchor="la"):
+    d.text(xy, text, font=font, fill=fill, anchor=anchor,
+           stroke_width=ow, stroke_fill=outline)
+
+
+def _block(d, lines, path, box, fill, start=120, ow=8, align="left"):
+    """A heavy outlined caps block fitted into box, returns its bottom y."""
+    x0, y0, x1, y1 = box
+    f = _fit(d, lines, path, x1 - x0, y1 - y0, start, ow)
+    lead = int(f.size * 1.02)
+    y = y0
+    for ln in lines:
+        x = x0 if align == "left" else (x0 + x1) // 2
+        _caps(d, (x, y), ln, f, fill, ow, anchor="la" if align == "left" else "ma")
+        y += lead
+    return y
+
+
+def _label(d, text, xy, bg, fg=BLACK, size=44, pad=(20, 10), ow=5, anchor="lt"):
+    """Filled box with a heavy black outline. The reference format's workhorse:
+    it is legible over any photograph because it replaces the photograph."""
+    f = _font(_BOLD, size)
+    tw, th = _measure(d, text, f, 0)
+    x, y = xy
+    bw, bh = tw + pad[0] * 2, th + pad[1] * 2 + int(size * 0.28)
+    if anchor[0] == "r":
+        x -= bw
+    elif anchor[0] == "c":
+        x -= bw // 2
+    if anchor[1] == "b":
+        y -= bh
+    elif anchor[1] == "c":
+        y -= bh // 2
+    d.rectangle([x, y, x + bw, y + bh], fill=bg, outline=BLACK, width=ow)
+    d.text((x + bw // 2, y + bh // 2), text, font=f, fill=fg, anchor="mm")
+    return (x, y, x + bw, y + bh)
+
+
+# ── annotation: what a clinician puts ON a photograph ──────────────────
+
+def _hand(rng, pts, jitter=2.4):
+    """Nudge a path off true so a mark reads as drawn by a hand rather than
+    generated. A geometrically perfect ring reads as a UI element."""
+    return [(x + rng.uniform(-jitter, jitter), y + rng.uniform(-jitter, jitter))
+            for x, y in pts]
+
+
+def _ring(d, cx, cy, rx, ry, colour=RED, width=11, rng=None, sweep=1.08):
+    rng = rng or random.Random(7)
+    n = 64
+    span = 2 * math.pi * sweep
+    a0 = rng.uniform(0, 2 * math.pi)
+    pts = [(cx + rx * math.cos(a0 + span * i / n) * (1 + 0.03 * math.sin(i * 0.7)),
+            cy + ry * math.sin(a0 + span * i / n) * (1 + 0.03 * math.cos(i * 0.5)))
+           for i in range(n + 1)]
+    d.line(_hand(rng, pts, 2.0), fill=colour, width=width, joint="curve")
+
+
+def _cross(d, cx, cy, r, colour=RED, width=22, rng=None):
+    rng = rng or random.Random(11)
+    for a, b in (((-1, -1), (1, 1)), ((1, -1), (-1, 1))):
+        p = [(cx + a[0] * r * (1 - t) + b[0] * r * t,
+              cy + a[1] * r * (1 - t) + b[1] * r * t) for t in
+             [i / 12.0 for i in range(13)]]
+        d.line(_hand(rng, p, 3.0), fill=colour, width=width, joint="curve")
+
+
+def _arrow(d, p0, p1, bend=0.32, colour=YELLOW, width=13, head=34, rng=None):
+    """One curved arrow, drawn as a quadratic through a bent control point."""
+    rng = rng or random.Random(3)
+    mx, my = (p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0
+    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+    cx, cy = mx - dy * bend, my + dx * bend
+    pts = []
+    for i in range(41):
+        t = i / 40.0
+        u = 1 - t
+        pts.append((u * u * p0[0] + 2 * u * t * cx + t * t * p1[0],
+                    u * u * p0[1] + 2 * u * t * cy + t * t * p1[1]))
+    # Outline first, then the fill: the same trick the type uses, and for the
+    # same reason -- a bare yellow line vanishes over a bright photograph.
+    d.line(_hand(rng, pts, 1.2), fill=BLACK, width=width + 8, joint="curve")
+    d.line(pts, fill=colour, width=width, joint="curve")
+
+    ang = math.atan2(pts[-1][1] - pts[-4][1], pts[-1][0] - pts[-4][0])
+    tip = pts[-1]
+    wing = [(tip[0] - head * math.cos(ang + s), tip[1] - head * math.sin(ang + s))
+            for s in (0.46, -0.46)]
+    d.polygon([tip, wing[0], wing[1]], fill=colour, outline=BLACK, width=5)
+
+
+def _bubble(d, text, cx, cy, tail, size=46, bg=YELLOW, fg=BLACK, max_w=420):
+    """Speech bubble with a heavy outline and a tail toward `tail`."""
+    f = _font(_BOLD, size)
+    words, lines, cur = text.split(), [], ""
+    for wd in words:
+        t = (cur + " " + wd).strip()
+        if _measure(d, t, f, 0)[0] <= max_w:
+            cur = t
+        else:
+            lines.append(cur)
+            cur = wd
+    if cur:
+        lines.append(cur)
+    tw = max(_measure(d, ln, f, 0)[0] for ln in lines)
+    lead = int(size * 1.16)
+    bw, bh = tw + 56, lead * len(lines) + 44
+    x0, y0 = cx - bw // 2, cy - bh // 2
+
+    ang = math.atan2(tail[1] - cy, tail[0] - cx)
+    base = (cx + math.cos(ang) * bw * 0.32, cy + math.sin(ang) * bh * 0.42)
+    perp = ang + math.pi / 2
+    tri = [(base[0] + math.cos(perp) * 26, base[1] + math.sin(perp) * 26),
+           (base[0] - math.cos(perp) * 26, base[1] - math.sin(perp) * 26), tail]
+    d.polygon(tri, fill=bg, outline=BLACK, width=6)
+    d.rounded_rectangle([x0, y0, x0 + bw, y0 + bh], radius=26, fill=bg,
+                        outline=BLACK, width=6)
+    y = y0 + 22
+    for ln in lines:
+        d.text((cx, y), ln, font=f, fill=fg, anchor="ma")
+        y += lead
+
+
+# ── photographs ────────────────────────────────────────────────────────
+
+def _cover(path, w, h, focus=0.5):
+    """Crop-to-cover, never stretch. focus is the horizontal centre of interest."""
+    im = Image.open(path).convert("RGB")
+    s = max(w / im.width, h / im.height)
+    im = im.resize((max(1, int(im.width * s)), max(1, int(im.height * s))),
+                   Image.LANCZOS)
+    x = int((im.width - w) * focus)
+    y = max(0, (im.height - h) // 3)      # faces and detail sit above centre
+    return im.crop((x, y, x + w, y + h))
+
+
+def _focus_point(im, zone=(0.0, 0.0, 1.0, 1.0), prefer="detail", min_salience=2.1,
+                 centre_bias=False):
+    """Where in this photograph the mark should go, or None if nowhere.
+
+    Hard-coding the ring's coordinates works exactly once, for the photograph
+    you had in front of you. In production the photograph comes back from a
+    Pixabay search, so the syringe is wherever it happens to be -- and a ring
+    drawn at a fixed point lands on empty wall, which is worse than no ring at
+    all because it tells the viewer there is something to see and there isn't.
+
+    "detail" finds the busiest region: an instrument, a lesion, a hand at work.
+    "dark" finds the darkest compact one, which on a macro of an eye is the
+    pupil. Both run on a thumbnail of the photograph, because the answer wanted
+    is a region, not a pixel.
+    """
+    gw, gh = 240, 135
+    g = np.asarray(im.convert("L").resize((gw, gh), Image.LANCZOS)).astype(np.float32)
+    if prefer == "dark":
+        # Difference of Gaussians, not plain darkness. Plain darkness picks the
+        # single darkest pixel, which on an eye macro is the shadow in the
+        # outer corner -- it put the ring on bare skin. A DoG asks the useful
+        # question instead: which region is dark COMPARED WITH WHAT SURROUNDS
+        # IT. That is a pupil, and it is a lesion on a scan.
+        def blur(k):
+            return np.asarray(Image.fromarray(g.astype(np.uint8))
+                              .filter(ImageFilter.GaussianBlur(k))).astype(np.float32)
+        field = np.clip(blur(21) - blur(4), 0, None)
+    else:
+        field = (np.abs(np.diff(g, axis=1, prepend=g[:, :1]))
+                 + np.abs(np.diff(g, axis=0, prepend=g[:1, :])))
+        field = np.asarray(Image.fromarray(np.clip(field, 0, 255).astype(np.uint8))
+                           .filter(ImageFilter.GaussianBlur(7))).astype(np.float32)
+
+    if centre_bias:
+        # A tie-break toward the middle. On a macro of an eye the pupil and the
+        # shadow under the brow are both dark blobs; the one the photograph is
+        # about is the one near the centre of the frame.
+        yy, xx = np.mgrid[0:gh, 0:gw]
+        r2 = ((xx / gw - 0.5) ** 2 + (yy / gh - 0.5) ** 2)
+        field = field * np.exp(-r2 / 0.10)
+
+    x0, y0, x1, y1 = zone
+    m = np.zeros_like(field)
+    m[int(y0 * gh):max(1, int(y1 * gh)), int(x0 * gw):max(1, int(x1 * gw))] = 1.0
+    sel = field * m
+    peak = float(sel.max())
+
+    # Is there anything here worth ringing? An empty corridor has a busiest
+    # region too -- a door frame -- and a ring drawn on it promises the viewer
+    # a finding that does not exist, which is worse than no ring at all. So the
+    # peak has to stand clear of the rest of the zone or the caller gets None
+    # and draws nothing.
+    inside = sel[m > 0]
+    if peak <= 0 or peak < min_salience * float(inside.mean() + 1e-6):
+        return None
+
+    yy, xx = np.unravel_index(int(np.argmax(sel)), field.shape)
+    return int((xx + 0.5) / gw * W), int((yy + 0.5) / gh * H)
+
+
+def _recede(im, blur=5.0, dark=0.52, tint=(0.92, 0.98, 1.06)):
+    """Push a photograph back so a person and some type can sit in front of it.
+
+    Blur is doing the real work here, not the darkening. A sharp background
+    competes with the presenter's face for the eye no matter how dark it is,
+    and at 120px two sharp things at different depths read as clutter.
+    """
+    a = np.asarray(im.filter(ImageFilter.GaussianBlur(blur))).astype(np.float32)
+    a *= dark
+    a *= np.array(tint, np.float32)
+    return np.clip(a, 0, 255)
+
+
+def _panel(canvas, photo_path, box, rot=0.0, stroke=10, blur=0.0):
+    """A photograph inset with a hard white stroke, optionally rotated.
+
+    The stroke and the tilt are what stop an inset reading as a hole cut in the
+    card. Both come straight from the reference thumbnails.
+    """
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    im = _cover(photo_path, w, h)
+    if blur:
+        im = im.filter(ImageFilter.GaussianBlur(blur))
+    pad = stroke + 4
+    card = Image.new("RGBA", (w + pad * 2, h + pad * 2), WHITE + (255,))
+    card.paste(im, (pad, pad))
+    d = ImageDraw.Draw(card)
+    d.rectangle([0, 0, card.width - 1, card.height - 1], outline=BLACK, width=4)
+    if rot:
+        card = card.rotate(rot, Image.BICUBIC, expand=True)
+    base = Image.fromarray(canvas.astype(np.uint8))
+    # Offset the shadow down and right. Centred on the card it is a halo, which
+    # reads as a glow; offset, it reads as a print lying on the scene, and that
+    # is what makes the inset sit ON the card rather than IN it.
+    sh = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    sh.paste(card, (x0 - pad + 12, y0 - pad + 14), card)
+    sh = sh.filter(ImageFilter.GaussianBlur(16))
+    base.paste(Image.new("RGB", base.size, BLACK), (0, 0),
+               sh.split()[3].point(lambda v: int(v * 0.55)))
+    base.paste(card, (x0 - pad, y0 - pad), card)
+    return np.asarray(base.convert("RGB")).astype(np.float32)
+
+
+# ── the six formats ────────────────────────────────────────────────────
+#
+# Each one gets the canvas, a copy of the spec, and an rng. Each returns the
+# canvas. Layout constants are chosen so the presenter's column and the text's
+# column cannot overlap -- the overlap is prevented by the geometry rather than
+# detected afterwards, because a check that runs afterwards has nothing to do
+# about it except shrink the type.
+
+def _shoulder(head_at, head_h, side=1):
+    """Roughly where the presenter's near shoulder is, for anchoring an arrow.
+
+    An arrow that starts in empty air is a floating graphic; one that starts at
+    his shoulder reads as HIM indicating the thing, which is the whole point of
+    having a person on the card.
+    """
+    return (int(W * head_at[0] + side * head_h * 0.62),
+            int(H * head_at[1] + head_h * 0.62))
+
+
+def _f_reaction(spec, rng):
+    """Presenter reacts; the evidence sits beside him, marked."""
+    box = (640, 96, 1204, 508)
+    c = _recede(_cover(spec["scene"], W, H), blur=7, dark=0.42)
+    c = _panel(c, spec["evidence"], box, rot=-2.2)
+    head_at = (0.20, 0.36)
+    c = pcut.stand(c, spec["pose"], head_h=250, head_at=head_at,
+                   mirror=spec.get("mirror", False))
+    im = Image.fromarray(c.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+
+    # The mark goes where the panel photograph is actually busiest, mapped back
+    # out of the panel's own crop into card coordinates.
+    # A low bar here on purpose. The evidence role is a clinical still by
+    # construction -- a scan sheet, a tube, a pair of hands -- so there is
+    # always something on it worth ringing, and a sheet of 24 near-identical
+    # slices has a flat saliency field precisely BECAUSE it is all findings.
+    at = _focus_point(_cover(spec["evidence"], box[2] - box[0], box[3] - box[1]),
+                      zone=(0.18, 0.18, 0.86, 0.84), min_salience=1.25)
+    if at:
+        mx = box[0] + int(at[0] / float(W) * (box[2] - box[0]))
+        my = box[1] + int(at[1] / float(H) * (box[3] - box[1]))
+        _ring(d, mx, my, 96, 78, rng=rng)
+        _arrow(d, _shoulder(head_at, 250), (mx - 112, my - 20), bend=-0.24, rng=rng)
+    if spec.get("mark"):
+        _label(d, spec["mark"], (1204, 96), YELLOW, size=46, anchor="rt")
+    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+
+    _block(d, spec["lines"], _COND, (500, 540, 1244, 692), WHITE, start=86, ow=9)
+    return np.asarray(im).astype(np.float32)
+
+
+def _f_bubbles(spec, rng):
+    """What everyone said, in their own boxes, over a real corridor."""
+    c = _recede(_cover(spec["scene"], W, H), blur=8, dark=0.46)
+    c = pcut.stand(c, spec["pose"], head_h=268, head_at=(0.30, 0.40),
+                   mirror=spec.get("mirror", False))
+    im = Image.fromarray(c.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+
+    # Tails aim down and away, never back at him. Pointed at his head they put
+    # a white spike through his ear -- and they would be wrong anyway: these are
+    # what everyone ELSE said to the patient, not what he is saying.
+    quotes = spec["quotes"][:2]
+    _bubble(d, quotes[0], 900, 162, (836, 292), size=50, bg=WHITE, max_w=430)
+    if len(quotes) > 1:
+        _bubble(d, quotes[1], 934, 424, (876, 548), size=50, bg=YELLOW, max_w=430)
+    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+    _block(d, spec["lines"], _COND, (520, 566, 1244, 690), WHITE, start=78, ow=9)
+    return np.asarray(im).astype(np.float32)
+
+
+def _f_pointing(spec, rng):
+    """He points at the thing, and the thing is a photograph of the thing."""
+    shot = _cover(spec["evidence"], W, H, focus=0.38)
+    c = _recede(shot, blur=2.4, dark=0.72)
+    head_at = (0.76, 0.38)
+    c = pcut.stand(c, "directing", head_h=246, head_at=head_at, mirror=True)
+    im = Image.fromarray(c.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+
+    # Upper left only. He stands on the right, so a ring further right would
+    # circle his own shoulder; and the headline owns the bottom strip, so a
+    # ring low down drags its label into the type.
+    at = _focus_point(shot, zone=(0.08, 0.16, 0.48, 0.62), min_salience=1.4)
+    mx, my = at if at else (356, 300)
+    if at:
+        _ring(d, mx, my, 112, 96, rng=rng)
+    # No arrow on this one. His arm already IS the arrow, and the drawn one ran
+    # from his shoulder to a point his own hand was covering -- a yellow stub
+    # with no visible start and no visible end. Two elements beat three.
+    if spec.get("mark"):
+        # Below the ring if there is room above the headline, otherwise above
+        # it. Choosing by measurement rather than by a fixed offset is what
+        # stops "0.4 mmol/L" being printed through the word BLOOD.
+        below = my + 150
+        _label(d, spec["mark"], (mx, below if below < 500 else my - 128),
+               YELLOW, size=48, anchor="ct")
+    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+    _block(d, spec["lines"], _COND, (36, 556, 660, 690), WHITE, start=82, ow=9)
+    return np.asarray(im).astype(np.float32)
+
+
+def _f_verdict(spec, rng):
+    """Two states of the same patient, and a mark over the one that matters."""
+    a = (338, 92, 786, 424)
+    b = (818, 92, 1246, 424)
+    c = _recede(_cover(spec["scene"], W, H), blur=12, dark=0.30)
+    c = _panel(c, spec["evidence"], a, rot=1.6)
+    c = _panel(c, spec.get("evidence_b") or spec["evidence"], b, rot=-1.6)
+    # He belongs on this one too. Without a face the card is two documents, and
+    # a channel whose thumbnails have no person in them has nothing for a
+    # returning viewer to recognise in a feed.
+    c = pcut.stand(c, spec["pose"], head_h=214, head_at=(0.13, 0.50),
+                   mirror=False)
+    im = Image.fromarray(c.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+
+    _label(d, spec["state_a"], ((a[0] + a[2]) // 2, a[1] + 18), WHITE, size=40,
+           anchor="ct")
+    _label(d, spec["state_b"], ((b[0] + b[2]) // 2, b[1] + 18), WHITE, size=40,
+           anchor="ct")
+    _cross(d, (b[0] + b[2]) // 2, (b[1] + b[3]) // 2, 128, rng=rng)
+    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+    _block(d, spec["lines"], _COND, (352, 486, 1246, 668), WHITE, start=92,
+           ow=10, align="centre")
+    return np.asarray(im).astype(np.float32)
+
+
+def _f_hero(spec, rng):
+    """One photographed organ, filling the frame, with the finding marked."""
+    im = _cover(spec["hero"], W, H)
+    a = np.asarray(im).astype(np.float32)
+    # Vignette rather than a flat darken: it holds the eye on the mark instead
+    # of flattening the whole photograph.
+    yy, xx = np.mgrid[0:H, 0:W]
+    r = np.sqrt(((xx - W * 0.42) / (W * 0.72)) ** 2 + ((yy - H * 0.42) / (H * 0.78)) ** 2)
+    c = np.clip(a * np.clip(1.16 - 0.62 * r, 0.30, 1.12)[:, :, None], 0, 255)
+
+    shown = Image.fromarray(c.astype(np.uint8))
+    im = shown
+    d = ImageDraw.Draw(im)
+    # On a macro of an eye the darkest compact region is the pupil, which is
+    # exactly what the card is about. Edge energy would find the eyelashes.
+    at = spec.get("mark_at") or _focus_point(shown, zone=(0.16, 0.18, 0.78, 0.66),
+                                             prefer="dark", centre_bias=True,
+                                             min_salience=1.5)
+    mx, my = at if at else (int(W * 0.44), int(H * 0.40))
+    if at:
+        _ring(d, mx, my, 130, 118, rng=rng, width=13)
+    if at and spec.get("mark"):
+        lx = mx + 168 if mx < W * 0.62 else mx - 168
+        _label(d, spec["mark"], (lx, my - 34), YELLOW, size=52,
+               anchor="lt" if mx < W * 0.62 else "rt")
+    _label(d, spec["kicker"], (36, 32), RED, fg=WHITE, size=34)
+    _block(d, spec["lines"], _COND, (40, 512, 1240, 700), WHITE, start=134, ow=12,
+           align="centre")
+    return np.asarray(im).astype(np.float32)
+
+
+def _f_banner(spec, rng):
+    """Full-bleed scene, headline banded across the top, presenter in the corner."""
+    shot = _cover(spec["scene"], W, H, focus=0.42)
+    c = _recede(shot, blur=3.0, dark=0.62)
+    head_at = (0.80, 0.46)
+    c = pcut.stand(c, spec["pose"], head_h=232, head_at=head_at,
+                   mirror=spec.get("mirror", True))
+    im = Image.fromarray(c.astype(np.uint8))
+    d = ImageDraw.Draw(im)
+
+    # Banner first is wrong: the arrow has to know where the banner ends before
+    # it can avoid running under it.
+    d.rectangle([0, 0, W, 176], fill=YELLOW)
+    d.rectangle([0, 168, W, 184], fill=BLACK)
+    # One band, so the headline is joined rather than truncated. Taking
+    # lines[:1] silently shipped "EVERY TEST" and dropped "CAME BACK CLEAN",
+    # which reads as a sentence someone forgot to finish.
+    _block(d, [" ".join(spec["lines"])], _COND, (44, 26, 1236, 148), BLACK,
+           start=118, ow=0, align="centre")
+
+    # An empty corridor has no finding in it. When the scene is just a place,
+    # the banner and the presenter carry the card on their own.
+    at = _focus_point(shot, zone=(0.10, 0.32, 0.56, 0.86), min_salience=2.6)
+    if at:
+        mx, my = at
+        _ring(d, mx, my, 104, 92, rng=rng)
+        _arrow(d, _shoulder(head_at, 232, side=-1), (mx + 118, my + 24),
+               bend=0.22, rng=rng)
+    if spec.get("mark"):
+        _label(d, spec["mark"], (48, 688), RED, fg=WHITE, size=52, anchor="lb")
+    return np.asarray(im).astype(np.float32)
+
+
+_RENDER = {"reaction": _f_reaction, "bubbles": _f_bubbles, "pointing": _f_pointing,
+           "verdict": _f_verdict, "hero": _f_hero, "banner": _f_banner}
+
+
+# ── entry point ────────────────────────────────────────────────────────
+
+def pick_format(episode, history=None):
+    """Rotate formats, never repeating what ran last."""
+    hist = list(history or [])
+    pool = [f for f in FORMATS if f not in hist[-3:]] or \
+           [f for f in FORMATS if not hist or f != hist[-1]]
+    return pool[episode % len(pool)]
+
+
+def legible_at(arr, px=120):
+    """Contrast that survives a 120px mobile row.
+
+    Returned rather than asserted, so the caller's quality gate decides. A
+    thumbnail that fails this is not broken, it is weak, and the difference
+    matters when the alternative is shipping nothing.
+    """
+    small = Image.fromarray(arr.astype(np.uint8)).resize(
+        (px, int(px * H / W)), Image.LANCZOS)
+    g = np.asarray(small.convert("L")).astype(np.float32)
+    return float(g.std())
+
+
+def render(out_path, headline, photos, fmt=None, episode=1, history=None,
+           kicker="CASE", mark=None, quotes=None, pose=None, seed=None,
+           state_a="BEFORE", state_b="AFTER", mark_at=None):
+    """Render one thumbnail. `photos` maps role -> file path.
+
+    Roles: scene (wide location), evidence (the clinical still), hero (a macro
+    subject). Missing roles fall back to whatever else was supplied, so a run
+    that only got one photo out of Pixabay still produces a card.
+    """
+    rng = random.Random(seed if seed is not None else episode * 7919)
+    fmt = fmt or pick_format(episode, history)
+
+    have = {k: v for k, v in (photos or {}).items() if v and os.path.exists(v)}
+    if not have:
+        raise ValueError("photo_thumbnail needs at least one real photograph")
+    any_one = next(iter(have.values()))
+
+    lines = [s for s in (headline or "").upper().split("\n") if s.strip()][:2]
+    spec = {
+        "scene": have.get("scene", any_one),
+        "evidence": have.get("evidence", any_one),
+        "evidence_b": have.get("evidence_b"),
+        "hero": have.get("hero", have.get("evidence", any_one)),
+        "lines": lines or ["NO CAUSE FOUND"],
+        "kicker": (kicker or "CASE").upper(),
+        "mark": (mark or "").upper() or None,
+        "quotes": [q.upper() for q in (quotes or ["ALL TESTS NORMAL",
+                                                  "SHE KEPT GETTING WORSE"])],
+        "pose": pose or rng.choice(_POSES[fmt]),
+        "mirror": rng.random() < 0.5,
+        "state_a": state_a.upper(),
+        "state_b": state_b.upper(),
+        "mark_at": mark_at,
+    }
+    if not spec["mark_at"]:
+        spec.pop("mark_at")
+
+    arr = _RENDER[fmt](spec, rng)
+    Image.fromarray(arr.astype(np.uint8)).save(out_path, quality=94)
+    return {"path": out_path, "format": fmt, "pose": spec["pose"],
+            "contrast_120px": round(legible_at(arr), 1)}
