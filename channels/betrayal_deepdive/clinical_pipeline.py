@@ -7820,6 +7820,55 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
     #
     # The old chain stays below as the fallback. It is not the plan; it is
     # what happens if the renderer somehow raises.
+    # ── PHOTOGRAPHIC RENDERER (primary, from 6 Aug 2026) ────────────
+    # clinical_thumbnail drew its subjects as flat shapes. That was a
+    # deliberate choice at the time -- deterministic, no network -- and it
+    # was wrong: held next to a medical channel that works, a drawing
+    # reads as a diagram and a diagram gets scrolled past. photo_thumbnail
+    # puts a real photograph behind everything and the presenter, cut out,
+    # in front of it. Nothing on the card depicts an object; the only
+    # marks drawn are the ring, the arrow and the cross a clinician would
+    # put ON a photograph.
+    #
+    # The format is chosen by the real CTR learning loop rather than by a
+    # local rotation counter, so what comes back from YouTube Analytics
+    # attaches to the design that earned it and the best one starts
+    # winning on its own. The old local rotation could not learn: it had
+    # no idea which of its formats performed.
+    try:
+        import photo_thumbnail as _pt
+        from thumbnail_formats import select_thumbnail_format, record_format_used
+
+        _cache = str(SCRIPT_DIR)
+        _fmt = select_thumbnail_format(_cache, "No Known Cause", niche_name,
+                                       episode or 1)
+        if _fmt not in _pt.FORMATS:          # pool drift, or a Shorts-only name
+            _fmt = _pt.pick_format(episode or 1,
+                                   (state.get("clinical_thumb_formats") or [])[-4:])
+
+        _photos = _pt.resolve_photos(fetch_case_relevant_image, topic or thumb_text,
+                                     niche_name, WORK_DIR, log=log)
+        if not _photos:
+            raise RuntimeError("no usable photograph came back for any role")
+
+        _out = str(WORK_DIR / f"thumbnail_{ab_style}_photo.jpg")
+        _info = _pt.render(_out, thumb_text, _photos, fmt=_fmt,
+                           episode=episode or 1,
+                           kicker=f"CASE {(episode or 1):02d}")
+
+        record_format_used(_cache, "No Known Cause", niche_name, episode or 1,
+                           _info["format"])
+        state.setdefault("clinical_thumb_formats", []).append(_info["format"])
+        state["clinical_thumb_formats"] = state["clinical_thumb_formats"][-24:]
+        save_state(state)
+        log(f"  Thumbnail: photographic renderer, format '{_info['format']}', "
+            f"pose '{_info['pose']}', 120px contrast {_info['contrast_120px']} "
+            f"-> {_out}")
+        return _out
+    except Exception as e:
+        log(f"  Photographic thumbnail renderer failed, falling back to the "
+            f"drawn clinical renderer (non-fatal): {e}")
+
     try:
         from clinical_thumbnail import render as _clinical_render
         _hist = (state.get("clinical_thumb_formats") or [])[-6:]

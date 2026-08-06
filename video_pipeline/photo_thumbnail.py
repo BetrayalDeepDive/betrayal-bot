@@ -61,7 +61,16 @@ INK = (14, 17, 21)
 _BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 _COND = "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf"
 
-FORMATS = ("reaction", "bubbles", "pointing", "verdict", "hero", "banner")
+# The five in rotation, chosen by the channel owner from a set of six. Four
+# carry the channel and `banner` is the fifth, kept as a change of pace.
+#
+# `hero` -- one photographed organ filling the frame -- is implemented and
+# tested but deliberately NOT in this tuple. It was not chosen. It stays in the
+# code because putting it back is a one-word edit, and because its organ search
+# terms are what the other formats now use to find a real heart or a real brain
+# rather than an illustration of one.
+FORMATS = ("reaction", "bubbles", "pointing", "verdict", "banner")
+ALL_FORMATS = ("reaction", "bubbles", "pointing", "verdict", "banner", "hero")
 
 # Which pose register suits each format's job. The presenter is reacting to the
 # evidence in some formats and presenting it in others, and those are different
@@ -85,6 +94,50 @@ SEARCH_TERMS = {
                  "laboratory blood test", "medical scan"],
     "hero": ["human eye macro", "eye close up", "iris macro", "human eye"],
 }
+
+# When the case is about an organ, the evidence photograph should BE that organ.
+#
+# The trap is that "heart" on a stock search returns valentines, and "heart
+# anatomy" returns the vintage engraving and the vector diagram -- both
+# drawings, which is the one thing barred here. Every term below is worded to
+# pull a photograph: a specimen, a model, a surgical still, a scan of the real
+# organ. The word "illustration" never appears, and `_looks_drawn()` throws out
+# anything that slips through anyway.
+ORGAN_TERMS = {
+    "heart":    ["human heart specimen", "cardiac surgery operating", "heart mri scan",
+                 "cardiology ultrasound screen"],
+    "brain":    ["brain mri scan", "human brain specimen", "neurosurgery operating",
+                 "brain ct scan film"],
+    "lung":     ["chest x-ray film", "lung ct scan", "thoracic surgery operating"],
+    "liver":    ["liver ultrasound screen", "abdominal ct scan", "liver biopsy sample"],
+    "kidney":   ["kidney ultrasound screen", "dialysis machine patient",
+                 "renal ct scan"],
+    "eye":      ["human eye macro", "retina fundus photograph", "eye examination slit lamp"],
+    "skin":     ["dermatology examination skin", "skin lesion close up photograph"],
+    "bone":     ["bone x-ray film", "orthopaedic x-ray", "skeleton radiograph"],
+    "blood":    ["blood sample tube", "blood smear microscope", "laboratory blood test"],
+    "stomach":  ["endoscopy screen", "abdominal ultrasound screen"],
+    "spine":    ["spine mri scan", "spinal x-ray film"],
+    "thyroid":  ["thyroid ultrasound screen", "neck examination doctor"],
+    "pancreas": ["abdominal ct scan", "endoscopy screen"],
+    "muscle":   ["muscle biopsy microscope", "physiotherapy examination"],
+    "nerve":    ["nerve conduction test", "neurology examination patient"],
+}
+
+
+def organ_terms(text):
+    """Search terms for whichever organ this episode is actually about.
+
+    Returns [] when the case names no organ, so the caller falls through to the
+    generic clinical terms rather than forcing an organ that has nothing to do
+    with the story.
+    """
+    low = (text or "").lower()
+    out = []
+    for organ, terms in ORGAN_TERMS.items():
+        if organ in low:
+            out.extend(terms)
+    return out
 
 
 def _font(path, size):
@@ -237,6 +290,78 @@ def _bubble(d, text, cx, cy, tail, size=46, bg=YELLOW, fg=BLACK, max_w=420):
 
 
 # ── photographs ────────────────────────────────────────────────────────
+
+def looks_drawn(path, limit=0.75):
+    """True if this file is an illustration rather than a photograph.
+
+    A stock search for "human heart" returns diagrams, and a diagram is the one
+    thing this module is barred from putting on a card. The search terms are
+    worded to avoid them, but wording is a request, not a guarantee, so the
+    downloaded file is checked.
+
+    The test is for sensor noise. A camera never produces two neighbouring
+    pixels that are EXACTLY equal -- there is always grain -- while a vector
+    drawing is made of flat fills where nearly every neighbour is identical.
+    Measured on the reference set: the flat diagrams and the cartoon score
+    89-98%, and the twelve photographs top out at 59% (a greyscale CT sheet,
+    which is as close to flat as a real photograph gets).
+
+    Its blind spot, stated plainly: a SCANNED drawing -- an old engraving --
+    carries the scanner's own grain and reads as a photograph, 21% on the
+    vintage heart plate. Nothing in the pixels separates that from a
+    photograph of a painting. The defence against it is the search wording
+    ("specimen", "surgery", "scan" rather than "anatomy"), and the human
+    review gate behind that.
+    """
+    try:
+        im = Image.open(path).convert("RGB")
+    except Exception:
+        return False
+    if im.width > 1400:
+        x = (im.width - 1400) // 2
+        im = im.crop((x, 0, x + 1400, im.height))
+    a = np.asarray(im).astype(np.int16)
+    if a.shape[1] < 2:
+        return False
+    return float((np.abs(np.diff(a, axis=1)).sum(axis=2) == 0).mean()) >= limit
+
+
+def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence"),
+                   log=print):
+    """Download one usable photograph per role. Returns {role: path}.
+
+    `fetch(query, niche_name, out_path) -> (ok, kind)` is injected rather than
+    imported so this module stays independent of any one channel's pipeline;
+    Ch1 passes its own fetch_case_relevant_image, which already walks
+    Wikimedia Commons, then Pixabay, then Pexels, then an image model.
+
+    For the evidence role the episode's own subject comes first, so a case
+    about a heart gets a photograph of a heart rather than generic glassware.
+    """
+    out = {}
+    for role in roles:
+        terms = list(SEARCH_TERMS.get(role, []))
+        if role == "evidence":
+            terms = (organ_terms(topic) or []) + [topic] + terms
+        path = os.path.join(str(work_dir), "thumb_%s.jpg" % role)
+        for q in terms:
+            if not q:
+                continue
+            try:
+                ok, _kind = fetch(q, niche_name, path)
+            except Exception as e:
+                log("    thumbnail photo '%s' (non-fatal): %s" % (q, e))
+                continue
+            if not ok or not os.path.exists(path):
+                continue
+            if looks_drawn(path):
+                log("    thumbnail photo '%s' rejected: it is a drawing" % q)
+                continue
+            out[role] = path
+            log("    thumbnail photo [%s]: '%s'" % (role, q))
+            break
+    return out
+
 
 def _cover(path, w, h, focus=0.5):
     """Crop-to-cover, never stretch. focus is the horizontal centre of interest."""

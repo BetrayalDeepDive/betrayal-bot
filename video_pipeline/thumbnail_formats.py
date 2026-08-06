@@ -147,8 +147,18 @@ CHANNEL_PREFERRED_FORMATS = {
     # case report. The four below all frame a real artefact from the paper --
     # the scan itself, the finding circled on it, or the before/after pair --
     # which is the only kind of thumbnail this channel can honestly make.
-    "No Known Cause": ["object_evidence_closeup", "red_circle_highlight",
-                       "comparison_grid", "before_after_split"],
+    # Replaced with the five photographic formats the channel owner chose from
+    # a set of six, on 6 Aug 2026. The four names before this were generic
+    # library formats; these are the real renderers in photo_thumbnail.py, and
+    # the names match its format keys exactly so the CTR that comes back from
+    # YouTube Analytics attaches to the design that actually earned it.
+    #
+    # This is what answers "how much CTR will each one generate". Nobody can
+    # know that in advance -- it depends on the case, the title and the
+    # audience. What CAN be done is measure it: select_thumbnail_format() picks
+    # the proven best once a format has MIN_SAMPLES_TO_TRUST real samples, and
+    # explores the rest of the time so the data keeps coming.
+    "No Known Cause": ["reaction", "bubbles", "pointing", "verdict", "banner"],
     "The Evidence Room": ["object_evidence_closeup", "map_diagram_overlay",
                           "red_circle_highlight", "comparison_grid"],
     "The Control Files": ["before_after_split", "silhouette_dramatic",
