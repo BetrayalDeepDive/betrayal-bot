@@ -65,6 +65,60 @@ def py_files():
             yield p
 
 
+# pip name -> import name, where they differ. Only the cases this repo
+# actually installs; a general mapping would need the package metadata, which
+# is the thing we cannot rely on being present.
+_PIP_TO_IMPORT = {
+    "pillow": "PIL", "edge-tts": "edge_tts", "gtts": "gtts",
+    "python-docx": "docx", "opencv-python": "cv2",
+    "google-api-python-client": "googleapiclient",
+    "pyyaml": "yaml", "beautifulsoup4": "bs4", "scikit-image": "skimage",
+}
+
+
+def _declared_dependencies():
+    """Every third-party package this repo installs anywhere, as import names.
+
+    Read from the workflows' own pip install lines and any requirements file,
+    so the answer is the same on a laptop and on a runner that installs only a
+    subset. Without this the phantom-dependency check reports whatever the
+    current machine happens to be missing.
+    """
+    names = set()
+    roots = [ROOT / ".github" / "workflows"] if "ROOT" in globals() else []
+    files = []
+    for r in roots:
+        if r.exists():
+            files += sorted(r.glob("*.yml")) + sorted(r.glob("*.yaml"))
+    if "ROOT" in globals():
+        files += sorted(ROOT.glob("requirements*.txt"))
+    for f in files:
+        try:
+            text = f.read_text()
+        except Exception:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if f.suffix == ".txt":
+                tok = re.split(r"[=<>!\[;]", line, 1)[0].strip()
+                if tok and not tok.startswith("#"):
+                    names.add(tok)
+                continue
+            m = re.search(r"pip install\s+(.*)", line)
+            if not m:
+                continue
+            for tok in m.group(1).split():
+                if tok.startswith("-") or "://" in tok or tok in ("&&", "||"):
+                    continue
+                names.add(re.split(r"[=<>!\[]", tok, 1)[0].strip())
+    out = set()
+    for n in names:
+        low = n.lower()
+        out.add(_PIP_TO_IMPORT.get(low, low.replace("-", "_")))
+        out.add(low.replace("-", "_"))
+    return {n for n in out if n}
+
+
 def rel(p):
     return str(pathlib.Path(p).relative_to(ROOT))
 
@@ -289,8 +343,23 @@ def scan_phantom_imports():
     sys.path.insert(0, str(ROOT / "video_pipeline"))
     stdlib = set(sys.stdlib_module_names)
     # Installed at runtime by the workflows, not present in this sandbox.
+    # Modules that resolve at runtime but not in every environment.
+    #
+    # This list USED to be hand-maintained, and that made the whole check
+    # environment-dependent: find_spec() below asks whichever interpreter is
+    # running, so a module installed on a developer's machine and absent from
+    # a runner produced a lead in CI and none locally. matplotlib did exactly
+    # that -- it is declared by Ch5's workflow and correctly not installed in
+    # Ch1's runner, so the scan passed locally, failed in CI, and the baseline
+    # could not be made to satisfy both.
+    #
+    # So the allowlist is now DERIVED from what the project declares. A module
+    # the repo installs anywhere is a real dependency of the repo, whichever
+    # runner happens to be executing, and the answer no longer depends on the
+    # machine asking the question.
     RUNTIME_OK = {"gtts", "kokoro", "soundfile", "reportlab", "bpy", "torch",
                   "edge_tts", "PIL", "numpy", "whisper", "docx"}
+    RUNTIME_OK |= _declared_dependencies()
     for p in py_files():
         src = p.read_text()
         try:
