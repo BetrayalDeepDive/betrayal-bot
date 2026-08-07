@@ -214,5 +214,37 @@
     "mode": "standalone_2",
     "format": "direct_reveal",
     "timestamp": "2026-08-02T00:30:53.350049"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_1",
+    "format": "countdown_list",
+    "video_id": "qjOWEhbUSvs",
+    "ctr_pct": null,
+    "timestamp": "2026-08-07T10:59:14.241966"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_2",
+    "format": "question_hook",
+    "video_id": "mTqEFgFt0qY",
+    "ctr_pct": null,
+    "timestamp": "2026-08-07T11:00:15.127294"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "before_after",
+    "video_id": "nk00_z2TBCM",
+    "ctr_pct": null,
+    "timestamp": "2026-08-07T11:01:12.175461"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "myth_bust",
+    "video_id": "P29r-6GJ89A",
+    "ctr_pct": null,
+    "timestamp": "2026-08-07T11:02:33.610182"
   }
 ]

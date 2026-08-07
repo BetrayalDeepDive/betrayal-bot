@@ -79,5 +79,50 @@
     "video_id": null,
     "timestamp": "2026-08-02T00:32:35.907786",
     "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "senior_health_longevity",
+    "episode": 9,
+    "format": "banner",
+    "video_id": null,
+    "timestamp": "2026-08-07T10:58:58.458843",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "hospital medical",
+    "episode": 11,
+    "format": "verdict",
+    "video_id": null,
+    "timestamp": "2026-08-07T11:00:05.460168",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "hospital medical",
+    "episode": 12,
+    "format": "reaction",
+    "video_id": null,
+    "timestamp": "2026-08-07T11:00:58.813003",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "Marvel Cinematic Universe rankings",
+    "episode": 13,
+    "format": "pointing",
+    "video_id": null,
+    "timestamp": "2026-08-07T11:02:23.449606",
+    "ctr_pct": null
+  },
+  {
+    "channel": "NO KNOWN CAUSE",
+    "niche": "gaming",
+    "episode": 14,
+    "format": "verdict",
+    "video_id": null,
+    "timestamp": "2026-08-07T11:03:50.287951",
+    "ctr_pct": null
   }
 ]
