@@ -183,20 +183,76 @@ _FILLER = ("the", "a", "an", "of", "to", "in", "on", "at", "it", "is", "was",
            "were", "that", "this", "and", "for", "with", "his", "her", "their")
 
 
-def trim_words(text, cap=MAX_WORDS):
-    """Cut a headline to `cap` words, dropping filler before content.
+# Where one statement ends and the next begins. Cutting here keeps a headline
+# grammatical; cutting anywhere else does not.
+_JOINS = ("and", "but", "yet", "so", "because", "then", "while", "until",
+          "before", "after", "though", "although", "when")
 
-    Truncating from the end would throw away the payload -- the last word of a
-    clinical headline is usually the finding. Filler goes first, and only if
-    that is not enough does the tail go.
+# Words that carry a thumbnail on their own: a denial, a question, a reversal.
+_PUNCH = ("no", "not", "nobody", "none", "never", "nothing", "why", "how",
+          "what", "who", "wrong", "missed", "failed", "clean", "normal")
+
+
+def _clauses(words):
+    """Split a headline into the statements it is actually made of."""
+    out, cur = [], []
+    for w in words:
+        bare = w.lower().strip(".,;:!?")
+        if cur and (bare in _JOINS or w.rstrip().endswith((",", ";", "—", "--"))):
+            if w.rstrip().endswith((",", ";", "—", "--")):
+                cur.append(w.rstrip(",;—-"))
+            out.append(cur)
+            cur = []
+            if bare in _JOINS:
+                continue
+        cur.append(w)
+    if cur:
+        out.append(cur)
+    return [c for c in out if c]
+
+
+def _clause_score(words, cap):
+    """How well a clause would work as the whole headline."""
+    content = [w for w in words if w.lower().strip(".,;:") not in _FILLER]
+    s = len(content)
+    if any(w.lower().strip(".,;:!?") in _PUNCH for w in words):
+        s += 2                                  # a denial or a question lands
+    if any(any(ch.isdigit() for ch in w) for w in words):
+        s += 2                                  # a real number lands hardest
+    if len(words) > cap:
+        s -= (len(words) - cap) * 2             # anything over the cap gets cut
+    return s
+
+
+def trim_words(text, cap=MAX_WORDS):
+    """Cut a headline to `cap` words and still leave a sentence behind.
+
+    THE OLD RULE PRODUCED NONSENSE. It dropped filler wherever it appeared and
+    then kept the last `cap` survivors, so
+
+        "Every test came back clean and nobody could say why"
+
+    was published as "CLEAN NOBODY COULD SAY WHY" -- five words spliced across
+    a conjunction from two different statements. That is the "the thumbnails
+    look generic" complaint in its most literal form: the card was not generic,
+    it was ungrammatical.
+
+    A headline is made of clauses. One whole clause reads; half of two does
+    not. So the text is split where the statements actually join, the clause
+    that would carry the card best is chosen, and only that clause is trimmed.
     """
     words = [w for w in (text or "").split() if w]
     if len(words) <= cap:
         return " ".join(words)
-    keep = [w for w in words if w.lower().strip(".,;:") not in _FILLER]
-    if len(keep) > cap:
-        keep = keep[-cap:]          # the finding sits at the end
-    return " ".join(keep or words[:cap])
+
+    best = max(_clauses(words) or [words], key=lambda c: _clause_score(c, cap))
+
+    if len(best) > cap:
+        # Still too long: now, and only now, drop filler -- but from within one
+        # statement, so the words that survive still belong together.
+        keep = [w for w in best if w.lower().strip(".,;:") not in _FILLER]
+        best = (keep or best)[:cap]
+    return " ".join(best)
 
 
 def _font(path, size):
@@ -651,16 +707,126 @@ def _panel(canvas, photo_path, box, rot=0.0, stroke=10, blur=0.0):
 MARK_TEAL = (95, 168, 160)
 
 
-def _mark(im, size=58, pad=26):
-    """Channel mark, bottom right, clear of YouTube's duration badge.
+def score_image(path):
+    """Score the rendered PICTURE, on measurements taken from the pixels.
+
+    The review message printed "Thumbnail attention score: 10.0/10" next to a
+    card whose banner read "8 0", with a red ring around empty floor. The
+    number came from score_thumbnail_text(), which scores the TEXT STRING and
+    never opens the image at all -- "BLOOD IN STOOLS?" is a short question, so
+    it scored full marks while the picture was a mess.
+
+    A score labelled as being about the thumbnail has to have looked at the
+    thumbnail. Every term below is measured, not guessed.
+
+    Returns (score 0-10, [reasons]).
+    """
+    try:
+        im = Image.open(path).convert("RGB")
+    except Exception as e:
+        return 0.0, ["could not open the rendered thumbnail: %r" % e]
+    a = np.asarray(im).astype(np.float32)
+    why, sc = [], 10.0
+
+    if im.size != (W, H):
+        sc -= 1.0
+        why.append("not 1280x720 (%dx%d)" % im.size)
+
+    small = np.asarray(im.resize((120, 68), Image.LANCZOS).convert("L")).astype(np.float32)
+    if small.std() < 45:
+        sc -= 2.5
+        why.append("flat at 120px (contrast %.0f) — it will not read on a phone" % small.std())
+
+    if not badge_clear(a):
+        sc -= 2.0
+        why.append("content sits under YouTube's duration badge")
+
+    # A card that is mostly one featureless surface is the "boring" complaint
+    # in measurable form: a wall, a floor, an empty corridor.
+    g = np.asarray(im.resize((160, 90), Image.LANCZOS).convert("L")).astype(np.float32)
+    # diff along each axis shortens THAT axis by one, so both planes have to
+    # be trimmed on both axes before they can be combined.
+    dx = np.abs(np.diff(g, axis=1))[:-1, :]     # (h-1, w-1)
+    dy = np.abs(np.diff(g, axis=0))[:, :-1]     # (h-1, w-1)
+    dead = ((dx < 4) & (dy < 4)).mean()
+    if dead > 0.55:
+        sc -= 2.0
+        why.append("%.0f%% of the frame is featureless — the photo is a blank surface" % (dead * 100))
+
+    # Saturated colour is the difference between a graphic and a snapshot.
+    mx, mn = a.max(axis=2), a.min(axis=2)
+    sat = ((mx - mn) / np.maximum(mx, 1.0)).mean()
+    if sat < 0.16:
+        sc -= 1.5
+        why.append("almost no colour (sat %.2f) — nothing pops in a feed" % sat)
+
+    return max(0.0, round(sc, 1)), why
+
+
+def _mark_slots(size, pad):
+    """Candidate homes for the mark, in the order they are preferred.
+
+    Bottom-right first because that is where it was asked to live and because
+    a logo that moves around is not a logo. The others exist only as a way
+    out when bottom-right is occupied.
+    """
+    return (
+        ("bottom-right", SAFE[2] - pad - size, SAFE[3] - pad - size),
+        ("bottom-left",  SAFE[0] + pad,        SAFE[3] - pad - size),
+        ("top-right",    SAFE[2] - pad - size, SAFE[1] + pad),
+    )
+
+
+def _mark(im, size=58, pad=26, side="auto"):
+    """Channel mark, clear of YouTube's duration badge AND of the artwork.
 
     The badge covers the true corner, so a mark placed there would be hidden
     in every feed -- which is the opposite of what a mark is for. It sits at
-    the bottom-right of the SAFE area instead: still bottom right to the eye,
-    still visible everywhere.
+    the bottom of the SAFE area instead.
+
+    IT ALSO HAS TO BE CLEAR OF THE PRESENTER. On the formats where he stands
+    bottom-right the mark landed ON HIS CHEST -- a teal badge stuck to his
+    shirt, plainly visible in the reported screenshot. Choosing the corner by
+    hand per format does not survive the next layout change, and the pose is
+    picked at random anyway, so the corner is MEASURED instead: whatever is
+    already drawn there is sampled, and a busy patch is refused.
+
+    Busy means detail, not brightness -- a flat yellow band is a fine home, a
+    face is not. Bottom-right is kept unless it is genuinely occupied, because
+    a mark that wanders between cards stops reading as a mark.
     """
-    x1, y1 = SAFE[2] - pad, SAFE[3] - pad
-    x0, y0 = x1 - size, y1 - size
+    slots = _mark_slots(size, pad)
+    if side == "left":
+        slots = (slots[1],) + slots            # hard override, still measured
+    elif side == "right":
+        slots = (slots[0],) + slots[1:]
+
+    a = np.asarray(im.convert("L")).astype(np.float32)
+    # The presenter's own coverage plane, recorded by the compositor. Texture
+    # alone cannot find him: a plain shirt is as flat as a plain wall, which is
+    # exactly how the mark ended up on his chest. This says where he is.
+    occ = getattr(pcut, "LAST_OCCUPANCY", None)
+
+    best, best_cost = slots[0], None
+    for name, sx, sy in slots:
+        patch = a[sy:sy + size, sx:sx + size]
+        if patch.size == 0:
+            continue
+        # Local detail: mean absolute gradient. Flat wall ~0-2, printed text
+        # or a face ~12+.
+        busy = float(np.abs(np.diff(patch, axis=0)).mean() +
+                     np.abs(np.diff(patch, axis=1)).mean()) / 2.0
+        on_him = 0.0
+        if occ is not None and occ.shape == a.shape:
+            on_him = float(occ[sy:sy + size, sx:sx + size].mean())
+        # Landing on the presenter is disqualifying, not merely a demerit —
+        # weighted so that any real overlap loses to any amount of texture.
+        cost = busy + on_him * 500.0
+        if best_cost is None or cost < best_cost:
+            best, best_cost = (name, sx, sy), cost
+        if cost < 6.0:                          # quiet and clear of him: done
+            break
+    x0, y0 = best[1], best[2]
     plate = Image.new("RGBA", (size * 3, size * 3), (0, 0, 0, 0))
     d = ImageDraw.Draw(plate)
     s3 = size * 3
@@ -833,7 +999,13 @@ def _f_hero(spec, rng):
         _ring(d, mx, my, 130, 118, rng=rng, width=13)
     if at and spec.get("mark"):
         lx = mx + 168 if mx < W * 0.62 else mx - 168
-        _label(d, spec["mark"], (lx, my - 34), YELLOW, size=52,
+        # The headline owns everything from y=430 down. A label pinned to the
+        # ring follows the ring, and when the finding sits low in the organ the
+        # ring goes low with it -- which is how "DAY 9" ended up printed
+        # through the word CAME. Clamped so the label always finishes above the
+        # type, whatever the photograph turns out to contain.
+        ly = min(my - 34, 430 - 12 - 76)        # 76 ~= a 52pt label's height
+        _label(d, spec["mark"], (lx, ly), YELLOW, size=52,
                anchor="lt" if mx < W * 0.62 else "rt")
     _label(d, spec["kicker"], BRAND_AT, RED, fg=WHITE, size=34)
     _block(im, spec["lines"], _COND, (92, 430, 1046, 618), WHITE, start=132,
@@ -871,7 +1043,11 @@ def _f_banner(spec, rng):
         _arrow(d, _shoulder(head_at, 268, side=-1), (mx + 118, my + 24),
                bend=0.22, rng=rng)
     if spec.get("mark"):
-        _label(d, spec["mark"], (96, 618), RED, fg=WHITE, size=52, anchor="lb")
+        # Indented, not flush left: the presenter fills the bottom-right and
+        # the banner fills the top, so the bottom-left corner is the only home
+        # left for the channel mark. The two sit side by side there instead of
+        # fighting over the same 58 pixels.
+        _label(d, spec["mark"], (200, 618), RED, fg=WHITE, size=52, anchor="lb")
     _mark(im)
     return np.asarray(im).astype(np.float32)
 
@@ -994,7 +1170,9 @@ def render(out_path, headline, photos, fmt=None, episode=1, history=None,
 
     arr = punch(_RENDER[fmt](spec, rng))
     Image.fromarray(arr.astype(np.uint8)).save(out_path, quality=94)
+    _img_score, _img_why = score_image(out_path)
     return {"path": out_path, "format": fmt, "pose": spec["pose"],
             "contrast_120px": round(legible_at(arr), 1),
             "words": len(flat.split()),
-            "badge_clear": badge_clear(arr)}
+            "badge_clear": badge_clear(arr),
+            "image_score": _img_score, "image_issues": _img_why}

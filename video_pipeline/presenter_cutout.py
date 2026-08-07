@@ -231,6 +231,9 @@ def place_on_photo(bg, plate, a, box, stroke=9, stroke_rgb=(255, 255, 255),
     the subject rather than around him means the outline sits UNDER his edge,
     so it never eats into the jaw or the hairline.
     """
+    global LAST_OCCUPANCY
+    LAST_OCCUPANCY = None       # cleared first, so a bail-out cannot leave a
+                                # stale plane behind for the next card
     x0, y0, x1, y1 = box
     tw, th = max(1, x1 - x0), max(1, y1 - y0)
     ph, pw, _ = plate.shape
@@ -273,8 +276,21 @@ def place_on_photo(bg, plate, a, box, stroke=9, stroke_rgb=(255, 255, 255),
             + np.array(stroke_rgb, np.float32) * ring[:, :, None]
 
     out = out * (1.0 - A[:, :, None]) + P
+
+    # WHERE THE PRESENTER ENDED UP, for whatever is drawn after him.
+    #
+    # The channel mark was landing on his shirt, because the only thing the
+    # caller could measure was the finished picture -- and a shirt is a flat,
+    # low-detail surface, indistinguishable by texture from a wall. This is
+    # the one place that knows for certain which pixels are him. Kept as
+    # module state rather than a second return value so the dozen existing
+    # callers keep working unchanged.
+    LAST_OCCUPANCY = A
     return np.clip(out, 0, 255)
 
+
+# Coverage plane of the most recent composite, or None before the first one.
+LAST_OCCUPANCY = None
 
 _CACHE = {}
 
@@ -303,9 +319,37 @@ def stand(canvas, name, head_h, head_at, mirror=False, stroke=9,
         top = ch * head_at[1] - head_h * 0.5
         scale = min(scale, (ch - max(0.0, top)) / (ph * keep_to - g["crown_y"]))
 
+    # HE MUST RUN OFF THE BOTTOM OF THE CARD.
+    #
+    # Every one of the 23 pose plates is a crop: the shirt leaves the bottom of
+    # the photograph, 66-100% of the plate's last row is subject. So whenever
+    # the scaled plate ENDS inside the canvas, the presenter finishes in a dead
+    # straight horizontal cut across his chest, with background visible beneath
+    # it and the drop shadow's rectangle showing around the join. It reads as a
+    # sticker pasted on a photo rather than a person standing in the scene, and
+    # it was doing this on every layout -- measured at 45px short on the banner
+    # card, 78px short on the verdict card.
+    #
+    # Scaling is the correction rather than shifting, because the head is
+    # anchored by head_at and scaling grows the figure about that anchor: his
+    # face stays exactly where the layout put it. Solving
+    #     y0 + nh = ch*head_at[1] - head_h/2 + s*(ph - crown_y)
+    # for the smallest s that reaches ch is exact, so it grows by the least it
+    # can. The cap stops a badly framed plate from filling the whole card, and
+    # whatever the cap leaves short is taken as a downward shift instead.
+    # (Always <= the keep_to cap above, since ph > ph*keep_to, so a gesture
+    # pose can never lose its hand to this.)
+    below_crown = ph - g["crown_y"]
+    if below_crown > 0:
+        reach = (ch - (ch * head_at[1] - head_h * 0.5)) / float(below_crown)
+        if reach > scale:
+            scale = min(reach, scale * 1.30)
+
     nw, nh = int(round(pw * scale)), int(round(ph * scale))
     x0 = int(round(cw * head_at[0] - g["head_cx"] * scale))
     y0 = int(round(ch * head_at[1] - g["crown_y"] * scale - head_h * 0.5))
+    if y0 + nh < ch:
+        y0 = ch - nh
 
     # A portrait has no real gap inside its outline, so it gets the stronger
     # seal; a gesture pose has one that must survive, so it does not.

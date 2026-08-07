@@ -266,6 +266,11 @@ def build_affiliate_block(channel_id, niche_name=""):
 # actual video description across any of the 4 channels. Fixed here.
 GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
 
+# Channels with no real product page yet. They print no product line at all
+# rather than a link to something that 404s.
+_NO_PRODUCT_YET = {"betrayal_deepdive"}
+
+
 def build_product_cta(channel_id):
     """
     Real product CTA for the actual video description — not the static
@@ -288,8 +293,22 @@ def build_product_cta(channel_id):
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
         "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
-    product_id, product_title = product_by_channel.get(
-        channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
+    # NO LINK AT ALL BEATS A DEAD ONE.
+    #
+    # The betrayal_deepdive slot now runs "No Known Cause", a medical case
+    # channel, and it was still printing "Dark Manipulation Tactics Handbook"
+    # into every description -- pointing at a products/ page that does not
+    # exist, under the retired brand's domain. Reported directly: "it is just
+    # an empty link... we are not working on betrayal, right?"
+    #
+    # A 404 in the description of a health video costs trust that the video
+    # spent eighteen minutes earning, so the channel sells nothing until it
+    # has a real page of its own to sell.
+    if channel_id in _NO_PRODUCT_YET:
+        return ""
+    if channel_id not in product_by_channel:
+        return ""          # unknown channel: silence, not a guessed product
+    product_id, product_title = product_by_channel[channel_id]
     try:
         from monetization import get_product_cta_url
         url = get_product_cta_url(product_id)

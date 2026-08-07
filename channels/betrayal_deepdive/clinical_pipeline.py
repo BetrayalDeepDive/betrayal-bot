@@ -65,6 +65,13 @@ def _pending_path(channel_dir):
 def save_pending(channel_dir, data: dict):
     pf = _pending_path(channel_dir)
 
+    # Stamp WHEN this became cancellable. The upload phase runs hours later in
+    # a different process and needs to know which Telegram replies arrived
+    # after the "Reply CANCEL to abort upload" message, so an old unrelated
+    # message cannot cancel today's episode and today's CANCEL is never
+    # missed. Without this the cancel check has no window and does nothing.
+    data.setdefault("queued_epoch", int(time.time()))
+
     # ORPHANED REVIEW PREVIEWS.
     #
     # The generate phase uploads the finished video to YouTube as UNLISTED so
@@ -703,6 +710,11 @@ def build_affiliate_block(channel_id, niche_name=""):
 # because this URL still shows the retired brand to anyone who reads it.
 GITHUB_PAGES_BASE = "https://betrayaldeepdive.github.io/betrayal-bot"
 
+# Channels with no real product page yet. They print no product line at all
+# rather than a link to something that 404s.
+_NO_PRODUCT_YET = {"betrayal_deepdive"}
+
+
 def build_product_cta(channel_id):
     """Real product CTA for the actual video description — uses
     monetization.py's real get_product_cta_url, converted to a genuine
@@ -721,8 +733,22 @@ def build_product_cta(channel_id):
         "archive":           ("empire-collapse-atlas", "The Empire Collapse Atlas"),
         "collapse_index":    ("financial-red-flags-field-guide", "The Financial Red Flags Field Guide"),
     }
-    product_id, product_title = product_by_channel.get(
-        channel_id, ("faceless-documentary-creator-toolkit", "Faceless Documentary Creator Toolkit"))
+    # NO LINK AT ALL BEATS A DEAD ONE.
+    #
+    # The betrayal_deepdive slot now runs "No Known Cause", a medical case
+    # channel, and it was still printing "Dark Manipulation Tactics Handbook"
+    # into every description -- pointing at a products/ page that does not
+    # exist, under the retired brand's domain. Reported directly: "it is just
+    # an empty link... we are not working on betrayal, right?"
+    #
+    # A 404 in the description of a health video costs trust that the video
+    # spent eighteen minutes earning, so the channel sells nothing until it
+    # has a real page of its own to sell.
+    if channel_id in _NO_PRODUCT_YET:
+        return ""
+    if channel_id not in product_by_channel:
+        return ""          # unknown channel: silence, not a guessed product
+    product_id, product_title = product_by_channel[channel_id]
     try:
         from monetization import get_product_cta_url
         url = get_product_cta_url(product_id)
@@ -1534,6 +1560,60 @@ def tg_get_updates(offset=None):
                          params=params, timeout=30)
         return r.json().get("result", [])
     except: return []
+
+# Words that mean stop. Same list the review gates use, kept here too because
+# this check runs in a different process hours later and cannot import a
+# gate's local state.
+_CANCEL_WORDS = ("cancel", "stop", "abort", "halt", "no", "don't", "dont",
+                 "do not", "do not publish", "dont publish", "hold", "wait",
+                 "pause", "kill", "cancelled", "canceled")
+
+
+def cancel_requested_since(since_epoch):
+    """Did a human reply CANCEL after the generate phase queued this upload?
+
+    THE BOT PROMISED THIS AND NOTHING IMPLEMENTED IT.
+
+    The generate phase ends by sending, verbatim:
+        "Reply CANCEL to abort upload before that time."
+    On run 31156373254 the channel owner replied CANCEL. Nothing read it,
+    because no code anywhere in this repository ever polled for that reply --
+    the sentence was an instruction to the human describing a feature that did
+    not exist. The upload workflow then ran on schedule and published.
+
+    Advertising a control and not wiring it is worse than not offering it: the
+    person reasonably stops watching, believing they have stopped the process.
+
+    Returns the message text if a stop was requested, else None. Reads every
+    queued update WITHOUT consuming it (no offset advance), so a reply meant
+    for a review gate is not swallowed here.
+    """
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{TG_TOKEN}/getUpdates",
+                         params={"timeout": 0, "allowed_updates": ["message"]},
+                         timeout=25)
+        updates = r.json().get("result", []) if r.status_code == 200 else []
+    except Exception as e:
+        # Fail LOUD, not open. If the cancel channel cannot be read we do not
+        # know whether a stop was requested, and publishing on an unknown is
+        # exactly the failure this exists to prevent.
+        log(f"  CANCEL check failed ({e}) — refusing to publish on an unknown.")
+        tg("\u26a0\ufe0f Ch1 Upload: could not check for a CANCEL reply, so this "
+           "upload is being held rather than published on an assumption. "
+           "Re-run the upload workflow to try again.")
+        return "cancel-check-unavailable"
+    for u in updates:
+        m = u.get("message") or {}
+        if int(m.get("date", 0)) < int(since_epoch):
+            continue
+        txt = (m.get("text") or "").strip().lower()
+        if not txt:
+            continue
+        if txt in _CANCEL_WORDS or any(txt.startswith(w) for w in
+                                       ("cancel", "stop", "abort", "do not", "don't")):
+            return m.get("text")
+    return None
+
 
 def load_state():
     try: return json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
@@ -7981,10 +8061,45 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
         if not _photos:
             raise RuntimeError("no usable photograph came back for any role")
 
+        # RENDER, MEASURE, AND ONLY THEN ACCEPT.
+        #
+        # A card used to be rendered once and shipped. Whether it was any good
+        # was never asked -- the "score" quoted at review came from the
+        # headline string. So the format the learner picked was rendered onto
+        # whatever photograph happened to come back, and if that photograph was
+        # an empty corridor the result was a flat grey card that nobody would
+        # click, reported as 10/10.
+        #
+        # Now every candidate is scored on its own pixels and the best picture
+        # wins. The learner's choice is tried first and kept whenever it is
+        # good, so CTR learning still drives the rotation; the alternatives
+        # only exist to rescue a card the photograph has let down.
+        _order = [_fmt] + [f for f in _pt.FORMATS if f != _fmt]
+        _best = None
+        for _n, _try in enumerate(_order):
+            _cand = str(WORK_DIR / f"thumbnail_{ab_style}_photo_{_try}.jpg")
+            try:
+                _i = _pt.render(_cand, thumb_text, _photos, fmt=_try,
+                                episode=episode or 1,
+                                kicker=f"CASE {(episode or 1):02d}")
+            except Exception as _re:
+                log(f"  Thumbnail format '{_try}' failed to render ({_re})")
+                continue
+            _sc = _i.get("image_score", 0.0)
+            if _best is None or _sc > _best[0].get("image_score", 0.0):
+                _best = (_i, _cand)
+            if _sc >= 8.9:                  # the bar the channel owner set
+                break
+            log(f"  Thumbnail format '{_try}' scored {_sc}/10 on the picture "
+                f"({'; '.join(_i.get('image_issues') or []) or 'no reason given'}) "
+                f"— trying another layout")
+        if _best is None:
+            raise RuntimeError("every photographic format failed to render")
+        _info, _out_src = _best
+        import shutil as _sh
         _out = str(WORK_DIR / f"thumbnail_{ab_style}_photo.jpg")
-        _info = _pt.render(_out, thumb_text, _photos, fmt=_fmt,
-                           episode=episode or 1,
-                           kicker=f"CASE {(episode or 1):02d}")
+        _sh.copyfile(_out_src, _out)
+        _info["path"] = _out
 
         record_format_used(_cache, "No Known Cause", niche_name, episode or 1,
                            _info["format"])
@@ -7992,8 +8107,8 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
         state["clinical_thumb_formats"] = state["clinical_thumb_formats"][-24:]
         save_state(state)
         log(f"  Thumbnail: photographic renderer, format '{_info['format']}', "
-            f"pose '{_info['pose']}', 120px contrast {_info['contrast_120px']} "
-            f"-> {_out}")
+            f"pose '{_info['pose']}', picture score {_info.get('image_score')}/10, "
+            f"120px contrast {_info['contrast_120px']} -> {_out}")
         return _out
     except Exception as e:
         log(f"  Photographic thumbnail renderer failed, falling back to the "
@@ -10054,7 +10169,22 @@ def generate_thumbnail_text(niche, topic, title=""):
 
 
 def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode):
-    """Generate thumbnail with NUMBER+NOUN enforcement."""
+    """Render the thumbnail from the text the gate actually approved.
+
+    THE TEXT THAT WAS REVIEWED WAS NOT THE TEXT THAT WAS RENDERED.
+
+    This used to run enforce_number_noun() on thumb_text first. The thumbnail
+    text gate had already scored and cleared 'BLOOD IN STOOLS?' at 10/10 --
+    and then this rewrote it, after the approval, into a NUMBER+NOUN form.
+    On run 31156373254 the banner came out reading "8 0". A three-word
+    clinical question was approved and a bare number was published.
+
+    NUMBER+NOUN is also the retired true-crime channel's doctrine. This slot
+    is a medical case channel now and was explicitly redirected to clinical
+    language -- BEFORE, AFTER, DAY 9, 0.4 mmol/L -- rather than a big number.
+    So the enforcement is gone, not merely reordered: photo_thumbnail caps and
+    trims the words itself, and what the human approved is what gets drawn.
+    """
     # Enforce NUMBER+NOUN format.
     # FIX: this used to be a bare `from revenue_engine import enforce_number_noun`
     # with no error handling — if revenue_engine.py isn't in the repo (it wasn't
@@ -10062,12 +10192,6 @@ def run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
     # listing), that import throws and takes down the ENTIRE generate run at
     # Stage 5, every single time. A local enforce_number_noun() already exists
     # in this same file (top of file) — fall back to it instead of crashing.
-    try:
-        from revenue_engine import enforce_number_noun as _enforce_number_noun
-        thumb_text = _enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
-    except Exception as e:
-        log(f"  revenue_engine unavailable, using built-in enforce_number_noun ({e})")
-        thumb_text = enforce_number_noun(thumb_text, topic, niche_name, ai_generate)
     return generate_thumbnail(thumb_text, niche_name, title, topic, episode)
 
 
@@ -10130,6 +10254,24 @@ def main():
         is_fresh, hours_old = check_pending_age(pending, max_hours=30)
         if not is_fresh:
             tg(f"⚠️ Ch1 Upload: pending video is {hours_old}h old — may be stale. Uploading anyway.")
+
+        # HONOUR THE CANCEL THE GENERATE PHASE PROMISED.
+        _queued_at = pending.get("queued_epoch") or pending.get("created_epoch") or 0
+        _stop = cancel_requested_since(_queued_at) if _queued_at else None
+        if _stop:
+            log(f"CANCEL received after generate ({_stop!r}) — not uploading.")
+            _vid = pending.get("preview_video_id") or pending.get("yt_video_id")
+            if _vid:
+                try:
+                    delete_yt_video(_vid, token=get_yt_token())
+                    log(f"  Deleted the unlisted preview {_vid}.")
+                except Exception as e:
+                    log(f"  Preview delete on cancel (non-fatal): {e}")
+            clear_pending(SCRIPT_DIR)
+            tg("\U0001F6D1 Ch1 Upload CANCELLED as you asked. The queued video was "
+               "NOT published, the unlisted preview has been deleted, and the "
+               "pending queue is cleared.")
+            sys.exit(0)
 
         log(f"Loading pending video ({hours_old}h old): {pending.get('title','?')[:60]}")
         title       = pending["title"]
@@ -11686,11 +11828,37 @@ def main():
         # thumbnail score the user explicitly asked for only ever showed
         # up for the description, never the thumbnail, looking like
         # scores were showing "randomly" rather than consistently missing.
+        #
+        # AND THEN IT SCORED THE WRONG THING. score_thumbnail_text() reads the
+        # HEADLINE STRING. It never opens the file. So a card whose banner had
+        # been rewritten to "8 0", with a red ring drawn around an empty patch
+        # of floor, was announced to the reviewer as "Thumbnail attention
+        # score: 10.0/10" -- because the three words it was given happened to
+        # be a short clinical question. Reported, correctly, as "the thumbnails
+        # are generic, yet you have given 10 out of 10. What kind of quality
+        # audit are you doing?"
+        #
+        # A number presented as a judgement of the picture now comes from the
+        # picture: contrast at phone size, how much of the frame is a
+        # featureless surface, whether anything sits under YouTube's duration
+        # badge, whether there is any colour in it. The text score is still
+        # computed and still shown, but labelled as what it is.
+        _thumb_score = _thumb_img_why = None
+        try:
+            import photo_thumbnail as _pt_score
+            _thumb_score, _thumb_img_why = _pt_score.score_image(thumb_path)
+            if _thumb_img_why:
+                log("  Thumbnail picture %.1f/10 — %s"
+                    % (_thumb_score, "; ".join(_thumb_img_why)))
+            else:
+                log("  Thumbnail picture %.1f/10 (no defects measured)" % _thumb_score)
+        except Exception as e:
+            log(f"  Thumbnail picture score unavailable ({e})")
         try:
             from thumbnail_engine_v2 import score_thumbnail_text
-            _thumb_score = score_thumbnail_text(thumb_text)
+            log("  Thumbnail wording %.1f/10" % score_thumbnail_text(thumb_text))
         except Exception:
-            _thumb_score = None
+            pass
 
         # Description generated here now (moved earlier from its old spot
         # right before upload) so it can be reviewed together with title
@@ -11800,7 +11968,7 @@ def main():
                     "No Known Cause", title, thumb_path, description, _desc_result["score"],
                     TG_TOKEN, TG_CHAT, _check_ins_used_ttd,
                     gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass, timeout_minutes=60,
-                    thumbnail_score=_thumb_score)
+                    thumbnail_score=_thumb_score, thumbnail_issues=_thumb_img_why)
                 _check_ins_used_ttd += 1
 
                 abort_on_cancel(_ttd_review, "the title/thumbnail/description review",

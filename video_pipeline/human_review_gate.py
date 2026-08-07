@@ -968,7 +968,8 @@ def get_schedule_line(check_ins_used, max_check_ins=6, check_ins_per_day=3,
 def review_title_thumbnail_description(channel_name, title, thumbnail_path, description,
                                          description_score, tg_token, tg_chat, check_ins_used,
                                          gmail_sender=None, gmail_app_password=None,
-                                         timeout_minutes=60, thumbnail_score=None):
+                                         timeout_minutes=60, thumbnail_score=None,
+                                         thumbnail_issues=None):
     """
     THE COMBINED CHECKPOINT — title, thumbnail, and description reviewed
     together in one message, per the explicit request to reduce total
@@ -976,20 +977,23 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
     this description look different from usual" has a concrete number
     behind it, not a black box.
 
-    FIX (found on final re-audit, direct user request for real per-stage
-    scores): thumbnail_score is optional and, when given, shown alongside
-    the description score. This reflects the score_thumbnail_text()
-    result computed at the CANDIDATE-SELECTION stage (best of several
-    real candidates, scored on having a real number, ideal 2-3 word
-    length, and specificity signals) — stated honestly: if the channel's
-    format-specific enforcement (e.g. before/after phrasing) touches the
-    text further after this point, the score reflects the selected
-    candidate, not necessarily every character of the final rendered
-    image.
+    thumbnail_score is the score of the RENDERED PICTURE — measured on the
+    pixels of the exact file attached to this message. It used to be the score
+    of the headline STRING, which is how a card reading "8 0" with a ring
+    around an empty floor was presented for review as 10.0/10. A number next to
+    a picture has to be about that picture.
+
+    thumbnail_issues is the list of specific, measured reasons behind any
+    deduction, shown verbatim, so a low score says what is wrong rather than
+    leaving the reviewer to guess.
     """
     set_current_gate("title+thumbnail+description")
     schedule_line = get_schedule_line(check_ins_used)
-    thumb_score_line = f"Thumbnail attention score: {thumbnail_score}/10\n" if thumbnail_score is not None else ""
+    thumb_score_line = ""
+    if thumbnail_score is not None:
+        thumb_score_line = f"Thumbnail picture score: {thumbnail_score}/10\n"
+        for _why in (thumbnail_issues or []):
+            thumb_score_line += f"   • {_why}\n"
     caption = (f"🖼️🏷️📝 {channel_name} — TITLE + THUMBNAIL + DESCRIPTION REVIEW\n\n"
               f"{schedule_line}\n\n"
               f"Title: {title}\n"
@@ -1040,7 +1044,8 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
         # stripped by the email client, changing what the reviewer
         # actually sees. Escaped for consistency.
         html_body = (f"<p>{schedule_line}</p><p><b>{_esc(title)}</b></p>"
-                     f"{'<p>Thumbnail attention score: ' + str(thumbnail_score) + '/10</p>' if thumbnail_score is not None else ''}"
+                     f"{'<p>Thumbnail picture score: ' + str(thumbnail_score) + '/10</p>' if thumbnail_score is not None else ''}"
+                     f"{'<ul>' + ''.join('<li>' + _esc(w) + '</li>' for w in (thumbnail_issues or [])) + '</ul>' if thumbnail_issues else ''}"
                      f"<p>Description score: {description_score}/10</p>"
                      f"<pre style='white-space:pre-wrap'>{_esc(description)}</pre>")
         send_email_notification(f"[{channel_name}] Title/Thumbnail/Description ready for review",
