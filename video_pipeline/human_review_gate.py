@@ -246,6 +246,28 @@ def _parse_email_decision(body):
             return "approve", None
         if upper == "REJECT":
             return "reject", None
+
+        # STOP. The word a person reaches for when they want it to stop.
+        #
+        # This was not in the list. On run 31156373254 the channel owner
+        # typed "cancel" at the final pre-publish gate; "cancel" matched
+        # nothing, fell through to the `break` below, returned (None, None),
+        # and was therefore indistinguishable from having said nothing at
+        # all -- and saying nothing at that gate means auto-approve. The
+        # video went to YouTube after an explicit instruction not to publish
+        # it. That is the worst failure this system can have, and it was one
+        # missing keyword.
+        #
+        # Every word someone might actually type is here, not just the one
+        # that was reported.
+        if upper in ("CANCEL", "STOP", "ABORT", "HALT", "NO", "DON'T", "DONT",
+                     "DO NOT", "DO NOT PUBLISH", "DONT PUBLISH", "HOLD",
+                     "WAIT", "PAUSE", "KILL", "CANCELLED", "CANCELED"):
+            return "cancel", None
+        if upper.startswith("CANCEL") or upper.startswith("STOP") \
+                or upper.startswith("DO NOT") or upper.startswith("DON'T"):
+            reason = line.split(":", 1)[1].strip() if ":" in line else None
+            return "cancel", reason
         if upper.startswith("REMAKE"):
             reason = line.split(":", 1)[1].strip() if ":" in line else None
             return "remake", reason
@@ -711,6 +733,10 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
     offset = None
     email_check_counter = 0
     review_start_time = datetime.datetime.now()
+    # Anything the human typed that could not be parsed. Mutable so the
+    # nested poll loop can set it. Its only job is to make auto-approve
+    # impossible once a person has demonstrably been at the other end.
+    spoke_up = [None]
     _gate_label = _CURRENT_GATE[0] or "review"
     _getupdates_error_logged = [False]  # mutable so the nested loop below can set it once
     awaiting_edit_text = False  # FIX (July 14 2026): EDIT is now a real
@@ -853,6 +879,30 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
                 if decision:
                     return decision, extra
 
+                # A HUMAN TYPED SOMETHING AND IT WAS THROWN AWAY IN SILENCE.
+                #
+                # Unrecognised text used to fall through this loop with no
+                # reply, no log line, and no effect -- byte-for-byte the same
+                # outcome as never touching the phone. The person is left
+                # believing they answered while the gate counts down to
+                # auto-approve. That is how "cancel" became a published video.
+                #
+                # Two things now happen. They are told immediately that the
+                # word was not understood, with the words that do work. And
+                # the gate remembers that a human is HERE -- see spoke_up
+                # below, which removes auto-approve from the table entirely.
+                # Whatever they meant, they did not mean "publish it while I
+                # am not looking".
+                spoke_up[0] = text
+                print(f"  Unrecognised review reply kept the gate open: {text[:80]!r}")
+                _tg_send_message(
+                    tg_token, tg_chat,
+                    f"⚠️ I did not understand “{text[:60]}”, so nothing has "
+                    f"been decided yet.\n\nThis will NOT auto-publish now — a reply "
+                    f"I could not read still counts as you being here.\n\n"
+                    f"Tap a button above, or type one of:\n"
+                    f"APPROVE · REJECT · REMAKE · CANCEL · EDIT: your change")
+
             # Check email every ~4th cycle (roughly every 60s given the 15s sleep)
             email_check_counter += 1
             # Poll the mailbox the notification was DELIVERED to. When a
@@ -874,7 +924,26 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
             _tg_send_message(tg_token, tg_chat,
                              f"⏰ Reminder ({attempt}/{max_attempts}): still waiting on your "
                              f"decision. {max_attempts - attempt} more 60-minute window(s) "
-                             f"before this auto-approves.")
+                             f"before this "
+                             + ("HOLDS (you replied, so it will not auto-publish)."
+                                if spoke_up[0] else "auto-approves."))
+
+    # SILENCE AND A MISUNDERSTOOD REPLY ARE NOT THE SAME THING.
+    #
+    # Timing out means "nobody was there", and for a routine gate that is a
+    # reasonable thing to treat as consent. But if a human typed ANYTHING
+    # during this window, they were there. Publishing over the top of that
+    # is the failure that put an unwanted video on the channel, and no
+    # keyword list is a complete defence -- there will always be a word I
+    # did not anticipate. So the rule is about presence, not vocabulary:
+    # a person who spoke gets a hold, whatever they said.
+    if spoke_up[0]:
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Time is up, but you DID reply during this review and I could "
+                         "not read it — so this is being HELD, not published.\n\n"
+                         f"What you sent: “{spoke_up[0][:120]}”\n\n"
+                         "Nothing goes public on a reply I failed to understand.")
+        return "cancel", spoke_up[0]
     return "timeout", None
 
 
@@ -978,6 +1047,14 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
                                  html_body, gmail_sender, gmail_app_password)
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "cancel":
+        # CANCEL means stop, at every gate, not just the final one. It is
+        # never folded into approve and never treated as a soft "reject" that
+        # quietly carries on to the next stage.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. This episode is being abandoned — nothing "
+                         "further is generated and nothing is published.")
+        return {"decision": "cancel", "feedback": feedback}
     if decision == "timeout":
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
@@ -1134,6 +1211,14 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
                                  gmail_sender, gmail_app_password)
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "cancel":
+        # CANCEL means stop, at every gate, not just the final one. It is
+        # never folded into approve and never treated as a soft "reject" that
+        # quietly carries on to the next stage.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. This episode is being abandoned — nothing "
+                         "further is generated and nothing is published.")
+        return {"decision": "cancel", "feedback": feedback}
     if decision == "timeout":
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
@@ -1449,6 +1534,14 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
                                  gmail_sender, gmail_app_password)
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "cancel":
+        # CANCEL means stop, at every gate, not just the final one. It is
+        # never folded into approve and never treated as a soft "reject" that
+        # quietly carries on to the next stage.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. This episode is being abandoned — nothing "
+                         "further is generated and nothing is published.")
+        return {"decision": "cancel", "feedback": feedback}
     if decision == "timeout":
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
@@ -1479,6 +1572,14 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
                                  gmail_sender, gmail_app_password)
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "cancel":
+        # CANCEL means stop, at every gate, not just the final one. It is
+        # never folded into approve and never treated as a soft "reject" that
+        # quietly carries on to the next stage.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. This episode is being abandoned — nothing "
+                         "further is generated and nothing is published.")
+        return {"decision": "cancel", "feedback": feedback}
     if decision == "timeout":
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
@@ -1741,6 +1842,14 @@ def review_script(channel_name, title, full_script, score, niche_name,
                                  html_body, gmail_sender, gmail_app_password)
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if decision == "cancel":
+        # CANCEL means stop, at every gate, not just the final one. It is
+        # never folded into approve and never treated as a soft "reject" that
+        # quietly carries on to the next stage.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. This episode is being abandoned — nothing "
+                         "further is generated and nothing is published.")
+        return {"decision": "cancel", "feedback": feedback}
     if decision == "timeout":
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
@@ -2034,6 +2143,14 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
         return {"decision": "approve", "feedback": None}
     if decision == "approve":
         return {"decision": "approve", "feedback": None}
+    if decision == "cancel":
+        # The exact instruction this gate failed to honour on run
+        # 31156373254. Cancel is not "make me another one" -- it is stop.
+        _tg_send_message(tg_token, tg_chat,
+                         "🛑 Cancelled. The unlisted upload is being deleted and "
+                         "NOTHING will be published. No replacement episode is "
+                         "generated — you asked for it to stop, so it stops.")
+        return {"decision": "cancel", "feedback": feedback}
     _tg_send_message(tg_token, tg_chat,
                      "🔄 Not approved — this unlisted upload is being removed. "
                      "A fresh episode will be generated on the next cycle instead.")

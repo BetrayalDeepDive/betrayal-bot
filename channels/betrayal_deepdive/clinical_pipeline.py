@@ -114,6 +114,37 @@ def load_pending(channel_dir):
     except:
         return None
 
+def abort_on_cancel(review, what, vid_id=None, token=None):
+    """Stop the whole episode the moment a human says stop.
+
+    Run 31156373254 shipped an unlisted video after the channel owner typed
+    "cancel", because "cancel" was not a keyword the gate recognised and an
+    unrecognised reply was byte-for-byte identical to no reply at all. The
+    keyword is fixed in human_review_gate; this is the other half -- every
+    gate in the generate phase now has somewhere to go when the answer is
+    stop, instead of falling through to the next stage.
+
+    Deletes the unlisted preview if one exists, clears the pending state so a
+    later upload run cannot resurrect it, and exits.
+    """
+    if not review or review.get("decision") != "cancel":
+        return
+    log(f"CANCELLED by the reviewer at: {what}")
+    try:
+        if vid_id:
+            delete_yt_video(vid_id, token=token or get_yt_token())
+            log(f"  Deleted the unlisted preview {vid_id}.")
+    except Exception as e:
+        log(f"  Preview delete on cancel (non-fatal): {e}")
+    try:
+        clear_pending(SCRIPT_DIR)
+    except Exception as e:
+        log(f"  clear_pending on cancel (non-fatal): {e}")
+    tg(f"\U0001F6D1 Ch1 CANCELLED at {what}. The unlisted preview has been deleted "
+       f"and nothing was published. No replacement episode is being generated.")
+    sys.exit(0)
+
+
 def clear_pending(channel_dir):
     pf = _pending_path(channel_dir)
     pf.write_text(json.dumps({
@@ -4952,6 +4983,100 @@ def _captions_for(audio_path, ass_path, script, audio_duration):
         return False
 
 
+# Groq's free tier rejects an upload past roughly 25 MB with a 413. Chunks are
+# cut well under it so a slightly-larger-than-expected segment still fits.
+_WHISPER_CHUNK_MB = 18
+
+
+def _whisper_words_chunked(audio_path):
+    """Word-level timings for a whole narration, in pieces that fit the API.
+
+    Returns a list of {word, start, end} with timings in seconds from the
+    START OF THE EPISODE, or None if transcription genuinely failed. Each
+    chunk is transcribed independently and its timings shifted by that
+    chunk's real offset, so the joined result is the same as transcribing the
+    whole file would have been.
+    """
+    size_mb = os.path.getsize(audio_path) / 1e6
+    if size_mb <= _WHISPER_CHUNK_MB:
+        return _whisper_words_one(audio_path, 0.0)
+
+    # ffprobe directly rather than a helper -- there is no get_audio_duration()
+    # in this module, and calling one would have raised NameError the first
+    # time an episode's audio was actually large enough to need splitting,
+    # which is every episode.
+    try:
+        _pr = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", audio_path],
+            capture_output=True, text=True, timeout=60)
+        dur = float((_pr.stdout or "0").strip())
+    except Exception as e:
+        log(f"  Real caption sync: cannot read the audio duration ({e})")
+        return None
+    if dur <= 0:
+        log("  Real caption sync: audio duration read as zero — cannot split")
+        return None
+    parts = int(size_mb // _WHISPER_CHUNK_MB) + 1
+    span = dur / parts
+    log(f"  Real caption sync: {size_mb:.1f} MB is over the {_WHISPER_CHUNK_MB} MB "
+        f"upload limit — transcribing in {parts} chunks of ~{span:.0f}s")
+
+    out = []
+    for i in range(parts):
+        start = i * span
+        piece = str(WORK_DIR / f"_wchunk{i}.mp3")
+        rc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{span:.3f}",
+             "-i", audio_path, "-ac", "1", "-ar", "16000", "-b:a", "64k", piece],
+            capture_output=True)
+        if rc.returncode != 0 or not Path(piece).exists():
+            log(f"  Real caption sync: chunk {i + 1}/{parts} could not be cut")
+            return None
+        got = _whisper_words_one(piece, start)
+        try:
+            os.remove(piece)
+        except OSError:
+            pass
+        if got is None:
+            return None
+        out.extend(got)
+    log(f"  Real caption sync: {len(out)} words timed across {parts} chunks")
+    return out
+
+
+def _whisper_words_one(audio_path, offset_secs):
+    """One transcription request. Timings come back shifted by offset_secs."""
+    try:
+        with open(audio_path, "rb") as f:
+            r = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {GROQ_KEY}"},
+                files={"file": (Path(audio_path).name, f, "audio/mpeg")},
+                data={"model": "whisper-large-v3-turbo",
+                      "response_format": "verbose_json",
+                      "timestamp_granularities[]": "word",
+                      "language": "en"},
+                timeout=180)
+        if r.status_code != 200:
+            log(f"  Real caption sync: Whisper request failed ({r.status_code}) "
+                f"— {r.text[:160]}")
+            return None
+        words = r.json().get("words", [])
+        if not words:
+            log("  Real caption sync: no word-level data returned")
+            return None
+        for w in words:
+            if "start" in w:
+                w["start"] = float(w["start"]) + offset_secs
+            if "end" in w:
+                w["end"] = float(w["end"]) + offset_secs
+        return words
+    except Exception as e:
+        log(f"  Real caption sync request (non-fatal): {e}")
+        return None
+
+
 def generate_real_synced_ass(audio_path, ass_path):
     """
     v1 addition — real, word-level accurate captions for the main video,
@@ -4977,20 +5102,25 @@ def generate_real_synced_ass(audio_path, ass_path):
     if not GROQ_KEY or not Path(audio_path).exists():
         return False
     try:
-        with open(audio_path, "rb") as f:
-            r = requests.post(
-                "https://api.groq.com/openai/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                files={"file": (Path(audio_path).name, f, "audio/mpeg")},
-                data={"model": "whisper-large-v3-turbo",
-                      "response_format": "verbose_json",
-                      "timestamp_granularities[]": "word",
-                      "language": "en"},
-                timeout=180)
-        if r.status_code != 200:
-            log(f"  Real caption sync: Whisper request failed ({r.status_code}) — no captions this episode")
+        # THE WHOLE EPISODE WAS BEING POSTED AS ONE FILE, AND REJECTED.
+        #
+        # Run 31156373254: three attempts, three 413s (Request Entity Too
+        # Large), then "no captions this episode" -- at which point
+        # _captions_for() fell back to generate_fallback_ass(), which spreads
+        # the script evenly across the runtime by word count. Even spreading
+        # cannot know about pauses, SSML rate changes or breath, so the
+        # subtitles drift steadily against the voice. That is the reported
+        # "subtitles are not syncing, moving too fast or too slow" -- not a
+        # subtitle bug at all, but the transcription never running.
+        #
+        # Groq caps a free-tier upload at about 25 MB and an 18-minute
+        # narration MP3 lands past it. So the audio is cut into chunks that
+        # fit, each transcribed separately, and each chunk's word timings
+        # shifted by where that chunk starts. The result is identical to
+        # transcribing the whole file, because the offsets are exact.
+        words_data = _whisper_words_chunked(audio_path)
+        if words_data is None:
             return False
-        words_data = r.json().get("words", [])
         if not words_data:
             log("  Real caption sync: no word-level data returned — no captions this episode")
             return False
@@ -10657,6 +10787,7 @@ def main():
                                             timeout_minutes=60,
                                             stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
                                             sub_scores=_review_sub_scores or None)
+                    abort_on_cancel(_review, "the script review")
                     if _review["decision"] == "reject":
                         log("Rejected during full script review."); sys.exit(0)
                     # FIX (found on deep re-audit): REMAKE was never handled
@@ -11208,6 +11339,24 @@ def main():
         _prerendered_yt_url = None
         _prerendered_yt_vid_id = None
 
+        def _set_preview_thumbnail(path):
+            """Put the real thumbnail on the unlisted review video.
+
+            Called every time the thumbnail is (re)built, because the review
+            link is what the human actually opens -- and the thumbnail is the
+            single artifact being judged hardest. Without this the reviewer
+            sees YouTube's auto-picked frame grab, which is exactly the
+            "there is no thumbnail" report from run 31156373254.
+            """
+            if not (path and _prerendered_yt_vid_id and Path(path).exists()):
+                return
+            try:
+                upload_thumbnail(_prerendered_yt_vid_id, path, get_yt_token())
+                log(f"  Thumbnail set on the review preview {_prerendered_yt_vid_id}.")
+            except Exception as e:
+                log(f"  Preview thumbnail (non-fatal): {e}")
+
+
         def _refresh_prerendered_upload(cur_video_path):
             # NOTE: description/tags aren't generated until STAGE 5 (after
             # this review), so this upload uses placeholder metadata --
@@ -11225,6 +11374,7 @@ def main():
                     cur_video_path, title, "Draft — under review, description finalized before publish.", [],
                     token=_token, privacy="unlisted")
                 log(f"  Uploaded unlisted preview for review: {_prerendered_yt_url}")
+
             except Exception as e:
                 log(f"  Unlisted preview upload (non-fatal, falling back to clip-only review): {e}")
                 _prerendered_yt_url, _prerendered_yt_vid_id = None, None
@@ -11287,6 +11437,10 @@ def main():
                     yt_preview_url=_prerendered_yt_url)
                 _check_ins_used_av += 1
 
+                abort_on_cancel(_av_review.get("audio_decision"),
+                                "the audio review", _prerendered_yt_vid_id)
+                abort_on_cancel(_av_review.get("video_decision"),
+                                "the video review", _prerendered_yt_vid_id)
                 _a_dec = _av_review["audio_decision"]["decision"]
                 if _a_dec == "reject":
                     # DECLINE MUST STOP THE EPISODE.
@@ -11512,6 +11666,19 @@ def main():
             log("  Thumbnail text gate never cleared 8.5 after 13 attempts. Skipping.")
             sys.exit(0)
         thumb_path  = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+
+        # PUT THE THUMBNAIL ON THE PREVIEW THE HUMAN IS ABOUT TO REVIEW.
+        #
+        # It was never set on it. upload_thumbnail() carried a comment saying
+        # it "is not currently called anywhere", and the only live thumbnail
+        # upload lives in the Upload phase, which runs later. So the review
+        # link showed YouTube's own auto-picked frame grab, and the reported
+        # complaint -- "in the main video there is no thumbnail" -- was
+        # exactly right: there wasn't one.
+        #
+        # This is the artifact being judged hardest of all. Reviewing the
+        # video without it is reviewing the wrong thing.
+        _set_preview_thumbnail(thumb_path)
         # FIX (found on direct user report, July 23 2026 — real gap):
         # score_thumbnail_text() already exists and Ch5 already wires it
         # in, but Ch1 never did -- review_title_thumbnail_description()'s
@@ -11636,6 +11803,8 @@ def main():
                     thumbnail_score=_thumb_score)
                 _check_ins_used_ttd += 1
 
+                abort_on_cancel(_ttd_review, "the title/thumbnail/description review",
+                                _prerendered_yt_vid_id)
                 if _ttd_review["decision"] == "reject":
                     log("Rejected during title/thumbnail/description review."); sys.exit(0)
                 if _ttd_review["decision"] == "remake":
@@ -11665,6 +11834,7 @@ def main():
                         thumb_text = _new_thumb_text.strip()
                         ab_style = "B" if ab_style == "A" else "A"
                         thumb_path = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+                        _set_preview_thumbnail(thumb_path)
                     _new_desc = ai_generate(f"Rewrite this video description based on real feedback.\n"
                                     f"Current description:\n{description}\nFeedback: {fb}\n"
                                     f"Return ONLY the new description, nothing else.", tokens=800)
@@ -11837,6 +12007,7 @@ def main():
                     # be deleted (unlike the "can't unpublish" constraint
                     # that applies to edit/remake/swap below) — REJECT now
                     # genuinely deletes every Short from this batch.
+                    abort_on_cancel(_sh_review, "the Shorts review", _prerendered_yt_vid_id)
                     if _sh_review["decision"] == "reject":
                         _sh_token = get_yt_token()
                         for _s in _real_shorts:
