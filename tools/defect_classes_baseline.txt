@@ -6,10 +6,8 @@
 1-unreachable-acceptance|channels/collapse_index/collapse_index_pipeline.py|ai_generate(..., tokens=N) with no min_chars
 1-unreachable-acceptance|channels/control_files/control_files_pipeline.py|ai_fn(...) prompt caps output near N chars
 1-unreachable-acceptance|channels/evidence_room/evidence_room_pipeline.py|ai_fn(...) prompt caps output near N chars
-2-retry-without-variation|channels/archive/archive_pipeline.py|retry loop with no visible source of variation
+1-unreachable-acceptance|tools/build_presenter_library.py|FLOOR = N.N on what looks like a /N scale
 2-retry-without-variation|channels/collapse_index/collapse_index_pipeline.py|retry loop with no visible source of variation
-2-retry-without-variation|channels/control_files/control_files_pipeline.py|retry loop with no visible source of variation
-2-retry-without-variation|channels/evidence_room/evidence_room_pipeline.py|retry loop with no visible source of variation
 2-retry-without-variation|video_pipeline/human_review_gate.py|retry loop with no visible source of variation
 3-phantom-dependency|channels/betrayal_deepdive/clinical_pipeline.py|imports 'revenue_engine', which does not resolve
 3-phantom-dependency|channels/collapse_index/collapse_index_pipeline.py|imports 'revenue_engine', which does not resolve

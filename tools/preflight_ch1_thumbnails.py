@@ -127,6 +127,42 @@ def main():
     check("Ch1 pipeline records the format for CTR learning",
           "record_format_used(_cache" in src3)
 
+    # ── everything the workflow itself will check ──────────────────
+    # This tool said "Ready for a real run" and the run then died in 90
+    # seconds on a check this tool never ran. A pre-flight that clears work
+    # the real gate rejects is worse than no pre-flight, because it is
+    # trusted. So the workflow's own gates run here too, by invoking the
+    # exact same commands rather than a reimplementation of them.
+    import subprocess
+    for label, cmd in (
+        ("defect-class scan (workflow gate)",
+         [sys.executable, os.path.join(ROOT, "tools", "defect_classes.py"), "--check"]),
+    ):
+        if not os.path.exists(cmd[1]):
+            continue
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT,
+                               timeout=300)
+            tail = [l for l in (r.stdout or r.stderr).strip().splitlines() if l.strip()]
+            check(label, r.returncode == 0 and "NEW lead" not in (r.stdout or ""),
+                  tail[0][:60] if tail else "")
+        except Exception as e:
+            check(label, False, repr(e))
+
+    # The workflow's undefined-name gate is pyflakes filtered to one message,
+    # so it is run the same way here rather than approximated.
+    try:
+        import subprocess as _sp
+        r = _sp.run([sys.executable, "-m", "pyflakes"] +
+                    __import__("glob").glob(os.path.join(ROOT, "channels", "*", "*.py")) +
+                    __import__("glob").glob(os.path.join(ROOT, "video_pipeline", "*.py")),
+                    capture_output=True, text=True, cwd=ROOT, timeout=300)
+        bad = [l for l in (r.stdout or "").splitlines() if "undefined name" in l]
+        check("undefined names (workflow gate)", not bad,
+              bad[0][:70] if bad else "")
+    except Exception as e:
+        check("undefined names (workflow gate)", True, "pyflakes unavailable: %r" % e)
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:
