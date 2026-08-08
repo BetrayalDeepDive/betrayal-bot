@@ -37,6 +37,30 @@ import time
 # FIX (direct user report, July 23 2026 — "the minimum is 7.9, not 6.8"): raised.
 MIN_QUALITY_SCORE = 7.9
 
+# One call used to be the whole gate. On run 31156373254 that call failed on
+# all five stages, so nothing in the episode was ever scored -- and because
+# the failure path returned MIN_QUALITY_SCORE, the log said 7.9/10 five times
+# and looked like five marginal passes. The free-tier providers rate-limit in
+# bursts and the caller's wrapper rotates provider on each call, so retrying
+# is usually the difference between no gate and a real one.
+AUDIT_ATTEMPTS = int(os.environ.get("QUALITY_AUDIT_ATTEMPTS", "3"))
+AUDIT_RETRY_SEC = float(os.environ.get("QUALITY_AUDIT_RETRY_SEC", "8"))
+
+
+def _num(score):
+    """Sort key for a score that may be None (meaning: never audited)."""
+    return -1.0 if score is None else float(score)
+
+
+def fmt_score(score):
+    """How a score is written wherever a human will read it.
+
+    Never prints a number for a stage that was not scored. The old code
+    substituted MIN_QUALITY_SCORE there, so "7.9/10" appeared five times in
+    run 31156373254 for five stages that no judge had ever seen.
+    """
+    return "not audited" if score is None else "%.1f/10" % float(score)
+
 _RUBRICS = {
     "script": (
         "You are an expert YouTube script editor auditing a dark documentary "
@@ -98,13 +122,25 @@ def audit_content(stage_name, content, context, call_ai_fn, topic=""):
     call_ai_fn: callable(prompt: str, tokens: int) -> str | None, matching
     every channel's existing ai()/ai_generate() signature.
 
-    Returns {"score": float, "passed": bool, "issues": [...], "used_fallback": bool}.
-    On any failure (AI unreachable, bad JSON), returns a score of exactly
-    MIN_QUALITY_SCORE with used_fallback=True and a clear issue string --
-    a neutral pass-through rather than silently blocking or silently
-    passing, and always visibly flagged as a fallback in the return value
-    so callers can log/report it honestly instead of it looking identical
-    to a real audit.
+    Returns {"score": float|None, "passed": bool, "issues": [...],
+             "used_fallback": bool}.
+
+    THE SCORE IS None WHEN NOTHING WAS AUDITED, NOT 7.9.
+
+    This used to return exactly MIN_QUALITY_SCORE on failure, and every audit
+    in run 31156373254 came back "7.9/10 (passed=True, fallback=True)" -- the
+    pass mark to one decimal, five times out of five. The gate had not run at
+    all, and the number said it had scraped through. A fabricated score that
+    happens to equal the threshold is the most misleading value the function
+    could possibly return: it is indistinguishable in a log, in a Telegram
+    message and in a reviewer's memory from a genuine marginal pass.
+
+    Nothing is invented now. `passed` stays True so an unreachable free-tier
+    provider cannot block an episode -- that part was a deliberate choice --
+    but the score is None and the caller prints "not audited".
+
+    The failure is also retried before it is accepted, because ONE unlucky
+    call used to disable the gate for the whole stage.
     """
     rubric = _RUBRICS.get(stage_name, _RUBRICS["script"])
     topic_line = f"\nTOPIC (for context): {topic[:200]}\n" if topic else ""
@@ -116,23 +152,33 @@ def audit_content(stage_name, content, context, call_ai_fn, topic=""):
         f"Be honest and specific -- a generic 7.0 with no real issues listed is "
         f"not useful. If something is genuinely wrong, name exactly what and why."
     )
-    try:
-        raw = call_ai_fn(prompt, tokens=350)
-        if not raw:
-            raise ValueError("empty AI response")
-        raw = re.sub(r"```json|```", "", raw).strip()
-        m = re.search(r"\{[\s\S]*\}", raw)
-        if not m:
-            raise ValueError(f"no JSON found in response: {raw[:200]}")
-        data = json.loads(m.group())
-        score = round(float(data.get("score", 0)), 1)
-        score = max(0.0, min(10.0, score))
-        issues = data.get("issues", []) or []
-        return {"score": score, "passed": score >= MIN_QUALITY_SCORE,
-                "issues": issues, "used_fallback": False}
-    except Exception as e:
-        return {"score": MIN_QUALITY_SCORE, "passed": True, "used_fallback": True,
-                "issues": [f"Quality-audit AI call failed, passed through as neutral (non-blocking): {e}"]}
+    why = []
+    for attempt in range(AUDIT_ATTEMPTS):
+        try:
+            raw = call_ai_fn(prompt, tokens=350)
+            if not raw:
+                raise ValueError("empty AI response")
+            raw = re.sub(r"```json|```", "", raw).strip()
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if not m:
+                raise ValueError(f"no JSON found in response: {raw[:200]}")
+            data = json.loads(m.group())
+            score = round(float(data.get("score", 0)), 1)
+            score = max(0.0, min(10.0, score))
+            issues = data.get("issues", []) or []
+            return {"score": score, "passed": score >= MIN_QUALITY_SCORE,
+                    "issues": issues, "used_fallback": False}
+        except Exception as e:
+            why.append(f"attempt {attempt + 1}: {e}")
+            if attempt + 1 < AUDIT_ATTEMPTS:
+                # Free-tier providers rate-limit in bursts; the wrapper rotates
+                # providers on the next call, so a short wait is usually the
+                # difference between no gate and a real one.
+                time.sleep(AUDIT_RETRY_SEC * (attempt + 1))
+    return {"score": None, "passed": True, "used_fallback": True,
+            "issues": ["Quality audit did not run: the AI judge was unreachable "
+                       "after %d attempts (%s). This stage was NOT scored."
+                       % (AUDIT_ATTEMPTS, "; ".join(why)[:300])]}
 
 
 QUALITY_GATE_ROUNDS = 3
@@ -191,7 +237,10 @@ def enforce_quality_gate(stage_name, initial_content, context, call_ai_fn,
             return result
         # Keep the best-scoring round, so a total failure still hands back the
         # strongest draft any round produced rather than the last one.
-        if best is None or result["score"] > best["score"]:
+        # score is None when the AI judge could not be reached at all, and
+        # None does not compare with a float. An unscored round is never
+        # "better" than a scored one.
+        if best is None or _num(result["score"]) > _num(best["score"]):
             best = result
         rounds_run = rnd
     # "rounds" must report how many rounds actually RAN, not which round
@@ -219,13 +268,15 @@ def _enforce_quality_gate_once(stage_name, initial_content, context, call_ai_fn,
     """
     content = initial_content
     best_content, best_score, best_used_fallback = content, -1.0, False
+    best_result = None
     reworked = 0
 
     for attempt in range(max_reworks + 1):
         result = audit_content(stage_name, content, context, call_ai_fn, topic=topic)
-        if result["score"] > best_score:
-            best_content, best_score = content, result["score"]
+        if _num(result["score"]) > best_score:
+            best_content, best_score = content, _num(result["score"])
             best_used_fallback = result["used_fallback"]
+            best_result = result
 
         if result["passed"]:
             return {"content": content, "score": result["score"], "passed": True,
@@ -237,7 +288,7 @@ def _enforce_quality_gate_once(stage_name, initial_content, context, call_ai_fn,
         reworked += 1
         issues_str = "; ".join(result["issues"][:3]) if result["issues"] else "no specific issues returned"
         if tg_fn:
-            tg_fn(f"🔍 Quality audit: {stage_name} scored {result['score']}/10 "
+            tg_fn(f"🔍 Quality audit: {stage_name} scored {fmt_score(result['score'])} "
                   f"(below {MIN_QUALITY_SCORE} bar) — {issues_str}. Reworking "
                   f"automatically before this reaches you (attempt {reworked}/{max_reworks}).")
         try:
@@ -251,5 +302,7 @@ def _enforce_quality_gate_once(stage_name, initial_content, context, call_ai_fn,
             break
         content = new_content
 
-    return {"content": best_content, "score": best_score, "passed": False,
+    return {"content": best_content,
+            "score": (best_result or {}).get("score") if best_result else None,
+            "passed": False,
             "reworked": reworked, "used_fallback": best_used_fallback}

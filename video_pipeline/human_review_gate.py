@@ -86,6 +86,53 @@ def _review_budget_hours():
         return _MAX_TOTAL_REVIEW_HOURS
 
 
+# EVERY GATE GETS A SHARE. THE FIRST ONE USED TO TAKE ALL OF IT.
+#
+# Run 31156373254's own timing report:
+#
+#     Review wait breakdown — 54 min across 6 gate(s):
+#       54.1 min  script                          (timeout)
+#        0.0 min  audio+video                     (timeout)
+#        0.0 min  title+thumbnail+description     (timeout)
+#        0.0 min  shorts                          (timeout)
+#        0.0 min  community tab                   (timeout)
+#
+# One gate consumed the entire episode budget waiting for a reply, and the
+# other five then returned instantly with "Total review time budget reached —
+# auto-approving". They never waited a single second, so they could not have
+# seen a button press however fast it came. That is exactly what was reported:
+# "there were things that didn't work out with Telegram, where I did try to
+# click on the option buttons."
+#
+# Buttons that are announced must be answerable. The budget is therefore
+# divided by how many gates an episode has, so no gate can starve the ones
+# behind it. A gate that finishes early hands its unused share back to the
+# rest, so a fast reviewer still gets the full window at the later gates.
+_GATES_PER_EPISODE = 6
+
+
+def _gate_share_seconds():
+    """Wall-clock this gate may spend, given what earlier gates already used."""
+    budget = _review_budget_hours() * 3600.0
+    used = sum(w["seconds"] for w in _REVIEW_WAITS)
+    left_gates = max(1, _GATES_PER_EPISODE - len(_REVIEW_WAITS))
+    return max(0.0, (budget - used) / left_gates)
+
+
+# The three ways a gate ends without a human decision. They are DIFFERENT
+# things and the log now says which -- "timeout" means nobody replied within
+# this gate's window, "share-spent" means this gate used its slice of the
+# episode budget, "budget-exhausted" means the whole episode's review time is
+# gone. Every caller treats all three the same way (proceed as generated), so
+# they are compared through this helper rather than against one string, which
+# is what made adding an honest name safe.
+_NO_REPLY = ("timeout", "share-spent", "budget-exhausted")
+
+
+def _no_human_reply(decision):
+    return decision in _NO_REPLY
+
+
 def _total_review_time_exhausted():
     elapsed_hours = (datetime.datetime.now() - _REVIEW_PROCESS_START).total_seconds() / 3600
     return elapsed_hours >= _review_budget_hours()
@@ -770,14 +817,25 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
     except Exception as e:
         print(f"  Stale-update drain (non-fatal): {e}")
 
+    # This gate's own slice of the episode budget, so it cannot spend the
+    # window the gates behind it still need. Never longer than the per-gate
+    # timeout that was asked for.
+    _share_min = _gate_share_seconds() / 60.0
+    _gate_deadline = datetime.datetime.now() + datetime.timedelta(minutes=_share_min)
+    timeout_minutes = max(1.0, min(float(timeout_minutes), _share_min))
+
     for attempt in range(1, max_attempts + 1):
         if _total_review_time_exhausted():
             _tg_send_message(tg_token, tg_chat,
                              "⏱️ Total review time budget for this episode reached — "
                              "auto-approving to keep this run within GitHub Actions' real "
                              "job time limit. Whatever hasn't been decided yet proceeds as generated.")
-            return "timeout", None
-        deadline = datetime.datetime.now() + datetime.timedelta(minutes=timeout_minutes)
+            return "budget-exhausted", None
+        if datetime.datetime.now() >= _gate_deadline:
+            # This gate's share is spent; the remaining gates keep theirs.
+            return "share-spent", None
+        deadline = min(datetime.datetime.now() + datetime.timedelta(minutes=timeout_minutes),
+                       _gate_deadline)
         while datetime.datetime.now() < deadline:
             time.sleep(15)
 
@@ -796,7 +854,7 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
                                  "⏱️ Total review time budget for this episode reached — "
                                  "auto-approving to keep this run within GitHub Actions' real "
                                  "job time limit. Whatever hasn't been decided yet proceeds as generated.")
-                return "timeout", None
+                return "budget-exhausted", None
 
             # Check Telegram every cycle (cheap, fast)
             try:
@@ -1060,7 +1118,7 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
                          "🛑 Cancelled. This episode is being abandoned — nothing "
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
     return {"decision": decision, "feedback": feedback}
@@ -1224,7 +1282,7 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
                          "🛑 Cancelled. This episode is being abandoned — nothing "
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
     return {"decision": decision, "feedback": feedback}
@@ -1505,7 +1563,7 @@ def review_community_tab(channel_name, question, options, tg_token, tg_chat,
     else:
         # timeout, reject, or anything else this checkpoint doesn't
         # recognize — all resolve to "skip" rather than assuming success.
-        if decision == "timeout":
+        if _no_human_reply(decision):
             _tg_send_message(tg_token, tg_chat,
                               f"⏱️ {timeout_minutes} min expired — treating as skipped "
                               f"(can't confirm a real-world post happened).")
@@ -1547,7 +1605,7 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
                          "🛑 Cancelled. This episode is being abandoned — nothing "
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
     return {"decision": decision, "feedback": feedback}
@@ -1585,7 +1643,7 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
                          "🛑 Cancelled. This episode is being abandoned — nothing "
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
     return {"decision": decision, "feedback": feedback}
@@ -1855,7 +1913,7 @@ def review_script(channel_name, title, full_script, score, niche_name,
                          "🛑 Cancelled. This episode is being abandoned — nothing "
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
         decision = "approve"
     return {"decision": decision, "feedback": feedback}
@@ -1930,7 +1988,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                                      f"<p>Listen via Telegram — audio isn't emailed directly.</p>",
                                      gmail_sender, gmail_app_password)
         d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
-        if d == "timeout":
+        if _no_human_reply(d):
             _tg_send_message(tg_token, tg_chat, f"⏱️ Audio: {timeout_minutes} min expired — auto-approved.")
             d = "approve"
         audio_decision = {"decision": d, "feedback": fb}
@@ -1997,7 +2055,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                                  gmail_sender, gmail_app_password)
 
     d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
-    if d == "timeout":
+    if _no_human_reply(d):
         _tg_send_message(tg_token, tg_chat, f"⏱️ Video: {timeout_minutes} min expired — auto-approved.")
         d = "approve"
     video_decision = {"decision": d, "feedback": fb}
@@ -2077,7 +2135,7 @@ def review_resume_checkpoint(channel_name, title, script_clean, score, niche_nam
 
     d, _ = _poll_for_decision(tg_token, tg_chat, timeout_minutes, max_attempts=2,
                               gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
-    if d == "timeout":
+    if _no_human_reply(d):
         _tg_send_message(tg_token, tg_chat,
                          f"⏱️ No decision within the review window — resuming automatically "
                          f"from the checkpoint (the least destructive option) so this "
@@ -2142,7 +2200,7 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
 
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes,
                                              gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
-    if decision == "timeout":
+    if _no_human_reply(decision):
         _tg_send_message(tg_token, tg_chat,
                          f"⏱️ {timeout_minutes} min expired — auto-approved, going public now.")
         return {"decision": "approve", "feedback": None}

@@ -81,6 +81,18 @@ NUMBER_NOUN_BANKS = {
     "scams_fraud_exposed":         ["19 YEARS","300 EMPLOYEES","$65B GONE","1 PERSON","STILL RUNNING"],
 }
 
+# The auditor returns score=None when the AI judge could never be reached, so
+# that an unscored stage cannot be printed as a number. It used to substitute
+# the pass mark, and run 31156373254 logged "7.9/10" five times for five
+# stages nothing had read.
+def _fmt_audit_score(score):
+    try:
+        from quality_auditor import fmt_score
+        return fmt_score(score)
+    except Exception:
+        return "not audited" if score is None else "%.1f/10" % float(score)
+
+
 def enforce_number_noun(thumb_text, topic, niche_name, ai_fn=None):
     if re.search(r'\b\d[\d,\.]*\b|\$', thumb_text):
         return re.sub(r'[^A-Z0-9$.,% ]','', thumb_text.upper()).strip()[:22]
@@ -6531,7 +6543,7 @@ def main():
                 real_cases = _entry["real_cases"]
                 break
         script_clean = _audit["content"]
-        log(f"  Quality audit (script): {_audit['score']}/10 "
+        log(f"  Quality audit (script): {_fmt_audit_score(_audit['score'])} "
             f"(passed={_audit['passed']}, reworked={_audit['reworked']}, "
             f"fallback={_audit['used_fallback']})")
     except Exception as e:

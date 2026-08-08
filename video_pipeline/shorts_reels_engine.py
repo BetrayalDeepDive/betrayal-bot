@@ -920,7 +920,20 @@ def score_short_script(script: str, title: str, hook: str,
     except Exception:
         three_sec_issues = []
 
-    total = round(sum(scores.values()), 1)
+    # A SCORE OUT OF TEN CANNOT BE 11.5.
+    #
+    # The five rubric components are each capped at 2.0, so they sum to at
+    # most 10. three_second_rule was then ADDED on top of that as a bonus,
+    # and run 31156373254 logged "Pre-score: 11.5/10", "11.1/10", "10.5/10",
+    # "10.1/10" -- four Shorts out of four scored above the maximum. A number
+    # that can exceed its own scale is not a score, and every threshold
+    # compared against it means something different from what it says.
+    #
+    # The bonus still moves the result, it just moves it INSIDE the scale: a
+    # penalty (a slow windup opening) still drags a good script down, and a
+    # script already at 10 on the rubric gains nothing from a bonus, which is
+    # correct -- it has nowhere left to go.
+    total = round(min(10.0, max(0.0, sum(scores.values()))), 1)
     scores["total"] = total
     scores["passed"] = total >= QUALITY_MIN
     if three_sec_issues:
@@ -1709,7 +1722,9 @@ def score_final_video(video_path: str, script: str, title: str,
     # was hardcoded everywhere with zero consequence either way).
     scores["thumbnail"] = 1.0 if has_thumbnail else 0.0
 
-    total = round(sum(scores.values()), 1)
+    # Same ceiling, same reason: the components above plus the additive
+    # thumbnail bonus can total more than ten.
+    total = round(min(10.0, max(0.0, sum(scores.values()))), 1)
     scores["total"] = total
     scores["passed"] = total >= QUALITY_MIN
     return scores
@@ -2018,8 +2033,10 @@ def _produce_standalone_short_once(mode: str, channel: str = "betrayal_deepdive"
         try:
             from quality_auditor import audit_content
             _audit = audit_content("shorts_script", script, "", lambda p, tokens=350: llm(p, max_tokens=tokens))
-            log.info("Quality audit (shorts_script): %.1f/10 (passed=%s, fallback=%s)",
-                      _audit["score"], _audit["passed"], _audit["used_fallback"])
+            from quality_auditor import fmt_score as _fmt_audit
+            log.info("Quality audit (shorts_script): %s (passed=%s, fallback=%s)",
+                      _fmt_audit(_audit["score"]), _audit["passed"],
+                      _audit["used_fallback"])
             if not _audit["passed"]:
                 log.info("Quality audit below 7.9 bar, retrying topic")
                 continue
@@ -2383,8 +2400,10 @@ Return JSON:
             from quality_auditor import audit_content
             _audit = audit_content("shorts_script", script_data["script"], "",
                                     lambda p, tokens=350: llm(p, max_tokens=tokens), topic=main_topic)
-            log.info("Quality audit (shorts_script): %.1f/10 (passed=%s, fallback=%s)",
-                      _audit["score"], _audit["passed"], _audit["used_fallback"])
+            from quality_auditor import fmt_score as _fmt_audit
+            log.info("Quality audit (shorts_script): %s (passed=%s, fallback=%s)",
+                      _fmt_audit(_audit["score"]), _audit["passed"],
+                      _audit["used_fallback"])
             if not _audit["passed"]:
                 log.info("Quality audit below 7.9 bar, retrying")
                 continue
