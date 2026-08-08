@@ -602,6 +602,54 @@ def main():
           _pi > 0 and _es > 0 and _pi < _es,
           "a rate limit must not cost the channel its voice")
 
+    # ── a photograph carries NO text of its own ────────────────────
+    # The delivered episode put TWO pieces of type on every photograph: an
+    # eyebrow header top-left and a 58px slice of narration across the lower
+    # third — while the finished video ALSO burns synced subtitles from the
+    # same narration. Three texts, two of them saying overlapping things a
+    # beat apart. Asserted on real pixels rather than by reading the source,
+    # because the point is what reaches the screen.
+    _photo_seg = os.path.join(work, "bare_photo.png")
+    import medical_segments as _ms
+    _drew = _ms.render_scene_still(
+        "She had come in with vaginal bleeding that had lasted three days. "
+        "Under treatment, nothing changed.",
+        _photo_seg, work, variant=3, niche_label="HOW IT WAS FOUND",
+        topic="unexplained bleeding in a young woman")
+    check("a photograph segment still renders", _drew and
+          os.path.exists(_photo_seg), "the register must still produce a frame")
+
+    if _drew and os.path.exists(_photo_seg):
+        _pim = Image.open(_photo_seg).convert("L")
+        _pa = np.asarray(_pim).astype(float)
+        # The eyebrow sat at y=82 on the left; the narration line filled the
+        # lower third at x>=150. Type is high-contrast against its backdrop,
+        # so a band containing burned text has a far wider spread of values
+        # than the same band of an untouched photograph.
+        _band = _pa[60:110, 80:900]
+        _bright = float((_band > 200).mean())
+        check("no eyebrow header burned onto the photograph", _bright < 0.02,
+              "%.1f%% of the eyebrow band is near-white type" % (_bright * 100))
+
+        _low = _pa[int(_pa.shape[0] * 0.72):int(_pa.shape[0] * 0.95), 140:1600]
+        _lowbright = float((_low > 215).mean())
+        check("no narration line burned across the lower third",
+              _lowbright < 0.02,
+              "%.1f%% of the caption band is near-white type — the subtitles "
+              "already carry these words" % (_lowbright * 100))
+
+    _mssrc = open(os.path.join(ROOT, "video_pipeline",
+                               "medical_segments.py")).read()
+    _scene = _mssrc.split("def render_scene_still")[1].split("\ndef ")[0]
+    _vert = _mssrc.split("def _render_vertical_photo")[1].split("\ndef ")[0]
+    check("the photo renderers draw no type at all",
+          "_eyebrow(" not in _scene and "d.text(" not in _scene
+          and "_v_eyebrow(" not in _vert and "d.text(" not in _vert,
+          "horizontal and vertical photographs must both stay bare")
+    check("drawn cards keep their labels",
+          "_eyebrow(d, niche_label)" in _mssrc,
+          "a chart without its axis is broken, not cleaner")
+
     # ── on-screen labels are complete thoughts ─────────────────────
     # Two renderers built their label by taking the first N words of whatever
     # narration sat under the segment. Segments are cut to fit a visual's

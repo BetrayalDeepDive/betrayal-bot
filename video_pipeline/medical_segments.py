@@ -936,19 +936,29 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     ramp = (ramp * (1.0 - tdrop * top)).reshape(H, 1, 1)
     im = Image.fromarray(_np.clip(a * ramp, 0, 255).astype("uint8"))
 
-    d = ImageDraw.Draw(im)
-    _eyebrow(d, niche_label)
-    line = _tidy_display_line(segment_text or "", 150)
-    if line:
-        f = _f(58)
-        lines = mfr._wrap(d, line, f, W - 300)[:3]
-        y = CONTENT_BOTTOM - 40 - len(lines) * 78
-        for ln in lines:
-            # A photograph is never uniformly dark, whatever the ramp does, so
-            # the type carries its own shadow rather than trusting the picture.
-            d.text((153, y + 3), ln, font=f, fill=(0, 0, 0))
-            d.text((150, y), ln, font=f, fill=TEXT_C)
-            y += 78
+    # A PHOTOGRAPH CARRIES NO TEXT OF ITS OWN. THE SUBTITLES ARE THE WORDS.
+    #
+    # This used to draw two things over the picture: the channel eyebrow at the
+    # top, and a 58px line of the segment's own narration across the lower
+    # third. The finished video ALSO burns synced subtitles from the same
+    # narration -- so a photograph carried two different pieces of text at
+    # once, in two sizes, saying overlapping things a beat apart. From the
+    # delivered episode: "Under treatment." set large at the left while the
+    # subtitle underneath read "If medicine's most precise weapon could
+    # backfire this completely,".
+    #
+    # Composing that line as a complete sentence was the wrong fix. The line
+    # should not be there at all. Every documentary channel that cuts stock
+    # footage does the same thing: picture, and one track of captions under
+    # it. Nothing else competes.
+    #
+    # The bottom darkening STAYS -- it is what keeps white subtitles legible
+    # over a bright photograph, and it was measured against where the type
+    # actually sits. Only the text this renderer drew itself is gone.
+    #
+    # Drawn cards are a different case and keep their labels: a chart without
+    # its axis is not a cleaner chart, it is a broken one. This is about
+    # photographs, where the picture is the whole point.
     im.save(out_path)
     if used is not None:
         used.add(_P(photo).name)
@@ -1496,17 +1506,14 @@ def _render_vertical_photo(case, out_path, headline, niche_label, progress):
     im = Image.fromarray(_np.clip(
         a * (ramp * (1.0 - 0.5 * top)).reshape(VH, 1, 1), 0, 255).astype("uint8"))
 
-    d = ImageDraw.Draw(im)
-    _v_eyebrow(d, niche_label)
-    line = _tidy_display_line(headline or case.get("title", ""), 150)
-    if line:
-        f = _vf(60)
-        lines = mfr._wrap(d, line, f, VW - 160)[:4]
-        y = V_CONTENT_BOTTOM - 60 - len(lines) * 84
-        for ln in lines:
-            d.text((83, y + 3), ln, font=f, fill=(0, 0, 0))
-            d.text((80, y), ln, font=f, fill=TEXT_C)
-            y += 84
+    # Same rule as the main video's photographs: the picture carries no text
+    # of its own. A Short burns word-level synced subtitles over the top of
+    # this, so an eyebrow and a 60px headline here meant three competing
+    # pieces of type on a phone-sized frame. The falloff stays, because it is
+    # what those subtitles sit on.
+    #
+    # The drawn vertical cards -- board, timeline, chart, quote -- keep their
+    # type. Their type IS the card.
     im.save(out_path)
     return Path(out_path).exists()
 
