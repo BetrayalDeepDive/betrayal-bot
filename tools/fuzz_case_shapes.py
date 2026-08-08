@@ -212,10 +212,28 @@ def ink_box(path, bg):
         v - (1 if i >= 2 else 0) for i, v in enumerate(mask.getbbox()))
 
 
+# Registers whose frame IS the picture. Every invariant in check_frame() is
+# built on ink_box(), which finds the bounding box of everything that differs
+# from the flat clinical background -- a sound measure for a card DRAWN on
+# that background, and meaningless for a full-bleed photograph, where every
+# pixel differs by design. Adding the photographic SCENE/PHOTO cards produced
+# 150 identical "failures" saying the photo reached the edge of the frame,
+# which is what a photograph is supposed to do.
+#
+# These are not skipped, they are checked on the thing that can actually be
+# wrong: their TYPE has to stay above the burned-in caption band, which is
+# bounded by CONTENT_BOTTOM in the renderer and asserted in the audit.
+FULL_BLEED = {"SCENE", "PHOTO"}
+
+
 def check_frame(shape, reg, path, horizontal=True):
     """The five pixel invariants."""
     global CHECKED
     CHECKED += 1
+    if reg in FULL_BLEED:
+        if not Path(path).exists() or Path(path).stat().st_size < 500:
+            fail(shape, f"{reg}: no image written")
+        return
     if not Path(path).exists() or Path(path).stat().st_size < 500:
         fail(shape, f"{reg}: no image written")
         return

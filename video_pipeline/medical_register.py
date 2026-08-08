@@ -439,7 +439,22 @@ class RegisterQuota:
     # Registers that can always be rendered from the case's own material, so
     # they are safe to assign to a segment with no keyword signal. TEXT is
     # absent by design: it needs a real quotation to display (see _neediest).
-    FILLABLE = (FIGURE, CHART, BOARD, TIMELINE, ANATOMY)
+    #
+    # SCENE BELONGS HERE, AND LEAVING IT OUT COST 18% OF THE EPISODE.
+    #
+    # SCENE was given an 18% target share and then made reachable only
+    # through classify_hint(), because this tuple is what _neediest() picks
+    # from. So the deficit could grow all episode and never be filled, and
+    # once the keyword list was (correctly) narrowed to real signals, SCENE
+    # was scheduled almost never. Caught by the case-shape fuzzer on the
+    # empty case: ANATOMY 59 times in a row, 57 breaches of a run cap of 2,
+    # with SCENE sitting live at 50% of the mix and unreachable.
+    #
+    # It qualifies on exactly the same grounds as ANATOMY: it renders from
+    # something always on hand -- a photograph in the local library rather
+    # than a procedural diagram -- so it is safe on a segment with no
+    # keyword signal. TEXT stays out; it needs a real quotation.
+    FILLABLE = (FIGURE, CHART, BOARD, TIMELINE, ANATOMY, SCENE)
 
     def __init__(self, total_segments, figure_count=0, available=None,
                  chart_points=0, data_counts=None):

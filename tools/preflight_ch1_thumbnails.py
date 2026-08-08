@@ -201,6 +201,33 @@ def main():
     check("Ch1 pipeline records the format for CTR learning",
           "record_format_used(_cache" in src3)
 
+    # ── every register in the mix is reachable by the scheduler ────
+    # A register can hold a share of TARGET_MIX and still never be picked:
+    # _neediest() chooses from FILLABLE, so anything outside that tuple is
+    # reachable only by a keyword hint. SCENE was given 18% and left out of
+    # FILLABLE, and on a case with no data the episode came out ANATOMY 59
+    # times in a row -- 57 breaches of a run cap of 2, with SCENE sitting
+    # live at half the mix and unreachable. The fuzzer caught it, twelve
+    # minutes in; this catches the same class in under a second.
+    import medical_register as mreg
+    for _label, _case in (("a case with nothing in it", {}),
+                          ("a thin case", {"differentials": [{"name": "x"}],
+                                           "timeline": [{"day": "1"}, {"day": "2"}]})):
+        q = mreg.new_quota(59, figure_count=0, case=_case)
+        seq = [q.pick("plain narration line %d" % i) for i in range(59)]
+        longest, cur, prev = 1, 0, None
+        for r in seq:
+            cur = cur + 1 if r == prev else 1
+            prev, longest = r, max(longest, cur)
+        check("run cap holds on %s" % _label,
+              longest <= q.MAX_RUN and q.forced_repeats == 0,
+              "longest run %d (cap %d), %d forced repeat(s)"
+              % (longest, q.MAX_RUN, q.forced_repeats))
+        unreachable = [r for r in q.live_registers if r not in set(seq)
+                       and r not in (mreg.TEXT,)]
+        check("no live register is unreachable on %s" % _label, not unreachable,
+              "scheduled 0 times: %s" % ", ".join(unreachable))
+
     # ── the subtitle chain has more than one link ──────────────────
     # Whisper failed three times on run 31156373254 (502) and three times on
     # the run before it (413), and both episodes were captioned by spreading
