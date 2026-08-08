@@ -202,6 +202,92 @@ def main():
     check("Ch1 pipeline records the format for CTR learning",
           "record_format_used(_cache" in src3)
 
+    # ── the script decides the visuals, and the policy holds ───────
+    import visual_brief as vbrief
+    import visual_synth as vsynth
+
+    _BEATS = [
+        ("The CT showed nothing and the bloods came back normal.", "evidence"),
+        ("Her sodium had fallen to 118 millimoles per litre.", "value"),
+        ("The clot travelled from her calf and lodged in her lung.", "mechanism"),
+        ("By the ninth day she could no longer stand.", "chronology"),
+        ("She was sent home from the emergency department twice.", "place"),
+        ("Nobody could explain why it had happened at all.", "state"),
+    ]
+    misread = ["%r read as %s not %s"
+               % (t[:30], vbrief.classify(t)[0], want)
+               for t, want in _BEATS if vbrief.classify(t)[0] != want]
+    check("the script analyser reads each beat's job", not misread,
+          "; ".join(misread[:2]))
+
+    # THE LINE THAT MUST NOT MOVE. A generated CT, ECG or patient photograph
+    # is a claim about a real published patient. There is no flag that turns
+    # this off, so there is a check that it is still on.
+    _MUST_REFUSE = [
+        "a CT scan of the brain showing a lesion",
+        "an MRI slice of this patient's head",
+        "an ECG trace showing ventricular tachycardia",
+        "a histology slide with abnormal cells",
+        "a lab report showing a sodium of 118",
+        "an x-ray of the chest",
+        "a photograph of the patient in her hospital bed",
+        "photorealistic hospital corridor, shot on DSLR",
+    ]
+    leaked = [p for p in _MUST_REFUSE if not vsynth.refuse(p)]
+    check("no prompt can fabricate clinical evidence", not leaked,
+          ("LET THROUGH: %s" % "; ".join(leaked[:2])) if leaked
+          else "%d evidentiary prompts all blocked" % len(_MUST_REFUSE))
+
+    _MUST_ALLOW = [
+        "a narrowing vessel, one dark mass carried along it, " + vbrief.STYLE,
+        "an empty waiting area, rows of chairs, one light on, " + vbrief.STYLE,
+    ]
+    blocked = [p for p in _MUST_ALLOW if vsynth.refuse(p)]
+    check("interpretive imagery is still allowed", not blocked,
+          ("over-tightened: %s" % blocked[0][:56]) if blocked else "")
+
+    # An evidentiary beat must never even carry a prompt to refuse.
+    _bad = [b for b in (vbrief.brief_for(t) for t, _ in _BEATS)
+            if b["intent"] in ("evidence", "value") and b["prompt"]]
+    check("evidence beats never reach a generator", not _bad,
+          "a brief carried a prompt it must not have" if _bad else "")
+
+    # And generation must work with the network unplugged, or the beats it
+    # serves fall back to the diagrams it replaced.
+    _gen_ok = []
+    for _t, _want in _BEATS:
+        _b = vbrief.brief_for(_t)
+        if _b["treatment"] != "generated":
+            continue
+        _p = os.path.join(work, "synth_%d.png" % len(_gen_ok))
+        _ok, _route = vsynth.make(_b, _p, work_dir=work, log=lambda m: None,
+                                  allow_network=False)
+        _gen_ok.append((_ok, _route))
+    check("interpretive frames render with no network",
+          bool(_gen_ok) and all(ok for ok, _ in _gen_ok),
+          "routes: %s" % ", ".join(r or "FAILED" for _, r in _gen_ok))
+
+    # Two beats must not produce the same frame, or this is the procedural
+    # diagram problem again wearing a photograph.
+    import hashlib as _hl
+    _digests = set()
+    for _i, _t in enumerate(["The clot travelled from her calf to her lung.",
+                             "The swelling spread across the whole left side.",
+                             "The pressure had cut off the blood supply."]):
+        _p = os.path.join(work, "var_%d.png" % _i)
+        vsynth.make(vbrief.brief_for(_t, _i), _p, log=lambda m: None,
+                    allow_network=False)
+        if os.path.exists(_p):
+            _digests.add(_hl.sha1(open(_p, "rb").read()).hexdigest())
+    check("no two beats render the identical frame", len(_digests) >= 3,
+          "%d distinct frame(s) from 3 beats" % len(_digests))
+
+    _src = open(os.path.join(ROOT, "video_pipeline", "medical_segments.py")).read()
+    check("the pipeline asks the brief before reaching for a photo",
+          "_brief[\"treatment\"] == \"generated\"" in _src,
+          "" if "_brief[\"treatment\"] == \"generated\"" in _src
+          else "an analyser nothing consults changes nothing")
+
     # ── the picture matches the sentence it sits under ─────────────
     # The library was already tagged and nothing was reading the narration
     # against it: SCENE rotated through twelve fixed phrases indexed by the

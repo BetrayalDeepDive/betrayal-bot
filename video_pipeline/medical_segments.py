@@ -781,6 +781,40 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     work = _P(work_dir)
     photo = why = None
 
+    # WHAT DOES THIS BEAT ACTUALLY NEED?
+    #
+    # Ask before reaching for a photograph. visual_brief reads the line and
+    # says what the shot has to DO: a place beat wants a real photograph of a
+    # real place, but a mechanism beat ("the clot travelled to the lung") and a
+    # state beat ("nobody could explain it") want interpretive imagery, and no
+    # stock library on earth holds either. Those were the beats that used to
+    # get another procedural diagram.
+    #
+    # An evidence or value beat never arrives here at all -- the register
+    # system routes those to the paper's own figure and to charts of the
+    # paper's own numbers, and visual_synth refuses them a second time.
+    try:
+        import visual_brief as _vb
+        import visual_synth as _vs
+        _brief = _vb.brief_for(segment_text, index=variant, topic=topic)
+        if _brief["treatment"] == "generated":
+            # Written to a SEPARATE file and handed back as `photo`, not
+            # returned directly, so it goes through the same crop, the same
+            # measured darkening and the same caption as every photographic
+            # card. The first version returned early and shipped bare imagery
+            # with no narration line on it -- half the episode captioned and
+            # half not, which reads as a bug rather than as a choice.
+            _gen = work / ("synth_%d.png" % variant)
+            _ok, _route = _vs.make(_brief, str(_gen), work_dir=str(work),
+                                   log=log_fn, used=used or ())
+            if _ok:
+                log_fn("  SCENE: %s beat -> interpretive frame (%s)"
+                       % (_brief["intent"], _route))
+                photo = str(_gen)
+                why = "%s/%s" % (_brief["intent"], _route)
+    except Exception as _e:
+        log_fn(f"  SCENE: brief/synth unavailable, using a photograph ({_e})")
+
     # MATCH THE PICTURE TO THE SENTENCE IT SITS UNDER.
     #
     # The first version of this rotated through twelve fixed phrases indexed by
@@ -795,14 +829,19 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     # because the role split was invented for thumbnails: a line about a sodium
     # result should be able to reach the blood tube filed under `evidence`, and
     # a line about a pupil the eye macro filed under `hero`.
-    try:
-        import stock_match as smatch
-        photo, why, _role = smatch.best_any(segment_text, topic=topic,
-                                            used=used or ())
-        if photo:
-            log_fn(f"  SCENE: matched on [{why}] -> {_P(photo).name}")
-    except Exception as e:
-        log_fn(f"  SCENE: matcher unavailable ({e})")
+    # `if not photo` matters: the interpretive block above may already have
+    # produced the frame for this beat, and this used to overwrite it
+    # unconditionally -- the generated frame was made, then thrown away, and a
+    # raw scan from the evidence shelf shipped in its place.
+    if not photo:
+        try:
+            import stock_match as smatch
+            photo, why, _role = smatch.best_any(segment_text, topic=topic,
+                                                used=used or ())
+            if photo:
+                log_fn(f"  SCENE: matched on [{why}] -> {_P(photo).name}")
+        except Exception as e:
+            log_fn(f"  SCENE: matcher unavailable ({e})")
 
     # Nothing in the library fits this sentence. Fall back to the round-robin
     # so the card still renders, then ask the API for what was actually
@@ -826,14 +865,17 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     if not photo or not _P(photo).exists():
         return False
 
-    # A diagram here would defeat the entire purpose of the register.
-    try:
-        import photo_thumbnail as _pt
-        if _pt.looks_drawn(photo):
-            log_fn(f"  SCENE: rejected a drawing ({_P(photo).name})")
-            return False
-    except Exception:
-        pass
+    # A diagram here would defeat the entire purpose of the register -- but an
+    # interpretive frame is MEANT to be flat and graphic, so it is exempt.
+    # Running the drawing test on our own output would reject every one.
+    if not (why or "").split("/")[0] in ("mechanism", "state"):
+        try:
+            import photo_thumbnail as _pt
+            if _pt.looks_drawn(photo):
+                log_fn(f"  SCENE: rejected a drawing ({_P(photo).name})")
+                return False
+        except Exception:
+            pass
 
     try:
         im = Image.open(photo).convert("RGB")
