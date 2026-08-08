@@ -246,5 +246,37 @@
     "video_id": "P29r-6GJ89A",
     "ctr_pct": null,
     "timestamp": "2026-08-07T11:02:33.610182"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_1",
+    "format": "direct_reveal",
+    "video_id": "nsx-3TKavBc",
+    "ctr_pct": null,
+    "timestamp": "2026-08-08T17:04:59.816361"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "angle_2",
+    "format": "countdown_list",
+    "video_id": "DnHi98fcoYg",
+    "ctr_pct": null,
+    "timestamp": "2026-08-08T17:06:40.911256"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "video_id": "Jz-Pm_qrbGQ",
+    "ctr_pct": null,
+    "timestamp": "2026-08-08T17:08:22.004882"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_2",
+    "format": "before_after",
+    "video_id": "zNvuOykr_vk",
+    "ctr_pct": null,
+    "timestamp": "2026-08-08T17:10:21.872904"
   }
 ]
