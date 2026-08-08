@@ -756,7 +756,7 @@ _SCENE_TERMS = (
 
 def render_scene_still(segment_text, out_path, work_dir, variant=0,
                        niche_label="NO KNOWN CAUSE", fetch_fn=None,
-                       log_fn=print):
+                       log_fn=print, topic="", used=None):
     """
     A REAL PHOTOGRAPH of the world the case happened in.
 
@@ -779,14 +779,41 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     """
     from pathlib import Path as _P
     work = _P(work_dir)
-    term = _SCENE_TERMS[variant % len(_SCENE_TERMS)]
-    photo = None
+    photo = why = None
 
+    # MATCH THE PICTURE TO THE SENTENCE IT SITS UNDER.
+    #
+    # The first version of this rotated through twelve fixed phrases indexed by
+    # the segment number, so a card over "the clot travelled from the calf to
+    # the lung" could get a waiting room, and every episode got the same
+    # waiting room in the same slot. The library was already tagged; nothing
+    # was reading the narration against it.
+    #
+    # stock_match reads this segment (and the episode's topic), works out what
+    # a photograph of it looks like, and scores every photograph in the library
+    # on tags weighted by how rare they are. It searches all three roles,
+    # because the role split was invented for thumbnails: a line about a sodium
+    # result should be able to reach the blood tube filed under `evidence`, and
+    # a line about a pupil the eye macro filed under `hero`.
     try:
-        import stock_library as sl
-        photo = sl.pick("scene", [term], seed=variant)
+        import stock_match as smatch
+        photo, why, _role = smatch.best_any(segment_text, topic=topic,
+                                            used=used or ())
+        if photo:
+            log_fn(f"  SCENE: matched on [{why}] -> {_P(photo).name}")
     except Exception as e:
-        log_fn(f"  SCENE: stock library unavailable ({e})")
+        log_fn(f"  SCENE: matcher unavailable ({e})")
+
+    # Nothing in the library fits this sentence. Fall back to the round-robin
+    # so the card still renders, then ask the API for what was actually
+    # missing rather than for a fixed phrase.
+    term = _SCENE_TERMS[variant % len(_SCENE_TERMS)]
+    if not photo:
+        try:
+            import stock_library as sl
+            photo = sl.pick("scene", [term], seed=variant)
+        except Exception as e:
+            log_fn(f"  SCENE: stock library unavailable ({e})")
 
     if not photo and fetch_fn:
         cand = work / f"scene_{variant}.jpg"
@@ -825,16 +852,33 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
     # a box drawn around it -- a box would make it look like a slide again.
     import numpy as _np
     a = _np.asarray(im).astype(_np.float32)
-    # Full brightness down to 48% of the frame, then a smooth fall to 22% at
-    # the bottom edge. The first version added a constant back after the ramp,
-    # which left the bottom at 77% -- white type on a white corridor floor,
-    # unreadable. Measured on the render, not assumed.
-    t = _np.clip((_np.arange(H) - H * 0.48) / (H * 0.52), 0.0, 1.0)
-    ramp = 1.0 - 0.78 * (t ** 1.6)
-    # A short darkening at the very top too, so the channel eyebrow is legible
-    # over a bright ceiling as well as over a dark corridor.
-    top = _np.clip((H * 0.14 - _np.arange(H)) / (H * 0.14), 0.0, 1.0)
-    ramp = (ramp * (1.0 - 0.45 * top)).reshape(H, 1, 1)
+    # ADAPTIVE, NOT A FIXED CURVE.
+    #
+    # A single falloff cannot serve both a dark corridor and a white-walled
+    # waiting room. The first version added a constant back after the ramp and
+    # left the bottom at 77% -- white type on a white floor. The second used a
+    # fixed 78% falloff, which is plenty over a night corridor and marginal
+    # over a lit clinic, and the library holds both.
+    #
+    # So the picture is measured where the type will actually sit, and darkened
+    # by however much that particular photograph needs to clear the contrast
+    # the text requires. A dark shot is barely touched; a bright one is taken
+    # down hard. The target is derived, not chosen: white text needs the
+    # backdrop under ~90/255 to stay comfortably readable at phone size.
+    lum = a.mean(axis=2)
+    band = lum[int(H * 0.62):, :]
+    need = 1.0 if band.size == 0 else min(1.0, 90.0 / max(1.0, float(band.mean())))
+    drop = max(0.55, 1.0 - need)          # never less than the old floor
+
+    t = _np.clip((_np.arange(H) - H * 0.44) / (H * 0.56), 0.0, 1.0)
+    ramp = 1.0 - drop * (t ** 1.5)
+    # The same treatment at the top, so the channel eyebrow is legible over a
+    # bright ceiling as well as over a dark one.
+    tb = lum[:int(H * 0.12), :]
+    tneed = 1.0 if tb.size == 0 else min(1.0, 110.0 / max(1.0, float(tb.mean())))
+    tdrop = max(0.35, 1.0 - tneed)
+    top = _np.clip((H * 0.13 - _np.arange(H)) / (H * 0.13), 0.0, 1.0)
+    ramp = (ramp * (1.0 - tdrop * top)).reshape(H, 1, 1)
     im = Image.fromarray(_np.clip(a * ramp, 0, 255).astype("uint8"))
 
     d = ImageDraw.Draw(im)
@@ -851,6 +895,8 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
             d.text((150, y), ln, font=f, fill=TEXT_C)
             y += 78
     im.save(out_path)
+    if used is not None:
+        used.add(_P(photo).name)
     return Path(out_path).exists()
 
 
@@ -895,7 +941,7 @@ def render_medical_segment(register, case, segment_text, duration, index,
                            chart_fn=None, run_ffmpeg=None, log_fn=print,
                            progress=1.0, variant=None, variant_total=1,
                            accent=None, transition="fade", last_move=None,
-                           photo_fn=None):
+                           photo_fn=None, used_photos=None):
     """
     Render one segment. Returns True on success.
 
@@ -911,6 +957,9 @@ def render_medical_segment(register, case, segment_text, duration, index,
     photo_fn  -- optional photo fetcher, fetch(query, niche, out_path) -> bool.
                  SCENE works without it from the offline stock library; this
                  only widens the pool.
+    used_photos -- a set the caller keeps for the whole episode, of the
+                 photograph filenames already shown. Passing it is what stops
+                 the same corridor appearing four times.
     """
     if variant is None:
         variant = index
@@ -1057,9 +1106,15 @@ def render_medical_segment(register, case, segment_text, duration, index,
                                       variant_total=variant_total)
 
         elif register == "SCENE":
+            # `used` is episode-wide, so a photograph that has already been on
+            # screen loses to one that has not. A perfect match shown four
+            # times reads worse than a good match shown once.
             ok = render_scene_still(segment_text, str(still), work_dir,
                                     variant=variant, niche_label=niche_label,
-                                    fetch_fn=photo_fn, log_fn=log_fn)
+                                    fetch_fn=photo_fn, log_fn=log_fn,
+                                    topic=(case.get("title") or "") + " " +
+                                          (case.get("narrative") or "")[:400],
+                                    used=used_photos)
 
         elif register == "TEXT":
             ok = render_text_still(case.get("quote") or "", str(still),
@@ -1341,13 +1396,25 @@ def _render_vertical_photo(case, out_path, headline, niche_label, progress):
     import numpy as _np
     from pathlib import Path as _P
 
-    term = _SCENE_TERMS[int(progress * 1000) % len(_SCENE_TERMS)]
+    # Same matcher the main video's SCENE cards use: the picture is chosen
+    # against what the Short is actually saying, not by rotation. A Short has
+    # three seconds, so a photograph that does not fit the line is worse here
+    # than anywhere else.
     photo = None
+    line = headline or case.get("title", "")
     try:
-        import stock_library as sl
-        photo = sl.pick("scene", [term], seed=int(progress * 1000))
+        import stock_match as smatch
+        photo, _why, _role = smatch.best_any(
+            line, topic=(case.get("narrative") or "")[:400])
     except Exception:
         photo = None
+    if not photo:
+        term = _SCENE_TERMS[int(progress * 1000) % len(_SCENE_TERMS)]
+        try:
+            import stock_library as sl
+            photo = sl.pick("scene", [term], seed=int(progress * 1000))
+        except Exception:
+            photo = None
     if not photo or not _P(photo).exists():
         return False
     try:

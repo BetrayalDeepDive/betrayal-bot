@@ -554,7 +554,21 @@ def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence
         # blip, or a search that returned only diagrams. The library is what
         # stops any of those turning into a drawn thumbnail.
         if role not in out:
-            local = sl.pick(role, terms, seed=hash(topic or "") & 0xffff)
+            # Same weighted matcher the episode's SCENE cards use, so a
+            # thumbnail falling back to the library gets the photograph that
+            # fits THIS case rather than whichever one shares the most common
+            # words. sl.pick stays as the backstop when nothing matches.
+            local = None
+            try:
+                import stock_match as _sm
+                local, _why = _sm.best(role, " ".join(terms), topic=topic or "")
+                if local:
+                    log("    thumbnail photo [%s] from the library: [%s]"
+                        % (role, _why))
+            except Exception:
+                local = None
+            if not local:
+                local = sl.pick(role, terms, seed=hash(topic or "") & 0xffff)
             if local:
                 out[role] = local
                 log("    thumbnail photo [%s]: from the local library "
@@ -826,6 +840,13 @@ def _mark(im, size=58, pad=26, side="auto"):
             best, best_cost = (name, sx, sy), cost
         if cost < 6.0:                          # quiet and clear of him: done
             break
+    # Record the decision rather than leaving it to be re-derived. The
+    # pre-flight used to locate the mark by hunting for its teal, and a
+    # teal-tinted photograph in another corner tripped the detector -- it
+    # reported the mark sitting on the presenter at 80% while the mark was
+    # actually in a clear corner. A check that can be fooled by the artwork it
+    # is checking is worse than no check, because it fails on good work.
+    _mark.last_slot = best[0]
     x0, y0 = best[1], best[2]
     plate = Image.new("RGBA", (size * 3, size * 3), (0, 0, 0, 0))
     d = ImageDraw.Draw(plate)
@@ -844,6 +865,9 @@ def _mark(im, size=58, pad=26, side="auto"):
 
     plate = plate.resize((size, size), Image.LANCZOS)
     im.paste(plate, (x0, y0), plate)
+
+
+_mark.last_slot = None
 
 
 def _shoulder(head_at, head_h, side=1):

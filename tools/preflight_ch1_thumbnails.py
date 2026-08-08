@@ -114,16 +114,17 @@ def main():
         def watch(im, size=58, pad=26, side="auto", _seen=seen, _real=real):
             occ = pcut.LAST_OCCUPANCY
             _real(im, size, pad, side)
-            # Re-derive the slot the real function would have chosen by
-            # finding the one the mark was actually drawn into.
+            # Read the slot the renderer RECORDED. The first version of this
+            # hunted for the mark's teal in each corner, and a teal-tinted
+            # hospital photograph in another corner tripped it -- reporting
+            # the mark on the presenter at 80% when it was in a clear corner.
+            chosen = getattr(pt._mark, "last_slot", None)
             for name, sx, sy in pt._mark_slots(size, pad):
-                patch = np.asarray(im.convert("RGB")).astype(float)[sy:sy + size,
-                                                                    sx:sx + size]
-                teal = np.abs(patch - np.array(pt.MARK_TEAL, float)).sum(2) < 90
-                if teal.mean() > 0.01:
-                    _seen["on_him"] = (0.0 if occ is None
-                                       else float(occ[sy:sy + size, sx:sx + size].mean()))
-                    return
+                if name != chosen:
+                    continue
+                _seen["on_him"] = (0.0 if occ is None
+                                   else float(occ[sy:sy + size, sx:sx + size].mean()))
+                return
             _seen["on_him"] = 0.0
 
         pt._mark = watch
@@ -200,6 +201,62 @@ def main():
           "import photo_thumbnail as _pt" in src3)
     check("Ch1 pipeline records the format for CTR learning",
           "record_format_used(_cache" in src3)
+
+    # ── the picture matches the sentence it sits under ─────────────
+    # The library was already tagged and nothing was reading the narration
+    # against it: SCENE rotated through twelve fixed phrases indexed by the
+    # segment number, so a line about a pupil could get a waiting room. These
+    # assert the matcher makes the calls a person would.
+    import stock_match as smatch
+
+    _EXPECT = [
+        ("Her sodium had fallen to 118 millimoles per litre.", "blood"),
+        ("The repeat MRI showed a lesion on the first scan.", "mri"),
+        ("The pupil on the right no longer reacted to light.", "eye"),
+        ("He collapsed and the paramedics could not find a rhythm.", "paramedic"),
+        ("By the ninth night on the ward the fever had not moved.", "ward"),
+        ("She was sent home from the emergency department twice.", "clinic"),
+    ]
+    wrong = []
+    for line, want_tag in _EXPECT:
+        path, why, _role = smatch.best_any(line)
+        if not path or want_tag not in why.split():
+            wrong.append("%r -> %s" % (line[:34], why or "(no match)"))
+    check("the photograph matches what the line is about", not wrong,
+          "; ".join(wrong[:2]))
+
+    # The topic fires on EVERY segment, so it must tilt a close call and never
+    # decide one. An episode titled "months of normal scans" used to put
+    # imaging terms into all 106 cards.
+    _p, _why, _ = smatch.best_any("The pupil on the right no longer reacted.",
+                                  topic="Eleven months of normal scans")
+    check("the episode topic cannot override the segment", "eye" in _why.split(),
+          "matched on [%s]" % _why)
+
+    # A photograph already shown must lose to one that has not, or a small
+    # library shows the same corridor four times in one episode.
+    _seen = set()
+    _lines = [l for l, _ in _EXPECT] * 2
+    for line in _lines:
+        _p, _w, _r = smatch.best_any(line, used=_seen)
+        if _p:
+            _seen.add(os.path.basename(_p))
+    check("variety is spent before anything repeats", len(_seen) >= 6,
+          "%d distinct photograph(s) over %d cards" % (len(_seen), len(_lines)))
+
+    # And the library has to know what it is missing, or harvest() grows it
+    # toward a list written once instead of toward what episodes ask for.
+    _gaps = smatch.gaps("scene", smatch.terms_for("The clot travelled to the lung"))
+    check("the library reports its own gaps", bool(_gaps),
+          "a term nothing matches is the one worth an API call: %s"
+          % ", ".join(_gaps[:4]))
+
+    for _mod, _fn in (("medical_segments.py", "smatch.best_any"),
+                      ("../channels/betrayal_deepdive/clinical_pipeline.py",
+                       "_smatch.gaps")):
+        _src = open(os.path.join(ROOT, "video_pipeline", _mod)).read()
+        check("the matcher is actually called in %s" % os.path.basename(_mod),
+              _fn in _src, "an unused matcher changes nothing")
 
     # ── every register in the mix is reachable by the scheduler ────
     # A register can hold a share of TARGET_MIX and still never be picked:

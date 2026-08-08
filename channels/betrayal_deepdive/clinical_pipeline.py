@@ -6807,6 +6807,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     except Exception as e:
         log(f"  Variation engine unavailable, using flat pacing (non-fatal): {e}")
 
+    # Photographs already shown this episode. stock_match penalises anything
+    # in here, so a small library still fills a long episode -- it exhausts
+    # its variety first and only then starts recycling.
+    _used_photos = set()
+
     fetched_clips = []
     black_fallback_count = 0
     stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
@@ -7136,7 +7141,10 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
                     # calls this when it wants a photograph the library does
                     # not have. Same fetcher the thumbnail uses, so a run with
                     # no network still renders every SCENE card.
-                    photo_fn=fetch_case_relevant_image)
+                    photo_fn=fetch_case_relevant_image,
+                    # One set for the whole episode, so the matcher spends its
+                    # variety before it repeats anything.
+                    used_photos=_used_photos)
             if ok:
                 fetched_clips.append(clip_path)
                 continue
@@ -7260,6 +7268,38 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
 
         if Path(clip_path).exists():
             fetched_clips.append(clip_path)
+
+    # GROW THE LIBRARY TOWARD WHAT THIS EPISODE ACTUALLY NEEDED.
+    #
+    # harvest() used to be called only from the thumbnail path, with the
+    # thumbnail's own fixed search terms -- so the library grew toward a list
+    # written once and never toward what episodes were really asking for. An
+    # episode about a pulmonary embolism would find nothing for "lung" or
+    # "chest", render a scanner room instead, and the next episode about a
+    # pulmonary embolism would find nothing again.
+    #
+    # stock_match.gaps() names the vocabulary this episode's own narration
+    # reached for and the library could not answer. Those are the terms worth
+    # spending an API call on. Small per run on purpose: the point is to
+    # compound over weeks, not to exhaust a free tier in one afternoon.
+    try:
+        import stock_match as _smatch
+        import stock_library as _slib
+        import photo_thumbnail as _spt
+        _wanted = _smatch.terms_for((script or "")[:6000], topic or "")
+        _need = {r: _smatch.gaps(r, _wanted)[:4] for r in ("scene", "evidence")}
+        _need = {r: t for r, t in _need.items() if t}
+        if _need:
+            log(f"  Stock library gaps this episode: "
+                + "; ".join(f"{r}: {', '.join(t)}" for r, t in _need.items()))
+            _added = _slib.harvest(fetch_case_relevant_image, _need, WORK_DIR,
+                                   verify=_spt.looks_drawn, per_role=2, log=log)
+            log(f"  Stock library: +{_added} photograph(s) toward this "
+                f"episode's own gaps ({_slib.count()} held)")
+        else:
+            log("  Stock library covered every term this episode reached for.")
+    except Exception as _e:
+        log(f"  Stock library top-up (non-fatal): {_e}")
 
     if black_fallback_count > 0:
         tg(f"⚠️ {black_fallback_count}/{n_buckets} background segments had NO real footage "

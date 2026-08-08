@@ -82,7 +82,9 @@ STAGES = [
     ("Episode visuals", [
         ("FIGURE — the paper's own images", "the PMC hosts",
          ("video_pipeline/medical_segments.py", 'register == "FIGURE"')),
-        ("SCENE — real photographs", "stock library, then Pixabay",
+        ("SCENE — photograph matched to the line", "the local library only",
+         ("video_pipeline/medical_segments.py", "smatch.best_any")),
+        ("SCENE — photograph by search term", "stock library, then Pixabay",
          ("video_pipeline/medical_segments.py", "render_scene_still")),
         ("ANATOMY / CHART / BOARD / TIMELINE", "nothing — drawn here",
          ("video_pipeline/medical_segments.py", "render_anatomy_still")),
