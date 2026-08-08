@@ -161,7 +161,19 @@ _TREATMENT_FOR = {
     "chronology": "timeline",
     "place":      "photograph",
     "mechanism":  "generated",   # the one intent generation is FOR
-    "state":      "generated",
+    # "EITHER" IS THE POINT. Not one instead of the other.
+    #
+    # A state beat -- "nobody could explain it", "she waited eleven weeks" --
+    # is very often served better by a real photograph of a real place than by
+    # anything made up. Sending all of them to the generator pushed the mix to
+    # 42% made and 34% real on a 106-card episode, which is the opposite of
+    # using both wherever each applies.
+    #
+    # `either` means: try the photograph matcher first, and make something only
+    # when the library genuinely has nothing that fits. A real corridor beats
+    # an invented one every time; an invented image of a clot moving beats
+    # nothing, because no photograph of that exists.
+    "state":      "either",
 }
 
 
@@ -229,9 +241,9 @@ def brief_for(text, index=0, topic=""):
     subject = subject_of(text, topic)
     treatment = _TREATMENT_FOR[intent]
     prompt = _prompt_for(intent, subject, text)
-    if treatment == "generated" and not prompt:
+    if treatment in ("generated", "either") and not prompt:
         treatment = "photograph"
-    if treatment != "generated":
+    if treatment not in ("generated", "either"):
         # A prompt on a beat that will not be generated is a loaded gun: the
         # next caller to read the field would use it.
         prompt = None

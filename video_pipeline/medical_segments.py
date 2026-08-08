@@ -797,7 +797,20 @@ def render_scene_still(segment_text, out_path, work_dir, variant=0,
         import visual_brief as _vb
         import visual_synth as _vs
         _brief = _vb.brief_for(segment_text, index=variant, topic=topic)
-        if _brief["treatment"] == "generated":
+        # "either" beats look for a real photograph first and only fall
+        # through to making one. That is what keeps the mix roughly half real
+        # rather than pushing everything atmospheric into the generator.
+        if _brief["treatment"] == "either":
+            try:
+                import stock_match as _sm0
+                _p0, _w0, _r0 = _sm0.best_any(segment_text, topic=topic,
+                                              used=used or ())
+                if _p0:
+                    photo, why = _p0, _w0
+                    log_fn(f"  SCENE: state beat -> real photograph [{_w0}]")
+            except Exception:
+                pass
+        if not photo and _brief["treatment"] in ("generated", "either"):
             # Written to a SEPARATE file and handed back as `photo`, not
             # returned directly, so it goes through the same crop, the same
             # measured darkening and the same caption as every photographic

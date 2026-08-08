@@ -7766,6 +7766,38 @@ def get_niche_ambient_music(niche_name, duration):
         except Exception as e:
             log(f"  Real track trim failed, falling back to synthesis: {e}")
 
+    # A WRITTEN BED, BEFORE THE DRONE.
+    #
+    # The bank above has never existed -- music_bank/ was never created, so
+    # every episode this channel has ever made fell straight through to
+    # _synthesize_mood_track, which is two sine waves and a noise source held
+    # absolutely flat for nineteen minutes. That is a drone. The ear stops
+    # hearing it after about forty seconds, and it does nothing at all to
+    # carry a viewer through material they did not already care about.
+    #
+    # ambient_bed writes an actual bed: a four-chord minor progression cycling
+    # every eight to twelve seconds, pads rather than tones, a quiet pulse at
+    # resting heart rate, and a level arc that stays out of the way under the
+    # cold open and swells toward the reveal. Measured on a real six-minute
+    # render, comparing the 55-260 Hz band at five moments against the opening:
+    # similarity runs 0.38 down to 0.00 as the progression moves away from
+    # where it started. The old drone measures 1.00 -- identical to itself,
+    # forever. The cold open sits at 33% of the mid-episode level.
+    #
+    # Seeded from the topic, so two episodes are not in the same key.
+    try:
+        import ambient_bed
+        _out = str(WORK_DIR / f"bed_{mood}.mp3")
+        _bed = ambient_bed.render(_out, duration, mood=mood,
+                                  topic=str(_EPISODE_CASE.get("title", ""))
+                                        or niche_name,
+                                  log=log)
+        if _bed and Path(_bed).exists() and Path(_bed).stat().st_size > 10000:
+            return _bed
+        log("  Written bed produced nothing usable — falling back to synthesis.")
+    except Exception as e:
+        log(f"  Written bed unavailable, falling back to synthesis ({e})")
+
     synthesized = _synthesize_mood_track(mood, duration)
     if synthesized:
         return synthesized
@@ -8532,12 +8564,46 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
         vf += f",ass='{_escaped_ass}'"
 
     if has_mus:
+        # THE BED HAS TO BE AUDIBLE OR WRITING IT WAS POINTLESS.
+        #
+        # This was `volume=0.08` on whatever the music source happened to
+        # hand over. Measured: narration masters to -16.9 LUFS, the bed came
+        # out at -49.4 LUFS -- thirty-two units under the voice. Broadcast
+        # practice puts music under dialogue fifteen to twenty units down.
+        # At thirty-two it is not quiet, it is absent, and on the phone
+        # speaker most of this channel is watched on it does not exist at
+        # all. Every "continuous background sound" this pipeline has ever
+        # produced was inaudible for this one reason.
+        #
+        # A fixed gain cannot fix that, because it multiplies a level nobody
+        # measured: a bank track, a written bed and the drone all arrive at
+        # different loudnesses and a single number is wrong for at least two
+        # of them. loudnorm MEASURES the bed and lands it on a target, so the
+        # gap to the voice is the same whichever route produced it.
+        #
+        # The target is -37 rather than the -34 the arithmetic suggests,
+        # because loudnorm in single pass is a dynamic estimate and overshoots
+        # a low-range source like a pad. Measured through this exact graph:
+        # I=-34 lands the bed 14.9 units under, I=-37 lands it 17.9 -- the
+        # middle of the band. Asking for the number you want gets you a bed
+        # three units too loud, which is the difference between scoring the
+        # narration and talking over it.
+        #
+        # amix's own normalize step is off. Left on, it divides both inputs by
+        # two, and since nothing downstream re-masters the mix, every episode
+        # shipped six units under YouTube's target -- and YouTube attenuates
+        # loud uploads but never lifts quiet ones, so that was a permanent
+        # loss the viewer had to fix with their volume knob. The limiter
+        # catches the peaks that normalize was hiding.
         cmd = [
             "ffmpeg", "-y",
             "-stream_loop", str(loop_n), "-i", bg_path,
             "-i", narration_path, "-i", music_path,
             "-filter_complex",
-            "[1:a]volume=1.0[n];[2:a]volume=0.08[m];[n][m]amix=inputs=2:duration=first[aout]",
+            "[1:a]volume=1.0[n];"
+            "[2:a]loudnorm=I=-37:LRA=11:TP=-6[m];"
+            "[n][m]amix=inputs=2:duration=first:normalize=0[mx];"
+            "[mx]alimiter=limit=0.94[aout]",
             "-map", "0:v", "-map", "[aout]",
             "-t", str(audio_duration),
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -8642,8 +8708,19 @@ def create_short(narration_path, bg_path, music_path, ass_path,
             "ffmpeg", "-y",
             "-stream_loop", str(loop_n), "-i", bg_path,
             "-i", seg_audio, "-i", music_path,
+            # Same balance as the main video, and for the same reason: at
+            # volume=0.08 the bed measured thirty-four units under the voice,
+            # which is inaudible -- and a Short is watched on a phone speaker
+            # almost without exception, where it stood no chance at all. A
+            # Short is thirty seconds fighting for attention against a swipe;
+            # silence behind the narration is the one thing it cannot afford.
+            # See compose_video for why loudnorm rather than a fixed gain,
+            # and why the target is -37 rather than -34.
             "-filter_complex",
-            "[1:a]volume=1.0[n];[2:a]volume=0.08[m];[n][m]amix=inputs=2:duration=first[aout]",
+            "[1:a]volume=1.0[n];"
+            "[2:a]loudnorm=I=-37:LRA=11:TP=-6[m];"
+            "[n][m]amix=inputs=2:duration=first:normalize=0[mx];"
+            "[mx]alimiter=limit=0.94[aout]",
             "-map", "0:v", "-map", "[aout]",
             "-t", str(duration_sec),
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",

@@ -14,6 +14,8 @@ Exit code 0 means the run is safe to start.
 """
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -283,10 +285,204 @@ def main():
           "%d distinct frame(s) from 3 beats" % len(_digests))
 
     _src = open(os.path.join(ROOT, "video_pipeline", "medical_segments.py")).read()
-    check("the pipeline asks the brief before reaching for a photo",
-          "_brief[\"treatment\"] == \"generated\"" in _src,
-          "" if "_brief[\"treatment\"] == \"generated\"" in _src
-          else "an analyser nothing consults changes nothing")
+    _consults = ("_vb.brief_for(" in _src
+                 and '_brief["treatment"]' in _src)
+    check("the pipeline asks the brief before reaching for a photo", _consults,
+          "" if _consults else "an analyser nothing consults changes nothing")
+
+    # ── both sources are used, neither replaces the other ──────────
+    # "I never said that I only want you to create visuals from your own end
+    # and not try for stock footage. I want you to use both the things
+    # wherever applicable." Sending every atmospheric beat to the generator
+    # put the mix at 42% invented against 34% real, which is the opposite.
+    _SCRIPT = ("A thirty-four year old woman went to her GP with a headache "
+               "lasting nine days. She was sent home from the emergency "
+               "department twice that week. The CT showed nothing and the "
+               "bloods came back normal. Her sodium had fallen to 118 "
+               "millimoles per litre by the second sample. By the ninth day "
+               "she could no longer stand without help. The clot had "
+               "travelled from a vein in her calf and lodged in her lung. "
+               "Nobody could explain why a healthy woman had thrown a clot "
+               "at all. The repeat MRI revealed a lesion nobody had seen on "
+               "the first scan. She waited eleven weeks for the follow-up "
+               "appointment. By then the pressure had cut off the blood "
+               "supply to the optic nerve. ") * 4
+    _beats = vbrief.split_beats(_SCRIPT, 40)
+    _briefs, _plan = vbrief.shot_list(_beats, topic="an unexplained clot")
+    _kinds = {}
+    for _b in _briefs:
+        _kinds[_b["treatment"]] = _kinds.get(_b["treatment"], 0) + 1
+    check("a state beat can still choose a real photograph",
+          _kinds.get("either", 0) > 0,
+          "atmospheric beats must try the library before inventing anything")
+
+    import medical_segments as _msg
+    _used, _made, _shot = set(), 0, 0
+    for _i, _b in enumerate(_briefs):
+        if _b["treatment"] not in ("photograph", "either", "generated"):
+            continue
+        _msgs = []
+        _msg.render_scene_still(_beats[_i], os.path.join(work, "blend_%d.png" % _i),
+                                work, variant=_i, topic="an unexplained clot",
+                                used=_used, log_fn=lambda m: _msgs.append(m))
+        _shot += 1
+        if "interpretive frame" in " ".join(_msgs):
+            _made += 1
+    _real = _shot - _made + _plan["counts"].get("evidence", 0)
+    _pct_made = 100.0 * _made / max(1, _plan["n"])
+    _pct_real = 100.0 * _real / max(1, _plan["n"])
+    check("real material still leads the episode", _pct_real > _pct_made,
+          "%.0f%% real vs %.0f%% invented" % (_pct_real, _pct_made))
+    check("invented imagery stays a minority", _pct_made <= 30.0,
+          "%.0f%% of cards invented" % _pct_made)
+    check("both sources are actually used", _made > 0 and (_shot - _made) > 0,
+          "%d photograph(s), %d made" % (_shot - _made, _made))
+
+    # ── the background bed is music, not a drone ───────────────────
+    # Every episode this channel has made fell through to two sine waves held
+    # flat for nineteen minutes, because music_bank/ was never created.
+    import ambient_bed as abed
+    _bed = os.path.join(work, "bed.wav")
+    _t0 = __import__("time").time()
+    _got = abed.render(_bed, 90, mood="clinical", topic="an unexplained clot",
+                       log=lambda m: None)
+    _took = __import__("time").time() - _t0
+    check("the bed renders, and in reasonable time",
+          bool(_got) and os.path.exists(_got) and _took < 60,
+          "%.1fs for 90s of bed" % _took)
+
+    if _got and os.path.exists(_got):
+        import wave as _wave
+        with _wave.open(_got) as _w:
+            _a = np.frombuffer(_w.readframes(_w.getnframes()),
+                               dtype="<i2").astype(float)
+            _sr = _w.getframerate()
+
+        def _chord_band(x):
+            _f = np.abs(np.fft.rfft(x * np.hanning(len(x))))
+            _fr = np.fft.rfftfreq(len(x), 1.0 / _sr)
+            _m = (_fr > 55) & (_fr < 260)     # above the constant sub
+            _v = _f[_m]
+            return _v / (np.linalg.norm(_v) or 1)
+
+        _s1 = _chord_band(_a[int(15 * _sr):int(21 * _sr)])
+        _s2 = _chord_band(_a[int(60 * _sr):int(66 * _sr)])
+        _same = float(_s1 @ _s2)
+        check("the harmony actually moves", _same < 0.75,
+              "similarity %.2f between two moments (1.00 = a frozen drone)"
+              % _same)
+
+        _w1 = float(np.sqrt((_a[:int(10 * _sr)] ** 2).mean()))
+        _w2 = float(np.sqrt((_a[int(40 * _sr):int(50 * _sr)] ** 2).mean()))
+        check("the bed stays out of the way under the cold open",
+              _w1 < _w2 * 0.8,
+              "opening is %.0f%% of the mid-episode level"
+              % (100.0 * _w1 / max(1e-6, _w2)))
+
+    # The bed follows the CASE, not only the surface. Two episodes on the same
+    # niche used to be scored identically; the topic now moves the character.
+    _tilts = [
+        ("A patient who died six weeks after an unremarkable scan",
+         "clinical", "reflective"),
+        ("An unexplained fever with no known cause for eleven weeks",
+         "clinical", "unease"),
+        ("Laparoscopic resection of a rare abdominal mass",
+         "unease", "clinical"),
+        ("Sudden bilateral vision loss in a 34-year-old",
+         "clinical", "clinical"),          # no signal: the niche keeps it
+        ("", "reflective", "reflective"),  # no topic at all
+    ]
+    _bad = [(t, want, abed.tilt_for(t, niche))
+            for t, niche, want in _tilts if abed.tilt_for(t, niche) != want]
+    check("the case chooses the character of its own bed", not _bad,
+          "%d topic(s) scored wrong: %s" % (len(_bad), _bad) if _bad else
+          "death reads reflective, mystery reads unease, procedure reads clinical")
+
+    # A death must never be scored as a horror beat. This channel's whole
+    # claim is that it treats real published patients seriously.
+    check("a death is not scored as dread",
+          abed.tilt_for("the patient died in the early hours", "dread")
+          != "dread",
+          "a real patient in a case report is not a jump scare")
+
+    _cp = open(os.path.join(ROOT, "channels", "betrayal_deepdive",
+                            "clinical_pipeline.py")).read()
+    check("the pipeline uses the written bed before the drone",
+          "import ambient_bed" in _cp,
+          "a bed nothing calls changes nothing")
+
+    # ── and the bed is actually AUDIBLE in the finished mix ────────
+    # Writing music nobody can hear is the same as not writing it. The mix
+    # used a flat volume=0.08, which put the bed 33.9 units under the voice
+    # -- measured, not guessed. Broadcast practice for music under dialogue
+    # is fifteen to twenty. This runs the real filter graph out of the
+    # pipeline source and measures each side of it, so the day someone
+    # retunes that number the check says what it did to the balance.
+    _fx = re.search(r'"\[1:a\]volume=1\.0\[n\];"\s*\n\s*"(.*?)"\s*\n\s*"(.*?)"\s*\n\s*"(.*?)",',
+                    _cp, re.S)
+    _graph = "[1:a]volume=1.0[n];" + "".join(_fx.groups()) if _fx else ""
+    check("the mix graph was found in the pipeline", bool(_graph),
+          ("%d chars of real filter chain" % len(_graph)) if _graph else
+          "cannot measure a balance without the real filter chain")
+
+    # The main video and the Shorts are mixed by two separate ffmpeg calls.
+    # They were both wrong in the same way, so fixing one and not the other
+    # would have left every Short silent behind the voice -- on the surface
+    # watched almost entirely on a phone speaker.
+    _beds = len(re.findall(r"loudnorm=I=-37:LRA=11:TP=-6", _cp))
+    check("the Shorts get the same balance as the main video", _beds >= 2,
+          "%d of 2 mixes carry the bed target" % _beds)
+    # Narrowly the narration-against-music pattern. `volume=0.08` also appears
+    # inside _synthesize_mood_track, where it balances that drone's own sine
+    # components against each other -- nothing to do with the voice, and now
+    # irrelevant anyway, since loudnorm re-levels whatever the bed route hands
+    # over. Matching the bare number flagged it and would have sent the next
+    # person to edit an unrelated filter.
+    _old = re.findall(r"\[\d:a\]volume=1\.0\[n\];\[\d:a\]volume=0\.08\[m\]", _cp)
+    check("no mix still uses the old flat gain", not _old,
+          "a fixed gain multiplies a level nobody measured"
+          if _old else "both mixes measure the bed instead of guessing")
+
+    if _graph and shutil.which("ffmpeg") and _got and os.path.exists(_got):
+        # ffmpeg indexes are 1=narration, 2=music in the pipeline (0 is the
+        # background video). Re-point them at two audio-only inputs and feed
+        # each side alone against silence, so what comes back is that side's
+        # own contribution to the finished mix.
+        _g = _graph.replace("[1:a]", "[0:a]").replace("[2:a]", "[1:a]")
+        _sil = os.path.join(work, "sil.wav")
+        _sp = os.path.join(work, "speech.wav")
+        # A stand-in for narration at the -16 LUFS every voice profile targets.
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+                        "-i", "anullsrc=r=44100:cl=mono", "-t", "60", _sil],
+                       check=True)
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
+                        "-i", "sine=frequency=220:r=44100", "-t", "60",
+                        "-af", "tremolo=f=5:d=0.9,loudnorm=I=-16:TP=-1.5:LRA=11",
+                        _sp], check=True)
+
+        def _through(a, b, out):
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", a,
+                            "-i", b, "-filter_complex", _g, "-map", "[aout]",
+                            out], check=True)
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i",
+                                out, "-af", "ebur128", "-f", "null", "-"],
+                               capture_output=True, text=True).stderr
+            m = re.findall(r"I:\s+(-?[\d.]+) LUFS", r)
+            return float(m[-1]) if m else 0.0
+
+        try:
+            _lv = _through(_sp, _sil, os.path.join(work, "m_v.wav"))
+            _lb = _through(_sil, _got, os.path.join(work, "m_b.wav"))
+            _gap = _lv - _lb
+            check("the bed is audible under the narration", 13.0 <= _gap <= 21.0,
+                  "bed sits %.1f LU under the voice (want 15-20; at 34 it is "
+                  "not quiet, it is absent)" % _gap)
+            check("the finished mix is not shipped quiet", _lv > -19.0,
+                  "narration lands at %.1f LUFS (YouTube turns loud uploads "
+                  "down, it never turns quiet ones up)" % _lv)
+        except Exception as _e:
+            check("the bed is audible under the narration", False,
+                  "could not measure the mix: %s" % _e)
 
     # ── the picture matches the sentence it sits under ─────────────
     # The library was already tagged and nothing was reading the narration
