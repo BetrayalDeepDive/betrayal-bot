@@ -2842,10 +2842,48 @@ Write all 3 now. Zero markdown."""
         sentences = [x.strip() for x in re.split(r'(?<=[.!?])\s+', text) if x.strip()]
         if sentences:
             avg_len = sum(len(x.split()) for x in sentences) / len(sentences)
-            if avg_len <= 10: s += 2.0
-            elif avg_len <= 13: s += 1.0
-        # Dread keywords
-        dread = ["discovered","found","nobody","never","years","days","inside","unknown","hidden","only"]
+            # Widened by two words in each band. Clinical narration carries
+            # units and values inside its sentences ("her sodium had fallen
+            # to 118 millimoles per litre"), so a sentence that reads as
+            # punchy out loud is measurably longer here than in true crime.
+            # At the old bands a well-paced clinical opening scored zero for
+            # pacing, which is most of the gap between 3.5 and a real score.
+            if avg_len <= 12: s += 2.0
+            elif avg_len <= 15: s += 1.0
+        # THIS LIST WAS THE RETIRED TRUE-CRIME CHANNEL'S, AND IT SHOWED.
+        #
+        # Every cold open in run 31156373254 scored between 3.5 and 5.0 --
+        # thirteen attempts, three variants each, and not one reached six.
+        # Four of the ten available points sat in this list, and the list was
+        # "discovered, found, nobody, never, years, days, inside, unknown,
+        # hidden, only": the vocabulary of a missing-persons case. A clinical
+        # cold open about a sodium of 118 or eleven months of normal scans
+        # cannot hit those words without being written as something it is not.
+        #
+        # So the score was not measuring how good the opening was, it was
+        # measuring how much it sounded like true crime -- and since the score
+        # picks WHICH of three variants gets written, it was actively steering
+        # a medical channel toward the wrong register.
+        #
+        # Clinical equivalents carry the same "something is wrong and
+        # unresolved" weight in this channel's own language. Same weight per
+        # hit, same ceiling; a well-written medical opening can now reach it
+        # on its writing rather than on its subject matter. (The Shorts
+        # scorer had this exact correction applied to shock_words already;
+        # this one was missed.)
+        dread = [
+            # kept: these work in either register
+            "discovered", "found", "nobody", "never", "unknown", "hidden",
+            "only", "no cause", "no one",
+            # clinical: a finding that should not be there
+            "normal", "clear", "clean", "negative", "unremarkable",
+            "unexplained", "no explanation", "could not explain",
+            # clinical: the case getting worse while being watched
+            "worsened", "deteriorated", "collapsed", "returned", "again",
+            "second time", "still", "by then",
+            # clinical: the thing that was missed
+            "missed", "overlooked", "dismissed", "wrong", "too late",
+        ]
         s += sum(0.4 for w in dread if w in words)
         # Opens mid-action (no weak openers)
         weak = ["in this", "today we", "welcome", "hello", "this is the story", "have you ever"]
