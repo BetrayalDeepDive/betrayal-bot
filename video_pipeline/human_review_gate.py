@@ -111,12 +111,31 @@ def _review_budget_hours():
 _GATES_PER_EPISODE = 6
 
 
+# A WINDOW TOO SHORT TO USE IS NOT A REVIEW.
+#
+# Dividing the leftover budget evenly is fair but not sufficient: on a run
+# where generation ran long, the arithmetic hands the last gates two or three
+# minutes each. Nobody watches a video, judges a thumbnail and replies in two
+# minutes — and a gate that announces buttons then closes before they can be
+# pressed is worse than no gate, because it looks like review happened.
+#
+# Below this floor a gate does not pretend. It says plainly that there was not
+# enough of the job left to review this stage properly, which is a fact the
+# reviewer can act on, rather than "auto-approved" which reads like consent.
+MIN_USABLE_GATE_MINUTES = 12.0
+
+
 def _gate_share_seconds():
-    """Wall-clock this gate may spend, given what earlier gates already used."""
+    """Wall-clock this gate may spend, given what earlier gates already used.
+
+    Returns 0.0 when the fair share has fallen below a window a person could
+    actually use; callers treat that as "cannot review this stage honestly".
+    """
     budget = _review_budget_hours() * 3600.0
     used = sum(w["seconds"] for w in _REVIEW_WAITS)
     left_gates = max(1, _GATES_PER_EPISODE - len(_REVIEW_WAITS))
-    return max(0.0, (budget - used) / left_gates)
+    share = max(0.0, (budget - used) / left_gates)
+    return share if share >= MIN_USABLE_GATE_MINUTES * 60.0 else 0.0
 
 
 # The three ways a gate ends without a human decision. They are DIFFERENT
@@ -126,16 +145,66 @@ def _gate_share_seconds():
 # gone. Every caller treats all three the same way (proceed as generated), so
 # they are compared through this helper rather than against one string, which
 # is what made adding an honest name safe.
-_NO_REPLY = ("timeout", "share-spent", "budget-exhausted")
+#
+# "unreviewable-no-time" is the fourth and it is deliberately NOT called
+# auto-approved. It means the gate never opened, because the window left was
+# too short for anyone to answer in. Every caller still proceeds as generated
+# -- there is nothing else it can do -- but the run's own record, and the
+# message the reviewer receives, no longer imply they agreed to anything.
+_NO_REPLY = ("timeout", "share-spent", "budget-exhausted",
+             "unreviewable-no-time")
 
 
 def _no_human_reply(decision):
     return decision in _NO_REPLY
 
 
+def _review_time_spent_hours():
+    """How long this episode has actually spent WAITING FOR A HUMAN."""
+    return sum(w["seconds"] for w in _REVIEW_WAITS) / 3600.0
+
+
 def _total_review_time_exhausted():
-    elapsed_hours = (datetime.datetime.now() - _REVIEW_PROCESS_START).total_seconds() / 3600
-    return elapsed_hours >= _review_budget_hours()
+    """Is the review window gone?
+
+    THIS COMPARED THE WRONG TWO NUMBERS AND SILENTLY CANCELLED EVERY GATE.
+    ------------------------------------------------------------------
+    It used to measure wall-clock since the PROCESS started and compare that
+    against the review budget. But the process starts when GENERATION starts,
+    so every minute spent writing the script, rendering audio and assembling
+    video counted against a budget that exists to cap how long we wait for a
+    reply. Generation was spending the reviewer's time.
+
+    Run 31257986626, worked through with its real numbers:
+
+        script gate reached 2h47m in; budget 2.47h -> 2.78 >= 2.47 -> EXHAUSTED
+        audio  gate reached 2h54m in; budget 2.35h -> 2.90 >= 2.35 -> EXHAUSTED
+        video  gate reached 4h01m in; budget 0.97h -> 4.02 >= 0.97 -> EXHAUSTED
+
+    Every gate returned "budget-exhausted" on its first check, before sending
+    a single button, having waited zero seconds. All six of them. That is
+    precisely the report: no buttons at any stage, everything auto-approved,
+    and the one notification that did arrive was already dead when it landed.
+    The budget was never actually spent on review -- it was spent on a slow
+    script stage, which on that run was slow because the free AI quotas ran
+    out and it retried for 2h43m.
+
+    A budget for waiting must be measured in waiting. The recorded gate waits
+    are exactly that, and they were already being tracked for the timing
+    report -- nothing needed to be invented, only compared correctly.
+
+    The job clock stays as a SEPARATE, physical check. That one is real: when
+    the runner is genuinely minutes from being killed, review has to stop or
+    the job dies mid-render and commits nothing. But it is a hard-deadline
+    guard, not a budget, and conflating the two is what caused this.
+    """
+    if _review_time_spent_hours() >= _review_budget_hours():
+        return True
+    try:
+        from job_clock import remaining_minutes, RESERVE_MIN
+        return remaining_minutes() <= RESERVE_MIN
+    except Exception:
+        return False
 
 
 # ── where the wall-clock actually goes ─────────────────────────────────
@@ -821,6 +890,34 @@ def _poll_for_decision_inner(tg_token, tg_chat, timeout_minutes=60, max_attempts
     # window the gates behind it still need. Never longer than the per-gate
     # timeout that was asked for.
     _share_min = _gate_share_seconds() / 60.0
+
+    # BUTTONS THAT DIE IN SIXTY SECONDS ARE WORSE THAN NO BUTTONS.
+    #
+    # The clamp below used to be `max(1.0, min(timeout, share))`. When the
+    # share had collapsed to seconds, that floor of 1.0 did not protect the
+    # reviewer -- it guaranteed a ONE MINUTE window. The gate announced its
+    # buttons, the reviewer opened Telegram, pressed one, and got "1 min
+    # expired — auto-approved", because the window had already closed while
+    # the notification was still arriving. Reported exactly that way: "I did
+    # receive that, but post that, in a few seconds, it told me that the thing
+    # had expired."
+    #
+    # A share below the usable floor now means the gate does not open at all.
+    # It says so, in words that do not read like consent, and the timing
+    # report records it as unreviewable rather than approved.
+    if _share_min <= 0.0:
+        # The wrapper records this gate's wait from _CURRENT_GATE on the way
+        # out, so recording here as well would double-count it in the report.
+        _tg_send_message(
+            tg_token, tg_chat,
+            "⚠️ %s: there was not enough of this job left to review this stage "
+            "properly, so no buttons were sent — a window under %.0f minutes "
+            "closes before anyone can answer it. This stage PROCEEDED AS "
+            "GENERATED and was NOT approved by you. Generation ran long this "
+            "run; that is the thing to fix, not this message."
+            % (_gate_label, MIN_USABLE_GATE_MINUTES))
+        return "unreviewable-no-time", None
+
     _gate_deadline = datetime.datetime.now() + datetime.timedelta(minutes=_share_min)
     timeout_minutes = max(1.0, min(float(timeout_minutes), _share_min))
 

@@ -602,6 +602,60 @@ def main():
           _pi > 0 and _es > 0 and _pi < _es,
           "a rate limit must not cost the channel its voice")
 
+    # ── the review gates actually open ─────────────────────────────
+    # Run 31257986626: all six gates returned budget-exhausted having waited
+    # zero seconds, so nothing was ever reviewed. The cause was comparing
+    # wall-clock-since-process-start against a budget that exists to cap
+    # WAITING -- so generation was spending the reviewer's time. These replay
+    # that run's real gate arrival times and assert the gates now open.
+    import human_review_gate as _hrg
+
+    _JOB, _RES = 360.0, 45.0
+    _ARRIVALS = [("script", 167), ("audio", 174), ("video", 257)]
+
+    def _budget_at(el):
+        return max(0.0, min(4.5, (_JOB - el - _RES) / 60.0))
+
+    _saved_waits = list(_hrg._REVIEW_WAITS)
+    _hrg._REVIEW_WAITS.clear()
+    try:
+        # The old rule, reconstructed, to prove the regression is real.
+        _old_all_dead = all((el / 60.0) >= _budget_at(el) for _, el in _ARRIVALS)
+        check("the old gate rule really did kill every gate", _old_all_dead,
+              "wall-clock since process start always exceeded the budget")
+
+        # The new rule: spent-waiting vs budget.
+        _first = _hrg._review_time_spent_hours()
+        check("a gate with no waiting behind it is not 'exhausted'",
+              _first < _budget_at(167),
+              "spent %.2fh against a %.2fh budget at the script gate"
+              % (_first, _budget_at(167)))
+
+        # And a gate that HAS spent the budget still closes.
+        _hrg.record_review_wait("script", 4.6 * 3600, "timeout")
+        check("a genuinely spent budget still closes the gates",
+              _hrg._review_time_spent_hours() >= _budget_at(174),
+              "4.6h of real waiting must exhaust a 4.5h ceiling")
+    finally:
+        _hrg._REVIEW_WAITS[:] = _saved_waits
+
+    check("a window too short to answer is refused, not offered",
+          _hrg.MIN_USABLE_GATE_MINUTES >= 10.0,
+          "%.0f min floor — a 1-minute window expires while the notification "
+          "is still arriving" % _hrg.MIN_USABLE_GATE_MINUTES)
+
+    _hsrc = open(os.path.join(ROOT, "video_pipeline",
+                              "human_review_gate.py")).read()
+    check("an unreviewed stage is never called approved",
+          "unreviewable-no-time" in _hsrc
+          and "unreviewable-no-time" in _hsrc.split("_NO_REPLY = ")[1][:200],
+          "'auto-approved' on a gate that never opened reads as consent")
+    check("the spent-review measure is waiting, not wall clock",
+          "_review_time_spent_hours" in _hsrc
+          and "_REVIEW_PROCESS_START).total_seconds() / 3600\n    return elapsed_hours"
+              not in _hsrc,
+          "a budget for waiting has to be measured in waiting")
+
     # ── the picture matches the sentence it sits under ─────────────
     # The library was already tagged and nothing was reading the narration
     # against it: SCENE rotated through twelve fixed phrases indexed by the
