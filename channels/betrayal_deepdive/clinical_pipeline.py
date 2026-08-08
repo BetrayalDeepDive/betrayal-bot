@@ -6812,6 +6812,42 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     # its variety first and only then starts recycling.
     _used_photos = set()
 
+    # THE SHOT LIST, PRINTED BEFORE ANYTHING RENDERS.
+    #
+    # "I want an algorithm or you create the platform where it can go through
+    # the script and work on it so that they can see what kind of visuals they
+    # need to generate."
+    #
+    # This is the seeing part. The script is read as a piece of film and the
+    # plan is stated up front -- how many beats want the paper's own figure,
+    # how many want a real photograph, how many want imagery no photograph can
+    # provide -- so the visual plan is reviewable in the log BEFORE eighteen
+    # minutes of compute, not inferable from the finished video afterwards.
+    #
+    # It also catches a script problem that looks like a visual problem: if
+    # thirty consecutive beats come back "state", the writing has stopped
+    # saying anything concrete, and no renderer can fix that.
+    try:
+        import visual_brief as _vb
+        _beats = _vb.split_beats(script or "", n_buckets)
+        _briefs, _plan = _vb.shot_list(_beats, topic=topic or "")
+        log("  Shot list: %d beats — %s" % (
+            _plan["n"], ", ".join("%s %d" % (k, v) for k, v in
+                                  sorted(_plan["counts"].items(),
+                                         key=lambda kv: -kv[1]))))
+        log("    %d beat(s) need imagery no photograph can provide; "
+            "longest run of one kind: %d"
+            % (_plan["generated"], _plan["longest_run"]))
+        if _plan["longest_run"] >= max(6, n_buckets // 6):
+            log("    WARNING: %d beats in a row want the same kind of shot. "
+                "That is a script problem, not a visual one."
+                % _plan["longest_run"])
+        for _b in _briefs[:6]:
+            log("      %2d %-11s %-11s %s" % (_b["index"], _b["intent"],
+                                              _b["treatment"], _b["text"][:58]))
+    except Exception as _e:
+        log(f"  Shot list unavailable (non-fatal): {_e}")
+
     fetched_clips = []
     black_fallback_count = 0
     stopwords  = {"the","a","an","and","or","but","in","on","at","to","for",
