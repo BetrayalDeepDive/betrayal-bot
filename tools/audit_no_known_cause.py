@@ -1645,6 +1645,14 @@ def _vertical_cards_clear_caption():
     with tempfile.TemporaryDirectory() as td:
         td = pathlib.Path(td)
         for kind in ms.VERTICAL_SEQUENCE:
+            # "photo" is a full-bleed photograph, so every row differs from
+            # the flat background by design and "the lowest row that is not
+            # background" would always be the last one. The measurement below
+            # only means something for cards drawn ON that background. The
+            # photo card's own type is bounded by V_CONTENT_BOTTOM in the
+            # renderer, which is asserted separately just after this loop.
+            if kind == "photo":
+                continue
             p = td / f"{kind}.png"
             if not ms.render_vertical_card(kind, CASE, str(p),
                                            headline="A baby girl stopped feeding "
@@ -1664,6 +1672,12 @@ def _vertical_cards_clear_caption():
             landed = ms.VH / 2 + (lowest - ms.VH / 2) * ms.V_MAX_ZOOM
             if landed > ms.V_CAPTION_INK_TOP - 1:
                 return False
+
+        # The photo card, checked on the constant it is actually bounded by
+        # rather than on pixels it legitimately fills.
+        src = read("video_pipeline/medical_segments.py")
+        if "y = V_CONTENT_BOTTOM - 60 - len(lines) * 84" not in src:
+            return False
             # And nothing may sit under the hook band either.
             highest = None
             for y in range(ms.VH):

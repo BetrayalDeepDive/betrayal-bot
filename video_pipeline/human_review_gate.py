@@ -1326,28 +1326,64 @@ def score_community_post(question, options, topic, title):
     if not q:
         return 0.0, ["no question"]
     issues = []
-    sc = 4.0
+    sc = 3.0
 
+    # THE OLD SCORE COULD REACH 9/10 ON A QUESTION WITH NOTHING IN IT.
+    #
+    # Run 31156373254's post scored 9.0 on the first attempt and cleared the
+    # bar, and the reply was "I had requested that you give me the proper
+    # details, yet I see that it's generic or vague." Both are true, because
+    # the old rubric handed out +2.0 for sharing ANY word longer than four
+    # characters with the topic -- and the topic is a whole clinical case, so
+    # "patient", "diagnosis" or "symptoms" cleared it. Add a digit anywhere, a
+    # question mark, two options, and a post that says nothing scored nine.
+    #
+    # What a case poll needs is an ANCHOR: a number with a unit, a length of
+    # time, a named test, a specific finding. Something a viewer could not
+    # have written without watching. That is what is measured now.
     GENERIC = ("what's your take", "what do you think", "drop your theory",
                "let us know", "comment below", "how do you feel",
-               "which was most shocking", "did you know")
+               "which was most shocking", "did you know", "who else",
+               "can you believe", "your thoughts", "sound off", "agree?",
+               "what would you do", "have you ever", "crazy right",
+               "what surprised you", "which part")
     if any(g in q.lower() for g in GENERIC):
-        sc -= 2.5
+        sc -= 3.0
         issues.append("generic filler question")
 
-    # Does it actually borrow from THIS case?
+    # A concrete anchor, in the question or in the options -- either is fine,
+    # a poll is read as one object.
+    blob = " ".join([q] + [str(o) for o in opts]).lower()
+    anchors = 0
+    if re.search(r"\d+\s*(mg|ml|mmol|mcg|g/dl|mm|cm|kg|%|hours?|days?|weeks?|"
+                 r"months?|years?|beats|degrees)", blob):
+        anchors += 2                       # a real measured value
+    elif re.search(r"\b\d+\b", blob):
+        anchors += 1                       # a bare number: better than none
+    NAMED = ("ct", "mri", "biopsy", "ecg", "eeg", "ultrasound", "x-ray",
+             "endoscopy", "culture", "serology", "panel", "scan", "bloods",
+             "lumbar", "angiogram", "histology", "marrow", "genetic")
+    if any(re.search(r"\b%s\b" % t, blob) for t in NAMED):
+        anchors += 1
+    if anchors == 0:
+        issues.append("nothing concrete — no value, no duration, no named test")
+    sc += min(3.0, anchors * 1.2)
+
+    # And it still has to be about THIS case, not clinical medicine generally.
     stop = {"the","a","an","and","or","of","in","on","for","with","was","were",
-            "had","has","after","from","that","this","which","who","what"}
+            "had","has","after","from","that","this","which","who","what",
+            "patient","patients","doctor","doctors","case","cases","medical",
+            "symptom","symptoms","diagnosis","diagnosed","hospital","test",
+            "tests","clinical","treatment","condition","disease"}
     topic_words = {w.strip(".,:;()").lower() for w in f"{topic} {title}".split()
                    if len(w) > 4 and w.lower() not in stop}
-    shared = topic_words & {w.strip(".,:;()?").lower() for w in q.split()}
+    shared = topic_words & {w.strip(".,:;()?").lower() for w in blob.split()}
     if shared:
-        sc += 2.0
+        sc += 1.5
     else:
-        issues.append("question shares no concrete term with the case")
+        issues.append("shares no distinctive term with this case "
+                      "(common clinical words do not count)")
 
-    if re.search(r"\d", q):
-        sc += 1.0          # a real number from the case
     if q.rstrip().endswith("?"):
         sc += 0.5
     if len(q) <= 100:
@@ -1356,7 +1392,7 @@ def score_community_post(question, options, topic, title):
         issues.append("question over 100 chars")
 
     if len(opts) >= 2:
-        sc += 1.5
+        sc += 1.0
         if all(len(str(o)) <= 30 for o in opts):
             sc += 0.5
         else:
@@ -1364,6 +1400,14 @@ def score_community_post(question, options, topic, title):
         if len(set(str(o).lower() for o in opts)) < len(opts):
             sc -= 1.0
             issues.append("duplicate options")
+        # Options must be candidate ANSWERS, not reactions. "Shocking" and
+        # "Unbelievable" are not things anyone was considering in the room.
+        REACTION = ("shocking", "unbelievable", "wow", "crazy", "sad", "scary",
+                    "amazing", "terrible", "awful", "insane", "other",
+                    "not sure", "no idea", "don't know", "all of the above")
+        if any(str(o).strip().lower() in REACTION for o in opts):
+            sc -= 1.5
+            issues.append("an option is a reaction, not a candidate answer")
     else:
         issues.append("fewer than 2 poll options")
 

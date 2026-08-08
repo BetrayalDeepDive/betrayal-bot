@@ -1140,6 +1140,21 @@ def render_vertical_card(kind, case, out_path, headline="",
     from the headline alone) rather than to anything fetched.
     """
     case = case or {}
+
+    # THE SHORTS WERE EVERY BIT AS DRAWN AS THE MAIN VIDEO WAS.
+    #
+    # Every kind below builds a card on the flat clinical background: a title,
+    # a board, a timeline, a chart, a quote, a statement. Six cards, six pieces
+    # of typography, and the reported verdict was "I saw the YouTube Shorts
+    # that you have created. They are so boring."
+    #
+    # A Short has three seconds to survive. A ward corridor at 3am does that;
+    # a slide of text does not. Same photographs as the main video's SCENE
+    # register and the same offline library, cropped 9:16.
+    if kind == "photo":
+        return _render_vertical_photo(case, out_path, headline, niche_label,
+                                      progress)
+
     c = Image.new("RGB", (VW, VH), BG)
     d = ImageDraw.Draw(c)
     _v_eyebrow(d, niche_label)
@@ -1315,7 +1330,69 @@ def render_vertical_card(kind, case, out_path, headline="",
     return Path(out_path).exists()
 
 
-VERTICAL_SEQUENCE = ("title", "board", "timeline", "chart", "quote", "statement")
+def _render_vertical_photo(case, out_path, headline, niche_label, progress):
+    """A real photograph, 9:16, with the line set low over a measured falloff.
+
+    Declines (returns False) rather than inventing something when no photo is
+    available, so the caller simply renders one fewer card -- the Short still
+    comes out the right length, because render_vertical_background() divides
+    the time over the cards that actually rendered.
+    """
+    import numpy as _np
+    from pathlib import Path as _P
+
+    term = _SCENE_TERMS[int(progress * 1000) % len(_SCENE_TERMS)]
+    photo = None
+    try:
+        import stock_library as sl
+        photo = sl.pick("scene", [term], seed=int(progress * 1000))
+    except Exception:
+        photo = None
+    if not photo or not _P(photo).exists():
+        return False
+    try:
+        import photo_thumbnail as _pt
+        if _pt.looks_drawn(photo):
+            return False
+    except Exception:
+        pass
+    try:
+        im = Image.open(photo).convert("RGB")
+    except Exception:
+        return False
+
+    s = max(VW / im.width, VH / im.height)
+    im = im.resize((max(VW, int(im.width * s)), max(VH, int(im.height * s))),
+                   Image.LANCZOS)
+    im = im.crop(((im.width - VW) // 2, (im.height - VH) // 2,
+                  (im.width - VW) // 2 + VW, (im.height - VH) // 2 + VH))
+
+    a = _np.asarray(im).astype(_np.float32)
+    t = _np.clip((_np.arange(VH) - VH * 0.42) / (VH * 0.58), 0.0, 1.0)
+    ramp = 1.0 - 0.80 * (t ** 1.5)
+    top = _np.clip((VH * 0.12 - _np.arange(VH)) / (VH * 0.12), 0.0, 1.0)
+    im = Image.fromarray(_np.clip(
+        a * (ramp * (1.0 - 0.5 * top)).reshape(VH, 1, 1), 0, 255).astype("uint8"))
+
+    d = ImageDraw.Draw(im)
+    _v_eyebrow(d, niche_label)
+    line = _tidy_display_line(headline or case.get("title", ""), 150)
+    if line:
+        f = _vf(60)
+        lines = mfr._wrap(d, line, f, VW - 160)[:4]
+        y = V_CONTENT_BOTTOM - 60 - len(lines) * 84
+        for ln in lines:
+            d.text((83, y + 3), ln, font=f, fill=(0, 0, 0))
+            d.text((80, y), ln, font=f, fill=TEXT_C)
+            y += 84
+    im.save(out_path)
+    return Path(out_path).exists()
+
+
+# "photo" sits second, right after the title card, so the very first cut a
+# viewer sees is from typography to a real room. That cut IS the hook.
+VERTICAL_SEQUENCE = ("title", "photo", "board", "timeline", "chart", "quote",
+                     "statement")
 
 
 # Vertical card kinds mapped to the register whose camera behaviour suits
@@ -1323,6 +1400,7 @@ VERTICAL_SEQUENCE = ("title", "board", "timeline", "chart", "quote", "statement"
 _VCARD_REGISTER = {
     "title": "TITLE", "statement": "TEXT", "quote": "TEXT",
     "board": "BOARD", "timeline": "TIMELINE", "chart": "CHART",
+    "photo": "SCENE",
 }
 
 
@@ -1339,7 +1417,7 @@ def render_vertical_background(case, out_path, duration, headline="",
     work = Path(work_dir or Path(out_path).parent)
     work.mkdir(parents=True, exist_ok=True)
     kinds = [k for k in VERTICAL_SEQUENCE
-             if k in ("title", "statement")
+             if k in ("title", "statement", "photo")
              or (k == "board" and case.get("differentials"))
              or (k == "timeline" and len(case.get("timeline") or []) >= 2)
              or (k == "chart" and (case.get("chart_data") or {}).get("labels"))
