@@ -8,31 +8,40 @@ animation register here at all. Stickman and silhouette were the two
 registers repeatedly rejected on Ch1, and a clinical case has nothing for a
 character puppet to do.
 
-    FIGURE     30%  -- the real CC BY figure from the actual paper (this
+    FIGURE     22%  -- the real CC BY figure from the actual paper (this
                        patient's own CT/ECG/histology), with on-screen
                        attribution. The channel's whole differentiator.
-    CHART      22%  -- the case's real reported values plotted over time
+    SCENE      18%  -- a real photograph of where the case happened: a ward
+                       corridor, a monitor, an empty waiting room. The only
+                       register here that is a photograph rather than a
+                       drawing, and the only one that needs nothing from the
+                       paper -> stock_library, then Pixabay
+    ANATOMY    14%  -- Wikimedia anatomical diagram / molecular structure of
+                       the real organ or drug involved -> real_case_images
+    TIMELINE   12%  -- real clinical timeline (day 1 admission, day 4
+                       deterioration, day 9 diagnosis) -> motion_graphics
+    CHART      10%  -- the case's real reported values plotted over time
                        (labs, vitals, temperature curve, drug levels),
                        rendered by the chart code built for Ch5's FRED work
-    BOARD      18%  -- differential-diagnosis board: the real candidate
+    LAB         8%  -- a panel of results at once, each against its range
+    CASEFILE    8%  -- the patient record card, filling in as facts arrive
+    BOARD       5%  -- differential-diagnosis board: the real candidate
                        diagnoses, eliminated one by one -> investigation_board
-    TIMELINE   14%  -- real clinical timeline (day 1 admission, day 4
-                       deterioration, day 9 diagnosis) -> motion_graphics
-    ANATOMY    10%  -- Wikimedia anatomical diagram / molecular structure of
-                       the real organ or drug involved -> real_case_images
-    TEXT        6%  -- a real quoted line from the paper's own discussion
+    TEXT        3%  -- a real quoted line from the paper's own discussion
                        -> kinetic_text
 
 FIGURE availability is not guaranteed: a given paper may have zero figures
 that survive the graphic-content screen in pmc_data.extract_figures().
 Rather than emit blank FIGURE segments (the exact "irrelevant filler"
-failure that sank stock footage on Ch1), the quota redistributes to ANATOMY
-and CHART -- see new_quota(figure_count=...).
+failure that sank stock footage on Ch1), the quota redistributes -- see
+new_quota(figure_count=...). SCENE now absorbs most of that surplus, because
+the alternative is what run 31156373254 shipped: 39% ANATOMY, and an episode
+that alternated between two kinds of diagram for nineteen minutes.
 """
 
-FIGURE, CHART, BOARD, TIMELINE, ANATOMY, TEXT, CASEFILE, LAB = (
+FIGURE, CHART, BOARD, TIMELINE, ANATOMY, TEXT, CASEFILE, LAB, SCENE = (
     "FIGURE", "CHART", "BOARD", "TIMELINE", "ANATOMY", "TEXT",
-    "CASEFILE", "LAB"
+    "CASEFILE", "LAB", "SCENE"
 )
 
 # Rebalanced when CASEFILE and LAB were added.
@@ -43,15 +52,35 @@ FIGURE, CHART, BOARD, TIMELINE, ANATOMY, TEXT, CASEFILE, LAB = (
 # jobs -- one value over time, and a panel of values at once -- and doing the
 # second badly. FIGURE stays the largest single register: real figures from
 # the actual paper are what this channel has that nothing else does.
+#
+# SCENE ADDED, AND IT IS THE SECOND LARGEST.
+#
+# Every register above SCENE draws something: a chart, a board, a timeline, a
+# diagram, a record card, a quote. Run 31156373254 shipped 106 segments and
+# not one photograph -- the paper's figures all failed to download, so the mix
+# came out ANATOMY 39%, TIMELINE 27%, CASEFILE 19%, and the whole nineteen
+# minutes alternated between two kinds of drawing. Reported as: "the visuals
+# are boring, something generic, and it's taking too much time changing".
+#
+# The pacing was inside spec (9.1-13.5s per card, measured). Two consecutive
+# cards that LOOK the same read as one card holding twice as long, which is
+# why the complaint arrived as a timing complaint. The fix is not shorter
+# cards, it is different-looking ones.
+#
+# A photograph of a ward corridor, a monitor, a pair of hands is real footage
+# of the world the case happened in. It is also the one register that cannot
+# fail for lack of data: the stock library carries it offline, so it holds
+# whatever share a thin paper cannot fill instead of that landing on ANATOMY.
 TARGET_MIX = {
-    FIGURE:   0.26,
-    ANATOMY:  0.18,
-    TIMELINE: 0.14,
-    CHART:    0.12,
-    LAB:      0.10,
+    FIGURE:   0.22,
+    SCENE:    0.18,
+    ANATOMY:  0.14,
+    TIMELINE: 0.12,
+    CHART:    0.10,
+    LAB:      0.08,
     CASEFILE: 0.08,
-    BOARD:    0.08,
-    TEXT:     0.04,
+    BOARD:    0.05,
+    TEXT:     0.03,
 }
 
 # Real content signals per register. A clinical narrative is unusually rich
@@ -104,6 +133,24 @@ _ANATOMY_KEYWORDS = [
 ]
 
 
+# Where the case is happening, rather than what is being measured. These are
+# the lines a photograph answers better than any diagram can: a corridor, a
+# waiting room, a monitor at 3am, a hand on a chart.
+#
+# Deliberately narrow. The first version included "night", "morning",
+# "family", "doctor", "team", "walked", "returned" -- words that appear in
+# most sentences of a clinical narrative, so SCENE was hinted on a third of
+# the episode and the realised schedule reached 34% even though the target
+# mix said 18%. A register's keyword list has to be a signal, not a net.
+_SCENE_KEYWORDS = [
+    "hospital", "the ward", "emergency department", "emergency room",
+    "intensive care", "operating theatre", "operating room", "ambulance",
+    "corridor", "waiting room", "at the bedside", "sent home",
+    "discharged home", "went back home", "drove her", "drove him",
+    "walked in", "walked out", "arrived at", "brought in by",
+]
+
+
 def _hit(text_lower, keywords):
     return any(kw in text_lower for kw in keywords)
 
@@ -142,6 +189,8 @@ def classify_hint(segment_text):
         return CHART
     if _hit(low, _ANATOMY_KEYWORDS):
         return ANATOMY
+    if _hit(low, _SCENE_KEYWORDS):
+        return SCENE
     return None
 
 
@@ -194,6 +243,27 @@ CASEFILE_CAPACITY_SEGMENTS = 6.0
 # draw, and the segment falls through rather than showing an empty panel.
 LAB_CAPACITY_SEGMENTS = 8.0
 
+# SCENE's ceiling is how many genuinely different photographs are on hand.
+# The offline library carries nine scene photos and grows every run through
+# stock_library.harvest(); with a slow push and a different crop each time,
+# that sustains roughly twenty distinct frames. Higher than the drawn
+# registers because photographs of different places do not resemble each
+# other the way two procedural diagrams do -- but not unlimited, or a thin
+# paper would produce a photo montage with a voiceover.
+#
+# Held at 17/60 rather than 22 because the audit enforces a hard 30% ceiling
+# on every register: at 22 the redistribution pushed SCENE to 37% of a
+# thin-paper episode, which is the ANATOMY-at-39% failure again wearing a
+# different coat.
+SCENE_CAPACITY_SEGMENTS = 17.0
+
+# The share no register may exceed, whatever the paper turns out to be. One
+# register at 39% of an episode is what "the visuals are boring and generic"
+# means in numbers, and the audit enforces exactly this figure -- so the
+# scheduler enforces it too rather than producing a mix the audit then
+# rejects. 0.29 not 0.30, so rounding to whole segments cannot cross it.
+HARD_CEILING = 0.29
+
 
 def _capacity_shares(mix, counts):
     """{register: max share it can sustain}."""
@@ -211,6 +281,8 @@ def _capacity_shares(mix, counts):
         caps[CASEFILE] = CASEFILE_CAPACITY_SEGMENTS / 60.0
     if mix.get(LAB, 0) > 0:
         caps[LAB] = LAB_CAPACITY_SEGMENTS / 60.0
+    if mix.get(SCENE, 0) > 0:
+        caps[SCENE] = SCENE_CAPACITY_SEGMENTS / 60.0
     return caps
 
 
@@ -244,11 +316,15 @@ def build_mix(figure_count, available=None, chart_points=0, data_counts=None):
         # ANATOMY is procedural and therefore always available, so the mix
         # can never collapse to nothing.
         for reg in list(mix):
-            if reg != ANATOMY and not available.get(reg, True):
+            # ANATOMY and SCENE are the two registers that need nothing
+            # from the paper -- one is procedural, the other is a photograph
+            # -- so the mix can never collapse to nothing.
+            if reg not in (ANATOMY, SCENE) and not available.get(reg, True):
                 mix[reg] = 0.0
         live = sum(mix.values())
         if live <= 0:
-            return {ANATOMY: 1.0, **{k: 0.0 for k in TARGET_MIX if k != ANATOMY}}
+            return {ANATOMY: 0.5, SCENE: 0.5,
+                    **{k: 0.0 for k in TARGET_MIX if k not in (ANATOMY, SCENE)}}
         mix = {k: v / live for k, v in mix.items()}
 
     counts = dict(data_counts or {})
@@ -302,10 +378,46 @@ def build_mix(figure_count, available=None, chart_points=0, data_counts=None):
             # into one visual treatment -- sixteen procedural diagrams in a
             # row-ish. Repetition spread thinly across six registers is far
             # less visible than the same amount piled into one.
-            live = {k: caps.get(k, mix[k]) for k in mix if mix[k] > 0}
-            base = sum(live.values()) or 1.0
-            for k, w in live.items():
-                mix[k] += residual * (w / base)
+            #
+            # AND NO REGISTER MAY CROSS 30% EVEN HERE. Proportional spreading
+            # is fair but not sufficient: the register with the largest cap
+            # gets the largest slice of the residual, so on a thin paper the
+            # biggest register kept growing until it dominated anyway. That is
+            # how ANATOMY reached 39%, and when SCENE was added it inherited
+            # the same behaviour and reached 37% on its first test. The share
+            # is therefore poured in rounds, skipping anything already at the
+            # ceiling, so the excess genuinely lands on the registers that
+            # still have room instead of on the largest one.
+            for _ in range(12):
+                if residual <= 1e-9:
+                    break
+                live = {k: caps.get(k, mix[k]) for k in mix
+                        if mix[k] > 0 and mix[k] < HARD_CEILING - 1e-9}
+                if not live:
+                    break
+                base = sum(live.values()) or 1.0
+                poured = 0.0
+                for k, w in live.items():
+                    add = min(residual * (w / base), HARD_CEILING - mix[k])
+                    mix[k] += add
+                    poured += add
+                if poured <= 1e-9:
+                    break
+                residual -= poured
+            if residual > 1e-9:
+                # Every live register is at the ceiling and the mix still does
+                # not sum to one. That is arithmetic, not a scheduling choice:
+                # 0.29 each needs at least four live registers, and a paper
+                # that supports nothing leaves only the two that need no data.
+                # A mix that does not sum to one would silently shorten the
+                # episode, which is worse than crossing the ceiling, so the
+                # remainder is split evenly and the ceiling gives way.
+                # (The pipeline rejects such papers before they reach here;
+                # this only guarantees the function always returns a valid
+                # distribution.)
+                spread = [k for k in mix if mix[k] > 0]
+                for k in spread:
+                    mix[k] += residual / len(spread)
             break
     return mix
 
@@ -507,6 +619,10 @@ def available_from_case(case):
         TIMELINE: len(case.get("timeline") or []) >= 2,
         TEXT:     bool((case.get("quote") or "").strip()),
         ANATOMY:  True,
+        # A photograph needs nothing from the paper. stock_library carries
+        # the offline set, so this is the one register that is true even
+        # with the network completely down.
+        SCENE:    True,
         LAB:      _has_labs,
         CASEFILE: _has_facts,
     }

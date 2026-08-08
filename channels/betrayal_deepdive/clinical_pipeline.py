@@ -3713,15 +3713,22 @@ def generate_script_content(niche, topic, episode, attempt,
         try:
             from medical_register import available_from_case
             _av = available_from_case(case)
-            _live = [r for r, ok in _av.items() if ok and r != "ANATOMY"]
+            # ANATOMY and SCENE are excluded because neither needs anything
+            # from the paper -- one is procedural, the other is a stock
+            # photograph. This test asks what THIS PAPER can carry, so a
+            # register that is always available would make it always pass and
+            # a thin paper would sail through unnoticed.
+            _live = [r for r, ok in _av.items()
+                     if ok and r not in ("ANATOMY", "SCENE")]
             if not _live:
                 log("  Case REJECTED: no figures, no differentials, no timeline, "
                     "no chart values and no quote — the episode would be one "
                     "register for its whole length. Trying the next paper.")
                 return None
             if len(_live) == 1:
-                log(f"  Case is thin: {_live[0]} is the only register besides "
-                    f"ANATOMY. The episode will alternate between the two.")
+                log(f"  Case is thin: {_live[0]} is the only register the paper "
+                    f"itself supports. Photographs and mechanism diagrams will "
+                    f"carry the rest.")
         except Exception as e:
             log(f"  Register-availability check (non-fatal): {e}")
 
@@ -7001,7 +7008,12 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
                     variant_total=_exp,
                     accent=(_variation.tint if _variation else None),
                     transition=(_variation.transition(i, register)
-                                if _variation else "fade"))
+                                if _variation else "fade"),
+                    # SCENE reads the offline stock library first and only
+                    # calls this when it wants a photograph the library does
+                    # not have. Same fetcher the thumbnail uses, so a run with
+                    # no network still renders every SCENE card.
+                    photo_fn=fetch_case_relevant_image)
             if ok:
                 fetched_clips.append(clip_path)
                 continue

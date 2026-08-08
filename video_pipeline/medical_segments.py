@@ -70,6 +70,10 @@ MOTION = {
     "TITLE":    {"zoom": 0.00012, "max": 1.03},
     "CASEFILE": {"zoom": 0.00014, "max": 1.04},
     "LAB":      {"zoom": 0.00016, "max": 1.04},
+    # SCENE is a full-bleed photograph: the whole frame is picture, so a big
+    # push would crop the subject out of it and drag the caption toward the
+    # burned-in subtitle band. A slow drift is all it needs.
+    "SCENE":    {"zoom": 0.00018, "max": 1.05},
 }
 
 
@@ -734,6 +738,122 @@ def render_text_still(quote, out_path, attribution="From the source paper",
     return Path(out_path).exists()
 
 
+_SCENE_TERMS = (
+    "hospital corridor empty",
+    "hospital ward bed night",
+    "intensive care monitor screen",
+    "emergency department entrance",
+    "doctor reading notes",
+    "waiting room chairs empty",
+    "hospital window rain",
+    "operating theatre lights",
+    "stethoscope on a desk",
+    "medical chart on a clipboard",
+    "ambulance at night",
+    "laboratory bench glassware",
+)
+
+
+def render_scene_still(segment_text, out_path, work_dir, variant=0,
+                       niche_label="NO KNOWN CAUSE", fetch_fn=None,
+                       log_fn=print):
+    """
+    A REAL PHOTOGRAPH of the world the case happened in.
+
+    Every other register in this module draws something. Run 31156373254
+    shipped 106 segments and not one photograph: the figures failed to
+    download, so the mix collapsed onto ANATOMY and TIMELINE and the episode
+    alternated between two kinds of diagram for nineteen minutes. The
+    complaint that came back -- "boring, something generic, and it's taking
+    too much time changing the visuals" -- is what that looks like from the
+    other side of the screen. The cards were 9.1-13.5s, inside spec; two
+    consecutive cards that LOOK alike simply read as one long one.
+
+    The photograph comes from stock_library first, which works with the
+    network completely down, and only reaches for the API when the library
+    has nothing new. Anything that scores as a drawing is rejected: this
+    register exists to NOT be a drawing.
+
+    The narration line is set over the lower third rather than beside it, so
+    the picture is the card and the words are the caption.
+    """
+    from pathlib import Path as _P
+    work = _P(work_dir)
+    term = _SCENE_TERMS[variant % len(_SCENE_TERMS)]
+    photo = None
+
+    try:
+        import stock_library as sl
+        photo = sl.pick("scene", [term], seed=variant)
+    except Exception as e:
+        log_fn(f"  SCENE: stock library unavailable ({e})")
+
+    if not photo and fetch_fn:
+        cand = work / f"scene_{variant}.jpg"
+        try:
+            if fetch_fn(term, niche_label, str(cand)) and cand.exists():
+                photo = str(cand)
+        except Exception as e:
+            log_fn(f"  SCENE: photo fetch failed ({e})")
+
+    if not photo or not _P(photo).exists():
+        return False
+
+    # A diagram here would defeat the entire purpose of the register.
+    try:
+        import photo_thumbnail as _pt
+        if _pt.looks_drawn(photo):
+            log_fn(f"  SCENE: rejected a drawing ({_P(photo).name})")
+            return False
+    except Exception:
+        pass
+
+    try:
+        im = Image.open(photo).convert("RGB")
+    except Exception as e:
+        log_fn(f"  SCENE: photo will not open ({e})")
+        return False
+
+    # Cover the frame, cropping rather than letterboxing.
+    s = max(W / im.width, H / im.height)
+    im = im.resize((max(W, int(im.width * s)), max(H, int(im.height * s))),
+                   Image.LANCZOS)
+    im = im.crop(((im.width - W) // 2, (im.height - H) // 2,
+                  (im.width - W) // 2 + W, (im.height - H) // 2 + H))
+
+    # Darken toward the bottom so the caption has something to sit on without
+    # a box drawn around it -- a box would make it look like a slide again.
+    import numpy as _np
+    a = _np.asarray(im).astype(_np.float32)
+    # Full brightness down to 48% of the frame, then a smooth fall to 22% at
+    # the bottom edge. The first version added a constant back after the ramp,
+    # which left the bottom at 77% -- white type on a white corridor floor,
+    # unreadable. Measured on the render, not assumed.
+    t = _np.clip((_np.arange(H) - H * 0.48) / (H * 0.52), 0.0, 1.0)
+    ramp = 1.0 - 0.78 * (t ** 1.6)
+    # A short darkening at the very top too, so the channel eyebrow is legible
+    # over a bright ceiling as well as over a dark corridor.
+    top = _np.clip((H * 0.14 - _np.arange(H)) / (H * 0.14), 0.0, 1.0)
+    ramp = (ramp * (1.0 - 0.45 * top)).reshape(H, 1, 1)
+    im = Image.fromarray(_np.clip(a * ramp, 0, 255).astype("uint8"))
+
+    d = ImageDraw.Draw(im)
+    _eyebrow(d, niche_label)
+    line = _tidy_display_line(segment_text or "", 150)
+    if line:
+        f = _f(58)
+        lines = mfr._wrap(d, line, f, W - 300)[:3]
+        y = CONTENT_BOTTOM - 40 - len(lines) * 78
+        for ln in lines:
+            # A photograph is never uniformly dark, whatever the ramp does, so
+            # the type carries its own shadow rather than trusting the picture.
+            d.text((153, y + 3), ln, font=f, fill=(0, 0, 0))
+            d.text((150, y), ln, font=f, fill=TEXT_C)
+            y += 78
+    im.save(out_path)
+    return Path(out_path).exists()
+
+
 def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE",
                              citation=""):
     """
@@ -774,7 +894,8 @@ def render_medical_segment(register, case, segment_text, duration, index,
                            out_path, work_dir, niche_label="NO KNOWN CAUSE",
                            chart_fn=None, run_ffmpeg=None, log_fn=print,
                            progress=1.0, variant=None, variant_total=1,
-                           accent=None, transition="fade", last_move=None):
+                           accent=None, transition="fade", last_move=None,
+                           photo_fn=None):
     """
     Render one segment. Returns True on success.
 
@@ -787,6 +908,9 @@ def render_medical_segment(register, case, segment_text, duration, index,
     variant   -- this register's own occurrence index, for anything that
                  rotates (which figure, which mechanism motif). Same reason.
     chart_fn  -- optional override for the chart renderer.
+    photo_fn  -- optional photo fetcher, fetch(query, niche, out_path) -> bool.
+                 SCENE works without it from the offline stock library; this
+                 only widens the pool.
     """
     if variant is None:
         variant = index
@@ -931,6 +1055,11 @@ def render_medical_segment(register, case, segment_text, duration, index,
                                                      else None),
                                       variant=variant, progress=progress,
                                       variant_total=variant_total)
+
+        elif register == "SCENE":
+            ok = render_scene_still(segment_text, str(still), work_dir,
+                                    variant=variant, niche_label=niche_label,
+                                    fetch_fn=photo_fn, log_fn=log_fn)
 
         elif register == "TEXT":
             ok = render_text_still(case.get("quote") or "", str(still),

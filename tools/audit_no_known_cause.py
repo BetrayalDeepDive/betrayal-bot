@@ -1799,6 +1799,17 @@ def _nothing_in_caption_band():
         if ms.render_text_still(CASE["quote"], str(p),
                                 attribution=mfr.short_credit(CASE["citation"])):
             renders.append(("TEXT", p))
+        # SCENE is deliberately NOT in this list. Every other register draws
+        # on the flat clinical background, so "the lowest row that differs
+        # from the background" finds the lowest ink. SCENE is a full-bleed
+        # photograph -- every row differs from the background by design, so
+        # the measurement would always return the last row and the check
+        # would mean nothing. Its caption is bounded by CONTENT_BOTTOM in the
+        # renderer and by its own entry in MOTION, and is checked below on
+        # the constants rather than on the pixels.
+        _scene_ok = ms.render_scene_still(
+            "She was sent home from the emergency department twice that week.",
+            str(td / "scene.png"), str(td), variant=0)
         p = td / "last.png"
         if ms.render_last_resort_still("A long line of narration " * 6, str(p),
                                        citation=mfr.short_credit(CASE["citation"])):
@@ -1838,8 +1849,23 @@ def _fallbacks_needed(ms, case, seq, reveals):
         "TIMELINE": len(case.get("timeline") or []) >= 2,
         "TEXT": bool((case.get("quote") or "").strip()),
         "ANATOMY": True,
+        # SCENE draws a stock photograph, so it has data whenever the offline
+        # library has a scene photo in it -- which is checked rather than
+        # assumed, because a SCENE segment with no photo falls through to the
+        # plain card exactly like any other empty register would.
+        "SCENE": _scene_library_stocked(),
+        "CASEFILE": True,
+        "LAB": True,
     }
     return any(not have.get(r, False) for r in set(seq))
+
+
+def _scene_library_stocked():
+    try:
+        import stock_library as sl
+        return sl.count("scene") >= 3
+    except Exception:
+        return False
 
 
 # ── F. INTEGRATION ─────────────────────────────────────────────────────

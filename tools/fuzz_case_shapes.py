@@ -362,7 +362,8 @@ def run_shape(name, case, work):
         if q.forced_repeats:
             fail(name, "run cap breached despite an alternative existing",
                  f"{q.forced_repeats} forced repeats")
-    elif len([r for r, ok in avail.items() if ok and r != "ANATOMY"]):
+    elif len([r for r, ok in avail.items()
+              if ok and r not in ("ANATOMY", "SCENE")]):
         fail(name, "quota collapsed to one register with data available",
              f"live={q.live_registers}")
     for r, v in reveals.items():
