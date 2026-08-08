@@ -201,6 +201,13 @@ jobs:
           # dependency for phonemization).
           pip install --index-url https://download.pytorch.org/whl/cpu torch -q
           pip install kokoro soundfile -q
+          # Subtitle backup 2: transcription that runs HERE, so a hosted
+          # Whisper outage cannot cost the episode its synced captions again
+          # (run 31156373254 got 502 three times and captioned by guesswork).
+          # Optional on purpose -- caption_align.local_whisper_words() returns
+          # None when the package is missing and the chain moves to the
+          # script-alignment backup, so a failed install must not fail the job.
+          pip install faster-whisper -q || echo "faster-whisper unavailable; caption backup 3 still applies"
 
       # PREFLIGHT: catch NameErrors before spending hours of compute.
       #

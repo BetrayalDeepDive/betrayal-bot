@@ -14,6 +14,7 @@ Exit code 0 means the run is safe to start.
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -200,16 +201,75 @@ def main():
     check("Ch1 pipeline records the format for CTR learning",
           "record_format_used(_cache" in src3)
 
+    # ── the subtitle chain has more than one link ──────────────────
+    # Whisper failed three times on run 31156373254 (502) and three times on
+    # the run before it (413), and both episodes were captioned by spreading
+    # the script evenly across the runtime. Retrying one endpoint is not a
+    # backup; these checks assert the other routes are real and reachable.
+    import caption_align as ca
+    from caption_timing import ass_from_words
+
+    tone = os.path.join(work, "pauses.wav")
+    # speech 0-6, silence 6-9, speech 9-14, silence 14-16, speech 16-24
+    chain, idx = [], 0
+    for dur, loud in ((6.0, 1), (3.0, 0), (5.0, 1), (2.0, 0), (8.0, 1)):
+        chain.append(("sine=frequency=%d:duration=%.2f:sample_rate=44100"
+                      % (180 + 40 * idx, dur)) if loud else
+                     "anullsrc=r=44100:cl=mono:d=%.2f" % dur)
+        idx += 1
+    filt = ";".join("%s[a%d]" % (s, i) for i, s in enumerate(chain))
+    filt += ";" + "".join("[a%d]" % i for i in range(len(chain))) + \
+            "concat=n=%d:v=0:a=1[out]" % len(chain)
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-filter_complex", filt, "-map", "[out]", "-t", "24", tone],
+                   capture_output=True, timeout=120)
+
+    truth = [(0.0, 6.0), (9.0, 14.0), (16.0, 24.0)]
+    spans = ca.speech_spans(tone, total=24.0)
+    close = (len(spans) == len(truth) and
+             all(abs(a - c) < 0.3 and abs(b - d) < 0.3
+                 for (a, b), (c, d) in zip(spans, truth)))
+    check("pauses are found in real audio", close,
+          "got %s" % [(round(a, 1), round(b, 1)) for a, b in spans])
+
+    words = ca.align_words(tone, " ".join("word%02d" % i for i in range(60)),
+                           total=24.0)
+    inside = all(any(a - 0.02 <= w["start"] <= b + 0.02 for a, b in truth)
+                 for w in words)
+    check("no caption word is placed during a silence", inside and bool(words),
+          "%d words aligned" % len(words))
+
+    ass, _st = ass_from_words(words, total_duration=None)
+    check("aligned words build a real caption track", bool(ass) and len(ass) > 200,
+          "%d bytes" % len(ass or ""))
+
+    # The last link must need nothing. If this ever grows a key or a network
+    # call, an outage takes the whole chain down again.
+    src = open(os.path.join(ROOT, "video_pipeline", "caption_align.py")).read()
+    check("the final caption backup needs no key or network",
+          "requests" not in src and "API_KEY" not in src,
+          "align_words must work with everything else down")
+
+    cp = open(os.path.join(ROOT, "channels", "betrayal_deepdive",
+                           "clinical_pipeline.py")).read()
+    check("the pipeline actually calls both caption backups",
+          "_local_whisper_ass(" in cp and "_aligned_ass(" in cp,
+          "a backup that is never called is not a backup")
+
     # ── everything the workflow itself will check ──────────────────
     # This tool said "Ready for a real run" and the run then died in 90
     # seconds on a check this tool never ran. A pre-flight that clears work
     # the real gate rejects is worse than no pre-flight, because it is
     # trusted. So the workflow's own gates run here too, by invoking the
     # exact same commands rather than a reimplementation of them.
-    import subprocess
     for label, cmd in (
         ("defect-class scan (workflow gate)",
          [sys.executable, os.path.join(ROOT, "tools", "defect_classes.py"), "--check"]),
+        # "There should be three to four backups for each of the stages."
+        # Checked here so a route cannot be deleted or renamed and quietly
+        # take a stage back down to one.
+        ("every stage has 3+ independent routes",
+         [sys.executable, os.path.join(ROOT, "tools", "stage_backups.py")]),
     ):
         if not os.path.exists(cmd[1]):
             continue

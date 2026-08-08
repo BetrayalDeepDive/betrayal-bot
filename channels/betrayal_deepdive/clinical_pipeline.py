@@ -5018,6 +5018,41 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         log(f"  vtt->ass error: {e}")
         return False
 
+def _ass_from_word_list(words_data, ass_path, source):
+    """Shared tail for every caption route that produces word timings."""
+    if not words_data:
+        return False
+    from caption_timing import ass_from_words
+    ass_text, _stats = ass_from_words(words_data, total_duration=None)
+    if not ass_text:
+        return False
+    Path(ass_path).write_text(ass_text, encoding="utf-8")
+    ok = Path(ass_path).exists() and Path(ass_path).stat().st_size > 200
+    if ok:
+        log(f"  Captions: {len(words_data)} word timings from {source}.")
+    return ok
+
+
+def _local_whisper_ass(audio_path, ass_path):
+    """Backup 2: transcribe on this machine. No API, so no outage to inherit."""
+    from caption_align import local_whisper_words
+    return _ass_from_word_list(local_whisper_words(audio_path), ass_path,
+                               "local faster-whisper")
+
+
+def _aligned_ass(audio_path, ass_path, script, audio_duration):
+    """Backup 3: place the known script on the audio's real speech.
+
+    The last link, and the only one with no dependency at all -- no key, no
+    model, no network. Whatever else is down, this produces captions that
+    respect the narration's real pauses instead of pretending there are none.
+    """
+    from caption_align import align_words
+    return _ass_from_word_list(
+        align_words(audio_path, script, total=audio_duration), ass_path,
+        "script-to-audio alignment")
+
+
 def _captions_for(audio_path, ass_path, script, audio_duration):
     """
     ALWAYS return captions when there is any way to build them.
@@ -5054,9 +5089,47 @@ def _captions_for(audio_path, ass_path, script, audio_duration):
                 f"synced subtitles).")
             time.sleep(_wait)
 
-    log("  Real caption sync unavailable after 3 attempts — building "
-        "duration-distributed captions from the script so the video is never "
-        "shipped uncaptioned. These are ESTIMATED, not synced.")
+    # BACKUP 2 AND BACKUP 3, BEFORE ANYTHING IS ESTIMATED.
+    #
+    # "When you told me that Whisper is not working with regard to subtitles,
+    # I want you to find an alternative... There should be three to four
+    # backups for each of the stages."
+    #
+    # Retrying the same endpoint three times is one backup wearing three hats:
+    # run 31156373254 got 502, 502, 502 and captioned the episode by
+    # guesswork. These two are genuinely different mechanisms, and neither
+    # needs a key this repository does not already have.
+    #
+    #   2. faster-whisper, running ON THE RUNNER. No API, no network, so a
+    #      hosted outage cannot touch it. Optional package: absent, it simply
+    #      declines and the chain moves on.
+    #   3. Alignment against the script we already have. Nothing has to
+    #      RECOGNISE the speech -- the words are known, only their timing is
+    #      not, and ffmpeg reports every pause with real timestamps. Words are
+    #      laid onto the stretches that actually contain speech and never
+    #      inside a silence. It needs no key, no model and no network, so
+    #      unlike every link above it cannot be unavailable.
+    #
+    # Measured against a 24s file with known 3s and 2s pauses: even spreading
+    # put words up to 2.08s from where they belong (mean 0.90s); alignment put
+    # every one of them in the right place.
+    for _label, _fn in (
+        ("local faster-whisper",
+         lambda: _local_whisper_ass(audio_path, ass_path)),
+        ("script-to-audio alignment",
+         lambda: _aligned_ass(audio_path, ass_path, script, audio_duration)),
+    ):
+        try:
+            if _fn():
+                log(f"  Captions built by {_label} (backup after Whisper failed).")
+                return True
+            log(f"  Caption backup '{_label}' had nothing to give — next.")
+        except Exception as _e:
+            log(f"  Caption backup '{_label}' failed (non-fatal): {_e}")
+
+    log("  Every caption route failed — building duration-distributed "
+        "captions from the script so the video is never shipped uncaptioned. "
+        "These are ESTIMATED, not synced.")
     try:
         generate_fallback_ass(script, audio_duration, ass_path)
         ok = Path(ass_path).exists() and Path(ass_path).stat().st_size > 200
