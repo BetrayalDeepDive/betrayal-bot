@@ -602,6 +602,47 @@ def main():
           _pi > 0 and _es > 0 and _pi < _es,
           "a rate limit must not cost the channel its voice")
 
+    # ── on-screen labels are complete thoughts ─────────────────────
+    # Two renderers built their label by taking the first N words of whatever
+    # narration sat under the segment. Segments are cut to fit a visual's
+    # duration, not to sentence boundaries, so the result began and ended
+    # mid-thought and then sat on screen for ten seconds. A real one from the
+    # delivered episode: "lasted three days. She worked as a high-school
+    # history" -- nine words, two half-sentences.
+    import screen_text as _st
+
+    _REAL = ("lasted three days. She worked as a high-school history teacher "
+             "and took no medications beyond an occasional ibuprofen for "
+             "tension headaches.")
+    _lab = _st.caption_label(_REAL, max_words=9)
+    check("the exact fragment from the episode is gone",
+          _lab and not _lab.startswith("lasted three days"),
+          "was 'lasted three days. She worked as a high-school history' -> now %r"
+          % _lab)
+    check("a label never opens mid-sentence",
+          _lab and (_lab[0].isupper() or _lab[0].isdigit()),
+          "a lowercase opening is the tail of a sentence the viewer missed")
+    check("a label never opens on a conjunction",
+          _st.caption_label("and took no medications beyond an occasional "
+                            "ibuprofen for headaches.").split()[0].lower()
+          not in ("and", "but", "or", "so"),
+          "'and took no medications...' reads as a rendering fault")
+    check("a label never ends on a dangling word",
+          not _st.caption_label(
+              "She was thirty-four years old, and she had been well on the "
+              "Tuesday.").rstrip("…").split()[-1].lower()
+          in ("and", "the", "a", "of", "had", "been"),
+          "a trailing 'and' promises a word that never comes")
+    check("nothing usable yields no label rather than a broken one",
+          _st.caption_label("Under treatment.") == "",
+          "two words is not a thought; drawing nothing is better")
+
+    for _mod, _bad in (("medical_anatomy_motion.py", "split()[:9]"),
+                       ("kinetic_text.py", "quote.split()[:12]")):
+        _msrc = open(os.path.join(ROOT, "video_pipeline", _mod)).read()
+        check("%s no longer slices raw words" % _mod, _bad not in _msrc,
+              "slicing narration by word count is the bug itself")
+
     # ── the review gates actually open ─────────────────────────────
     # Run 31257986626: all six gates returned budget-exhausted having waited
     # zero seconds, so nothing was ever reviewed. The cause was comparing

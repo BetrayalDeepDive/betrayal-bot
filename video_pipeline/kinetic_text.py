@@ -13,6 +13,15 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import subprocess
 
+# Guarded: this module is imported by every channel's pipeline, and several of
+# them do not put video_pipeline on sys.path the same way. A missing helper
+# must degrade to the previous behaviour, never break an unrelated channel's
+# render.
+try:
+    import screen_text as _screen_text
+except Exception:                                   # pragma: no cover
+    _screen_text = None
+
 W, H = 1280, 720
 FPS = 24
 
@@ -54,8 +63,14 @@ def generate_text_segment(niche_name, segment_text, text_overlay, duration, seg_
     """
     accent = NICHE_ACCENT.get(niche_name, NICHE_ACCENT["dark_horror"])
     bg = NICHE_BG.get(niche_name, NICHE_BG["dark_horror"])
+    # Same fault as the anatomy card: slicing the first twelve words off a
+    # segment that began mid-sentence put a fragment on screen, one word at a
+    # time, as the whole point of the shot. Prefer a complete thought; fall
+    # back to the raw quote rather than to "..." , because a kinetic-TEXT
+    # segment with no text is a blank shot.
     quote = _extract_quote(text_overlay or segment_text or "")
-    words = quote.split()[:12] or ["..."]
+    _clean = _screen_text.caption_label(quote, max_words=12) if _screen_text else ""
+    words = (_clean or quote).split()[:12] or ["..."]
 
     n_frames = max(1, int(round(duration * fps)))
     tmp_dir = Path(output_path).parent / f"text_{seg_index}"

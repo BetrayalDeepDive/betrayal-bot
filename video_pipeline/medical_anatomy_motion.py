@@ -44,6 +44,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 import clinical_anatomy as ca
 import medical_figure_render as mfr
+import screen_text as st
 
 W, H = 1920, 1080
 FPS = 12          # a diagram does not need 24; halving the frames halves the
@@ -183,7 +184,15 @@ def render_anatomy_motion(case, segment_text, out_path, duration, work_dir,
     frames = max(8, int(duration * FPS))
     work = Path(work_dir) / f"anim_{abs(hash((shape, motion, frames))) % 99999}"
     work.mkdir(parents=True, exist_ok=True)
-    sub = " ".join((segment_text or "").split()[:9])
+    # NOT the first nine words of the narration.
+    #
+    # Segments are cut to fit a visual's duration, not to sentence boundaries,
+    # so slicing words off the front produced labels that began and ended
+    # mid-thought and then sat on screen for ten seconds. A real one:
+    # "lasted three days. She worked as a high-school history". An empty
+    # string here draws no label at all, which is the right outcome when the
+    # segment has no complete thought to show.
+    sub = st.caption_label(segment_text, max_words=9)
     cit = mfr.short_credit(case.get("citation", "")) if hasattr(mfr, "short_credit") else ""
     for i in range(frames):
         t = i / max(1, frames - 1)
