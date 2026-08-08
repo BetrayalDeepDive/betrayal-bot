@@ -112,8 +112,22 @@ def score_audio_quality(audio_path, audio_duration, script_word_count, voice_use
         # to the generic 7.0 default, unfairly under-scoring it relative
         # to edge-tts (9.0) even though it's now the intended primary
         # voice and rates as more natural-sounding in practice.
-        "elevenlabs": 10.0, "kokoro": 9.5, "edge-tts": 9.0, "fish-audio": 8.5,
-        "gtts-fallback": 4.0, "espeak-offline-lastresort": 1.5,
+        # Piper is a real neural TTS running locally on the runner, no key and
+        # no account. It is placed between Fish Audio and edge-tts: clearly a
+        # neural voice rather than a synthesiser, clearly not as natural as
+        # Kokoro, which stays the intended primary.
+        #
+        # It is here because of what the rest of this table implies. The gate
+        # is 8.5 and this tier is 40% of the score, so the best a route can
+        # ever reach is tier*0.4 + 6.0. That puts gTTS at 7.6 and espeak at
+        # 6.6: BOTH ARE UNPUBLISHABLE NO MATTER HOW PERFECT THE FILE IS. The
+        # backup inventory counted four narration routes and two of them could
+        # never ship an episode. With no API keys set the real count was two,
+        # Kokoro and edge-tts, and losing both meant no episode at all. Piper
+        # makes it three that can actually publish without a key.
+        "elevenlabs": 10.0, "kokoro": 9.5, "edge-tts": 9.0, "piper": 8.7,
+        "fish-audio": 8.5, "gtts-fallback": 4.0,
+        "espeak-offline-lastresort": 1.5,
     }
     voice_key = (voice_used or "").lower()
     tier_score = next((v for k, v in tier_scores.items() if k in voice_key), 7.0)

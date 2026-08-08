@@ -6012,6 +6012,47 @@ def run_audio_stage(script, niche_name, edge_voice):
         elif not fallback_ok:
             log("  FISH_AUDIO_API_KEY not set — skipping Fish Audio backup")
 
+        # PIPER — THE THIRD ROUTE THAT CAN ACTUALLY PUBLISH.
+        #
+        # It goes ABOVE gTTS and espeak because it is the last tier that can
+        # produce an episode at all. Work the gate arithmetic: the voice tier
+        # is 40% of the audio score against an 8.5 gate, so a route's ceiling
+        # is tier*0.4 + 6.0. gTTS tops out at 7.6 and espeak at 6.6 -- neither
+        # can EVER pass, however clean the file is. Everything below this line
+        # is therefore a draft, not a fallback.
+        #
+        # Which meant that with no API keys, narration really had two routes
+        # that could ship, Kokoro and edge-tts, while the inventory claimed
+        # four. Piper is neural, runs entirely on the runner, and needs no key
+        # or account, so it is a genuine third -- and unlike edge-tts it does
+        # not depend on anyone's endpoint staying up.
+        if not fallback_ok:
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parents[2]
+                                       / "video_pipeline"))
+                import piper_tts as _piper
+                # Pass the pace the AUDIO GATE measures against, not a
+                # length_scale. Piper's own default runs at 248 wpm against
+                # this channel's 100, which scores 1.0 on duration and fails
+                # the gate on every attempt however good the voice sounds.
+                # piper_tts converts the gate's number into a stretch and a
+                # sentence pause, and measures what it actually got.
+                if _piper.synthesize(script_clean, audio_path,
+                                     edge_voice=edge_voice,
+                                     target_wpm=_piper.target_for(
+                                         CLINICAL_NARRATION_WPM),
+                                     log=log):
+                    log(f"  ACCEPTED: Piper (local neural) | "
+                        f"{Path(audio_path).stat().st_size/1024/1024:.1f}MB")
+                    tg("⚠️ Ch1: Kokoro and edge-tts both failed today — narrated "
+                       "with Piper, a local neural voice. Publishable, but the "
+                       "accent may differ from the usual cast. Check provider "
+                       "status.")
+                    fallback_ok = True
+                    edge_voice = "piper-local"
+            except Exception as e:
+                log(f"  Piper backup failed: {e}")
+
         if not fallback_ok:
             try:
                 from gtts import gTTS
@@ -6054,8 +6095,16 @@ def run_audio_stage(script, niche_name, edge_voice):
                     subprocess.run(["ffmpeg","-y","-i",wav,audio_path], capture_output=True, timeout=60)
                     if Path(audio_path).exists():
                         log(f"  ACCEPTED: offline espeak-ng (LAST RESORT) | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
-                        tg("🚨 Ch1: ALL providers failed today (edge-tts, Fish Audio, gTTS) — used OFFLINE "
-                           "robotic voice as last resort so the video still published. Check provider status urgently.")
+                        # The old wording here said this "still published".
+                        # It does not, and it never did: espeak's ceiling on
+                        # the audio gate is 6.6 against an 8.5 floor, so this
+                        # file exists only so the run has something to measure
+                        # and report. Saying otherwise sent exactly the wrong
+                        # signal on the one day it mattered.
+                        tg("🚨 Ch1: EVERY publishable voice failed today (Kokoro, edge-tts, "
+                           "Fish Audio, Piper). Fell through to the offline robotic voice, "
+                           "which CANNOT pass the 8.5 audio gate — so today's episode will "
+                           "be skipped, not published. Check provider status urgently.")
                         fallback_ok = True
                         edge_voice = "espeak-offline-LASTRESORT"
             except Exception as e:
@@ -6109,10 +6158,12 @@ def run_audio_stage(script, niche_name, edge_voice):
         tool_used = "Kokoro (local)"
     elif edge_voice == "fish-audio-backup":
         tool_used = "Fish Audio"
+    elif edge_voice == "piper-local":
+        tool_used = "Piper (local neural)"
     elif edge_voice == "gtts-fallback":
-        tool_used = "gTTS"
+        tool_used = "gTTS (draft only — cannot pass the gate)"
     elif edge_voice == "espeak-offline-LASTRESORT":
-        tool_used = "espeak (offline, last resort)"
+        tool_used = "espeak (draft only — cannot pass the gate)"
     elif el_ok:
         tool_used = "ElevenLabs"
     else:

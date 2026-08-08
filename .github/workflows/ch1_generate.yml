@@ -208,6 +208,21 @@ jobs:
           # None when the package is missing and the chain moves to the
           # script-alignment backup, so a failed install must not fail the job.
           pip install faster-whisper -q || echo "faster-whisper unavailable; caption backup 3 still applies"
+          # Narration backup 3: a neural voice that runs HERE.
+          #
+          # Counting only the routes that can actually clear the 8.5 audio
+          # gate, narration had TWO -- Kokoro and edge-tts. gTTS and espeak
+          # were listed as backups but their ceilings are 7.6 and 6.6, so
+          # neither can ever ship an episode. Lose Kokoro's weights and
+          # Microsoft's endpoint on the same day and there was no episode.
+          # Piper is neural, needs no key and no network at synthesis time,
+          # and its voice model comes from GitHub releases rather than the
+          # HuggingFace host Kokoro depends on -- so it fails independently
+          # of the tier above it, which is the whole point of a backup.
+          # Optional on purpose: piper_tts.synthesize() returns None when the
+          # package is missing and the chain moves on, so a failed install
+          # must not fail the job.
+          pip install piper-tts onnxruntime -q || echo "piper unavailable; narration falls back to the tiers above"
 
       # PREFLIGHT: catch NameErrors before spending hours of compute.
       #

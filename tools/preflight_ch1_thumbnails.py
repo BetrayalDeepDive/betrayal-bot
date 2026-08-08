@@ -484,6 +484,81 @@ def main():
             check("the bed is audible under the narration", False,
                   "could not measure the mix: %s" % _e)
 
+    # ── the narration has three routes that can actually publish ───
+    # The audio gate scores the voice tier at 40% against an 8.5 floor, so a
+    # route's ceiling is tier*0.4 + 6.0. By that arithmetic gTTS (7.6) and
+    # espeak (6.6) can NEVER ship an episode, which meant the four listed
+    # narration backups were really two. These assert the arithmetic itself,
+    # so the day someone retunes a tier weight the consequence is visible.
+    import piper_tts as _pt
+
+    _src_qs = open(os.path.join(ROOT, "video_pipeline",
+                                "quality_scoring.py")).read()
+    _tiers = re.findall(r'"([a-z0-9\-]+)":\s*([\d.]+)[,\s]', _src_qs)
+    _tier = {k: float(v) for k, v in _tiers}
+    _GATE = 8.5
+
+    def _ceiling(name):
+        return _tier.get(name, 0.0) * 0.40 + 10 * 0.25 + 10 * 0.20 + 10 * 0.15
+
+    _keyfree = ("kokoro", "edge-tts", "piper")
+    _can = [n for n in _keyfree if _ceiling(n) >= _GATE]
+    check("three key-free voices can clear the audio gate", len(_can) >= 3,
+          "%d of %d: %s" % (len(_can), len(_keyfree),
+                            ", ".join("%s %.1f" % (n, _ceiling(n))
+                                      for n in _keyfree)))
+    check("the draft-only voices really are unpublishable",
+          _ceiling("gtts-fallback") < _GATE
+          and _ceiling("espeak-offline-lastresort") < _GATE,
+          "gTTS %.1f, espeak %.1f — both must stay under %.1f"
+          % (_ceiling("gtts-fallback"),
+             _ceiling("espeak-offline-lastresort"), _GATE))
+
+    # Piper must be reached BEFORE the two routes that cannot publish, or it
+    # never runs on the day it is needed.
+    _pi, _gt = _cp.find("import piper_tts"), _cp.find("from gtts import gTTS")
+    check("Piper is tried before the draft-only voices",
+          _pi > 0 and _gt > 0 and _pi < _gt,
+          "a publishable route below an unpublishable one never runs")
+
+    check("Piper narrates in the gender the episode was cast for",
+          _pt.gender_of("en-GB-SoniaNeural") == "female"
+          and _pt.gender_of("en-GB-RyanNeural") == "male",
+          "a voice swap mid-catalogue reads as a different narrator")
+
+    # PACE DECIDES WHETHER THIS ROUTE WORKS AT ALL.
+    #
+    # Piper's own default is 248 wpm against this channel's 100. Left alone a
+    # real script measured 235 wpm -- ratio 0.42, duration scores 1.0, total
+    # 7.2 against an 8.5 gate. The voice sounds fine and the episode is
+    # rejected every single time: a backup that looks wired up and can never
+    # fire. These assert the conversion still happens and still lands in the
+    # gate's top band.
+    check("Piper is given the gate's pace, not a raw stretch",
+          "target_wpm=_piper.target_for(" in _cp
+          and "CLINICAL_NARRATION_WPM" in _cp,
+          "248 wpm against a 100 wpm yardstick fails on duration forever")
+
+    _t = _pt.target_for(100.0)
+    _ratio = 100.0 / _t
+    check("Piper's target lands in the gate's full-marks band",
+          0.85 <= _ratio <= 1.15,
+          "targets %.0f wpm -> ratio %.2f (needs 0.85-1.15 for 10/10)"
+          % (_t, _ratio))
+
+    # And the arithmetic all the way through to a real score.
+    _best = _tier.get("piper", 0.0) * 0.40 + 10 * 0.25 + 10 * 0.20 + 10 * 0.15
+    _real = _tier.get("piper", 0.0) * 0.40 + 10 * 0.25 + 8 * 0.20 + 10 * 0.15
+    check("Piper clears the gate with room for an imperfect file",
+          _real >= _GATE,
+          "%.1f with a silence penalty applied (ceiling %.1f, gate %.1f)"
+          % (_real, _best, _GATE))
+
+    _wf = open(os.path.join(ROOT, ".github", "workflows",
+                            "ch1_generate.yml")).read()
+    check("the runner installs Piper", "piper-tts" in _wf,
+          "a route the runner cannot import is not a route")
+
     # ── the picture matches the sentence it sits under ─────────────
     # The library was already tagged and nothing was reading the narration
     # against it: SCENE rotated through twelve fixed phrases indexed by the

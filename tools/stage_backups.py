@@ -49,15 +49,30 @@ STAGES = [
         ("OpenRouter", "OPENROUTER_API_KEY",
          ("channels/betrayal_deepdive/clinical_pipeline.py", "OpenRouter")),
     ]),
+    # A ROUTE THAT CANNOT PASS THE GATE IS NOT A BACKUP.
+    #
+    # This stage read "4 route(s) OK" for months and it was not true. The audio
+    # gate scores the voice tier at 40% against an 8.5 floor, so a route's best
+    # possible score is tier*0.4 + 6.0 -- gTTS tops out at 7.6 and espeak at
+    # 6.6. Neither can ever produce a publishable episode, however clean the
+    # file is. Counting them was counting a spare wheel that does not fit.
+    #
+    # With no API keys set the honest count was TWO: Kokoro and edge-tts. Piper
+    # is the third, and it is the only one besides Kokoro that needs no network
+    # at all.
     ("Narration audio", [
         ("Kokoro (local, on the runner)", "nothing — runs here",
          ("channels/betrayal_deepdive/clinical_pipeline.py", "run_audio_with_kokoro")),
         ("edge-tts SSML", "Microsoft's public endpoint",
          ("channels/betrayal_deepdive/clinical_pipeline.py", "edge-tts")),
+        ("Piper (local neural)", "nothing — runs here",
+         ("video_pipeline/piper_tts.py", "def synthesize(")),
+        ("Fish Audio", "FISH_AUDIO_API_KEY",
+         ("channels/betrayal_deepdive/clinical_pipeline.py", "api.fish.audio")),
         ("gTTS", "Google's public endpoint",
-         ("channels/betrayal_deepdive/clinical_pipeline.py", "gTTS")),
+         ("channels/betrayal_deepdive/clinical_pipeline.py", "gTTS"), "draft"),
         ("espeak-ng (local)", "nothing — runs here",
-         ("channels/betrayal_deepdive/clinical_pipeline.py", "espeak")),
+         ("channels/betrayal_deepdive/clinical_pipeline.py", "espeak"), "draft"),
     ]),
     ("Subtitles", [
         ("Groq Whisper, retried", "GROQ_API_KEY",
@@ -123,19 +138,25 @@ def main():
     failed = []
     for stage, routes in STAGES:
         live = []
-        for name, needs, (path, token) in routes:
+        for route in routes:
+            name, needs, (path, token) = route[0], route[1], route[2]
+            # A 4th element marks the route DRAFT-ONLY: it produces a file, but
+            # that file can never clear the stage's own quality gate, so it
+            # cannot rescue a day and must not be counted as a backup.
+            draft = len(route) > 3 and route[3] == "draft"
             full = os.path.join(ROOT, path)
             try:
                 present = token in open(full, encoding="utf-8").read()
             except Exception:
                 present = False
-            live.append((present, name, needs))
-        n = sum(1 for ok, _, _ in live if ok)
+            live.append((present, name, needs, draft))
+        n = sum(1 for ok, _, _, draft in live if ok and not draft)
         flag = "OK  " if n >= MIN_ROUTES else "THIN"
-        print("\n  %s  %-28s %d route(s)" % (flag, stage, n))
-        for ok, name, needs in live:
-            print("        %s %-34s needs: %s"
-                  % ("+" if ok else "-", name, needs))
+        print("\n  %s  %-28s %d publishable route(s)" % (flag, stage, n))
+        for ok, name, needs, draft in live:
+            print("        %s %-34s needs: %s%s"
+                  % ("+" if ok else "-", name, needs,
+                     "   [DRAFT ONLY — cannot pass the gate]" if draft else ""))
         if n < MIN_ROUTES:
             failed.append((stage, n))
 
