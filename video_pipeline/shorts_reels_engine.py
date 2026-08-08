@@ -984,10 +984,31 @@ def _split_into_tts_chunks(script, max_chars=180):
     return chunks
 
 
+# WHICH VOICE ACTUALLY SPOKE. THE SCORER HAD NO IDEA.
+#
+# Run 31257986626: Groq returned 429 on chunk 6 of standalone_2, this file
+# fell through to espeak, and the Short scored 9.3/10 and published to
+# YouTube -- because the audio component of the score was "the file exists
+# and is over 500KB", which a synthesiser satisfies exactly as well as a
+# neural voice. A robotic Short went live on the channel.
+#
+# The main narration path already refuses to publish espeak: its gate weights
+# the voice tier at 40%, so espeak's ceiling is 6.6 against an 8.5 floor.
+# Shorts had no equivalent, so the same fallback had opposite consequences
+# depending on which pipeline reached it. This records the route so the
+# scorer can apply the same rule.
+LAST_TTS_ROUTE = "none"
+
+# Routes that must never reach the audience. Not a quality opinion -- a
+# formant synthesiser is recognisably not a person, and the whole channel
+# rests on sounding like one.
+DRAFT_ONLY_ROUTES = ("espeak",)
+
+
 def generate_audio(script: str, voice: dict, output_path: str) -> bool:
     """
     Generate audio via Groq Orpheus with emotional tags.
-    Falls back to espeak-ng if Groq unavailable.
+    Falls back to Piper (local neural), then espeak-ng as a last resort.
     Applies audio enhancement: noise reduction + normalization.
 
     FIX (critical, confirmed directly against Groq's own documentation):
@@ -1066,12 +1087,43 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
             if result.returncode == 0 and os.path.exists(output_path):
                 log.info("Audio: Groq Orpheus %s (%s), %d real chunks ✅", voice_id, voice.get("accent",""), len(chunks))
                 os.remove(wav_path)
+                globals()["LAST_TTS_ROUTE"] = "groq-orpheus"
                 return True
         except Exception as e:
             log.warning("Groq TTS failed: %s", e)
 
-    # espeak-ng fallback
-    log.info("Using espeak-ng fallback")
+    # PIPER BEFORE THE SYNTHESISER.
+    #
+    # Groq's failure here was a 429 -- a rate limit, not an outage -- and a
+    # rate limit is the single most likely way this path ever fires. Dropping
+    # straight from a neural voice to a formant synthesiser because a quota
+    # ticked over is a huge quality cliff for a trivial cause. Piper runs on
+    # the runner, needs no key and no quota, and sounds like a person.
+    #
+    # Shorts are narrated faster than the main episode: they have 60 seconds
+    # to land a whole story, so the pace target is the Shorts' own, not the
+    # documentary's 100 wpm.
+    try:
+        # `sys` is not imported at module level in this file (only inside one
+        # function far below), so importing it here is deliberate rather than
+        # redundant — relying on the global would be a NameError the moment
+        # Groq rate-limits, which is exactly when this path runs.
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import piper_tts as _piper
+        _gender = voice.get("gender", "male")
+        _edge_hint = "en-GB-SoniaNeural" if _gender == "female" else "en-GB-RyanNeural"
+        if _piper.synthesize(script[:4000], output_path, edge_voice=_edge_hint,
+                             target_wpm=150.0, log=lambda m: log.info("%s", m)):
+            log.info("Audio: Piper local neural (%s) ✅", _gender)
+            globals()["LAST_TTS_ROUTE"] = "piper"
+            return True
+    except Exception as e:
+        log.warning("Piper fallback failed: %s", e)
+
+    # espeak-ng — DRAFT ONLY. The scorer refuses to pass this route, so a
+    # Short that reaches here is rebuilt or dropped, never published.
+    log.info("Using espeak-ng fallback (draft only — cannot pass the gate)")
     try:
         # Select espeak voice for accent
         accent = voice.get("accent", "US")
@@ -1104,7 +1156,8 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
                 "-codec:a", "libmp3lame", "-b:a", "128k", output_path
             ], capture_output=True)
             os.remove(raw_wav)
-            log.info("Audio: espeak-ng fallback ✅")
+            log.info("Audio: espeak-ng fallback (DRAFT ONLY — will not pass the gate)")
+            globals()["LAST_TTS_ROUTE"] = "espeak"
             return os.path.exists(output_path)
     except Exception as e:
         log.error("All TTS failed: %s", e)
@@ -1692,8 +1745,23 @@ def score_final_video(video_path: str, script: str, title: str,
     hook_hits = sum(1 for w in shock_words if w in script[:100].lower())
     scores["script"] = min(2.0, hook_hits * 0.5 + 1.0)
 
-    # 2. Audio quality (verified file exists + size)
-    if os.path.exists(video_path) and os.path.getsize(video_path) > 500000:
+    # 2. Audio quality — WHICH VOICE, not just whether a file exists.
+    #
+    # This was "the file exists and is over 500KB" and nothing else, which a
+    # formant synthesiser satisfies exactly as well as a neural voice. On run
+    # 31257986626 Groq hit a 429, the chain fell to espeak, and the Short
+    # scored 9.3/10 and published: a robotic Short live on the channel with
+    # every component reporting healthy.
+    #
+    # A draft-only route now zeroes this component AND forces the overall
+    # verdict to fail below, so no combination of a great script, perfect
+    # subtitles and an ideal length can carry a synthesised voice past the
+    # gate. That is the same rule the main narration path already applies.
+    _route = globals().get("LAST_TTS_ROUTE", "none")
+    _draft_voice = _route in DRAFT_ONLY_ROUTES
+    if _draft_voice:
+        scores["audio"] = 0.0
+    elif os.path.exists(video_path) and os.path.getsize(video_path) > 500000:
         scores["audio"] = 2.0
     else:
         scores["audio"] = 0.5
@@ -1726,7 +1794,16 @@ def score_final_video(video_path: str, script: str, title: str,
     # thumbnail bonus can total more than ten.
     total = round(min(10.0, max(0.0, sum(scores.values()))), 1)
     scores["total"] = total
-    scores["passed"] = total >= QUALITY_MIN
+    scores["voice_route"] = _route
+    # A draft-only voice is disqualifying on its own, not merely expensive.
+    # Zeroing the audio component is not enough by itself: the remaining
+    # components top out high enough that a strong script could still scrape
+    # the floor, which is exactly the arithmetic that let 9.3/10 publish.
+    scores["passed"] = total >= QUALITY_MIN and not _draft_voice
+    if _draft_voice:
+        scores["blocked_reason"] = (
+            "narrated by %s, a draft-only voice — rebuild or drop, never publish"
+            % _route)
     return scores
 
 

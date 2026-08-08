@@ -559,6 +559,49 @@ def main():
     check("the runner installs Piper", "piper-tts" in _wf,
           "a route the runner cannot import is not a route")
 
+    # ── the SHORTS have their own voice chain, and it published a robot ──
+    # Run 31257986626: Groq returned 429 on one chunk, the Shorts engine fell
+    # to espeak, and the Short scored 9.3/10 and went live on the channel --
+    # because its audio component was "the file exists and is over 500KB",
+    # which a synthesiser satisfies as well as a neural voice. The main
+    # narration path already refused espeak; this one had no equivalent, so
+    # the same fallback had opposite consequences depending on which pipeline
+    # reached it. These assert the rule now applies on both sides.
+    import shorts_reels_engine as _sre
+
+    _fake = os.path.join(work, "fake_short.mp4")
+    with open(_fake, "wb") as _fh:
+        _fh.write(b"\0" * 900000)          # comfortably over the size check
+    _t, _s = "THE PATIENT NOBODY COULD EXPLAIN", "Shocking. Nobody could explain it. "
+
+    _saved = getattr(_sre, "LAST_TTS_ROUTE", "none")
+    try:
+        _sre.LAST_TTS_ROUTE = "espeak"
+        _bad = _sre.score_final_video(_fake, _s, _t, True, True, "betrayal_deepdive")
+        _sre.LAST_TTS_ROUTE = "groq-orpheus"
+        _good = _sre.score_final_video(_fake, _s, _t, True, True, "betrayal_deepdive")
+    finally:
+        _sre.LAST_TTS_ROUTE = _saved
+
+    check("a robot-voiced Short cannot pass its gate", not _bad["passed"],
+          "espeak scored %.1f, audio component %.1f — %s"
+          % (_bad["total"], _bad["audio"], _bad.get("blocked_reason", "")))
+    check("a real voice still scores full marks on audio",
+          _good["audio"] == 2.0 and _good["total"] > _bad["total"],
+          "%.1f vs %.1f — the block must be the VOICE, not a blanket penalty"
+          % (_good["total"], _bad["total"]))
+    check("the Shorts engine records which voice spoke",
+          "LAST_TTS_ROUTE" in open(os.path.join(
+              ROOT, "video_pipeline", "shorts_reels_engine.py")).read(),
+          "a scorer that cannot see the route cannot judge it")
+
+    _sresrc = open(os.path.join(ROOT, "video_pipeline",
+                                "shorts_reels_engine.py")).read()
+    _pi, _es = _sresrc.find("import piper_tts"), _sresrc.find("espeak-ng fallback")
+    check("Shorts reach Piper before the synthesiser",
+          _pi > 0 and _es > 0 and _pi < _es,
+          "a rate limit must not cost the channel its voice")
+
     # ── the picture matches the sentence it sits under ─────────────
     # The library was already tagged and nothing was reading the narration
     # against it: SCENE rotated through twelve fixed phrases indexed by the
