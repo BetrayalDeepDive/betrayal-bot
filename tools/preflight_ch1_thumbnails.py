@@ -1103,6 +1103,45 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── the Community post fallback WAS the generic post ───────────
+    # score_community_post lists "what's your take" and "drop your theory"
+    # as generic filler. The fallback draft was exactly that sentence, and
+    # being the failure path it never faced the gate at all — so the one
+    # draft that could not pass was the one that shipped on a bad day.
+    import human_review_gate as _hrg
+    _filler = 'What\'s your take on "The 9cm mass"? Drop your theory below.'
+    _fs, _fi = _hrg.score_community_post(_filler, [], "an adrenal tumour case",
+                                         "The 9cm mass")
+    check("the old fallback post could never have passed the gate",
+          _fs < _hrg.COMMUNITY_POST_MIN,
+          "scored %.1f/10 against a %.1f bar" % (_fs, _hrg.COMMUNITY_POST_MIN))
+    check("no AI provider means no post, not filler",
+          _hrg.draft_community_post("a case", "niche", "T", None) == {},
+          "it used to return the filler above, ungated")
+    check("all attempts failing means no post, not filler",
+          _hrg.draft_community_post("a case", "niche", "T",
+                                    lambda *a, **k: None) == {},
+          "a skipped post costs one slot; a generic one is published")
+    _sig = __import__("inspect").signature(_hrg.review_community_tab).parameters
+    check("a below-bar draft can be flagged to the reviewer",
+          "below_bar" in _sig and "score" in _sig and "issues" in _sig,
+          "draft_community_post set below_bar and nothing could receive it")
+    _hrg_src = open(os.path.join(ROOT, "video_pipeline", "human_review_gate.py")).read()
+    check("the reviewer is told when a draft failed its gate",
+          "THIS DRAFT DID NOT PASS THE QUALITY GATE" in _hrg_src,
+          "being asked to publish it silently looks like it was checked")
+    for _ch, _p in (("Ch1", ("channels", "betrayal_deepdive", "clinical_pipeline.py")),
+                    ("Ch2", ("channels", "evidence_room", "evidence_room_pipeline.py")),
+                    ("Ch3", ("channels", "collapse_index", "collapse_index_pipeline.py")),
+                    ("Ch4", ("channels", "archive", "archive_pipeline.py")),
+                    ("Ch5", ("channels", "control_files", "control_files_pipeline.py"))):
+        _src = open(os.path.join(ROOT, *_p)).read()
+        if "draft_community_post" not in _src:
+            continue
+        check("%s survives an empty Community draft" % _ch,
+              'no draft worth posting' in _src and 'below_bar=_cp_draft.get' in _src,
+              "the shared drafter now returns {} — a bare [\"question\"] is a KeyError")
+
     # ── a paraphrase is still a retelling ──────────────────────────
     # The n-gram check alone was not enough and its own numbers said so:
     # three paraphrases of the same episode scored 1.8%, 0.0% and 0.0%

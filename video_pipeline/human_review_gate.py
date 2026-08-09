@@ -1519,17 +1519,29 @@ def draft_community_post(topic, niche_name, title, ai_fn):
     engagement question plus up to 4 poll options, grounded in the real
     episode topic rather than generic "what do you think?" filler.
 
-    Returns {"question": str, "options": [str, ...]}. Falls back to a
-    simple templated question (no options — a text-reply-style Community
-    post) if the AI call fails or returns something unusable, so this
-    checkpoint never blocks an episode on an AI provider outage.
+    Returns {"question": str, "options": [str, ...]}, or {} when there is
+    nothing worth posting.
+
+    THE FALLBACK WAS THE THING THE GATE EXISTS TO REJECT.
+    -----------------------------------------------------
+    What used to sit here, used whenever ai_fn was missing, the drafting
+    threw, or all thirteen attempts came back unparseable:
+
+        "What's your take on <title>? Drop your theory below."
+
+    score_community_post lists BOTH "what's your take" and "drop your
+    theory" in its GENERIC filler list. Scored against a real case it
+    returns 4.4/10 against a 7.5 bar. So the one draft that could never
+    clear the gate was also the only draft that never had to face it --
+    and being the failure path, it is what shipped precisely on the bad
+    days. That is the generic Community post being reported.
+
+    Nothing is a valid answer here. Unlike a video, this post is pasted by
+    hand, so a skipped episode costs one optional post; a generic one is
+    published under the channel's name and stays there.
     """
-    fallback = {
-        "question": f"What's your take on \"{title}\"? Drop your theory below.",
-        "options": [],
-    }
     if not ai_fn:
-        return fallback
+        return {}
 
     def _generate_once():
         raw = ai_fn(
@@ -1635,15 +1647,21 @@ No markdown, no extra commentary — just those lines.""",
                   f"review, flagged, rather than a template.")
             best["below_bar"] = True
             best["score"] = best_score
+            best["issues"] = best_issues[:3]
             return best
-        return fallback
-    except Exception:
-        return fallback
+        print("  Community post: nothing usable in "
+              f"{COMMUNITY_POST_ATTEMPTS} attempts — skipping the post rather "
+              "than sending generic filler to be published.")
+        return {}
+    except Exception as e:
+        print(f"  Community post drafting failed ({e}) — skipping.")
+        return {}
 
 
 def review_community_tab(channel_name, question, options, tg_token, tg_chat,
                           check_ins_used=0, gmail_sender=None, gmail_app_password=None,
-                          timeout_minutes=60):
+                          timeout_minutes=60, below_bar=False, score=None,
+                          issues=()):
     """
     THE COMMUNITY TAB CHECKPOINT.
 
@@ -1669,9 +1687,28 @@ def review_community_tab(channel_name, question, options, tg_token, tg_chat,
     """
     set_current_gate("community tab")
     schedule_line = get_schedule_line(check_ins_used)
-    lines = [f"📢 {channel_name} — COMMUNITY TAB POST\n\n{schedule_line}\n",
-             "Post this to the Community tab now:\n",
-             f"<b>{_esc(question)}</b>"]
+    lines = [f"📢 {channel_name} — COMMUNITY TAB POST\n\n{schedule_line}\n"]
+    # SAY SO WHEN THE DRAFT FAILED ITS OWN GATE.
+    #
+    # draft_community_post sets below_bar/score on a draft that never
+    # cleared COMMUNITY_POST_MIN, and this function never had a parameter
+    # to receive them -- the call site read "question" and "options" and
+    # dropped the rest. The reviewer was asked to publish a draft the
+    # pipeline had already judged inadequate, with nothing on screen
+    # saying so, which makes the flag worse than useless: it looks like
+    # the post was checked.
+    if below_bar:
+        _det = " (best of %d attempts: %s/10, bar %s)" % (
+            COMMUNITY_POST_ATTEMPTS,
+            score if score is not None else "?", COMMUNITY_POST_MIN)
+        lines.append("⚠️ <b>THIS DRAFT DID NOT PASS THE QUALITY GATE</b>"
+                     + _esc(_det))
+        if issues:
+            lines.append("Why: " + _esc("; ".join(str(i) for i in issues)))
+        lines.append("Post it only if you think it is good enough. "
+                     "SKIP is the safe choice.\n")
+    lines += ["Post this to the Community tab now:\n",
+              f"<b>{_esc(question)}</b>"]
     if options:
         lines.append("Poll options:")
         lines.extend(f"  {i+1}. {_esc(o)}" for i, o in enumerate(options))

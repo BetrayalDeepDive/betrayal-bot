@@ -12609,10 +12609,19 @@ def main():
                         topic, niche["name"], title,
                         lambda p, tokens=260, min_chars=100:
                             ai_generate(p, tokens=tokens, min_chars=min_chars))
-                    _cp_result = review_community_tab(
-                        "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
-                        check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
-                    log(f"  Community Tab: {_cp_result['decision']}")
+                    # An empty draft means nothing cleared the bar and the
+                    # generic-filler fallback is gone. Skip the post rather
+                    # than asking for a placeholder to be published.
+                    if not _cp_draft or not _cp_draft.get("question"):
+                        log("  Community Tab: no draft worth posting — skipped")
+                    else:
+                        _cp_result = review_community_tab(
+                            "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                            check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                            below_bar=_cp_draft.get("below_bar", False),
+                            score=_cp_draft.get("score"),
+                            issues=_cp_draft.get("issues", ()))
+                        log(f"  Community Tab: {_cp_result['decision']}")
                 except Exception as e:
                     log(f"  Community Tab checkpoint (non-fatal): {e}")
             except Exception as e:

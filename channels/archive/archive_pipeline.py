@@ -7845,17 +7845,25 @@ def main():
         from human_review_gate import draft_community_post, review_community_tab
         _cp_draft = draft_community_post(topic, niche["name"], title_str,
                                           lambda p, tokens=200: ai(p, tokens=tokens))
-        cp_result = review_community_tab(
-            "The Archive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
-            check_ins_used=check_ins_used, gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW)
-        # Either outcome ("posted" or "skip") advances past this
-        # checkpoint to DONE — skipping the Community post doesn't block
-        # the episode itself from completing, unlike a real content
-        # REJECT elsewhere in this state machine. The actual decision is
-        # still recorded in the queue's history via the feedback field.
-        cin = record_check_in(SCRIPT_DIR, "approve", cp_result["decision"])
-        check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
-        log(f"  Community Tab: {cp_result['decision']}")
+        # An empty draft means nothing cleared the quality bar. The
+        # generic-filler fallback is gone, so skip rather than ask for a
+        # placeholder to be published.
+        if not _cp_draft or not _cp_draft.get("question"):
+            log("  Community Tab: no draft worth posting — skipped")
+        else:
+            cp_result = review_community_tab(
+                "The Archive", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                check_ins_used=check_ins_used, gmail_sender=GMAIL_SENDER, gmail_app_password=GMAIL_APP_PW,
+                below_bar=_cp_draft.get("below_bar", False),
+                score=_cp_draft.get("score"), issues=_cp_draft.get("issues", ()))
+            # Either outcome ("posted" or "skip") advances past this
+            # checkpoint to DONE — skipping the Community post doesn't block
+            # the episode itself from completing, unlike a real content
+            # REJECT elsewhere in this state machine. The actual decision is
+            # still recorded in the queue's history via the feedback field.
+            cin = record_check_in(SCRIPT_DIR, "approve", cp_result["decision"])
+            check_ins_used = cin["state"]["check_ins_used"] if cin else check_ins_used + 1
+            log(f"  Community Tab: {cp_result['decision']}")
     except Exception as e:
         log(f"  Community Tab checkpoint (non-fatal): {e}")
 

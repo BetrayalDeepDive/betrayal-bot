@@ -8456,10 +8456,18 @@ def main():
                     from human_review_gate import draft_community_post, review_community_tab
                     _cp_draft = draft_community_post(topic, niche["name"], title,
                                                       lambda p, tokens=200: ai_generate(p, tokens=tokens))
-                    _cp_result = review_community_tab(
-                        "TheCollapseIndex", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
-                        check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
-                    log(f"  Community Tab: {_cp_result['decision']}")
+                    # An empty draft means nothing cleared the quality bar.
+                    # The generic-filler fallback is gone, so skip the post
+                    # instead of publishing a placeholder.
+                    if not _cp_draft or not _cp_draft.get("question"):
+                        log("  Community Tab: no draft worth posting — skipped")
+                    else:
+                        _cp_result = review_community_tab(
+                            "TheCollapseIndex", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                            check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                            below_bar=_cp_draft.get("below_bar", False),
+                            score=_cp_draft.get("score"), issues=_cp_draft.get("issues", ()))
+                        log(f"  Community Tab: {_cp_result['decision']}")
                 except Exception as e:
                     log(f"  Community Tab checkpoint (non-fatal): {e}")
             except Exception as e:
