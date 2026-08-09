@@ -1861,9 +1861,41 @@ def build_short_description(title, tags_str, cfg, topic_line=""):
     return "\n\n".join(p for p in parts if p)
 
 
+# NOTHING GOES PUBLIC FROM THE GENERATE PHASE.
+#
+# Run 31257986626 put four Shorts live on the channel during a workflow whose
+# own header reads "Phase 1: GENERATE only (no upload)". None had been
+# reviewed; one of them was narrated by espeak. privacyStatus was the string
+# "public", hardcoded, with no way to ask for anything else.
+#
+# The main video already does this correctly and has for months: it uploads
+# UNLISTED, a human approves it, and set_yt_privacy() flips it to public
+# without re-uploading. Shorts simply never joined that pattern.
+#
+# The default is now unlisted, and the phase decides. PHASE is set by the
+# workflow ("generate" / "upload"), so a Short built during generation is a
+# reviewable preview by construction rather than by remembering to pass a
+# flag. Getting it wrong now means a Short stays unlisted -- the safe
+# direction to fail in.
+# Every Short this run put on YouTube, so the upload phase can find them again
+# and flip the approved ones to public. Without this the previews would sit
+# unlisted forever with no record of what they were.
+UPLOADED_SHORTS = []
+
+
+def _default_short_privacy():
+    return "public" if os.environ.get("PHASE", "").lower() == "upload" \
+        else "unlisted"
+
+
 def upload_youtube_short(video_path: str, title: str, description: str,
-                          tags: list) -> str:
-    """Upload to YouTube as Short. Returns URL or ''."""
+                          tags: list, privacy: str = None) -> str:
+    """Upload to YouTube as Short. Returns URL or ''.
+
+    `privacy` defaults to unlisted during the generate phase so the Short can
+    be reviewed before anyone sees it.
+    """
+    privacy = privacy or _default_short_privacy()
     token = get_yt_token()
     if not token:
         return ""
@@ -1878,9 +1910,12 @@ def upload_youtube_short(video_path: str, title: str, description: str,
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus": "public",
+            "privacyStatus": privacy,
             "selfDeclaredMadeForKids": False,
-            "notifySubscribers": True,
+            # Only tell subscribers about something that is actually visible.
+            # A notification for an unlisted preview is a dead link in every
+            # subscriber's feed.
+            "notifySubscribers": privacy == "public",
             # The four long-form uploaders all set this explicitly; this one
             # simply omitted the field, which happens to mean the same thing
             # (not declared) but only by accident. Stating it makes Shorts
@@ -1922,7 +1957,13 @@ def upload_youtube_short(video_path: str, title: str, description: str,
 
     vid_id = ur.json()["id"]
     url = f"https://youtube.com/shorts/{vid_id}"
-    log.info("YouTube Short uploaded: %s", url)
+    # Say which it was. The old line read "YouTube Short uploaded: <url>" for a
+    # PUBLIC upload during a generate-only run, and nothing in the log
+    # distinguished that from a preview — which is why four live Shorts went
+    # unnoticed until they were watched.
+    log.info("YouTube Short uploaded [%s]: %s", privacy, url)
+    UPLOADED_SHORTS.append({"id": vid_id, "url": url, "privacy": privacy,
+                            "title": title})
 
     # Bridge the presentation format chosen at write time to the video id that
     # only exists now. Without this the CTR that YouTube Analytics reports for

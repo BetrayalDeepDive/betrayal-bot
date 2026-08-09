@@ -670,6 +670,39 @@ def main():
           "jump-scare flash" in _cps and "rgbashift" in _cps,
           "the treatment is not the text — only the text was removed")
 
+    # ── no Short goes public from a generate-only run ──────────────
+    # Run 31257986626 put four Shorts live on the channel during a workflow
+    # whose own header reads "Phase 1: GENERATE only (no upload)". None had
+    # been reviewed; one was narrated by espeak. privacyStatus was the literal
+    # string "public" with no way to ask for anything else, while the main
+    # video had been uploading unlisted-then-flipping for months.
+    _saved_phase = os.environ.get("PHASE")
+    try:
+        for _phase, _want in (("generate", "unlisted"), ("", "unlisted"),
+                              ("upload", "public")):
+            os.environ["PHASE"] = _phase
+            _got = _sre._default_short_privacy()
+            check("PHASE=%s uploads Shorts as %s" % (_phase or "(unset)", _want),
+                  _got == _want, "got %r" % _got)
+    finally:
+        if _saved_phase is None:
+            os.environ.pop("PHASE", None)
+        else:
+            os.environ["PHASE"] = _saved_phase
+
+    check("privacyStatus is never hardcoded public",
+          '"privacyStatus": "public"' not in _sresrc,
+          "a constant here is what put four unreviewed Shorts on the channel")
+    check("subscribers are only told about visible Shorts",
+          '"notifySubscribers": privacy == "public"' in _sresrc,
+          "a notification for an unlisted preview is a dead link in every feed")
+    check("the log says which privacy it used",
+          'uploaded [%s]' in _sresrc,
+          "'uploaded: <url>' read the same for a preview and a live video")
+    check("uploaded Shorts are recorded for the upload phase",
+          "UPLOADED_SHORTS" in _sresrc,
+          "previews with no record sit unlisted forever")
+
     # ── the series name on a card belongs to that episode's niche ──
     # Raised as a defect from a screenshot showing "THE AGEING FILES", then
     # withdrawn: that episode WAS senior_health_longevity, whose series is
