@@ -670,6 +670,27 @@ def main():
           "jump-scare flash" in _cps and "rgbashift" in _cps,
           "the treatment is not the text — only the text was removed")
 
+    # ── a picture must never contradict the line it sits under ─────
+    # The delivered episode narrated "vaginal bleeding that had lasted three
+    # days" over a sheet of brain CT slices — and that was the HIGHEST-scoring
+    # match in the library, 18.0, because the lesion entry ended "... brain
+    # slices ..." so every bleed anywhere in the body resolved to brain
+    # imagery. "haemorrhage" is what a radiologist writes about a scan;
+    # "bleeding" is what a patient reports. Sorting by which word was used
+    # gets both right.
+    _PAIRS = [
+        ("vaginal bleeding that had lasted three days", "brain", False),
+        ("He had been bleeding from the bowel for weeks.", "brain", False),
+        ("A brain haemorrhage was found on the CT.", "brain", True),
+        ("The MRI showed a lesion in the left frontal lobe.", "mri", True),
+    ]
+    import stock_match as _smx
+    for _line, _tag, _want in _PAIRS:
+        _p, _why, _role = _smx.best_any(_line, topic="rectal cancer")
+        _has = _tag in (_why or "")
+        check("%r %s %s" % (_line[:38], "gets" if _want else "never gets", _tag),
+              _has == _want, "matched on [%s]" % _why)
+
     # ── a thumbnail has to be a picture of THIS episode ────────────
     # The delivered card was molecular models and a pine branch, with a red
     # ring round a twig, on a case report about advanced rectal cancer after

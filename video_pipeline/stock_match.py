@@ -56,15 +56,38 @@ VISUAL_VOCAB = {
     ("scan", "scanned", "imaging", "ct", "mri", "radiograph", "x-ray",
      "tomography", "angiogram", "ultrasound"):
         "mri ct scan scanner radiology imaging film lightbox",
+    # A LESION IS NOT AUTOMATICALLY A BRAIN LESION, AND BLEEDING IS NOT A SCAN.
+    #
+    # This entry used to end "... brain slices ...", which meant every one of
+    # these words resolved to BRAIN imagery. The delivered episode narrated
+    # "vaginal bleeding that had lasted three days" over a sheet of brain CT
+    # slices, scoring 18.0 — the highest match in the library — because "bleed"
+    # was hard-wired to a brain scan.
+    #
+    # A mass or a nodule can be anywhere in the body, so the tags stay generic
+    # imaging and the dedicated brain entry below picks up the cases that are
+    # actually about the brain.
+    #
+    # "haemorrhage" stays here and "bleeding" moves to blood, because they are
+    # not synonyms in practice. Haemorrhage is what a radiologist writes about
+    # something visible on a scan; bleeding is what the patient reports. Sorting
+    # them by which word was used gets both cases right:
+    #
+    #     "vaginal bleeding that had lasted three days"  -> blood, lab
+    #     "a brain haemorrhage was found on the CT"      -> brain imaging
+    #
+    # Keeping them together is what put brain CT slices under a gynaecological
+    # symptom, at the highest match score in the library.
     ("lesion", "mass", "tumour", "tumor", "nodule", "opacity", "infarct",
-     "haemorrhage", "hemorrhage", "bleed"):
-        "mri ct scan brain slices radiology film lightbox",
+     "haemorrhage", "hemorrhage"):
+        "mri ct scan radiology film lightbox imaging",
     # the brain
     ("brain", "cerebral", "cortex", "neurological", "seizure", "stroke",
      "meningitis", "encephalitis", "consciousness"):
         "brain mri ct scan slices radiology film",
     # blood and the lab
-    ("blood", "bloods", "serum", "plasma", "haemoglobin", "hemoglobin",
+    ("blood", "bloods", "bleed", "bleeding",
+     "serum", "plasma", "haemoglobin", "hemoglobin",
      "platelet", "white cell", "sodium", "potassium", "creatinine",
      "sample", "specimen", "culture", "serology", "assay"):
         "blood sample tube pipette laboratory gloved hand",
