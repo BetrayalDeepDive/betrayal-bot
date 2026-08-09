@@ -126,6 +126,151 @@ VISUAL_VOCAB = {
     ("eye", "eyes", "pupil", "iris", "vision", "visual", "retina", "ocular",
      "blurred", "sight"):
         "human eye macro iris pupil close up",
+
+    # ── THE REST OF MEDICINE ───────────────────────────────────────────────
+    #
+    # Fourteen entries covered imaging, blood, the brain, the eye, a corridor
+    # and an ambulance. A case report is not made of those six things. Run
+    # 31257986626's own narration, put through the vocabulary above, matched
+    # two lines in six:
+    #
+    #     "his blood pressure was as low as 70 over 40"   -> a blood sample tube
+    #     "he had not been drinking enough water"         -> nothing
+    #     "he went to his doctor to have it checked"      -> nothing
+    #     "it turned out to be cancer"                    -> nothing
+    #     "he started chemotherapy the following week"    -> nothing
+    #
+    # A line with no entry does not get a neutral picture. It falls through to
+    # whatever else overlaps, or to a drawn card — which is how a story about
+    # dehydration and cancer ends up illustrated by a corridor and a diagram
+    # while the narration talks about neither.
+    #
+    # Note the blood-pressure line especially: it DID match, and it matched
+    # WRONGLY, because "blood" is in "blood pressure". A cuff is not a sample
+    # tube. Entries below are ordered so the more specific phrase wins.
+    #
+    # These tags are also what drives the harvester: stock_match.gaps() reports
+    # the vocabulary this episode reached for and the library could not answer,
+    # and that list is what gets fetched. So a term added here is not an
+    # aspiration — it is an instruction to go and get that photograph.
+
+    # vital signs and the bedside
+    # The tags deliberately do NOT contain the word "blood". "blood pressure"
+    # triggers this entry correctly, but emitting "blood" as a TAG hands the
+    # match straight back to the laboratory sample tube -- the photograph this
+    # entry exists to avoid. A cuff is not a blood test.
+    ("blood pressure", "hypotension", "hypotensive", "hypertension",
+     "systolic", "diastolic", "mmhg", "bp"):
+        "sphygmomanometer cuff pressure monitor bedside nurse arm",
+    ("pulse", "heart rate", "bpm", "tachycardic", "bradycardic",
+     "observations", "vitals", "monitor", "monitoring"):
+        "vital signs monitor bedside screen hospital",
+    ("fever", "febrile", "temperature", "pyrexia", "chills", "sweating",
+     "thermometer"):
+        "thermometer fever patient forehead bedside",
+    ("dehydrated", "dehydration", "fluids", "drinking", "water", "thirst",
+     "drip", "intravenous", "iv", "saline", "cannula", "infusion"):
+        "intravenous drip saline bag cannula hand hospital",
+
+    # cancer, which this channel returns to constantly
+    ("cancer", "carcinoma", "malignant", "malignancy", "oncology",
+     "oncologist", "metastasis", "metastatic", "staging", "stage four",
+     "sarcoma", "lymphoma", "leukaemia", "leukemia"):
+        "oncology consultation patient doctor hospital scan",
+    ("chemotherapy", "chemo", "radiotherapy", "radiation", "cycle",
+     "infusion suite", "immunotherapy", "palliative"):
+        "chemotherapy infusion chair drip patient hospital",
+    ("biopsy", "histology", "pathology", "specimen slide", "microscope",
+     "cytology", "stain", "grading"):
+        "microscope slide laboratory pathology specimen",
+
+    # seeing a doctor at all -- the beat almost every case turns on
+    ("doctor", "physician", "gp", "consultant", "specialist", "surgeon",
+     "nurse", "clinician", "consultation", "consulted", "appointment",
+     "seen by", "told him", "told her", "explained", "reassured"):
+        "doctor patient consultation clinic desk conversation",
+    ("delay", "delayed", "dismissed", "ignored", "misdiagnosed", "missed",
+     "second opinion", "insisted", "again and again"):
+        "clinic corridor waiting area chairs empty",
+
+    # the chest, the heart, the lungs
+    ("heart", "cardiac", "cardiology", "myocardial", "angina", "chest pain",
+     "murmur", "echocardiogram", "valve"):
+        "heart cardiac ultrasound screen monitor hospital",
+    ("breathless", "breathing", "shortness", "dyspnoea", "dyspnea",
+     "ventilator", "ventilated", "intubation", "airway", "wheeze"):
+        "ventilator intensive care patient hospital monitor",
+
+    # the abdomen and the gut
+    ("bowel", "colon", "rectal", "rectum", "abdominal", "abdomen",
+     "stomach", "gastric", "intestinal", "colonoscopy", "endoscopy",
+     "nausea", "vomiting", "diarrhoea", "diarrhea", "constipation"):
+        "endoscopy screen abdominal ultrasound hospital procedure",
+    ("liver", "hepatic", "jaundice", "jaundiced", "bilirubin", "cirrhosis"):
+        "liver ultrasound screen abdominal scan hospital",
+    ("kidney", "renal", "dialysis", "urine", "urinary", "creatinine rise",
+     "nephrology"):
+        "dialysis machine patient hospital renal",
+
+    # infection
+    ("infection", "infected", "sepsis", "septic", "bacteria", "bacterial",
+     "virus", "viral", "antibiotic", "antibiotics", "culture grew",
+     "swab", "pneumonia", "abscess"):
+        "laboratory culture plate microscope swab specimen",
+
+    # endocrine and metabolic
+    ("diabetes", "diabetic", "glucose", "insulin", "sugar", "hba1c",
+     "thyroid", "hormone", "endocrine", "cortisol", "adrenal"):
+        "glucose meter insulin blood test hand laboratory",
+
+    # bones, joints, movement
+    ("fracture", "fractured", "bone", "joint", "arthritis", "spine",
+     "spinal", "orthopaedic", "orthopedic", "limp", "mobility", "walking"):
+        "bone x-ray film radiology lightbox skeleton",
+    ("weakness", "numbness", "paralysis", "tremor", "gait", "coordination",
+     "muscle", "nerve", "neuropathy", "sensation"):
+        "neurology examination patient hands doctor",
+
+    # skin
+    ("rash", "skin", "lesion on the skin", "dermatology", "blister",
+     "ulcer", "wound", "bruising", "pallor"):
+        "dermatology examination skin close up patient",
+
+    # surgery and procedures
+    ("operation", "operated", "theatre", "surgical", "resection", "resected",
+     "anaesthetic", "anesthetic", "incision", "transplant", "stent",
+     "catheter", "drain"):
+        "operating theatre surgery lights instruments surgeon",
+
+    # medication
+    ("medication", "medications", "tablet", "tablets", "drug", "drugs",
+     "dose", "dosage", "prescribed", "prescription", "pill", "pills",
+     "ibuprofen", "paracetamol", "steroid", "injection"):
+        "tablets medication pills blister pack hand pharmacy",
+
+    # genetics and the modern workup
+    ("genetic", "genome", "gene", "mutation", "sequencing", "dna",
+     "hereditary", "inherited", "chromosome"):
+        "dna sequencing laboratory screen genetics research",
+
+    # time, outcome, the human end of it
+    ("weeks later", "months later", "years later", "eventually", "by then",
+     "too late", "progressed", "deteriorated", "worsened"):
+        "hospital corridor empty window light waiting",
+    ("died", "death", "fatal", "mortality", "autopsy", "post-mortem",
+     "postmortem", "funeral", "survived by"):
+        "hospital corridor empty window quiet light",
+    ("recovered", "recovery", "discharged home", "improved", "remission",
+     "rehabilitation", "back to work", "returned home"):
+        "hospital exit doors daylight corridor leaving",
+    ("alone", "isolation", "isolated", "family", "wife", "husband",
+     "daughter", "son", "neighbour", "community", "support"):
+        "empty room chair window light home quiet",
+
+    # the paperwork a case report is actually made of
+    ("record", "records", "notes", "chart", "referral letter", "report",
+     "journal", "published", "case report", "literature"):
+        "medical records paper notes clipboard desk",
 }
 
 # Tags that describe mood rather than subject. They break ties; they never win
@@ -163,14 +308,36 @@ def terms_for(segment_text, topic="", extra="", flat=True, topic_rank=6):
     background = (topic or "").lower()
 
     def _fire(blob):
-        out = []
-        for triggers, visual in VISUAL_VOCAB.items():
-            spec = 0
+        # A LONGER PHRASE CONSUMES ITS OWN WORDS.
+        #
+        # Ranking by specificity was not enough. "his blood pressure was as
+        # low as 70" fired the blood-pressure entry first AND the plain
+        # "blood" entry after it, and the laboratory sample tube carries six
+        # of the blood entry's tags -- so the winning photograph for a line
+        # about a cuff reading was a blood test. Same shape for "heart rate"
+        # firing "heart", or "white cell" firing "cell".
+        #
+        # Every trigger is now matched longest-first against a working copy,
+        # and each match is blanked out of it. Once "blood pressure" has been
+        # consumed, the word "blood" is no longer in the text for the blood
+        # entry to find. The entry that claimed the phrase keeps it.
+        work = blob
+        fired = {}
+        every = []
+        for idx, (triggers, visual) in enumerate(VISUAL_VOCAB.items()):
             for t in triggers:
-                if re.search(r"\b%s" % re.escape(t), blob):
-                    spec = max(spec, len(t.split()) * 10 + len(t))
-            if spec:
-                out.append((spec, visual))
+                every.append((len(t.split()) * 10 + len(t), t, idx, visual))
+        every.sort(key=lambda x: -x[0])
+
+        for spec, t, idx, visual in every:
+            m = re.search(r"\b%s" % re.escape(t), work)
+            if not m:
+                continue
+            work = work[:m.start()] + " " * (m.end() - m.start()) + work[m.end():]
+            if spec > fired.get(idx, (0, None))[0]:
+                fired[idx] = (spec, visual)
+
+        out = [(spec, visual) for spec, visual in fired.values()]
         out.sort(key=lambda x: -x[0])
         return out
 
@@ -201,7 +368,32 @@ def _tag_weights(photos):
     return {t: 1.0 - (c - 1) / float(n) for t, c in freq.items()}
 
 
-def best(role, segment_text, topic="", used=(), extra="", min_score=0.0):
+# A MATCH ON ONE COMMON TAG IS NOT A MATCH.
+#
+# min_score used to default to 0.0, so ANY positive overlap won. With the
+# vocabulary above now covering the whole of medicine, that is actively
+# dangerous: a line about dehydration reaches for "intravenous drip saline
+# cannula", the library answers with a photograph sharing only the word
+# "hand", and the viewer gets a stranger's hand over a sentence about not
+# drinking enough water. Measured on the real library:
+#
+#     matched on 'hand'                                        2.40
+#     matched on 'patient'                                     3.00
+#     matched on 'hospital patient'                            3.00
+#     matched on 'ct imaging patient scanner'                  5.20
+#     matched on 'blood gloved hand laboratory sample tube'   15.60
+#     matched on 'brain ct film lightbox mri radiology scan'  16.40
+#
+# The gap between a coincidence and a real match is wide and clean. Below the
+# floor the matcher declines, the card falls through to a drawn register that
+# is at least ABOUT the case, and stock_match.gaps() reports the term so the
+# harvester goes and fetches the photograph that was missing. Declining is how
+# the library learns what it lacks; accepting a coincidence is how it never
+# finds out.
+MIN_REAL_MATCH = 4.0
+
+
+def best(role, segment_text, topic="", used=(), extra="", min_score=MIN_REAL_MATCH):
     """The library photograph that best fits this segment, or None.
 
     `used` is what this episode has already shown -- penalised so variety is
