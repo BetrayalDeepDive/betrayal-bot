@@ -2729,6 +2729,10 @@ def score_result(r, topic=""):
                 f"({_rep['specificity_detail'].get('per_100_words')} details/100w)")
             log(f"  Composite: {_new}/10 (craft {_c} | hook {_h} | clarity {_cl} "
                 f"| spec {_rep['specificity']} | clean {_rep['cleanliness']})")
+            log(f"  Register: {_rep.get('passive_per_100w')} passive/100w, "
+                f"{_rep.get('reportese_per_100w')} journal connectives/100w"
+                + (f" — penalty {_rep['register_penalty']}"
+                   if _rep.get("register_penalty") else " — reads as narration"))
             if _rep["gate_notes"]:
                 log(f"  Below target: {', '.join(_rep['gate_notes'])}")
             if _rep["blocked_on"]:
@@ -3563,6 +3567,22 @@ RULES:
    in the output (e.g. never "Stage 4: The Investigation Deepens") — this
    applies to every one of the seven stages above, all the way through
    Stage 7, not just the opening.
+9. DO NOT WRITE IT LIKE THE PAPER. This is the single thing that makes
+   these scripts dull, and it is measured: passive constructions and
+   journal connectives are counted per hundred words, and a script in
+   case-report register loses enough to be sent back.
+   - Say WHO did the thing. "A nurse wrote it down twice", never "the
+     observation was recorded". "Nobody ordered a scan", never "no imaging
+     was performed".
+   - Banned outright: "consistent with", "of note", "it should be noted",
+     "this case illustrates", "clinicians should", "in patients presenting
+     with", "was subsequently", "the importance of".
+   - Put the viewer in the room. A time of day, a corridor, a person's
+     actual words. The facts come from the paper; the scene does not have
+     to sound like one.
+   - Never end by explaining the lesson. The last line of a journal case
+     report says what clinicians should learn. The last line of a film
+     lets the viewer arrive at it.
 
 Write the complete script now:"""
 

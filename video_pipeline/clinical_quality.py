@@ -242,6 +242,70 @@ def clinical_specificity(script, max_points=2.8):
     return round(score, 2), counts
 
 
+# ── case-report register ───────────────────────────────────────────────
+# THE SCRIPT GATE COULD NOT SEE BORING.
+#
+# Reported directly on the delivered episode: the script was "okay, fine",
+# rated 6.5, while the gate had passed it above 8.5. Reading what the gate
+# actually measures explains the gap. score_narrative_craft() starts at 4.0
+# and adds 1.5 for an escalation KEYWORD in the middle third, 1.5 for a
+# resolution KEYWORD in the final third, 1.5 for sentence-length variance,
+# and the rest for not repeating a four-word phrase. Every one of those is
+# satisfied by a competent, dull recitation. Structure is not interest.
+#
+# What makes THIS channel's scripts dull is specific and it is measurable:
+# they stay in the register of the paper they came from. A case report is
+# written in the passive voice with hedging connectives, because that is
+# the correct register for a journal. It is the wrong register for a film,
+# and the channel's entire premise is the conversion between the two.
+#
+# Measured on four scripts, two registers, two different cases:
+#
+#                        passive/100w    report-ese/100w
+#     dull recitation 1       3.2              2.1
+#     dull recitation 2       5.4              3.0
+#     written 1               0.7              0.0
+#     written 2               0.5              0.0
+#
+# The thresholds sit in those gaps, nearer the written end so ordinary
+# passive usage is never punished -- some passive voice is correct English
+# and a clinical script will always carry a little.
+PASSIVE_LIMIT_PER_100W = 2.0
+REPORTESE_LIMIT_PER_100W = 1.0
+
+_PASSIVE_VOICE = re.compile(r"\b(was|were|been)\s+\w+(ed|n)\b", re.I)
+_REPORTESE = re.compile(
+    r"\b(consistent with|in the context of|it should be noted|of note|"
+    r"in this case|this case (illustrates|demonstrates)|clinicians should|"
+    r"the importance of|maintain an index|should therefore be|"
+    r"was (subsequently|ultimately|therefore)|it is reported that|"
+    r"a substantial proportion|in patients presenting with)\b", re.I)
+
+
+def case_report_register(script):
+    """How much this reads like the paper instead of the film.
+
+    Returns (passive_per_100w, reportese_per_100w, issues).
+    """
+    if not script or not script.strip():
+        return 0.0, 0.0, []
+    per = max(1, len(script.split())) / 100.0
+    passive = len(_PASSIVE_VOICE.findall(script)) / per
+    reportese = len(_REPORTESE.findall(script)) / per
+    issues = []
+    if passive > PASSIVE_LIMIT_PER_100W:
+        issues.append(
+            "reads like a case report: %.1f passive constructions per 100 "
+            "words (limit %.1f) — say who did the thing"
+            % (passive, PASSIVE_LIMIT_PER_100W))
+    if reportese > REPORTESE_LIMIT_PER_100W:
+        issues.append(
+            "journal connectives %.1f per 100 words (limit %.1f) — "
+            "\"this case illustrates\" is not narration"
+            % (reportese, REPORTESE_LIMIT_PER_100W))
+    return round(passive, 2), round(reportese, 2), issues
+
+
 # ── the composite ──────────────────────────────────────────────────────
 def gate_deficits(hook, craft, clarity):
     """
@@ -316,6 +380,25 @@ def score_script(words, violations, script, hook, craft, clarity):
     # a medical case report was being written as a crime story. Blocking,
     # because a drifted script is not fixable by a rewrite of two stages --
     # it is the wrong show.
+    # REGISTER. Not blocking, but expensive — this is a rewrite the script
+    # stage can actually perform, unlike format drift, which is the wrong
+    # show and cannot be rescued. A script deep in journal register loses
+    # enough to fall under the gate and be sent back, which is the outcome
+    # wanted: retry, not skip the day.
+    _passive, _reportese, _reg_issues = case_report_register(script)
+    report["passive_per_100w"] = _passive
+    report["reportese_per_100w"] = _reportese
+    if _reg_issues:
+        over_p = max(0.0, _passive - PASSIVE_LIMIT_PER_100W)
+        over_r = max(0.0, _reportese - REPORTESE_LIMIT_PER_100W)
+        # Capped so a single florid paragraph cannot zero an otherwise good
+        # script, but large enough that a genuine recitation cannot pass:
+        # the dull samples measured 3.2 and 5.4 passive, costing 1.2 and 2.0.
+        register_penalty = min(2.0, over_p * 1.0 + over_r * 0.6)
+        s -= register_penalty
+        report["register_penalty"] = round(register_penalty, 2)
+        notes.extend(_reg_issues)
+
     _drift_ok, _drift_rate, _drift_terms = drift_ok(script)
     report["format_drift"] = _drift_rate
     report["format_drift_terms"] = _drift_terms

@@ -334,5 +334,13 @@
     "video_id": null,
     "ctr_pct": null,
     "timestamp": "2026-08-09T16:26:11.564434"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "countdown_list",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-09T17:49:49.834518"
   }
 ]

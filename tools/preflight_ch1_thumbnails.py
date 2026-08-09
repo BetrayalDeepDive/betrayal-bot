@@ -1145,6 +1145,56 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── the script gate could not see boring ───────────────────────
+    # The delivered episode's script was reported as "okay, fine", 6.5,
+    # while the gate had passed it above 8.5. score_narrative_craft() opens
+    # at 4.0 and adds points for an escalation KEYWORD, a resolution
+    # KEYWORD, and sentence-length variance — all of which a competent dull
+    # recitation has. Structure is not interest. What is measurable, and
+    # specific to this channel, is whether the script stayed in the register
+    # of the paper it came from.
+    import clinical_quality as _cq
+    _dull = ("The patient was a forty-one year old woman. She was assessed by "
+             "three physicians. Each assessment concluded that her symptoms "
+             "were consistent with dehydration. No imaging was performed. "
+             "Computed tomography was subsequently arranged. This "
+             "demonstrated a nine centimetre adrenal mass. Treatment was "
+             "commenced. The case was published. This case illustrates the "
+             "importance of considering endocrine causes. Clinicians should "
+             "maintain an index of suspicion in patients presenting with "
+             "unexplained hypotension.")
+    _written = ("The triage nurse wrote the number down twice. Seventy over "
+                "forty, at two in the morning. For eleven weeks this woman "
+                "had told three doctors the same three things, and three "
+                "doctors wrote the same two words. Nobody ordered a scan. "
+                "The first gave her a leaflet about drinking water. When "
+                "somebody finally looked, nine centimetres of tumour sat on "
+                "her adrenal gland, stripping the salt out of her blood as "
+                "fast as she could drink.")
+    _dp, _dr, _di = _cq.case_report_register(_dull)
+    _wp, _wr, _wi = _cq.case_report_register(_written)
+    check("a script written like the paper is flagged",
+          bool(_di), "%.1f passive/100w, %.1f journal connectives" % (_dp, _dr))
+    check("a script written like a film is not flagged",
+          not _wi, "%.1f passive/100w, %.1f journal connectives" % (_wp, _wr))
+    _s_dull = _cq.score_script(2000, 0, _dull, 8.0, 8.0, 8.0)[0]
+    _s_written = _cq.score_script(2000, 0, _written, 8.0, 8.0, 8.0)[0]
+    check("register costs enough to send a dull script back",
+          _s_dull < _s_written - 1.0,
+          "same craft/hook/clarity: dull %.2f vs written %.2f" % (_s_dull, _s_written))
+    check("register is a penalty, never a block",
+          "duration floor" in _cq.score_script(100, 0, _dull, 8.0, 8.0, 8.0)[2].get("blocked_on", [])
+          and not any("passive" in b for b in
+                      _cq.score_script(2000, 0, _dull, 8.0, 8.0, 8.0)[2]["blocked_on"]),
+          "it is a rewrite the stage can do — retry, do not skip the day")
+    check("a script just over the line is barely charged",
+          _cq.PASSIVE_LIMIT_PER_100W > 0 and
+          min(2.0, (_cq.PASSIVE_LIMIT_PER_100W + 0.5) - _cq.PASSIVE_LIMIT_PER_100W) == 0.5,
+          "over-penalising is how a gate blocks every attempt")
+    check("the generator is told not to write in journal register",
+          "DO NOT WRITE IT LIKE THE PAPER" in _cp,
+          "measuring a fault without asking for the fix wastes attempts")
+
     # ── generation must not spend the review window ────────────────
     # Run 31257986626's script stage ran 2h43m with 275 rate-limit errors,
     # Groq at 98,807/100,000 tokens and Cloudflare out of daily neurons.
