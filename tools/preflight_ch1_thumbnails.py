@@ -1145,6 +1145,32 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── an approved Short has to actually reach the channel ────────
+    # Making Shorts upload unlisted stopped four unreviewed ones going live,
+    # and left the opposite bug: approve did nothing, so a Short a human had
+    # approved stayed unlisted for ever. They now follow the main video —
+    # approved during generate, published by the upload phase.
+    check("approving a Short records it for the upload phase",
+          "_approved_short_ids.append(" in _cp
+          and '"approved_short_ids": _approved_short_ids' in _cp,
+          "approve used to be a no-op once Shorts stopped going out public")
+    check("the upload phase publishes the approved Shorts",
+          'pending.get("approved_short_ids")' in _cp
+          and "Short published: https://youtube.com/shorts/" in _cp,
+          "unlisted for ever is not the same as reviewed")
+    check("a rejected episode takes its Shorts with it",
+          "Deleted the unlisted Short" in _cp,
+          "Shorts promoting a video that was never published")
+    # The declaration must dominate save_pending, not sit inside the Shorts
+    # try — anything raising in between would reach save_pending with the
+    # name unbound and kill the generate phase after the episode was built.
+    _decl = _cp.find("_approved_short_ids = []")
+    _try = _cp.find("if importlib.util.find_spec(\"shorts_reels_engine\")")
+    _use = _cp.find('"approved_short_ids": _approved_short_ids')
+    check("the approved-Shorts list cannot be unbound at save time",
+          0 < _decl < _try < _use,
+          "a NameError here loses a completed episode")
+
     # ── the script gate could not see boring ───────────────────────
     # The delivered episode's script was reported as "okay, fine", 6.5,
     # while the gate had passed it above 8.5. score_narrative_craft() opens

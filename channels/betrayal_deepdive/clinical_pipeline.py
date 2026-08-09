@@ -10814,16 +10814,52 @@ def main():
             "Ch1 No Known Cause", yt_url, thumb_path,
             TG_TOKEN, TG_CHAT, check_ins_used=0,
             gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass)
+        # The Shorts a human approved during generate are sitting unlisted,
+        # waiting for this phase. They live and die with the episode.
+        _approved_shorts = pending.get("approved_short_ids") or []
+
         if _final_gate["decision"] != "approve":
             delete_yt_video(vid_id, token=token)
+            # The episode is not being published, so neither are its Shorts.
+            # Leaving them behind would strand unlisted clips promoting a
+            # video that does not exist.
+            for _sid in _approved_shorts:
+                try:
+                    delete_yt_video(_sid, token=token)
+                    log(f"  Deleted the unlisted Short {_sid} with the rejected episode.")
+                except Exception as e:
+                    log(f"  Short cleanup on reject (non-fatal): {e}")
             clear_pending(SCRIPT_DIR)
             tg(f"🔄 Ch1: final video rejected — unlisted upload removed, "
+               f"{len(_approved_shorts)} unlisted Short(s) removed with it, "
                f"nothing published. Feedback: {_final_gate.get('feedback') or '(none given)'}. "
                f"A fresh episode will be generated on the next cycle.")
             log("Final pre-publish gate: rejected — stopping before publish steps.")
             sys.exit(0)
         set_video_privacy(vid_id, "public", token=token)
         log(f"  Final gate approved — video is now public: {yt_url}")
+
+        # PUBLISH THE APPROVED SHORTS.
+        #
+        # Shorts upload unlisted during generate so nothing reaches the
+        # channel unreviewed. That fix left approve with nothing to do — a
+        # Short a human had approved stayed unlisted for ever. This is the
+        # other half: they go public here, with the episode, never before it.
+        if _approved_shorts:
+            _live_shorts = 0
+            for _sid in _approved_shorts:
+                try:
+                    if set_video_privacy(_sid, "public", token=token):
+                        _live_shorts += 1
+                        log(f"  Short published: https://youtube.com/shorts/{_sid}")
+                    else:
+                        log(f"  Short {_sid} did not flip to public — still unlisted.")
+                except Exception as e:
+                    log(f"  Publishing Short {_sid} (non-fatal): {e}")
+            tg(f"📣 Ch1: {_live_shorts} of {len(_approved_shorts)} approved Short(s) "
+               f"are now public alongside the episode."
+               + ("" if _live_shorts == len(_approved_shorts) else
+                  " The rest stayed unlisted — check the log."))
 
         # FIX (direct user report, July 23 2026 — "after uploading, it
         # also needs to take up the job of checking: what is going on,
@@ -12557,6 +12593,13 @@ def main():
         log("  standalone pieces — not literal clips or teasers), 2 on genuinely")
         log("  different trending topics (real research into what's working today).")
         shorts = []
+        # Declared out here, beside `shorts`, deliberately. Its only writer is
+        # the Shorts review far below inside this try, but save_pending() reads
+        # it AFTER the try — so anything raising in between (a missing module,
+        # a failed Short, a Telegram timeout) would reach save_pending with the
+        # name never bound and kill the generate phase on a NameError, after
+        # the entire episode had already been built.
+        _approved_short_ids = []
         try:
             import importlib.util
             if importlib.util.find_spec("shorts_reels_engine") is None:
@@ -12625,10 +12668,12 @@ def main():
                    f"Generate run's log for details.")
 
             # SHORTS REVIEW — the real final checkpoint (5 options).
-            # Honest constraint: Shorts are already published by this
-            # point (the real production functions upload internally),
-            # so any edit/remake/swap here produces a genuinely fresh
-            # replacement Short and publishes that as an addition.
+            # The old note here said Shorts are "already published by this
+            # point". They are not, any more: they upload UNLISTED during
+            # generate, so this review happens before anybody can see them,
+            # which is the entire point of the change. Approved ids are
+            # collected into _approved_short_ids (declared at the top of this
+            # stage) and carried to the upload phase in pending_upload.json.
             try:
                 from human_review_gate import review_shorts
                 _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
@@ -12670,6 +12715,26 @@ def main():
                                 except Exception as e:
                                     log(f"  Failed to delete rejected Short {_s['name']} (non-fatal): {e}")
                         tg("🗑️ Ch1: Shorts REJECTED — all of this episode's Shorts have been deleted.")
+                    elif _sh_review["decision"] == "approve":
+                        # APPROVE HAD NO EFFECT, AND NOW IT HAS TO.
+                        #
+                        # Shorts used to upload PUBLIC during generate, so
+                        # approving one was a no-op: it was already live. That
+                        # is how four unreviewed Shorts reached the channel and
+                        # why they now upload unlisted. But making them unlisted
+                        # without giving approve something to do left the
+                        # opposite bug — an approved Short sitting unlisted for
+                        # ever, reviewed by a human and seen by nobody.
+                        #
+                        # They follow the main video's route: approved here,
+                        # published by the upload phase, so nothing whatsoever
+                        # goes public from a generate-only run.
+                        for _s in _real_shorts:
+                            _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
+                            if _m:
+                                _approved_short_ids.append(_m.group(1))
+                        log(f"  Shorts approved — {len(_approved_short_ids)} queued for the "
+                            f"upload phase to publish.")
                     if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
                         log(f"  Shorts {_sh_review['decision']} requested: "
                             f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")
@@ -12776,6 +12841,10 @@ def main():
             # multi-hundred-MB file a second time.
             "prerendered_yt_video_id": _prerendered_yt_vid_id,
             "prerendered_yt_url": _prerendered_yt_url,
+            # Shorts a human approved during the generate review. They are
+            # sitting unlisted; the upload phase flips them public alongside
+            # the main video, so a generate-only run publishes nothing.
+            "approved_short_ids": _approved_short_ids,
         })
         if _pending_result.get("overwrite_warning"):
             tg(f"🚨 Ch1 Generate: {_pending_result['overwrite_warning']}")
