@@ -2403,6 +2403,83 @@ YouTube Short: {yt_url if yt_url else "⚠️ Pending"}""")
     return {"status": "failed", "reason": "max retries"}
 
 
+def derivative_of(short_script: str, main_script: str, n: int = 6):
+    """How much of this Short is lifted from the episode. 0.0 to 1.0.
+
+    WHY A PROMPT ALONE WAS NOT ENOUGH
+    ---------------------------------
+    The Shorts read as "the monologue of the main script" because the prompt
+    ASKED for that in as many words: "this is the same story with the same
+    hook and the same ending as the main video, not an independently invented
+    angle". It was handed 600 characters of the episode's opening and 800 of
+    its ending and told to match both. Paraphrase was the specified outcome.
+
+    The instruction is rewritten, but an instruction is a hope. This measures
+    what actually came back: the fraction of the Short's six-word sequences
+    that also appear in the episode.
+
+    WHAT THIS CATCHES, AND WHAT IT DOES NOT
+    ---------------------------------------
+    Measured on four Shorts written against the same clinical episode:
+
+        sentences lifted from the episode      84.4%
+        competent paraphrase, same shape        1.8%
+        independent angle, same facts           0.0%
+        independent, quoting the paper's line   10.9%
+
+    So this is a backstop against LITERAL reuse, and a good one -- there is
+    a wide gap between 84% and the honest Short that quotes one real sentence
+    from the source paper at 11%. It is NOT a paraphrase detector: rebuild
+    the sentences and overlap collapses to noise. Nothing here should be read
+    as proof a Short is original.
+
+    Paraphrase is handled where paraphrase is caused -- the prompt above no
+    longer demands the episode's opening line and closing beat be reproduced.
+    """
+    def grams(t):
+        w = re.findall(r"[a-z0-9]+", (t or "").lower())
+        return {" ".join(w[i:i + n]) for i in range(max(0, len(w) - n + 1))}
+    s, m = grams(short_script), grams(main_script)
+    if not s:
+        return 0.0
+    return len(s & m) / float(len(s))
+
+
+# Above this, the Short is reusing the episode's sentences. Placed against the
+# measurements in derivative_of()'s docstring: the lifted script sits at 84%,
+# the most overlapping HONEST script -- one that quotes a real sentence from
+# the source paper, which this channel should be free to do -- sits at 11%.
+# 18% sits in that gap, nearer the honest end, so quoting is never punished.
+MAX_DERIVATIVE = 0.18
+
+
+def _reuse_note(short_script: str, main_script: str, limit: int = 3) -> str:
+    """Names the longest runs of words the Short took from the episode, so the
+    retry is told what to stop doing instead of being asked again politely."""
+    words = re.findall(r"[a-z0-9]+", (main_script or "").lower())
+    episode = {" ".join(words[i:i + 6]) for i in range(max(0, len(words) - 5))}
+    sw = re.findall(r"[a-z0-9]+", (short_script or "").lower())
+    runs, current = [], []
+    for i in range(max(0, len(sw) - 5)):
+        if " ".join(sw[i:i + 6]) in episode:
+            current.append(sw[i + 5] if current else " ".join(sw[i:i + 6]))
+        elif current:
+            runs.append(" ".join(current))
+            current = []
+    if current:
+        runs.append(" ".join(current))
+    runs.sort(key=lambda r: -len(r))
+    if not runs:
+        return ""
+    quoted = "\n".join('  - "%s"' % r[:160] for r in runs[:limit])
+    return ("\n\nYOUR LAST ATTEMPT WAS REJECTED FOR COPYING THE EPISODE.\n"
+            "These exact runs of words were taken from the full video:\n"
+            + quoted +
+            "\nDo not use those sentences, or rewordings of them. Keep the "
+            "facts, throw away every sentence you just wrote, and come at "
+            "the story from a different moment entirely.")
+
+
 def _produce_video_topic_short_once(main_topic: str, main_script: str = "", angle: str = "angle_1",
                                 channel: str = "betrayal_deepdive") -> dict:
     """
@@ -2470,6 +2547,7 @@ def _produce_video_topic_short_once(main_topic: str, main_script: str = "", angl
     # 3-second-hook check genuinely ran for only 2 of every channel's 4
     # daily Shorts. Wired in the same pre-score-and-retry pattern here.
     prev_score = None  # feeds _shorts_feedback_block() so retries target real gaps, not blind re-rolls
+    _overlap_note = ""  # set when an attempt is rejected for copying the episode
     for attempt in range(MAX_ATTEMPTS):
         log.info("produce_video_topic_short attempt %d/%d", attempt + 1, MAX_ATTEMPTS)
 
@@ -2484,14 +2562,20 @@ Rules:
   no reference to any other video existing
 - Real specific details only (numbers, dates, names where used in the source) —
   never invent facts not grounded in the real topic above
-- The opening line must preview the SAME real twist/irony shown in the ending
-  slice above (state or strongly imply the concrete outcome up front, the
-  same "wait — HOW did that happen" curiosity gap as the full episode's
-  cold open) — this is the same story with the same hook and the same
-  ending as the main video, not an independently invented angle
-- Must resolve with the SAME actual twist/payoff shown in the ending slice
-  above — not a different or softer resolution, and not a cliffhanger
-{SHORTS_RUBRIC_BLOCK}{_shorts_feedback_block(prev_score)}
+- The opening line must create a real "wait — HOW did that happen" curiosity
+  gap, built from a concrete detail. It must NOT be the episode's opening
+  line rewritten: pick a different way in
+- SAME FACTS, DIFFERENT PIECE. Enter the story somewhere the episode does
+  not: a single moment, one number, one decision, one person's line. Do not
+  summarise the episode and do not retell it in order. Somebody who has just
+  watched the full video should still find this worth 45 seconds, and
+  somebody who never watches it should not feel they missed anything.
+- Write it as if the episode does not exist. Never reuse the episode's
+  sentences or its phrasing — the facts are shared, the writing is not.
+- It must land on the real outcome — the same true resolution the story
+  actually had, never a softer one, never invented, never a cliffhanger.
+  Arrive at it your own way; do not reproduce the episode's closing beat
+{SHORTS_RUBRIC_BLOCK}{_shorts_feedback_block(prev_score)}{_overlap_note}
 
 Return JSON:
 {{"title": "under 55 chars, curiosity-gap title, no 'part 1' or 'full video' language",
@@ -2502,8 +2586,29 @@ Return JSON:
         if not script_data:
             continue
 
+        # A RETELLING IS REJECTED BEFORE ANYTHING ELSE IS JUDGED.
+        #
+        # score_short_script measures hook, specificity and shape — all of
+        # which a competent paraphrase of the episode passes, because the
+        # episode passed them first. That is why 9.0/10 Shorts still read as
+        # the main video's monologue. Overlap is the one thing the rubric
+        # cannot see, so it is checked separately and it is fatal.
+        _deriv = derivative_of(script_data.get("script", ""), main_script)
+        if _deriv > MAX_DERIVATIVE:
+            log.info("Rejected: %.0f%% of this Short is lifted from the episode "
+                     "(max %.0f%%) — it is a retelling, not its own piece",
+                     _deriv * 100, MAX_DERIVATIVE * 100)
+            # Hand the next attempt the actual sentences it reused. A bare
+            # retry against an unchanged prompt just produces the same lift
+            # again, 13 times; naming the borrowed lines is what makes the
+            # retry corrective. prev_score is left alone on purpose — it
+            # drives the RUBRIC feedback block, and this is not a rubric miss.
+            _overlap_note = _reuse_note(script_data.get("script", ""), main_script)
+            continue
+
         pre_score = score_short_script(script_data["script"], script_data["title"], script_data["hook_text"])
-        log.info("Pre-score: %.1f/10", pre_score["total"])
+        log.info("Pre-score: %.1f/10 (%.0f%% overlap with the episode)",
+                 pre_score["total"], _deriv * 100)
         notify_short_score(f"video-topic ({angle}) pre-score", attempt + 1, MAX_ATTEMPTS,
                             pre_score["total"], QUALITY_MIN, extra=script_data["title"][:60])
         if pre_score["total"] < QUALITY_MIN:

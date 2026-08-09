@@ -1058,6 +1058,51 @@ def main():
           "_local_whisper_ass(" in cp and "_aligned_ass(" in cp,
           "a backup that is never called is not a backup")
 
+    # ── a topic Short must not be the episode's monologue ──────────
+    # "It's just like the monologue of the main script. I keep seeing that
+    # it's like a cut and paste of the main script." The prompt used to
+    # ASK for that in as many words, so these checks cover both halves of
+    # the fix: the instruction is gone, and the measurement that catches
+    # it anyway still separates a lifted script from an honest one.
+    import shorts_reels_engine as _sre
+    _sre_src = open(os.path.join(ROOT, "video_pipeline",
+                                 "shorts_reels_engine.py")).read()
+    check("the Short is no longer told to copy the episode",
+          "same story with the same hook" not in _sre_src,
+          "the old prompt demanded the main video's hook and ending")
+
+    _main = ("She was forty-one years old and her blood pressure read seventy "
+             "over forty in a corridor at two in the morning. For eleven weeks "
+             "she had been telling three separate doctors that she was tired, "
+             "that she was thirsty all the time, that her legs would not hold "
+             "her on the stairs. Each of them wrote the same two words in her "
+             "notes: probable dehydration. By the time somebody finally ordered "
+             "a CT scan, the mass in her adrenal gland was nine centimetres "
+             "across, and it had been quietly flooding her body with hormones.")
+    _lifted = ("She was forty-one years old and her blood pressure read seventy "
+               "over forty in a corridor at two in the morning. Each of them "
+               "wrote the same two words in her notes: probable dehydration. "
+               "By the time somebody finally ordered a CT scan, the mass in her "
+               "adrenal gland was nine centimetres across.")
+    _own = ("Write a number down twice and you have already admitted you do not "
+            "trust it. Nine centimetres of tumour sat unimaged while three "
+            "clinicians reached for the most ordinary answer available to them, "
+            "and the maddening part is that they were not wrong: she really was "
+            "dehydrated. Dehydration was the disease talking.")
+    _d_lift = _sre.derivative_of(_lifted, _main)
+    _d_own = _sre.derivative_of(_own, _main)
+    check("a Short lifted from the episode is rejected",
+          _d_lift > _sre.MAX_DERIVATIVE, "measured %.0f%%" % (_d_lift * 100))
+    check("a Short written independently is not rejected",
+          _d_own <= _sre.MAX_DERIVATIVE, "measured %.0f%%" % (_d_own * 100))
+    check("a rejected Short is told which sentences it reused",
+          "REJECTED FOR COPYING" in _sre._reuse_note(_lifted, _main)
+          and _sre._reuse_note(_own, _main) == "",
+          "a blind retry just reproduces the same lift")
+    check("the reuse note reaches the next attempt's prompt",
+          "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
+          "a note nothing reads changes nothing")
+
     # ── everything the workflow itself will check ──────────────────
     # This tool said "Ready for a real run" and the run then died in 90
     # seconds on a check this tool never ran. A pre-flight that clears work
