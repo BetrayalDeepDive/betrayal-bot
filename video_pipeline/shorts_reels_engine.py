@@ -554,16 +554,22 @@ def llm_json(prompt: str, max_tokens: int = 3000) -> dict:
 
 
 def tg(msg: str):
+    """Send to Telegram without letting Markdown eat the link.
+
+    Was a bare post with parse_mode "Markdown". A YouTube id containing an
+    underscore -- two of the four Shorts this channel put live -- made
+    Telegram reject the message with a 400, which requests does not raise,
+    which this function then swallowed. See video_pipeline/tg_safe.py.
+    """
     if not TG_TOKEN:
         return
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            json={"chat_id": TG_CHAT, "text": msg, "parse_mode": "Markdown"},
-            timeout=15
-        )
-    except Exception:
-        pass
+        from tg_safe import send as _safe_send
+        if not _safe_send(TG_TOKEN, TG_CHAT, msg):
+            log.warning("Telegram did not accept a message (first line: %s)",
+                        (msg or "").splitlines()[0][:60] if msg else "")
+    except Exception as e:
+        log.warning("Telegram send failed (non-fatal): %s", e)
 
 
 # FIX (direct user report, July 24 2026 — "I want these LLM to take the
@@ -612,37 +618,85 @@ def is_instagram_ready() -> bool:
 
 
 # ── TOPIC SELECTION ───────────────────────────────────────────────────────────
+# YouTube's own category ids. Education and Science & Technology are where a
+# medical explainer actually competes; 26 is Howto & Style, which carries the
+# health-and-body content that outperforms both.
+_TREND_CATEGORIES = (27, 28, 26)
+
+# One fetch per process. get_trending_short_topic runs inside a 13-attempt
+# retry loop, so the uncached version asked YouTube what was trending up to
+# 13 times per Short for an answer that does not change within a run.
+_TREND_CACHE = {}
+
+
 def get_real_youtube_trending_signal(niche_hint=""):
+    """Real "what's working today" research, from YouTube's own Data API.
+
+    TWO THINGS WERE WRONG WITH THIS.
+    --------------------------------
+    First, `niche_hint` was accepted and then never referenced. The caller
+    passes the actual topic seed -- "rare condition explained simply" -- and
+    it was dropped on the floor, so the research was not connected to the
+    Short being written.
+
+    Second, chart=mostPopular with no category is YouTube's GENERAL US
+    trending list: music videos, game trailers, NFL highlights. Those titles
+    were handed to the writer of a clinical Short as "what's genuinely
+    landing right now, use it to understand hook style". For this channel
+    that is not a weak signal, it is a misleading one -- it pulls a medical
+    explainer toward the register of a music premiere.
+
+    Now it asks the categories this channel actually competes in, and sorts
+    what comes back so anything sharing vocabulary with the topic seed
+    surfaces first. Still the same free quota (one unit per category, versus
+    100 for a search), still the upload credentials, still never fabricated:
+    an empty list on any failure.
     """
-    v7 addition — real "what's working today" research, per explicit
-    request: "AI to do the research and find out what is working on
-    that day". Uses YouTube's own real Data API (videos.list with
-    chart=mostPopular) — genuinely current, and needs no new API key
-    since it reuses the same OAuth credentials already required for
-    uploads. This is a materially different, more relevant signal than
-    the existing NewsAPI check below: it reflects what's ACTUALLY
-    getting attention on YouTube specifically today, not just news
-    headlines. Returns a list of real trending video titles (empty list
-    on any failure — never fabricated).
-    """
+    hint = (niche_hint or "").strip().lower()
+    if hint in _TREND_CACHE:
+        return _TREND_CACHE[hint]
+
+    titles = []
     try:
         token = get_yt_token()
         if not token:
             return []
-        r = requests.get(
-            "https://www.googleapis.com/youtube/v3/videos",
-            params={"part": "snippet", "chart": "mostPopular",
-                    "regionCode": "US", "maxResults": 15,
-                    "access_token": token},
-            timeout=15)
-        if r.status_code != 200:
-            return []
-        items = r.json().get("items", [])
-        titles = [it["snippet"]["title"] for it in items if it.get("snippet", {}).get("title")]
-        return titles[:15]
+        for cat in _TREND_CATEGORIES:
+            try:
+                r = requests.get(
+                    "https://www.googleapis.com/youtube/v3/videos",
+                    params={"part": "snippet", "chart": "mostPopular",
+                            "regionCode": "US", "maxResults": 15,
+                            "videoCategoryId": str(cat),
+                            "access_token": token},
+                    timeout=15)
+                if r.status_code != 200:
+                    # Not every category is chartable in every region. One
+                    # empty category is not a reason to lose the others.
+                    log.info("Trending category %d unavailable (%d)", cat, r.status_code)
+                    continue
+                for it in r.json().get("items", []):
+                    t = it.get("snippet", {}).get("title")
+                    if t and t not in titles:
+                        titles.append(t)
+            except Exception as e:
+                log.info("Trending category %d failed (non-fatal): %s", cat, e)
     except Exception as e:
         log.warning("YouTube trending fetch (non-fatal): %s", e)
         return []
+
+    # Put the titles that share real words with the topic seed first, so the
+    # eight the prompt actually shows are the eight most relevant ones.
+    stop = {"the", "a", "an", "and", "of", "how", "why", "new", "for", "to",
+            "in", "on", "is", "it", "explained", "simply", "trending"}
+    want = {w for w in re.findall(r"[a-z]+", hint) if len(w) > 3 and w not in stop}
+    if want:
+        def overlap(t):
+            return -len(want & set(re.findall(r"[a-z]+", t.lower())))
+        titles.sort(key=overlap)
+
+    _TREND_CACHE[hint] = titles[:15]
+    return _TREND_CACHE[hint]
 
 
 def get_trending_short_topic(mode: str, feedback_block: str = "") -> dict:
@@ -687,9 +741,12 @@ def get_trending_short_topic(mode: str, feedback_block: str = "") -> dict:
     trending_block = ""
     if trending_titles:
         trending_block = (
-            "\n\nWhat's genuinely trending on YouTube today (real titles, for "
-            "genuine inspiration on angle/format/hook style — do NOT copy these, "
-            "use them only to understand what's actually landing right now):\n" +
+            "\n\nWhat is getting the most views on YouTube today in Education, "
+            "Science & Technology and Howto (real titles, pulled live). These "
+            "are here for ONE reason: to show you how a title earns a click "
+            "right now. Do not copy them, do not borrow their subject matter, "
+            "and do not adopt an entertainment register — this is a medical "
+            "channel and the credibility is the product:\n" +
             "\n".join(f"- {t}" for t in trending_titles[:8])
         )
 

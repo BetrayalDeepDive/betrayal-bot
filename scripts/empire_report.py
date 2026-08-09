@@ -69,10 +69,28 @@ USD_TO_INR     = 83
 
 
 def tg(msg: str):
-    """Send Telegram message."""
+    """Send Telegram message.
+
+    Routed through tg_safe so a video URL containing an underscore cannot
+    take the whole weekly report down with a silent 400 -- the same fault
+    that lost two of four Short notifications. Falls back to the original
+    call only if that module is genuinely unavailable.
+    """
     if not TELEGRAM_TOKEN:
         print(msg)
         return
+    try:
+        import sys as _sys
+        _vp = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "video_pipeline")
+        if _vp not in _sys.path:
+            _sys.path.insert(0, _vp)
+        from tg_safe import send as _safe_send
+        if not _safe_send(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, msg):
+            log.warning("Telegram did not accept the report")
+        return
+    except Exception as e:
+        log.warning("tg_safe unavailable, falling back (non-fatal): %s", e)
     requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
         json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"},

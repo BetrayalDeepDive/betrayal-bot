@@ -119,9 +119,14 @@ def send_post_upload_report(channel_display_name, video_url, video_id, token,
     if tg_fn:
         tg_fn(msg)
     else:
+        # This message leads with the video URL, so it is exactly the shape
+        # that legacy Markdown breaks when the id contains an underscore.
+        # See video_pipeline/tg_safe.py.
         try:
-            requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                          data={"chat_id": tg_chat, "text": msg, "parse_mode": "Markdown"}, timeout=20)
+            from tg_safe import send as _safe_send
+            if not _safe_send(tg_token, tg_chat, msg):
+                print("  Post-upload report: Telegram did not accept the message",
+                      flush=True)
         except Exception as e:
             print(f"  Post-upload report Telegram send failed (non-fatal): {e}", flush=True)
 

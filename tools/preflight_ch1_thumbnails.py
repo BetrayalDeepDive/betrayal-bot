@@ -1103,6 +1103,50 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── a Short link must survive the trip to Telegram ─────────────
+    # "the standalone Short links don't open at all". Every sender posted
+    # with legacy Markdown, and a YouTube id is base64url — two of the four
+    # Shorts that went live carried an underscore, which opens italic. One
+    # underscore means Telegram rejects the message with a 400 that requests
+    # does not raise; two means it is accepted with the underscores eaten
+    # and the link silently pointing at a video that does not exist.
+    import tg_safe as _tgs
+    check("a Short URL with an underscore is not sent as Markdown",
+          _tgs.markdown_would_break(
+              "*UPLOADED*\nURL: https://youtube.com/shorts/zNvuOykr_vk"),
+          "one underscore is a 400, and the message never arrives")
+    check("a URL whose underscores would be eaten is caught",
+          _tgs.markdown_would_break("URL: https://youtube.com/shorts/a_b_c1234"),
+          "this one succeeds and delivers a broken link")
+    check("a clean message still gets its formatting",
+          not _tgs.markdown_would_break(
+              "*UPLOADED*\nURL: https://youtube.com/shorts/DnHi98fcoYg"),
+          "the fallback should be a fallback, not the default")
+    check("an LLM title with a stray marker is caught",
+          _tgs.markdown_would_break("Title: the 9_cm mass\nURL: https://y.tube/abc"),
+          "titles are written by a model and are not escaped")
+    for _mod, _path in (("Shorts", ("video_pipeline", "shorts_reels_engine.py")),
+                        ("post-upload report", ("video_pipeline", "post_upload_reporter.py")),
+                        ("weekly report", ("scripts", "empire_report.py"))):
+        _s = open(os.path.join(ROOT, *_path)).read()
+        check("%s sends through the safe sender" % _mod,
+              "from tg_safe import send" in _s,
+              "a raw Markdown post can lose the link")
+
+    # ── standalone Shorts research the right thing ─────────────────
+    check("trending research uses the topic it was given",
+          "_TREND_CACHE" in _sre_src and "want = {w for w in re.findall" in _sre_src,
+          "niche_hint used to be accepted and ignored")
+    check("trending research asks the categories this channel competes in",
+          "videoCategoryId" in _sre_src and _sre._TREND_CATEGORIES,
+          "general US trending is music and sport, not medicine")
+    check("trending research is not refetched every retry",
+          "_TREND_CACHE[hint] = titles" in _sre_src,
+          "13 attempts asked YouTube the same question 13 times")
+    check("trending research never fabricates on failure",
+          _sre.get_real_youtube_trending_signal("no credentials here") == [],
+          "an invented trend is worse than none")
+
     # ── everything the workflow itself will check ──────────────────
     # This tool said "Ready for a real run" and the run then died in 90
     # seconds on a check this tool never ran. A pre-flight that clears work
