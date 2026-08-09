@@ -1103,6 +1103,106 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── a paraphrase is still a retelling ──────────────────────────
+    # The n-gram check alone was not enough and its own numbers said so:
+    # three paraphrases of the same episode scored 1.8%, 0.0% and 0.0%
+    # literal overlap. Rewriting the sentences hides literal reuse but
+    # cannot hide the running order, so beat order carries this. Both
+    # halves of the corpus are asserted here — catching every copy is
+    # worthless if it also rejects every original.
+    _EP = ("She was forty-one years old and her blood pressure read seventy "
+           "over forty in a corridor at two in the morning. For eleven weeks "
+           "she had been telling three separate doctors that she was tired, "
+           "that she was thirsty all the time, that her legs would not hold "
+           "her on the stairs. Each of them wrote the same two words in her "
+           "notes: probable dehydration. Nobody ordered a scan. The first "
+           "doctor suggested she drink more water. By the time somebody "
+           "finally ordered a CT scan, the mass in her adrenal gland was nine "
+           "centimetres across, and it had been quietly flooding her body "
+           "with hormones that stripped the salt out of her blood.")
+    _COPY = ("A forty-one year old woman had a blood pressure of seventy over "
+             "forty when she reached the corridor at two in the morning. Over "
+             "eleven weeks she told three different doctors the same thing: "
+             "exhausted, thirsty, legs failing on the stairs. All three wrote "
+             "down probable dehydration. None ordered imaging. The first told "
+             "her to drink more water. When a CT was finally requested, a nine "
+             "centimetre mass sat on her adrenal gland, pouring out hormones "
+             "that stripped salt from her blood.")
+    _OWN = ("Her legs were the tell. Not the thirst, which any of us would "
+            "explain away, and not the tiredness, which every adult reports. "
+            "Legs that will not carry you up a staircase are muscles running "
+            "out of the salt they need to fire, and salt was exactly what was "
+            "being stripped out of her by nine centimetres of tissue nobody "
+            "had imaged. Three clinicians heard about the stairs. It went in "
+            "the notes as dehydration.")
+
+    def _rejected(short):
+        return (_sre.derivative_of(short, _EP) > _sre.MAX_DERIVATIVE
+                or _sre.beat_order_similarity(short, _EP) > _sre.MAX_BEAT_ORDER)
+
+    check("a paraphrase is invisible to the literal check",
+          _sre.derivative_of(_COPY, _EP) <= _sre.MAX_DERIVATIVE,
+          "measured %.1f%% — this is why beat order exists"
+          % (_sre.derivative_of(_COPY, _EP) * 100))
+    check("a paraphrase is still caught, by its running order",
+          _rejected(_COPY),
+          "beat order %.0f%% (max %.0f%%)"
+          % (_sre.beat_order_similarity(_COPY, _EP) * 100, _sre.MAX_BEAT_ORDER * 100))
+    check("an independent Short on the same case is not caught",
+          not _rejected(_OWN),
+          "beat order %.0f%%" % (_sre.beat_order_similarity(_OWN, _EP) * 100))
+    check("too little shared material is not called a retelling",
+          _sre.beat_order_similarity("A completely unrelated sentence.", _EP) == 0.0,
+          "four shared details is the floor for judging order")
+    check("the originality judge fails open, not closed",
+          _sre.judge_is_retelling("", _EP) == (False, ""),
+          "a dead API must not block every Short the channel makes")
+    check("all three originality gates run before the rubric",
+          "_beat > MAX_BEAT_ORDER" in _sre_src and "judge_is_retelling(" in _sre_src
+          and "_deriv > MAX_DERIVATIVE" in _sre_src,
+          "the rubric passes a retelling, because the episode passed it")
+    check("a Short must carry a whole arc, not a trailer",
+          "A WHOLE STORY IN UNDER A MINUTE" in _sre_src,
+          "hook, situation, turn and real ending inside 45 seconds")
+
+    # ── generic filler cannot be published ─────────────────────────
+    # Asserted by BEHAVIOUR, not by searching for the phrase: the phrases
+    # legitimately still appear in the source, in the ban list and in the
+    # comment recording what was removed.
+    _real_llm_json = _sre.llm_json
+    try:
+        _sre.llm_json = lambda *a, **k: None      # model fails
+        _fallback = _sre.get_trending_short_topic("standalone_1")
+    finally:
+        _sre.llm_json = _real_llm_json
+    check("a failed topic ships nothing rather than filler",
+          _fallback == {},
+          "it used to return hype with no fact in it, got %r" % (_fallback,))
+    check("a failed topic retries instead of shipping filler",
+          "No usable trending topic this attempt" in _sre_src,
+          "an empty dict must not KeyError the caller")
+    _old_filler = ("The truth about sleep will shock you. What really happened "
+                   "was hidden from the public for years and nobody told you.")
+    check("empty hype is rejected",
+          len(_sre.hollow_phrases(_old_filler, "SHOCKING: sleep",
+                                  "You won't believe this...")) >= 5,
+          "the deleted template is the specification for this check")
+    check("a real clinical Short is not called hype",
+          _sre.hollow_phrases(
+              "Seventy over forty, at two in the morning, and the nurse wrote "
+              "it down twice. Eleven weeks of being told to drink more water.",
+              "The 9cm mass 3 doctors missed", "Written down twice") == [],
+          "the gate must not punish plain writing")
+    check("a script with no concrete number is rejected",
+          any("number" in r for r in _sre.hollow_phrases(
+              " ".join(["something remarkable happened to a person"] * 12))),
+          "a Short with no number in it is an opinion")
+    check("a clinical title can score full marks without crime words",
+          _sre.score_short_script(
+              "x " * 130, "The 9cm tumour 3 doctors missed", "written twice"
+          )["title"] >= 2.0,
+          "the rubric used to require SHOCKING/BETRAYAL/CAUGHT")
+
     # ── a Short link must survive the trip to Telegram ─────────────
     # "the standalone Short links don't open at all". Every sender posted
     # with legacy Markdown, and a YouTube id is base64url — two of the four

@@ -278,5 +278,13 @@
     "video_id": "zNvuOykr_vk",
     "ctr_pct": null,
     "timestamp": "2026-08-08T17:10:21.872904"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "myth_bust",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-09T14:01:47.280487"
   }
 ]

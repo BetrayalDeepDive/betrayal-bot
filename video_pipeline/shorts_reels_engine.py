@@ -781,6 +781,25 @@ Rules for YouTube Shorts 2026:
 - Replay rate is the #1 metric — end must loop back to start naturally
 - Share rate matters most — people share what shocks or moves them
 - One emotion only: shock, disbelief, outrage, or fear
+
+WRITE LIKE A PERSON WHO KNOWS SOMETHING, NOT LIKE AN ADVERT.
+- Open on a FACT, never on a promise. "Seventy over forty, at two in the
+  morning" stops a scroll. "You won't believe what doctors found" does not
+  — it is asking for attention instead of earning it, and it is the single
+  thing that makes these sound like every other channel.
+- BANNED outright, no exceptions: "you won't believe", "the truth about",
+  "what really happened", "nobody told you", "this changes everything",
+  "hidden from the public", "doctors hate", "stay till the end", "wait for
+  it". If a sentence could sit under any other video, delete it.
+- Every 45 seconds must contain at least one hard, checkable specific — a
+  number, a measurement, a duration, an age, a year. A Short with no number
+  in it is an opinion.
+- Never claim something was hidden, suppressed or covered up. This channel's
+  credibility is the entire product and it does not get a second chance.
+- One real idea, followed all the way to its end. Not a list, not a tease,
+  not a trailer for something else. The viewer should finish it knowing one
+  thing they did not know 45 seconds ago, and be able to repeat it to
+  somebody else in a sentence.
 {SHORTS_RUBRIC_BLOCK}{feedback_block}
 
 Return JSON:
@@ -792,16 +811,76 @@ Return JSON:
   "us_audience_appeal": 8,
   "replay_potential": 9}}""")
 
+    # NO SHORT AT ALL BEATS THIS SHORT.
+    #
+    # What used to be here, when the model failed, was a hardcoded template:
+    #
+    #     title:  "SHOCKING: <topic>"
+    #     hook:   "You won't believe this..."
+    #     script: "The truth about <topic> will shock you. What really
+    #              happened was completely hidden from the public for years.
+    #              And now — everything is coming out."
+    #
+    # That is the generic filler being complained about, and it is not a
+    # near-miss: it contains no fact, states nothing, and promises a reveal
+    # that does not exist. On a medical channel it is also a claim -- that
+    # something was "hidden from the public for years" -- made about a real
+    # research topic on no evidence whatsoever.
+    #
+    # An empty dict sends the caller back round the retry loop. Thirteen
+    # attempts, then the Short is skipped. A missing Short costs one slot; a
+    # published lie costs the channel.
     if not result:
-        result = {
-            "title": f"SHOCKING: {topic[:50]}",
-            "hook_text": "You won't believe this...",
-            "script": f"The truth about {topic} will shock you. What really happened was completely hidden from the public for years. And now — everything is coming out. {topic} — the real story nobody told you.",
-            "hashtags": f"{cfg['hashtags_base']} #shocking",
-            "niche": cfg["default_niche"],
-        }
+        log.warning("Trending topic generation returned nothing — retrying "
+                    "rather than shipping filler")
+        return {}
 
     return result
+
+
+# ── EMPTY HYPE ────────────────────────────────────────────────────────────────
+# "I don't want anything generic or nonsense."
+#
+# The deleted fallback template is the specification for this check: every
+# phrase below is one that PROMISES a revelation instead of delivering a
+# fact. They are the load-bearing sentences of a Short that says nothing --
+# and a rubric built on shock-word counting actively rewards them, which is
+# how they survived this long.
+_HOLLOW = (
+    "you won't believe", "you wont believe", "will shock you", "wait for it",
+    "nobody told you", "the truth about", "what really happened",
+    "hidden from the public", "everything is coming out", "this changes everything",
+    "doctors hate", "they don't want you to know", "they dont want you to know",
+    "the real story nobody", "keep watching", "stay till the end",
+    "you need to see this", "this will blow your mind", "shocking truth",
+)
+
+# A claim a medical channel must never make on a research topic.
+_UNEVIDENCED = ("hidden from the public", "they don't want you to know",
+                "they dont want you to know", "doctors hate", "big pharma",
+                "the cure they", "suppressed for years")
+
+
+def hollow_phrases(script: str, title: str = "", hook: str = ""):
+    """Reasons this Short is empty hype rather than a story. [] if it is fine.
+
+    Two separate objections:
+      * a phrase that promises a reveal in place of stating one
+      * no concrete anchor at all -- a real Short on a real case has a
+        number, an age, a measurement or a duration in it somewhere
+    """
+    blob = " ".join([str(script or ""), str(title or ""), str(hook or "")]).lower()
+    reasons = []
+    for p in _HOLLOW:
+        if p in blob:
+            reasons.append('empty hype: "%s"' % p)
+    for p in _UNEVIDENCED:
+        if p in blob:
+            reasons.append('unevidenced claim: "%s"' % p)
+    body = str(script or "")
+    if len(body.split()) >= 40 and not re.search(r"\d", body):
+        reasons.append("no concrete number anywhere in the script")
+    return reasons
 
 
 # ── SCRIPT QUALITY SCORING ────────────────────────────────────────────────────
@@ -957,10 +1036,24 @@ def score_short_script(script: str, title: str, hook: str,
         scores["emotion"] = min(2.0, emo_count * 0.5)
 
     # 5. Title quality (0-2 pts)
+    # A CLINICAL CHANNEL CANNOT EARN THIS POINT IN CRIME VOCABULARY.
+    #
+    # The list used to be SHOCKING/SECRET/TRUTH/EXPOSED/BETRAYAL/CAUGHT and
+    # nothing else. score_short_script is shared by all five channels, so on
+    # "No Known Cause" a full-marks title had to reach for tabloid words about
+    # somebody's illness -- and a title that refused was scored as weaker
+    # writing. That is a rubric manufacturing the register it is then blamed
+    # for. The clinical equivalents carry the same unresolved-question weight
+    # without the crime framing; the original words stay for the channels they
+    # were written for.
+    title_words = ["SHOCKING", "SECRET", "TRUTH", "EXPOSED", "BETRAYAL", "CAUGHT",
+                   "MISSED", "MISDIAGNOSED", "OVERLOOKED", "UNDETECTED", "RARE",
+                   "UNEXPLAINED", "WRONG", "SYMPTOM", "DIAGNOSIS", "FATAL",
+                   "UNTREATED", "MYSTERY", "NOBODY", "WHY"]
     title_score = 0
     if len(title) <= 60:
         title_score += 0.5
-    if any(w in title.upper() for w in ["SHOCKING","SECRET","TRUTH","EXPOSED","BETRAYAL","CAUGHT"]):
+    if any(w in title.upper() for w in title_words):
         title_score += 1.0
     if any(c.isdigit() for c in title):
         title_score += 0.5
@@ -2183,8 +2276,22 @@ def _produce_standalone_short_once(mode: str, channel: str = "betrayal_deepdive"
     for attempt in range(MAX_ATTEMPTS):
         log.info("Attempt %d/%d", attempt + 1, MAX_ATTEMPTS)
 
-        # 1. Get topic
+        # 1. Get topic. An empty dict means generation failed and the generic
+        # filler template that used to paper over it is gone — retry instead.
         topic_data = get_trending_short_topic(mode, feedback_block=_shorts_feedback_block(prev_score))
+        if not topic_data or not topic_data.get("script") or not topic_data.get("title"):
+            log.info("No usable trending topic this attempt — retrying")
+            continue
+
+        # 2. Reject empty hype before spending a voice and a render on it.
+        _hollow = hollow_phrases(topic_data.get("script", ""),
+                                 topic_data.get("title", ""),
+                                 topic_data.get("hook_text", ""))
+        if _hollow:
+            log.info("Rejected as generic: %s", "; ".join(_hollow[:3]))
+            prev_score = None
+            continue
+
         title  = topic_data["title"]
         script = topic_data["script"]
         hook   = topic_data["hook_text"]
@@ -2510,6 +2617,110 @@ def derivative_of(short_script: str, main_script: str, n: int = 6):
 MAX_DERIVATIVE = 0.18
 
 
+# Anything above this is walking the episode's beats in the episode's order.
+# Measured across eight scripts written against the same clinical case:
+#
+#     verbatim retelling        96.4%      independent angle       69.6%
+#     paraphrase, tight         89.7%      independent, quoting    63.4%
+#     paraphrase, compressed    86.2%      independent, thematic   41.4%
+#     paraphrase, competent     83.2%      independent, one detail 39.7%
+#
+# Every copy lands at 83+ and every original at 70 or below. 0.76 sits in
+# the middle of that gap with roughly seven points of margin on each side.
+#
+# This is the check that matters, because the n-gram check cannot see any of
+# it: those three paraphrases scored 1.8%, 0.0% and 0.0% for literal overlap.
+# Rebuild the sentences and literal similarity vanishes -- but the SHAPE
+# survives paraphrase, and the shape is what makes a Short feel like the
+# monologue of the episode.
+MAX_BEAT_ORDER = 0.76
+
+_BEAT_STOP = set("""the a an and or but of to in on at is was were be been being it
+its this that these those he she they them her his their we you i for with as by
+from had has have not no nor so if then than when while which who whom what where
+why how all any both each few more most other some such only own same too very can
+will just should now up out down over under again further once here there""".split())
+
+
+def _beats(text):
+    """Ordered distinctive content words, first appearance only."""
+    out, seen = [], set()
+    for w in re.findall(r"[a-z0-9]+", (text or "").lower()):
+        if w in _BEAT_STOP or (len(w) < 4 and not w.isdigit()) or w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+    return out
+
+
+def beat_order_similarity(short_script: str, main_script: str) -> float:
+    """Does the Short walk the episode's story in the episode's order?
+
+    Of every pair of details the two scripts share, the fraction that appear
+    in the same relative order in both. A chronological retelling preserves
+    almost every pair; a Short that enters at one moment and works outward
+    from it does not.
+
+    This survives paraphrase, which is the whole point -- rewriting the
+    sentences does not reorder the story.
+    """
+    m_rank = {w: i for i, w in enumerate(_beats(main_script))}
+    s = [w for w in _beats(short_script) if w in m_rank]
+    if len(s) < 4:
+        # Too little shared material to call it a retelling of anything.
+        return 0.0
+    concordant = total = 0
+    for i in range(len(s)):
+        for j in range(i + 1, len(s)):
+            total += 1
+            if m_rank[s[i]] < m_rank[s[j]]:
+                concordant += 1
+    return concordant / float(total) if total else 0.0
+
+
+def judge_is_retelling(short_script: str, main_script: str):
+    """Ask a model to read both and rule. Returns (is_retelling, reason).
+
+    The two measurements above are shape and letter. Neither can read. A
+    model given both texts can answer the question actually being asked --
+    "would somebody who watched the episode feel this Short told them
+    anything?" -- which is the complaint in its original words.
+
+    Fails OPEN (not a retelling) when the judge is unavailable, because the
+    two mechanical checks still stand behind it and a dead API should not
+    silently block every Short a channel makes.
+    """
+    if not (short_script or "").strip() or not (main_script or "").strip():
+        return False, ""
+    try:
+        verdict = llm_json(
+            "You are checking whether a 45-second YouTube Short is genuinely "
+            "its own piece of writing, or just the long episode retold.\n\n"
+            "They SHOULD share facts — it is the same real case. Sharing "
+            "facts, numbers, names or even one quoted sentence from the "
+            "source paper is fine and expected.\n\n"
+            "It is a RETELLING if any of these are true:\n"
+            "- it summarises the episode, or walks the same events in the "
+            "same order\n"
+            "- it opens on the episode's opening beat, or closes on its "
+            "closing beat\n"
+            "- somebody who watched the episode would learn nothing and feel "
+            "nothing new\n\n"
+            "It is ITS OWN PIECE if it enters at a specific moment, detail, "
+            "number or person the episode passes over, and builds a complete "
+            "arc from there — even though the underlying case is the same.\n\n"
+            "FULL EPISODE:\n%s\n\nTHE SHORT:\n%s\n\n"
+            "Return JSON: {\"retelling\": true or false, \"reason\": \"one "
+            "sentence, concrete, naming what you saw\"}"
+            % (str(main_script)[:6000], str(short_script)[:3000]))
+        if not verdict:
+            return False, ""
+        return bool(verdict.get("retelling")), str(verdict.get("reason", ""))[:300]
+    except Exception as e:
+        log.warning("Retelling judge unavailable (non-fatal): %s", e)
+        return False, ""
+
+
 def _reuse_note(short_script: str, main_script: str, limit: int = 3) -> str:
     """Names the longest runs of words the Short took from the episode, so the
     retry is told what to stop doing instead of being asked again politely."""
@@ -2632,6 +2843,16 @@ Rules:
 - It must land on the real outcome — the same true resolution the story
   actually had, never a softer one, never invented, never a cliffhanger.
   Arrive at it your own way; do not reproduce the episode's closing beat
+- A WHOLE STORY IN UNDER A MINUTE. The viewer has 45 seconds and no
+  context, and they must get all four of these, in this order:
+    1. a hook that stops the scroll on its own — a concrete fact, not a
+       promise that something is coming
+    2. the situation, in one or two lines: who, and what was wrong
+    3. the turn — the moment it stops being what everyone assumed
+    4. the real ending, stated plainly, so it feels finished
+  Nothing may be left for "the full video". If a viewer watches only this
+  and never watches anything else, they must still have been told a
+  complete story that was worth their time.
 {SHORTS_RUBRIC_BLOCK}{_shorts_feedback_block(prev_score)}{_overlap_note}
 
 Return JSON:
@@ -2650,7 +2871,24 @@ Return JSON:
         # episode passed them first. That is why 9.0/10 Shorts still read as
         # the main video's monologue. Overlap is the one thing the rubric
         # cannot see, so it is checked separately and it is fatal.
-        _deriv = derivative_of(script_data.get("script", ""), main_script)
+        # THREE INDEPENDENT WAYS OF BEING THE EPISODE AGAIN.
+        #
+        # score_short_script measures hook, specificity and shape — all of
+        # which a competent retelling passes, because the episode passed them
+        # first. That is why 9.0/10 Shorts still read as the main video's
+        # monologue. So originality is checked separately, and it is fatal.
+        #
+        # One check is not enough, and the measurements say so. Across eight
+        # scripts written against the same case, the three paraphrases scored
+        # 1.8%, 0.0% and 0.0% for literal overlap — a paraphrase is invisible
+        # to the n-gram check. Their beat ORDER, though, was 83-90% against
+        # 40-70% for the originals, because rewriting sentences does not
+        # reorder a story. And behind both sits a judge that can actually
+        # read, for the retelling that beats a number.
+        _short_text = script_data.get("script", "")
+        _deriv = derivative_of(_short_text, main_script)
+        _beat = beat_order_similarity(_short_text, main_script)
+
         if _deriv > MAX_DERIVATIVE:
             log.info("Rejected: %.0f%% of this Short is lifted from the episode "
                      "(max %.0f%%) — it is a retelling, not its own piece",
@@ -2660,12 +2898,37 @@ Return JSON:
             # again, 13 times; naming the borrowed lines is what makes the
             # retry corrective. prev_score is left alone on purpose — it
             # drives the RUBRIC feedback block, and this is not a rubric miss.
-            _overlap_note = _reuse_note(script_data.get("script", ""), main_script)
+            _overlap_note = _reuse_note(_short_text, main_script)
+            continue
+
+        if _beat > MAX_BEAT_ORDER:
+            log.info("Rejected: this Short walks the episode's beats in the "
+                     "episode's order (%.0f%%, max %.0f%%) — the words are new, "
+                     "the story is not", _beat * 100, MAX_BEAT_ORDER * 100)
+            _overlap_note = (
+                "\n\nYOUR LAST ATTEMPT WAS REJECTED FOR RETELLING THE EPISODE.\n"
+                "You rewrote the sentences but kept the episode's running "
+                "order, so it still reads as a summary of the full video. Do "
+                "not start where the episode starts and do not move through "
+                "the events in sequence. Pick ONE moment, number, decision or "
+                "person, open there, and let everything else reach the viewer "
+                "through that one thing.")
+            continue
+
+        _is_retell, _why = judge_is_retelling(_short_text, main_script)
+        if _is_retell:
+            log.info("Rejected by the originality judge: %s", _why or "(no reason given)")
+            _overlap_note = (
+                "\n\nYOUR LAST ATTEMPT WAS REJECTED AS A RETELLING OF THE "
+                "EPISODE.\nThe specific problem: %s\nKeep every fact. Throw "
+                "away the structure and write a different piece about the "
+                "same case." % (_why or "it read as a summary of the full video"))
             continue
 
         pre_score = score_short_script(script_data["script"], script_data["title"], script_data["hook_text"])
-        log.info("Pre-score: %.1f/10 (%.0f%% overlap with the episode)",
-                 pre_score["total"], _deriv * 100)
+        log.info("Pre-score: %.1f/10 (episode overlap %.0f%% literal, "
+                 "%.0f%% beat order — both under the bar, judge cleared it)",
+                 pre_score["total"], _deriv * 100, _beat * 100)
         notify_short_score(f"video-topic ({angle}) pre-score", attempt + 1, MAX_ATTEMPTS,
                             pre_score["total"], QUALITY_MIN, extra=script_data["title"][:60])
         if pre_score["total"] < QUALITY_MIN:
