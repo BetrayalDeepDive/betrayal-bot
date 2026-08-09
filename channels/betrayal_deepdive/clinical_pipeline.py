@@ -6053,65 +6053,31 @@ def run_audio_stage(script, niche_name, edge_voice):
             except Exception as e:
                 log(f"  Piper backup failed: {e}")
 
+        # THE CHAIN ENDS HERE, WITH SILENCE RATHER THAN A ROBOT.
+        #
+        # Two more routes used to follow: gTTS, then offline espeak-ng.
+        # Neither could ever publish -- the audio gate weights voice tier at
+        # 40% against an 8.5 floor, so gTTS topped out at 7.6 and espeak at
+        # 6.6. They existed only so a failed run had a file to measure.
+        #
+        # That was still wrong, on the instruction "I don't want anything
+        # related to robotic voice, only humanic voices", and it was not
+        # theoretical: an espeak-narrated Short reached the live channel,
+        # because a synthesiser that stays installed and reachable is
+        # eventually heard. Both are removed rather than demoted.
+        #
+        # Five human routes remain (Kokoro, SSML edge-tts, ElevenLabs, the
+        # per-voice edge-tts loop, Fish Audio) plus Piper, which is neural,
+        # local, and needs no key -- so with no API keys at all there are
+        # still three routes that can genuinely publish. Removing two routes
+        # that could never publish costs no real backup.
         if not fallback_ok:
-            try:
-                from gtts import gTTS
-                import shutil as _shutil
-                _words = script_clean.split()
-                gtts_chunks = [" ".join(_words[i:i+400]) for i in range(0, len(_words), 400)]
-                parts = []
-                for i, chunk in enumerate(gtts_chunks):
-                    part = str(WORK_DIR / f"gtts_part_{i}.mp3")
-                    try:
-                        gTTS(text=chunk, lang="en", tld="co.uk", slow=False).save(part)
-                        if Path(part).exists() and Path(part).stat().st_size > 2000:
-                            parts.append(part)
-                    except Exception as e:
-                        log(f"    gTTS chunk {i} error: {e}")
-                if parts:
-                    if len(parts) == 1:
-                        _shutil.copy(parts[0], audio_path)
-                    else:
-                        lst = str(WORK_DIR / "gtts_list.txt")
-                        with open(lst, "w") as f:
-                            for p in parts: f.write(f"file '{p}'\n")
-                        subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",audio_path],
-                                       capture_output=True, timeout=300)
-                    if Path(audio_path).exists() and Path(audio_path).stat().st_size > 50000:
-                        log(f"  ACCEPTED: gTTS backup | {Path(audio_path).stat().st_size/1024/1024:.1f}MB (lower quality)")
-                        tg("⚠️ Ch1: edge-tts AND Fish Audio both failed today — used gTTS backup "
-                           "(noticeably more robotic). Check FISH_AUDIO_API_KEY / provider status.")
-                        fallback_ok = True
-                        edge_voice = "gtts-fallback"
-            except Exception as e:
-                log(f"  gTTS backup failed: {e}")
-
-        if not fallback_ok:
-            try:
-                wav = str(WORK_DIR / "audio_espeak.wav")
-                subprocess.run(["espeak-ng", "-v", "en-us", "-s", "150", "-w", wav, script_clean[:20000]],
-                               capture_output=True, timeout=180)
-                if Path(wav).exists() and Path(wav).stat().st_size > 50000:
-                    subprocess.run(["ffmpeg","-y","-i",wav,audio_path], capture_output=True, timeout=60)
-                    if Path(audio_path).exists():
-                        log(f"  ACCEPTED: offline espeak-ng (LAST RESORT) | {Path(audio_path).stat().st_size/1024/1024:.1f}MB")
-                        # The old wording here said this "still published".
-                        # It does not, and it never did: espeak's ceiling on
-                        # the audio gate is 6.6 against an 8.5 floor, so this
-                        # file exists only so the run has something to measure
-                        # and report. Saying otherwise sent exactly the wrong
-                        # signal on the one day it mattered.
-                        tg("🚨 Ch1: EVERY publishable voice failed today (Kokoro, edge-tts, "
-                           "Fish Audio, Piper). Fell through to the offline robotic voice, "
-                           "which CANNOT pass the 8.5 audio gate — so today's episode will "
-                           "be skipped, not published. Check provider status urgently.")
-                        fallback_ok = True
-                        edge_voice = "espeak-offline-LASTRESORT"
-            except Exception as e:
-                log(f"  espeak-ng backup failed: {e}")
-
-        if not fallback_ok:
-            raise RuntimeError("All TTS failed")
+            tg("🚨 Ch1: every human voice failed today (Kokoro, edge-tts, "
+               "ElevenLabs, Fish Audio, Piper). There is no robotic fallback "
+               "any more, by design — today's episode is skipped rather than "
+               "narrated by a machine voice. Check provider status urgently.")
+            raise RuntimeError("All human TTS routes failed — refusing to "
+                               "narrate with a robotic voice")
 
     duration = get_media_duration(audio_path)
     log(f"  Duration: {duration:.1f}s ({duration/60:.1f} min)")
@@ -6160,10 +6126,8 @@ def run_audio_stage(script, niche_name, edge_voice):
         tool_used = "Fish Audio"
     elif edge_voice == "piper-local":
         tool_used = "Piper (local neural)"
-    elif edge_voice == "gtts-fallback":
-        tool_used = "gTTS (draft only — cannot pass the gate)"
-    elif edge_voice == "espeak-offline-LASTRESORT":
-        tool_used = "espeak (draft only — cannot pass the gate)"
+    # The two branches that used to sit here named gTTS and espeak. Both
+    # routes are deleted, so neither value can be produced any more.
     elif el_ok:
         tool_used = "ElevenLabs"
     else:

@@ -3794,62 +3794,23 @@ def run_stage3_audio(script_clean, voice_id, niche_name):
     except Exception as e:
         log(f"  Kokoro backup failed (non-fatal, falling further): {e}")
 
-    try:
-        from gtts import gTTS
-        import shutil as _shutil
-        mp3 = str(WORK_DIR / "audio_gtts.mp3")
-        _words = script_clean.split()
-        gtts_chunks = [" ".join(_words[i:i+400]) for i in range(0, len(_words), 400)]
-        parts = []
-        for i, chunk in enumerate(gtts_chunks):
-            part = str(WORK_DIR / f"gtts_part_{i}.mp3")
-            try:
-                gTTS(text=chunk, lang="en", tld="co.uk", slow=False).save(part)
-                if Path(part).exists() and Path(part).stat().st_size > 2000:
-                    parts.append(part)
-            except Exception as e:
-                log(f"    gTTS chunk {i} error: {e}")
-        if parts:
-            if len(parts) == 1:
-                _shutil.copy(parts[0], mp3)
-            else:
-                lst = str(WORK_DIR / "gtts_list.txt")
-                with open(lst, "w") as f:
-                    for p in parts: f.write(f"file '{p}'\n")
-                subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i",lst,"-c","copy",mp3],
-                               capture_output=True, timeout=300)
-            if Path(mp3).exists() and Path(mp3).stat().st_size > 50000:
-                sz = Path(mp3).stat().st_size
-                _r = subprocess.run(["ffprobe","-v","quiet","-show_entries","format=duration",
-                                     "-of","csv=p=0",mp3], capture_output=True, text=True, timeout=30)
-                actual_dur = float(_r.stdout.strip()) if _r.returncode == 0 and _r.stdout.strip() else dur_expected
-                log(f"  ACCEPTED: gTTS backup | {sz/1024/1024:.1f}MB (lower quality)")
-                tg("⚠️ Evidence Room: edge-tts AND Fish Audio both failed today — used gTTS backup "
-                   f"(noticeably more robotic). Check FISH_AUDIO_API_KEY / provider status.")
-                return mp3, actual_dur, sz, "gtts-fallback"
-    except Exception as e:
-        log(f"  gTTS backup failed: {e}")
-
-    try:
-        mp3 = str(WORK_DIR / "audio_espeak.mp3")
-        wav = str(WORK_DIR / "audio_espeak.wav")
-        subprocess.run(["espeak-ng", "-v", "en-us", "-s", "150", "-w", wav, script_clean[:20000]],
-                       capture_output=True, timeout=180)
-        if Path(wav).exists() and Path(wav).stat().st_size > 50000:
-            subprocess.run(["ffmpeg","-y","-i",wav,mp3], capture_output=True, timeout=60)
-            final = mp3 if Path(mp3).exists() else wav
-            sz = Path(final).stat().st_size
-            _r = subprocess.run(["ffprobe","-v","quiet","-show_entries","format=duration",
-                                 "-of","csv=p=0",final], capture_output=True, text=True, timeout=30)
-            actual_dur = float(_r.stdout.strip()) if _r.returncode == 0 and _r.stdout.strip() else dur_expected
-            log(f"  ACCEPTED: offline espeak-ng (LAST RESORT) | {sz/1024/1024:.1f}MB")
-            tg("🚨 Evidence Room: ALL providers failed today (edge-tts, Fish Audio, gTTS) — used OFFLINE "
-               f"robotic voice as last resort so the video still published. Check provider status urgently.")
-            return final, actual_dur, sz, "espeak-offline-LASTRESORT"
-    except Exception as e:
-        log(f"  espeak-ng backup failed: {e}")
-
-    tg("Evidence Room Stage 3 FAILED — all voices AND all backup providers failed")
+    # NO ROBOTIC LAST RESORT. See video_pipeline/voice_policy.py.
+    #
+    # A gTTS route and an offline espeak-ng route used to follow. The espeak
+    # one announced itself as having published "so the video still published"
+    # — and on this channel that was literally true, because the voice-tier
+    # arithmetic that stops a robotic narration on Ch1 was never propagated
+    # here. A machine voice really could reach this audience.
+    #
+    # Per instruction, "only humanic voices": both are removed. The human
+    # routes above remain (edge-tts per-voice loop, Fish Audio, Kokoro), and
+    # if all of them fail the episode is skipped rather than narrated by a
+    # synthesiser.
+    tg("🚨 Evidence Room: every human voice failed today (edge-tts, Fish "
+       "Audio, Kokoro). There is no robotic fallback any more, by design — "
+       "today's episode is skipped rather than narrated by a machine voice. "
+       "Check provider status urgently.")
+    log("  All human TTS routes failed — refusing to narrate robotically")
     sys.exit(1)
 
 
@@ -3976,6 +3937,24 @@ def get_yt_token():
 #     DECLARE_SYNTHETIC_MEDIA_EVIDENCE_ROOM=true   (this channel)
 #     DECLARE_SYNTHETIC_MEDIA=true                (all channels)
 from synthetic_media_policy import declare_synthetic_media
+
+def _voice_is_robotic(name):
+    """True when `name` is not a route cleared to reach an audience.
+
+    Was an inline `name in ("gtts-fallback", "espeak-offline-LASTRESORT")`
+    in several places. Those two routes are deleted now, so every one of
+    those conditions had quietly become dead code -- a safety net checking
+    for something that can no longer happen, while a NEW robotic or unknown
+    route would sail past it. Asking the allowlist instead makes the net
+    live again. See video_pipeline/voice_policy.py.
+    """
+    try:
+        from voice_policy import is_human
+        return not is_human(name)
+    except Exception:
+        return str(name or "").strip().lower() in (
+            "gtts-fallback", "espeak-offline-lastresort", "espeak", "gtts")
+
 DECLARE_SYNTHETIC_MEDIA = declare_synthetic_media("evidence_room")
 
 
@@ -6707,7 +6686,7 @@ def main():
     # this was never long enough for that case anyway. Shortened
     # to a realistic wait for a genuinely transient rate limit.
     _AUDIO_RETRY_WAIT_SECONDS = 10 * 60  # 10 minutes
-    while voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT") and \
+    while _voice_is_robotic(voice_used) and \
           _audio_retry_count < _MAX_AUDIO_RETRIES:
         _audio_retry_count += 1
         log(f"  Audio tier {voice_used} is below the auto-publish bar — "
@@ -6718,7 +6697,7 @@ def main():
         audio_path, duration, audio_sz, voice_used = run_stage_with_retry(
             run_stage3_audio, "Audio", script_clean, voice, niche["name"])
 
-    if voice_used in ("gtts-fallback", "espeak-offline-LASTRESORT"):
+    if _voice_is_robotic(voice_used):
         tg(f"🛑 Ch2 HOLD — audio still fell back to {voice_used} after "
            f"{_MAX_AUDIO_RETRIES} retries over {_MAX_AUDIO_RETRIES * 2}h, below the stated "
            f"voice-quality bar. This episode is NOT being published automatically. Review the "

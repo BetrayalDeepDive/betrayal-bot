@@ -53,13 +53,17 @@ STAGES = [
     #
     # This stage read "4 route(s) OK" for months and it was not true. The audio
     # gate scores the voice tier at 40% against an 8.5 floor, so a route's best
-    # possible score is tier*0.4 + 6.0 -- gTTS tops out at 7.6 and espeak at
-    # 6.6. Neither can ever produce a publishable episode, however clean the
-    # file is. Counting them was counting a spare wheel that does not fit.
+    # possible score is tier*0.4 + 6.0 -- gTTS topped out at 7.6 and espeak at
+    # 6.6. Neither could ever produce a publishable episode, however clean the
+    # file was. Counting them was counting a spare wheel that does not fit.
     #
-    # With no API keys set the honest count was TWO: Kokoro and edge-tts. Piper
-    # is the third, and it is the only one besides Kokoro that needs no network
-    # at all.
+    # Both are now DELETED from every channel rather than listed as drafts,
+    # on the instruction "only humanic voices" -- a synthesiser that stays
+    # installed and reachable is eventually heard, and one was: a live Short
+    # narrated by espeak. See video_pipeline/voice_policy.py.
+    #
+    # The four below are all human, and two of them (Kokoro, Piper) need no
+    # network and no key at all.
     ("Narration audio", [
         ("Kokoro (local, on the runner)", "nothing — runs here",
          ("channels/betrayal_deepdive/clinical_pipeline.py", "run_audio_with_kokoro")),
@@ -69,10 +73,6 @@ STAGES = [
          ("video_pipeline/piper_tts.py", "def synthesize(")),
         ("Fish Audio", "FISH_AUDIO_API_KEY",
          ("channels/betrayal_deepdive/clinical_pipeline.py", "api.fish.audio")),
-        ("gTTS", "Google's public endpoint",
-         ("channels/betrayal_deepdive/clinical_pipeline.py", "gTTS"), "draft"),
-        ("espeak-ng (local)", "nothing — runs here",
-         ("channels/betrayal_deepdive/clinical_pipeline.py", "espeak"), "draft"),
     ]),
     ("Subtitles", [
         ("Groq Whisper, retried", "GROQ_API_KEY",

@@ -1253,6 +1253,44 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
     # Shorts are narrated faster than the main episode: they have 60 seconds
     # to land a whole story, so the pace target is the Shorts' own, not the
     # documentary's 100 wpm.
+    # edge-tts — THE THIRD HUMAN ROUTE.
+    #
+    # Deleting espeak left Shorts with two routes that can speak, Groq and
+    # Piper, against a standing requirement of three to four real backups
+    # per stage. edge-tts is neural, free, needs no key, and is already the
+    # main episode's primary voice — so it closes that gap with something
+    # this repo already depends on rather than a new account.
+    #
+    # It sits between the two on purpose: Groq's own voices first, then the
+    # remote neural voice, then the local one that works with the network
+    # down. Three routes, three different failure modes.
+    try:
+        import asyncio as _asyncio
+        import edge_tts as _edge
+        _g = voice.get("gender", "male")
+        _acc = voice.get("accent", "US")
+        _edge_voice = {
+            ("British", "female"): "en-GB-SoniaNeural",
+            ("British", "male"):   "en-GB-RyanNeural",
+            ("US", "female"):      "en-US-JennyNeural",
+            ("US", "male"):        "en-US-GuyNeural",
+        }.get((_acc, _g), "en-US-GuyNeural")
+
+        async def _run():
+            await _edge.Communicate(text=script[:4000], voice=_edge_voice,
+                                    rate="+8%").save(output_path)
+
+        # Bounded: a hung endpoint must not stall the whole Shorts run when
+        # there is still a local route underneath this one.
+        _asyncio.run(_asyncio.wait_for(_run(), timeout=120))
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 20000:
+            log.info("Audio: edge-tts %s ✅", _edge_voice)
+            globals()["LAST_TTS_ROUTE"] = "edge-tts"
+            return True
+        log.warning("edge-tts produced nothing usable — falling through")
+    except Exception as e:
+        log.warning("edge-tts fallback failed: %s", e)
+
     try:
         # `sys` is not imported at module level in this file (only inside one
         # function far below), so importing it here is deliberate rather than
@@ -1271,47 +1309,20 @@ def generate_audio(script: str, voice: dict, output_path: str) -> bool:
     except Exception as e:
         log.warning("Piper fallback failed: %s", e)
 
-    # espeak-ng — DRAFT ONLY. The scorer refuses to pass this route, so a
-    # Short that reaches here is rebuilt or dropped, never published.
-    log.info("Using espeak-ng fallback (draft only — cannot pass the gate)")
-    try:
-        # Select espeak voice for accent
-        accent = voice.get("accent", "US")
-        gender = voice.get("gender", "male")
-        if accent == "British" and gender == "male":
-            espeak_voice = "en-gb"
-        elif accent == "British" and gender == "female":
-            espeak_voice = "en-gb+f3"
-        elif gender == "female":
-            espeak_voice = "en-us+f3"
-        else:
-            espeak_voice = "en-us"
-
-        raw_wav = output_path.replace(".mp3", "_raw.wav")
-        # FIX (found on sequential re-audit): this was truncating to 500
-        # chars while the primary Groq path allows 2800 — a typical
-        # 60-second short script (~800-900 chars at the 155wpm speed set
-        # below) would have lost roughly 40% of its content the moment
-        # Groq ever failed and this fallback fired. Raised to match a
-        # realistic full short script length.
-        subprocess.run([
-            "espeak-ng", "-v", espeak_voice, "-s", "155", "-p", "50",
-            "-w", raw_wav, script[:2000]
-        ], capture_output=True)
-
-        if os.path.exists(raw_wav):
-            subprocess.run([
-                "ffmpeg", "-y", "-i", raw_wav,
-                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-                "-codec:a", "libmp3lame", "-b:a", "128k", output_path
-            ], capture_output=True)
-            os.remove(raw_wav)
-            log.info("Audio: espeak-ng fallback (DRAFT ONLY — will not pass the gate)")
-            globals()["LAST_TTS_ROUTE"] = "espeak"
-            return os.path.exists(output_path)
-    except Exception as e:
-        log.error("All TTS failed: %s", e)
-
+    # THIS IS WHERE THE ROBOT USED TO SPEAK.
+    #
+    # An espeak-ng route sat here. It was marked "draft only" and the scorer
+    # was made to refuse it, and a Short narrated by it still went live on
+    # the channel — because "draft only" is a label, and the synthesiser was
+    # installed, wired in and reachable. On the day Groq returned a 429 the
+    # chain walked all the way down and something spoke.
+    #
+    # Per instruction, "only humanic voices": it is gone, not demoted. The
+    # human routes above it (edge-tts, Kokoro, Piper local neural) are the
+    # whole list. If every one of them fails, this Short is not made today.
+    log.error("Every human voice route failed — refusing to narrate this "
+              "Short with a robotic voice. No audio produced.")
+    globals()["LAST_TTS_ROUTE"] = "none"
     return False
 
 
@@ -1907,8 +1918,19 @@ def score_final_video(video_path: str, script: str, title: str,
     # verdict to fail below, so no combination of a great script, perfect
     # subtitles and an ideal length can carry a synthesised voice past the
     # gate. That is the same rule the main narration path already applies.
+    # Checked against the allowlist in video_pipeline/voice_policy.py rather
+    # than a local blocklist. A blocklist has to predict what will go wrong:
+    # an unrecognised route -- a new synthesiser, a renamed one, a route that
+    # forgot to record itself -- passed the old check by not being on it.
+    # Now anything not positively known to be a human voice is refused.
     _route = globals().get("LAST_TTS_ROUTE", "none")
-    _draft_voice = _route in DRAFT_ONLY_ROUTES
+    try:
+        from voice_policy import is_human as _is_human, refuse_reason as _refuse
+        _draft_voice = not _is_human(_route)
+        _refusal = _refuse(_route)
+    except Exception:
+        _draft_voice = _route in DRAFT_ONLY_ROUTES
+        _refusal = "%s is not allowed to publish" % _route
     if _draft_voice:
         scores["audio"] = 0.0
     elif os.path.exists(video_path) and os.path.getsize(video_path) > 500000:
@@ -1951,9 +1973,7 @@ def score_final_video(video_path: str, script: str, title: str,
     # the floor, which is exactly the arithmetic that let 9.3/10 publish.
     scores["passed"] = total >= QUALITY_MIN and not _draft_voice
     if _draft_voice:
-        scores["blocked_reason"] = (
-            "narrated by %s, a draft-only voice — rebuild or drop, never publish"
-            % _route)
+        scores["blocked_reason"] = _refusal + " — rebuild or drop, never publish"
     return scores
 
 

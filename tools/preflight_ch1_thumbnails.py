@@ -514,12 +514,44 @@ def main():
           % (_ceiling("gtts-fallback"),
              _ceiling("espeak-offline-lastresort"), _GATE))
 
-    # Piper must be reached BEFORE the two routes that cannot publish, or it
-    # never runs on the day it is needed.
-    _pi, _gt = _cp.find("import piper_tts"), _cp.find("from gtts import gTTS")
-    check("Piper is tried before the draft-only voices",
-          _pi > 0 and _gt > 0 and _pi < _gt,
-          "a publishable route below an unpublishable one never runs")
+    # ── no robotic voice exists anywhere any more ──────────────────
+    # "I don't want anything related to robotic voice, only humanic voices."
+    # The arithmetic above proved these routes could not publish, and a live
+    # Short was narrated by espeak anyway — because the Shorts scorer was a
+    # different scorer, and the synthesiser was still installed and still
+    # reachable. So they are deleted, not demoted, and that is asserted per
+    # file rather than trusted.
+    import voice_policy as _vp
+    for _ch, _p in (("Ch1", ("channels", "betrayal_deepdive", "clinical_pipeline.py")),
+                    ("Ch2", ("channels", "evidence_room", "evidence_room_pipeline.py")),
+                    ("Ch3", ("channels", "collapse_index", "collapse_index_pipeline.py")),
+                    ("Ch4", ("channels", "archive", "archive_pipeline.py")),
+                    ("Ch5", ("channels", "control_files", "control_files_pipeline.py")),
+                    ("Shorts", ("video_pipeline", "shorts_reels_engine.py"))):
+        _s = open(os.path.join(ROOT, *_p)).read()
+        check("%s has no robotic voice route left" % _ch,
+              "from gtts import" not in _s and 'espeak-ng"' not in _s,
+              "a synthesiser that stays reachable is eventually heard")
+
+    check("a robotic route is refused by name",
+          not _vp.is_human("espeak") and not _vp.is_human("gtts-fallback")
+          and not _vp.is_human("espeak-offline-LASTRESORT"),
+          "these must never be reintroduced quietly")
+    check("an unknown voice route is refused, not allowed",
+          not _vp.is_human("some-new-tts") and not _vp.is_human(""),
+          "a blocklist passes anything it failed to predict")
+    check("the real human routes are allowed",
+          all(_vp.is_human(r) for r in ("kokoro-local", "edge-tts", "piper",
+                                        "groq-orpheus", "fish-audio-backup",
+                                        "en-GB-RyanNeural")),
+          "refusing everything is not a fix")
+    # Read directly: _sre_src is not defined until much further down.
+    _shorts_src = open(os.path.join(ROOT, "video_pipeline",
+                                    "shorts_reels_engine.py")).read()
+    check("Shorts still has three human voice routes",
+          all('"%s"' % t in _shorts_src
+              for t in ("groq-orpheus", "edge-tts", "piper")),
+          "removing espeak must not drop Shorts below the backup floor")
 
     check("Piper narrates in the gender the episode was cast for",
           _pt.gender_of("en-GB-SoniaNeural") == "female"
@@ -595,12 +627,22 @@ def main():
               ROOT, "video_pipeline", "shorts_reels_engine.py")).read(),
           "a scorer that cannot see the route cannot judge it")
 
+    # This used to assert Piper was reached before espeak. espeak is gone, so
+    # that check could never pass again. What still matters is the order of
+    # the three HUMAN routes: Groq's own voices, then the remote neural one,
+    # then the local one that works with the network down — three routes with
+    # three different failure modes, cheapest recovery first.
     _sresrc = open(os.path.join(ROOT, "video_pipeline",
                                 "shorts_reels_engine.py")).read()
-    _pi, _es = _sresrc.find("import piper_tts"), _sresrc.find("espeak-ng fallback")
-    check("Shorts reach Piper before the synthesiser",
-          _pi > 0 and _es > 0 and _pi < _es,
+    _gq = _sresrc.find('"groq-orpheus"')
+    _ed = _sresrc.find('LAST_TTS_ROUTE"] = "edge-tts"')
+    _pi = _sresrc.find('LAST_TTS_ROUTE"] = "piper"')
+    check("Shorts fall through the human voices in order",
+          0 < _gq < _ed < _pi,
           "a rate limit must not cost the channel its voice")
+    check("Shorts refuse to narrate when every human voice fails",
+          "refusing to narrate this" in _sresrc,
+          "returning silence is the point — there is nothing below Piper")
 
     # ── a photograph carries NO text of its own ────────────────────
     # The delivered episode put TWO pieces of type on every photograph: an
