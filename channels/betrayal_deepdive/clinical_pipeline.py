@@ -7374,15 +7374,45 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
         import stock_library as _slib
         import photo_thumbnail as _spt
         _wanted = _smatch.terms_for((script or "")[:6000], topic or "")
-        _need = {r: _smatch.gaps(r, _wanted)[:4] for r in ("scene", "evidence")}
-        _need = {r: t for r, t in _need.items() if t}
+
+        # HARVEST FOR THE EPISODE IN FRONT OF US, NOT A TOKEN TWO PER ROLE.
+        #
+        # "Small per run on purpose: the point is to compound over weeks" was
+        # a reasonable plan that could never happen, because the library was
+        # never committed and every fetch died with the runner. Now that it
+        # persists, the size has to match what an episode actually consumes:
+        # a 20-minute video schedules ~37 photograph cards, and the whole
+        # library held 18 images, 9 of them in the scene role. Five distinct
+        # photographs carried 114 segments.
+        #
+        # The floor is what stops the compounding argument being used to
+        # justify another thin episode: while a role is below what one
+        # episode needs, top it up regardless of whether the narration
+        # happened to name a term the library was missing.
+        _FLOOR = {"scene": 40, "evidence": 24}
+        _need = {}
+        for _role in ("scene", "evidence"):
+            _short = max(0, _FLOOR[_role] - _slib.count(_role))
+            _terms = _smatch.gaps(_role, _wanted)
+            if not _terms and _short:
+                # Nothing was missing by name, but the shelf is still too
+                # thin -- harvest against what this episode is ABOUT.
+                # terms_for() is flat by default -- plain strings, already
+                # ranked by how much each one actually carries meaning.
+                _terms = list(_wanted)[:8]
+            if _terms:
+                _need[_role] = _terms[:8 if _short else 4]
         if _need:
-            log(f"  Stock library gaps this episode: "
-                + "; ".join(f"{r}: {', '.join(t)}" for r, t in _need.items()))
+            log("  Stock library: %d held (%s); topping up: %s"
+                % (_slib.count(),
+                   ", ".join("%s %d/%d" % (r, _slib.count(r), _FLOOR[r])
+                             for r in _FLOOR),
+                   "; ".join("%s: %s" % (r, ", ".join(t)) for r, t in _need.items())))
+            _per = 6 if any(_slib.count(r) < _FLOOR[r] for r in _FLOOR) else 2
             _added = _slib.harvest(fetch_case_relevant_image, _need, WORK_DIR,
-                                   verify=_spt.looks_drawn, per_role=2, log=log)
-            log(f"  Stock library: +{_added} photograph(s) toward this "
-                f"episode's own gaps ({_slib.count()} held)")
+                                   verify=_spt.looks_drawn, per_role=_per, log=log)
+            log(f"  Stock library: +{_added} photograph(s) "
+                f"({_slib.count()} held now)")
         else:
             log("  Stock library covered every term this episode reached for.")
     except Exception as _e:
@@ -7932,9 +7962,28 @@ def create_citations_scene(real_cases):
     pointer to the description for the actual links.
     """
     real_sources = [c for c in (real_cases or []) if c.get("url")]
-    if not real_sources:
+
+    # THE FIGURE CREDITS LIVE HERE NOW, AND THAT MAKES THIS CARD MANDATORY.
+    #
+    # The paper's own images no longer carry their CC BY line on the frame --
+    # it moved here, which is the ordinary way a film credits licensed
+    # material. That is only lawful if this card actually renders. So the
+    # early return is now conditional on having NOTHING at all to show: if
+    # figures were used, this card must exist even when no other source did.
+    _fig_credits = []
+    try:
+        import medical_figure_render as _mfr_c
+        _fig_credits = _mfr_c.figure_credits()
+    except Exception as _e:
+        log(f"  Citations: could not read figure credits ({_e})")
+    if not real_sources and not _fig_credits:
         return None
-    duration = 6
+
+    # Six seconds was sized for three lines. It now has to carry the licence
+    # attribution as well, so it grows with what it is actually showing --
+    # roughly a second and a half per line, floored at the original six.
+    _n_lines = len(real_sources[:3]) + len(_fig_credits[:3]) + 2
+    duration = max(6, min(14, int(2 + 1.5 * _n_lines)))
     path = str(WORK_DIR / "citations.mp4")
     lines_filters = []
     y = 260
@@ -7948,6 +7997,22 @@ def create_citations_scene(real_cases):
             f"drawtext=text='{safe_title}':fontsize=22:fontcolor=gray:"
             f"x=(w-text_w)/2:y={y}:enable='between(t,0,{duration})'")
         y += 45
+
+    if _fig_credits:
+        y += 30
+        lines_filters.append(
+            "drawtext=text='FIGURES REPRODUCED UNDER CC BY 4.0':fontsize=24:"
+            f"fontcolor=white:x=(w-text_w)/2:y={y}:"
+            f"enable='between(t,0,{duration})'")
+        y += 42
+        for _cred in _fig_credits[:3]:
+            _safe = (_cred[:88].replace("'", "").replace('"', "")
+                     .replace(":", " —").replace("\\", ""))
+            lines_filters.append(
+                f"drawtext=text='{_safe}':fontsize=20:fontcolor=gray:"
+                f"x=(w-text_w)/2:y={y}:enable='between(t,0,{duration})'")
+            y += 34
+
     lines_filters.append(
         "drawtext=text='Full links in the description':fontsize=20:fontcolor=red:"
         f"x=(w-text_w)/2:y={y+20}:enable='between(t,0,{duration})'")

@@ -421,6 +421,15 @@ jobs:
           # step (see above) means these are committed even when the
           # Generate step above was cancelled or failed partway through,
           # which is exactly the case this exists for.
+          # THE PHOTO LIBRARY HAS TO SURVIVE THE RUNNER OR IT NEVER GROWS.
+          #
+          # stock_library.harvest() was written to "compound over weeks" and
+          # never could: the library lives in the repo, this step never added
+          # it, and GitHub runners are ephemeral — so every photograph fetched
+          # was deleted minutes later. It sat at the 18 images that were once
+          # committed by hand, while a single episode needs 37 photo cards.
+          # That is why a 114-segment video showed 5 distinct photographs.
+          git add video_pipeline/stock_library/ || true
           git add channels/betrayal_deepdive/checkpoint.json || true
           git add channels/betrayal_deepdive/checkpoint_audio.mp3 || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"

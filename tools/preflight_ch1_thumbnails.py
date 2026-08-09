@@ -670,6 +670,44 @@ def main():
           "jump-scare flash" in _cps and "rgbashift" in _cps,
           "the treatment is not the text — only the text was removed")
 
+    # ── the CC BY credit moved to the end, and must ARRIVE there ───
+    # Removing the credit from the figure frame is only lawful because the
+    # end card carries it. If that chain breaks the licence condition is
+    # unmet, so it is checked rather than assumed.
+    import medical_figure_render as _mfrx
+    _mfrx.reset_figure_credits()
+    _mfrx.register_figure_credit("Ozaki A et al. J Med Case Rep 2017", "Fig 1")
+    _mfrx.register_figure_credit("Ozaki A et al. J Med Case Rep 2017", "Fig 2")
+    check("a figure's source is recorded for the end card",
+          _mfrx.figure_credits() == ["Ozaki A et al. J Med Case Rep 2017"],
+          "one paper shown twice is credited once, not twice")
+    _mfrsrc = open(os.path.join(ROOT, "video_pipeline",
+                                "medical_figure_render.py")).read()
+    _ff = _mfrsrc.split("def render_figure_frame")[1].split("\ndef ")[0]
+    check("the figure frame itself draws nothing",
+          "draw.text(" not in _ff,
+          "the diagnostic image is the one frame a viewer must actually read")
+    check("the end card prints the CC BY attribution",
+          "FIGURES REPRODUCED UNDER CC BY 4.0" in _cps
+          and "figure_credits()" in _cps,
+          "credit may move off the image; it may not disappear")
+    check("the citations card renders when figures were used",
+          "if not real_sources and not _fig_credits" in _cps,
+          "the card is now mandatory whenever a licensed figure was shown")
+
+    # ── the photo library is big enough for one episode ────────────
+    # A 114-segment episode showed 5 distinct photographs, because the
+    # library held 18 images and the workflow never committed the ones it
+    # harvested — so it could not grow past what was once added by hand.
+    _wf2 = open(os.path.join(ROOT, ".github", "workflows",
+                             "ch1_generate.yml")).read()
+    check("harvested photographs survive the runner",
+          "git add video_pipeline/stock_library/" in _wf2,
+          "an ephemeral runner deletes anything not committed")
+    check("the library tops up against a real episode's appetite",
+          "_FLOOR = {" in _cps and "scene\": 40" in _cps,
+          "an episode schedules ~37 photo cards; 9 scene images cannot cover it")
+
     # ── on-screen labels are complete thoughts ─────────────────────
     # Two renderers built their label by taking the first N words of whatever
     # narration sat under the segment. Segments are cut to fit a visual's

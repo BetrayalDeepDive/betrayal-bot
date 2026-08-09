@@ -181,6 +181,35 @@ def _tidy_display_line(text, limit=240):
     return t
 
 
+# EVERY FIGURE SHOWN, RECORDED SO THE END CARD CAN CREDIT IT.
+#
+# The credit no longer sits on the figure frame, so something has to carry it
+# to the end of the video or the licence condition is simply unmet. This is
+# that something: the renderer records what it drew, and the citations card
+# prints the list. Order is preserved and duplicates are collapsed, because a
+# six-figure paper shown across twenty segments needs crediting once, not
+# twenty times.
+_FIGURE_CREDITS = []
+
+
+def register_figure_credit(citation, label=""):
+    """Record a figure's source so the end card can credit it."""
+    text = (citation or "").strip()
+    if text and text not in _FIGURE_CREDITS:
+        _FIGURE_CREDITS.append(text)
+    return len(_FIGURE_CREDITS)
+
+
+def figure_credits():
+    """Every distinct source whose figures were actually shown this episode."""
+    return list(_FIGURE_CREDITS)
+
+
+def reset_figure_credits():
+    """Start a fresh episode. Without this a resumed run inherits stale ones."""
+    del _FIGURE_CREDITS[:]
+
+
 def short_credit(citation, max_len=88):
     """
     The on-screen form of a CC BY credit.
@@ -232,15 +261,22 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     canvas = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(canvas)
 
-    f_eyebrow = _font(24)
-    f_label = _font(34)
-    f_caption = _font(30, bold=False)
-    f_credit = _font(25, bold=False)
+    # No fonts are loaded here any more: this frame draws no text at all.
+    # The eyebrow, the figure label, the paper's caption and the CC BY credit
+    # have all moved off the image — the credit to the end card, the rest
+    # nowhere, because the narration and the subtitles already carry them.
 
     margin = 70
-    # Reserve vertical space: eyebrow strip on top, caption + credit below.
-    top_reserved = margin + 46
-    bottom_reserved = 210 + CAPTION_SAFE_H
+    # NOTHING IS RESERVED FOR TEXT ANY MORE, SO THE FIGURE GETS THE FRAME.
+    #
+    # This used to hold back 46px on top for an eyebrow and 210px + the
+    # caption-safe band below for the paper's caption and the CC BY credit.
+    # All of that text is gone (see below), so the reserves would only have
+    # left the actual figure floating in empty margins. The bottom keeps the
+    # caption-safe band alone -- that is where the SUBTITLES sit, and a
+    # diagnostic image running under them would be unreadable.
+    top_reserved = margin
+    bottom_reserved = margin + CAPTION_SAFE_H
     box_w = W - margin * 2
     box_h = H - top_reserved - bottom_reserved
 
@@ -259,39 +295,27 @@ def render_figure_frame(figure_path, out_path, caption="", label="",
     canvas.paste(fitted, ((W - fitted.width) // 2,
                           top_reserved + (box_h - fitted.height) // 2))
 
-    # Eyebrow: channel register marker + the paper's own figure label.
-    draw.line([(margin, margin + 6), (margin + 54, margin + 6)],
-              fill=ACCENT, width=3)
-    draw.text((margin + 68, margin - 8), niche_label, font=f_eyebrow, fill=ACCENT)
-    if label:
-        lw = draw.textlength(label.upper(), font=f_label)
-        draw.text((W - margin - lw, margin - 14), label.upper(),
-                  font=f_label, fill=TEXT_DIM)
-
-    # Caption -- the paper's own words, max three lines so a very long
-    # caption truncates rather than colliding with the credit line.
-    y = H - bottom_reserved + 22
-    if caption:
-        lines = _wrap(draw, caption, f_caption, W - margin * 2)
-        for line in lines[:3]:
-            draw.text((margin, y), line, font=f_caption, fill=TEXT)
-            y += 38
-        if len(lines) > 3:
-            draw.text((margin, y), "…", font=f_caption, fill=TEXT_DIM)
-            y += 38
-
-    # Credit -- the CC BY condition. Rendered last, always, at a fixed
-    # distance from the bottom edge so it cannot be pushed off-frame by a
-    # long caption above it.
+    # THE FIGURE CARRIES NO TEXT. THE CREDIT MOVED TO THE END OF THE VIDEO.
+    #
+    # This frame used to carry four separate pieces of type: the channel
+    # eyebrow, the paper's own figure label, up to three lines of the paper's
+    # caption, and the CC BY credit above a rule. On top of that the finished
+    # video burns synced subtitles across the same lower third. A diagnostic
+    # image is the one thing on this channel a viewer most needs to actually
+    # LOOK at, and it was the most cluttered frame in the episode.
+    #
+    # ATTRIBUTION IS NOT DROPPED, IT IS RELOCATED. CC BY requires credit; it
+    # does not require the credit to sit on the image itself. Naming the
+    # source in an end-of-video credits card is the ordinary and accepted way
+    # a film satisfies the same licence, and it is legible there for six
+    # seconds instead of competing with a caption at 25px.
+    #
+    # register_figure_credit() below records what this frame used, and
+    # create_citations_scene() prints those records at the end. If that chain
+    # is ever broken, the credit does not silently vanish -- the preflight
+    # check "every figure shown is credited at the end" fails the run.
     if citation:
-        draw.line([(margin, CONTENT_BOTTOM - 96), (W - margin, CONTENT_BOTTOM - 96)],
-                  fill=PANEL_EDGE, width=1)
-        credit_lines = _wrap(draw, short_credit(citation, 110), f_credit,
-                             W - margin * 2)
-        cy = CONTENT_BOTTOM - 66
-        for line in credit_lines[:2]:
-            draw.text((margin, cy), line, font=f_credit, fill=TEXT_DIM)
-            cy += 26
+        register_figure_credit(citation, label)
 
     canvas.save(out_path)
     return Path(out_path).exists()
