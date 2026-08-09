@@ -670,6 +670,30 @@ def main():
           "jump-scare flash" in _cps and "rgbashift" in _cps,
           "the treatment is not the text — only the text was removed")
 
+    # ── the series name on a card belongs to that episode's niche ──
+    # Raised as a defect from a screenshot showing "THE AGEING FILES", then
+    # withdrawn: that episode WAS senior_health_longevity, whose series is
+    # The Ageing Files, and the screenshots spanned two different episodes.
+    # The guard is kept anyway, because the failure it describes is real and
+    # cheap to prevent — every renderer takes niche["series"] from ONE lookup
+    # by name, so a duplicated or missing series would mislabel a whole
+    # episode with nothing to catch it.
+    _src_p = open(os.path.join(ROOT, "channels", "betrayal_deepdive",
+                               "clinical_pipeline.py")).read()
+    _pairs = re.findall(r'"name":\s*"([a-z_]+)".*?"series":\s*"([^"]+)"',
+                        _src_p, re.S)
+    _pairs = [(n, s) for n, s in _pairs if len(n) < 40]
+    _series = [s for _n, s in _pairs]
+    check("every niche has a series name", len(_pairs) >= 10,
+          "%d niches carry one" % len(_pairs))
+    check("no two niches share a series name",
+          len(set(_series)) == len(_series),
+          "a shared name mislabels one of them on every card")
+    check("the series comes from one lookup by name",
+          _src_p.count('next(n for n in NICHES if n["name"] == niche_name)') >= 1
+          and "niche_label=niche[\"series\"].upper()" in _src_p,
+          "two sources of the same label is how they drift apart")
+
     # ── a picture must never contradict the line it sits under ─────
     # The delivered episode narrated "vaginal bleeding that had lasted three
     # days" over a sheet of brain CT slices — and that was the HIGHEST-scoring
