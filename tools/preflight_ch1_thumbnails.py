@@ -1145,6 +1145,31 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── generation must not spend the review window ────────────────
+    # Run 31257986626's script stage ran 2h43m with 275 rate-limit errors,
+    # Groq at 98,807/100,000 tokens and Cloudflare out of daily neurons.
+    # Cause: ai_generate CLEARED the dead-provider set once everything had
+    # failed, so every later call re-walked all ten providers with a 10s
+    # pause between each — 90s of sleeping per call, ~28 sweeps, before any
+    # HTTP time. That hour came out of the window kept for review.
+    check("a daily-exhausted provider is retired, not revived",
+          "_EXHAUSTED_PROVIDERS_THIS_RUN" in _cp
+          and "_DEAD_PROVIDERS_THIS_RUN.clear()" not in _cp,
+          "clearing the set re-swept ten dead providers on every call")
+    check("every provider marks its own daily exhaustion",
+          _cp.count("_note_quota_exhausted(\"") >= 9,
+          "a provider that never reports quota is revived forever")
+    check("the chain stops when every provider is exhausted",
+          "Not retrying: " in _cp,
+          "nothing answers until the allocations reset")
+    check("no 10s pause is spent on a daily 429",
+          "is out of quota for today — moving straight on" in _cp,
+          "the next provider is a different account; waiting helps nobody")
+    check("the script loop yields before the reserve is gone",
+          "_generation_may_continue()" in _cp
+          and "is into the reserve kept for review" in _cp,
+          "attempt 9 with no reviewer is worth less than attempt 8 with one")
+
     # ── the Community post fallback WAS the generic post ───────────
     # score_community_post lists "what's your take" and "drop your theory"
     # as generic filler. The fallback draft was exactly that sentence, and

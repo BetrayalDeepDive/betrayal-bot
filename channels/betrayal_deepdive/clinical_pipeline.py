@@ -1916,6 +1916,8 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
                 continue
             else:
                 log(f"  Cerebras {model}: {r.status_code} | {r.text[:150]}")
+                if r.status_code == 429:
+                    _note_quota_exhausted("cerebras")
                 break
         except Exception as e:
             log(f"  Cerebras {model}: {e}")
@@ -1993,6 +1995,8 @@ def call_groq(prompt, tokens=8000, min_chars=100):
                 log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
             else:
                 log(f"Groq {model}: {r.status_code}: {r.text[:200]}")
+                if r.status_code == 429:
+                    _note_quota_exhausted("groq")
         except Exception as e:
             log(f"Groq {model}: {e}")
     return None
@@ -2029,6 +2033,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                             return t
                 elif r.status_code == 429:
                     log(f"  Gemini ({key_label}) quota exhausted — resets midnight PT")
+                    _note_quota_exhausted("gemini")
                     if key_idx == 0 and GEMINI_KEY_2:
                         log("  Trying backup Gemini key (GEMINI_API_KEY_2)...")
                     quota_hit = True
@@ -2099,7 +2104,8 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
                     return t
             else:
                 log(f"OpenRouter {model.split('/')[-1]}: {r.status_code} | {r.text[:200]}")
-                if r.status_code == 429: time.sleep(3)
+                if r.status_code == 429:
+                    _note_quota_exhausted("openrouter")
         except Exception as e:
             log(f"OpenRouter {model}: {e}")
     return None
@@ -2142,6 +2148,8 @@ def call_cohere(prompt, tokens=8000, min_chars=100):
                 continue
             else:
                 log(f"  Cohere {_cohere_model} {r.status_code}: {r.text[:150]}")
+                if r.status_code == 429:
+                    _note_quota_exhausted("cohere")
         except Exception as e:
             log(f"  Cohere {_cohere_model}: {e}")
     return None
@@ -2192,6 +2200,7 @@ def call_github_models(prompt, tokens=8000, min_chars=100):
                 log(f"GitHub Models {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
                 log(f"GitHub Models {model}: 429 rate limited — trying next")
+                _note_quota_exhausted("github_models")
             elif r.status_code == 403:
                 log(f"GitHub Models {model}: 403 — GITHUB_TOKEN likely missing 'models: read' "
                     f"permission in the workflow")
@@ -2237,6 +2246,7 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
                 log(f"Cloudflare {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
                 log(f"Cloudflare {model}: 429 — daily 10k Neuron allocation likely used up")
+                _note_quota_exhausted("cloudflare")
             else:
                 log(f"Cloudflare {model}: {r.status_code}: {r.text[:200]}")
         except Exception as e:
@@ -2281,6 +2291,7 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                 log(f"NVIDIA NIM {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
                 log(f"NVIDIA NIM {model}: 429 rate limited — trying next")
+                _note_quota_exhausted("nvidia_nim")
             else:
                 log(f"NVIDIA NIM {model}: {r.status_code}: {r.text[:200]}")
         except Exception as e:
@@ -2325,6 +2336,7 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
                 return None
             elif r.status_code == 429:
                 log("  SambaNova 429 — daily limit reached")
+                _note_quota_exhausted("sambanova")
                 return None
             else:
                 log(f"  SambaNova {r.status_code}: {r.text[:120]}")
@@ -2362,11 +2374,39 @@ def call_mistral(prompt, tokens=8000, min_chars=100):
                 return t
         else:
             log(f"  Mistral {r.status_code}: {r.text[:150]}")
+            if r.status_code == 429:
+                _note_quota_exhausted("mistral")
     except Exception as e:
         log(f"  Mistral: {e}")
     return None
 
 _DEAD_PROVIDERS_THIS_RUN = set()
+
+# A DAILY QUOTA DOES NOT COME BACK BEFORE TOMORROW.
+#
+# _DEAD_PROVIDERS_THIS_RUN treated every failure the same: a timeout, a bad
+# model name, and "you have used all 100,000 tokens for today" were all just
+# "failed once, skip it". And when every provider had failed, ai_generate
+# CLEARED the set and walked all ten again -- on that call, and on the next,
+# and on every call for the rest of the run.
+#
+# Run 31257986626 is what that costs. Groq at 98,807/100,000 tokens,
+# Cloudflare out of daily neurons, 275 rate-limit errors, and a script stage
+# that ran 2 hours 43 minutes. Ten providers with a 10s pause between them is
+# 90 seconds of sleeping per call before any HTTP time is counted; 28 full
+# sweeps is 55 minutes of doing nothing at all, and the real timeouts take it
+# the rest of the way. That time comes out of the review window, which is the
+# thing the schedule actually protects.
+#
+# So a provider that reports a DAILY exhaustion is retired for the run and
+# never revived. Only transient failures are ever given a second chance.
+_EXHAUSTED_PROVIDERS_THIS_RUN = set()
+
+
+def _note_quota_exhausted(name):
+    """Record that `name` is out of quota until its allocation resets."""
+    _EXHAUSTED_PROVIDERS_THIS_RUN.add(name)
+    _DEAD_PROVIDERS_THIS_RUN.add(name)
 
 # WHICH PROVIDER GOES FIRST — ROTATED PER ATTEMPT.
 #
@@ -2449,10 +2489,27 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
                  ("gemini", call_gemini), ("groq", call_groq),
                  ("openrouter", call_openrouter), ("cohere", call_cohere),
                  ("mistral", call_mistral)]
-    live = [(name, fn) for name, fn in providers if name not in _DEAD_PROVIDERS_THIS_RUN]
+    # A provider that is out of its DAILY allocation is not retried. Reviving
+    # it costs a full sweep of ten providers, with a 10s pause between each,
+    # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN
+    # for what that did to run 31257986626's clock.
+    live = [(name, fn) for name, fn in providers
+            if name not in _DEAD_PROVIDERS_THIS_RUN]
     if not live:
-        live = providers
-        _DEAD_PROVIDERS_THIS_RUN.clear()
+        revivable = [(name, fn) for name, fn in providers
+                     if name not in _EXHAUSTED_PROVIDERS_THIS_RUN]
+        if not revivable:
+            # Every provider has reported a daily limit. Nothing will answer
+            # before the allocations reset, so stop asking. The alternative is
+            # spending the rest of the job's clock -- and the review window --
+            # proving the same point 275 times.
+            log("  Every AI provider has hit its daily limit. Not retrying: "
+                "nothing will answer until the allocations reset.")
+            return None
+        log("  All providers failed transiently — giving the non-exhausted "
+            "ones one more pass.")
+        live = revivable
+        _DEAD_PROVIDERS_THIS_RUN.intersection_update(_EXHAUSTED_PROVIDERS_THIS_RUN)
     # Start at a different working provider each attempt. Every provider is
     # still tried before giving up -- this changes the ORDER, never the
     # coverage, so a rotation can't cost a response that would have come.
@@ -2465,9 +2522,31 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
             return _strip_reasoning(r)
         _DEAD_PROVIDERS_THIS_RUN.add(name)
         if i < len(live) - 1:
+            # The 10s pause exists to let a rate limit breathe. It is wasted
+            # on a DAILY exhaustion -- the next provider is a different
+            # account with its own allocation, so waiting helps nobody and
+            # costs 90 seconds a sweep.
+            if name in _EXHAUSTED_PROVIDERS_THIS_RUN:
+                log(f"  {name} is out of quota for today — moving straight on.")
+                continue
             log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
     return None
+
+
+def _generation_may_continue():
+    """False once generation is eating into the reserve kept for review.
+
+    The schedule protects a window for a human to actually look at the
+    episode. A generate stage that runs 2h43m does not just run long, it
+    spends that window -- and the review gate then reports having no usable
+    time, which is a symptom of this, not a separate fault.
+    """
+    try:
+        from job_clock import remaining_minutes, RESERVE_MIN
+        return remaining_minutes() > RESERVE_MIN
+    except Exception:
+        return True
 
 # ================================================================
 # TREND INTELLIGENCE  [NEW #6]
@@ -9687,6 +9766,22 @@ def _run_stage1_once(state, round_no=1, angles=None):
         log(f"  Topic backlog check (non-fatal): {e}")
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        # STOP BEFORE THE REVIEW WINDOW IS GONE.
+        #
+        # Thirteen attempts is the right number when providers are answering.
+        # When they are not, the attempts are not producing better scripts,
+        # they are producing the same failure repeatedly at two minutes each,
+        # and the cost lands on the window kept for a human to review the
+        # episode. Attempt 9 with no time left is worth less than attempt 8
+        # with a reviewer.
+        if attempt > 1 and not _generation_may_continue():
+            log(f"  Stopping at attempt {attempt - 1}/{MAX_ATTEMPTS}: the job "
+                f"clock is into the reserve kept for review.")
+            tg(f"⏱️ Ch1: script generation stopped at attempt {attempt - 1} of "
+               f"{MAX_ATTEMPTS} — continuing would have spent the review "
+               f"window. Best attempt so far is what goes forward.")
+            break
+
         # FIX (direct user report, July 24 2026): flat hard gate, no
         # relaxation tiers — every attempt must clear MIN_GATE (8.5).
         gate = MIN_GATE
