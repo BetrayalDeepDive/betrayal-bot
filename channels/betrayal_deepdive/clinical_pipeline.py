@@ -8438,9 +8438,14 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
         for _n, _try in enumerate(_order):
             _cand = str(WORK_DIR / f"thumbnail_{ab_style}_photo_{_try}.jpg")
             try:
+                # `topic` is what makes the score able to ask whether the
+                # photographs are of THIS episode. Without it the relevance
+                # term is inert and a beautiful picture of nothing to do with
+                # the case scores full marks, which is exactly what shipped.
                 _i = _pt.render(_cand, thumb_text, _photos, fmt=_try,
                                 episode=episode or 1,
-                                kicker=f"CASE {(episode or 1):02d}")
+                                kicker=f"CASE {(episode or 1):02d}",
+                                topic=f"{topic or ''} {title or ''}".strip())
             except Exception as _re:
                 log(f"  Thumbnail format '{_try}' failed to render ({_re})")
                 continue

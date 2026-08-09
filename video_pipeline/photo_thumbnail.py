@@ -511,6 +511,41 @@ def looks_drawn(path, limit=0.75):
     return float((np.abs(np.diff(a, axis=1)).sum(axis=2) == 0).mean()) >= limit
 
 
+# What each role's photograph was found by, this episode. Reset per resolve.
+CHOSEN_BY = {}
+
+
+def relevance(topic, min_overlap=1):
+    """Do the chosen photographs have anything to do with this episode?
+
+    Returns (0-1 fraction of roles that matched, [reasons]). Measured against
+    the words the EPISODE is about, using the same weighted vocabulary the
+    SCENE cards match on, so "thumbnail relevance" means the same thing here
+    as it does everywhere else in the pipeline.
+    """
+    import re as _re
+    if not topic or not CHOSEN_BY:
+        return 1.0, []                      # nothing to judge against
+    try:
+        import stock_match as _sm
+        want = set(_sm.terms_for(topic, topic) or [])
+    except Exception:
+        want = set()
+    want |= {w for w in _re.findall(r"[a-z]{4,}", (topic or "").lower())}
+    if not want:
+        return 1.0, []
+
+    hits, why = 0, []
+    for role, query in CHOSEN_BY.items():
+        words = set(_re.findall(r"[a-z]{4,}", (query or "").lower()))
+        if len(words & want) >= min_overlap:
+            hits += 1
+        else:
+            why.append("the %s photo was found by '%s', which shares nothing "
+                       "with this episode" % (role, query))
+    return (hits / max(1, len(CHOSEN_BY))), why
+
+
 def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence"),
                    log=print):
     """Download one usable photograph per role. Returns {role: path}.
@@ -529,8 +564,21 @@ def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence
     all_terms = {}
     for role in roles:
         terms = list(SEARCH_TERMS.get(role, []))
-        if role == "evidence":
-            terms = (organ_terms(topic) or []) + [topic] + terms
+        # THE EPISODE'S OWN SUBJECT GOES FIRST FOR EVERY ROLE, NOT JUST ONE.
+        #
+        # This used to read `if role == "evidence"`, so the SCENE photograph --
+        # the whole background of the card, the thing a viewer actually sees --
+        # was fetched with nothing but the generic per-role terms. The topic
+        # was never in the query. That is how a case report about advanced
+        # rectal cancer after the Fukushima disaster got a stock photograph of
+        # molecular models and a pine branch, with a red ring drawn round a
+        # twig, and still scored 9/10: the picture was fine, it was simply a
+        # picture of nothing to do with the episode.
+        #
+        # organ_terms() first where it resolves (a heart case gets a heart),
+        # then the topic itself, then the generic terms as the backstop they
+        # were always meant to be.
+        terms = (organ_terms(topic) or []) + [topic] + terms
         all_terms[role] = terms
         path = os.path.join(str(work_dir), "thumb_%s.jpg" % role)
         for q in terms:
@@ -547,6 +595,11 @@ def resolve_photos(fetch, topic, niche_name, work_dir, roles=("scene", "evidence
                 log("    thumbnail photo '%s' rejected: it is a drawing" % q)
                 continue
             out[role] = path
+            # Remember what the picture was actually FOUND BY, so the scorer
+            # can ask whether it has anything to do with this episode. Without
+            # this the rendered card is just pixels and relevance is
+            # unmeasurable after the fact.
+            CHOSEN_BY[role] = q
             log("    thumbnail photo [%s]: '%s'" % (role, q))
             break
 
@@ -721,7 +774,7 @@ def _panel(canvas, photo_path, box, rot=0.0, stroke=10, blur=0.0):
 MARK_TEAL = (95, 168, 160)
 
 
-def score_image(path):
+def score_image(path, topic=""):
     """Score the rendered PICTURE, on measurements taken from the pixels.
 
     The review message printed "Thumbnail attention score: 10.0/10" next to a
@@ -773,6 +826,30 @@ def score_image(path):
     if sat < 0.16:
         sc -= 1.5
         why.append("almost no colour (sat %.2f) — nothing pops in a feed" % sat)
+
+    # IS IT A PICTURE OF THIS EPISODE?
+    #
+    # Every term above measures whether the card READS -- contrast at phone
+    # size, a clear badge corner, colour, featureless area. Not one of them
+    # asks what the picture is OF. So a bright, sharp, colourful photograph
+    # of molecular models and a pine branch scored 9/10 on a case report about
+    # advanced rectal cancer after the Fukushima disaster. Nothing was wrong
+    # with the picture. It was a picture of nothing to do with the episode,
+    # and the scorer had no way to say so.
+    #
+    # This is the largest single penalty in the function on purpose. A
+    # beautiful irrelevant thumbnail is worse than a plain relevant one: it
+    # gets the click and loses the viewer in three seconds, which is the
+    # trade YouTube punishes hardest.
+    if topic:
+        frac, notes = relevance(topic)
+        if frac <= 0.0:
+            sc -= 4.0
+            why.extend(notes[:2])
+            why.append("no photograph on this card relates to the episode")
+        elif frac < 1.0:
+            sc -= 1.5
+            why.extend(notes[:1])
 
     return max(0.0, round(sc, 1)), why
 
@@ -1150,7 +1227,7 @@ def _default_quotes(episode, lines):
 
 def render(out_path, headline, photos, fmt=None, episode=1, history=None,
            kicker="CASE", mark=None, quotes=None, pose=None, seed=None,
-           state_a="BEFORE", state_b="AFTER", mark_at=None):
+           state_a="BEFORE", state_b="AFTER", mark_at=None, topic=""):
     """Render one thumbnail. `photos` maps role -> file path.
 
     Roles: scene (wide location), evidence (the clinical still), hero (a macro
@@ -1194,7 +1271,9 @@ def render(out_path, headline, photos, fmt=None, episode=1, history=None,
 
     arr = punch(_RENDER[fmt](spec, rng))
     Image.fromarray(arr.astype(np.uint8)).save(out_path, quality=94)
-    _img_score, _img_why = score_image(out_path)
+    # `topic` lets the score ask whether the photographs are of THIS episode.
+    # Omitted (tests, ad-hoc renders) the relevance term simply does not apply.
+    _img_score, _img_why = score_image(out_path, topic=topic)
     return {"path": out_path, "format": fmt, "pose": spec["pose"],
             "contrast_120px": round(legible_at(arr), 1),
             "words": len(flat.split()),

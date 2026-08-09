@@ -670,6 +670,45 @@ def main():
           "jump-scare flash" in _cps and "rgbashift" in _cps,
           "the treatment is not the text — only the text was removed")
 
+    # ── a thumbnail has to be a picture of THIS episode ────────────
+    # The delivered card was molecular models and a pine branch, with a red
+    # ring round a twig, on a case report about advanced rectal cancer after
+    # the Fukushima disaster — and it scored 9/10. Nothing was wrong with the
+    # picture. Every term in score_image measured whether the card READS;
+    # none asked what it was OF.
+    _TOPIC = ("Social isolation and cancer management - advanced rectal cancer "
+              "with patient delay following the 2011 triple disaster in Fukushima")
+    _saved_chosen = dict(pt.CHOSEN_BY)
+    try:
+        pt.CHOSEN_BY.clear()
+        pt.CHOSEN_BY.update({"scene": "hospital cancer ward",
+                             "evidence": "rectal cancer ct scan"})
+        _rel_ok, _ = pt.relevance(_TOPIC)
+        pt.CHOSEN_BY.clear()
+        pt.CHOSEN_BY.update({"scene": "molecular model",
+                             "evidence": "pine branch macro"})
+        _rel_bad, _why_bad = pt.relevance(_TOPIC)
+    finally:
+        pt.CHOSEN_BY.clear()
+        pt.CHOSEN_BY.update(_saved_chosen)
+
+    check("a photo about the episode reads as relevant", _rel_ok >= 1.0,
+          "%.0f%% of roles matched the case" % (_rel_ok * 100))
+    check("a photo about nothing reads as irrelevant", _rel_bad <= 0.0,
+          "%s" % (_why_bad[0] if _why_bad else ""))
+
+    _ptsrc = open(os.path.join(ROOT, "video_pipeline",
+                               "photo_thumbnail.py")).read()
+    check("every role searches the episode's own subject first",
+          'if role == "evidence":\n            terms = (organ_terms' not in _ptsrc,
+          "the SCENE photo is the whole background; it was searched generically")
+    check("the thumbnail score can see the topic",
+          "def score_image(path, topic=" in _ptsrc,
+          "a score that never learns the subject cannot judge relevance")
+    check("the pipeline passes the topic to the renderer",
+          "topic=f\"{topic or ''} {title or ''}\".strip()" in _cps,
+          "an unwired relevance term is an inert one")
+
     # ── the CC BY credit moved to the end, and must ARRIVE there ───
     # Removing the credit from the figure frame is only lawful because the
     # end card carries it. If that chain breaks the licence condition is
