@@ -650,6 +650,26 @@ def main():
           "_eyebrow(d, niche_label)" in _mssrc,
           "a chart without its axis is broken, not cleaner")
 
+    # Nothing else may print onto the finished picture either. Two more
+    # sources were found on audit: the corner watermark (the wrongly-named
+    # "The Ageing Files" in the reported screenshot) and five script phrases
+    # drawn at 58px in the LOWER THIRD, wobbling and flickering, directly on
+    # top of the subtitles.
+    _cps = open(os.path.join(ROOT, "channels", "betrayal_deepdive",
+                             "clinical_pipeline.py")).read()
+    check("no corner watermark burned on the video",
+          "label=\"watermark\"" not in _cps and "watermark_text" not in _cps,
+          "YouTube already shows the channel name under every video")
+    check("no flickering script phrases over the subtitles",
+          "5*sin(45*t)" not in _cps and "unstable text beats" not in _cps,
+          "58px strobing text at h-h/3 sat exactly where the captions are")
+
+    # The atmosphere treatment itself must survive: it works ON the picture
+    # rather than printing over it, and removing text should not have cost it.
+    check("grain, glitch and the reveal flash still apply",
+          "jump-scare flash" in _cps and "rgbashift" in _cps,
+          "the treatment is not the text — only the text was removed")
+
     # ── on-screen labels are complete thoughts ─────────────────────
     # Two renderers built their label by taking the first N words of whatever
     # narration sat under the segment. Segments are cut to fit a visual's

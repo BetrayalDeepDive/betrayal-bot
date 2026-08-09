@@ -10136,25 +10136,22 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             if t1 > t0:
                 video_filters.append(f"rgbashift=rh=6:bh=-6:enable='between(t,{t0:.2f},{t1:.2f})'")
 
-        # ── Unstable, jittery, flickering text (no box, no confident callout) ──
-        if font_path and phrases:
-            DISPLAY_SECONDS = 3.0
-            for phrase, start_frac, end_frac in phrases:
-                t0 = start_frac * audio_duration
-                t1 = min(t0 + DISPLAY_SECONDS, end_frac * audio_duration)
-                if t1 - t0 < 1.2:
-                    continue
-                esc = phrase.replace("'", "").replace(":", "").replace("\\", "")
-                # Jittery position (small sine wobble) + irregular flicker alpha
-                # (on/off pattern mimicking a failing light / interference),
-                # instead of a smooth confident fade — reads as unstable/dread.
-                video_filters.append(
-                    f"drawtext=fontfile={font_path}:text='{esc}':"
-                    f"fontsize=58:fontcolor=white:borderw=3:bordercolor=black:"
-                    f"x='(w-text_w)/2+5*sin(45*t)':y='h-h/3+3*cos(38*t)':"
-                    f"alpha='if(lt(mod(t*17,1),0.82),1,0)':"
-                    f"enable='between(t,{t0:.2f},{t1:.2f})'"
-                )
+        # ── Unstable flickering text: REMOVED ──────────────────────────────
+        #
+        # This drew five phrases lifted from the script at 58px, wobbling and
+        # flickering, at y = h - h/3 -- the lower third, which is exactly where
+        # the synced subtitles sit. So for three seconds at a time the viewer
+        # got a jittering white phrase strobing on top of the caption saying
+        # roughly the same thing.
+        #
+        # It was the third source of burned-in words on the picture, after the
+        # photo eyebrow and the photo narration line. All three are gone, for
+        # the same reason: the subtitles are the words, and nothing else on the
+        # frame should be competing with them.
+        #
+        # The rest of the atmosphere treatment stays -- grain, glitch bursts,
+        # the single reveal flash, the content-matched SFX. Those work ON the
+        # picture rather than printing over it.
 
         # ── ONE jump-scare white flash at the biggest reveal moment ──
         # FIX (direct user report, July 23 2026): this was a fixed 0.65
@@ -10265,7 +10262,7 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 
         if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
             log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
-                f"1 jump-scare flash + {len(phrases)} unstable text beats + "
+                f"1 jump-scare flash + no burned-in text + "
                 f"{len(content_cues)} content-matched SFX cues")
             return output_path
         else:
@@ -10322,20 +10319,18 @@ def assemble_video(niche_name, audio_path, audio_duration, topic, script="", epi
     # a small persistent corner watermark burned into the main video
     # instead, which preserves branding without costing any of the
     # critical opening seconds.
-    watermark_text = niche["series"].replace("'", "").replace('"', "").replace(":", "")
-    composed_watermarked = str(WORK_DIR / "composed_watermarked.mp4")
-    run_ffmpeg([
-        "ffmpeg", "-y", "-i", composed,
-        "-vf", f"drawtext=text='{watermark_text}':fontsize=22:fontcolor=white@0.55:"
-               f"x=w-text_w-20:y=20:borderw=1:bordercolor=black@0.4",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-        "-c:a", "copy", composed_watermarked
-    ], label="watermark", timeout=900)
-    if Path(composed_watermarked).exists() and Path(composed_watermarked).stat().st_size > 1_000_000:
-        composed = composed_watermarked
-        _last_video_fallback_flags["watermark_failed"] = False
-    else:
-        _last_video_fallback_flags["watermark_failed"] = True
+    #
+    # THE WATERMARK IS GONE TOO (direct instruction). It was the last thing
+    # this pipeline burned onto the picture, and it was the "The Ageing Files"
+    # in the top-right corner of the reported screenshot -- which on that run
+    # was ALSO the wrong series name for the niche being made.
+    #
+    # Removing it costs nothing that matters: YouTube already shows the
+    # channel name under every video, and this re-encode was a full extra
+    # libx264 pass over a 20-minute file purely to stamp 22px of text on it.
+    # The pass is deleted rather than made conditional, so the picture that
+    # reaches the viewer is exactly the picture the renderers produced.
+    _last_video_fallback_flags["watermark_failed"] = False
 
     # FIX: create_outro's episode_num defaults to 1 and was never being
     # passed the real episode — same category of bug as the thumbnail
