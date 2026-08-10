@@ -12687,10 +12687,41 @@ def main():
                                          f"Feedback: {fb}\nReturn ONLY the new overlay text.",
                                          tokens=40, min_chars=3)
                     if _new_thumb_text and len(_new_thumb_text.strip()) > 0:
-                        thumb_text = _new_thumb_text.strip()
-                        ab_style = "B" if ab_style == "A" else "A"
-                        thumb_path = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
-                        _set_preview_thumbnail(thumb_path)
+                        # THE EDIT PATH WENT STRAIGHT ONTO THE IMAGE, UNCHECKED.
+                        #
+                        # Every generated thumbnail line is sanitized to caps,
+                        # trimmed to 2-4 words and scored against 8.5 before it
+                        # is allowed near the picture. This one — produced by
+                        # the very same model, just triggered by a human tapping
+                        # EDIT — skipped all of it, so raw punctuation, stray
+                        # lowercase or a ten-word sentence would be burned onto
+                        # the thumbnail and nobody would ever see a number for
+                        # it. A human asking for a change is a legitimate
+                        # override, so this does NOT block them; it applies the
+                        # same cleanup and reports what the change actually
+                        # scored, so the override is informed rather than blind.
+                        _et = _new_thumb_text.strip()
+                        _et_q = _et.endswith("?")
+                        _et = re.sub(r'[^A-Z0-9%\.,\s]', '', _et.upper()).strip()
+                        _et = re.sub(r'(?<![0-9])[\.,]|[\.,](?![0-9])', '', _et).strip()
+                        _et_words = _et.split()[:4]
+                        if _et_words:
+                            thumb_text = ' '.join(_et_words) + ("?" if _et_q else "")
+                            try:
+                                from thumbnail_engine_v2 import score_thumbnail_text as _sts_edit
+                                _et_score = _sts_edit(thumb_text)
+                                log(f"  Thumbnail text replaced per your EDIT: "
+                                    f"'{thumb_text}' ({_et_score}/10)")
+                                if _et_score < 8.5:
+                                    tg(f"ℹ️ The edited thumbnail text '{thumb_text}' scores "
+                                       f"{_et_score}/10, under the usual 8.5 bar. Using it "
+                                       f"because you asked for it — reply EDIT again if "
+                                       f"you'd rather change it.")
+                            except Exception as _e:
+                                log(f"  Edited thumbnail text scoring (non-fatal): {_e}")
+                            ab_style = "B" if ab_style == "A" else "A"
+                            thumb_path = run_thumbnail_stage(title, thumb_text, niche_name, topic, ab_style, episode)
+                            _set_preview_thumbnail(thumb_path)
                     _new_desc = ai_generate(f"Rewrite this video description based on real feedback.\n"
                                     f"Current description:\n{description}\nFeedback: {fb}\n"
                                     f"Return ONLY the new description, nothing else.", tokens=800)
