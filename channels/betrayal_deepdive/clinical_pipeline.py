@@ -10371,11 +10371,33 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
         stinger_inputs = "".join(stinger_labels)
         n_mix_inputs = 4 + len(stinger_labels)  # original + riser + impact + drone + stingers/content-cues
 
+        # THE JUMP-SCARE FLASH USED TO COST MORE THAN THE ENTIRE REST OF THE
+        # TREATMENT PUT TOGETHER.
+        #
+        # FIX (found live, Ch1 run 31373726976): the flash was built by
+        # synthesizing a SECOND full-length 1920x1080 white video stream
+        # (`color`+`trim` for the whole 12.5-minute runtime) and then running
+        # `blend=all_expr` — a per-pixel expression evaluated on every pixel
+        # of every frame of both streams — purely to show white for 0.15s.
+        # That is ~45,000 frames of synthesis and ~93 million per-pixel
+        # expression evaluations per second of output, for 0.15s of visible
+        # effect. On a 2-core runner it did not finish: the step hit its
+        # 1200s timeout on BOTH the first assembly and the post-REMAKE
+        # reassembly, burning 40 minutes of the run and — because the video
+        # and audio were welded into one ffmpeg call — throwing away every
+        # content-matched SFX cue, stinger, riser, impact and drone with it.
+        # The log recorded the cues being chosen and then the whole treatment
+        # being discarded, twice.
+        #
+        # `eq` is timeline-capable, so brightness=1.0 gated on the same window
+        # produces the same white pop and costs nothing at all outside those
+        # 0.15 seconds. No second stream, no blend, no per-pixel expression.
+        video_filters_with_flash = list(video_filters) + [
+            f"eq=brightness=1.0:saturation=0:"
+            f"enable='between(t,{flash_t0:.2f},{flash_t1:.2f})'"
+        ]
         filter_complex = (
-            f"[0:v]{','.join(video_filters)}[graded];"
-            f"color=c=white:size=1920x1080:rate=24[whitesrc];"
-            f"[whitesrc]trim=duration={audio_duration:.2f},setpts=PTS-STARTPTS[wht];"
-            f"[graded][wht]blend=all_expr='if(between(T,{flash_t0:.2f},{flash_t1:.2f}),B,A)':shortest=1[out];"
+            f"[0:v]{','.join(video_filters_with_flash)}[out];"
             f"aevalsrc=0.15*sin(2*PI*t*(80+220*t)):d=2.5:s=44100,"
             f"afade=t=in:d=0.3,afade=t=out:st=2.0:d=0.5,"
             f"adelay={riser_delay_ms}|{riser_delay_ms}[riser];"
@@ -10401,22 +10423,56 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
             f"duration=first:dropout_transition=0:normalize=0[mixedaudio]"
         )
 
-        run_ffmpeg([
-            "ffmpeg", "-y", "-i", video_path, "-i", video_path,
-            "-filter_complex", filter_complex,
-            "-map", "[out]", "-map", "[mixedaudio]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-c:a", "aac", "-ar", "44100", output_path
-        ], label="horror-fx", timeout=1200)
+        # THE SOUND DESIGN MUST NOT DIE WITH THE PICTURE TREATMENT.
+        #
+        # FIX (found live, Ch1 run 31373726976): video grade and audio mix
+        # shared one ffmpeg invocation, so any failure of the EXPENSIVE half
+        # (re-encoding 12.5 minutes of 1080p) silently discarded the CHEAP
+        # half that carries all the actual value — the content-matched SFX,
+        # stingers, riser, impact and drone. That is exactly backwards: the
+        # grain and the 0.15s flash are cosmetic, the sound design is the
+        # feature. The audio-only retry below re-runs the identical audio
+        # filtergraph with `-c:v copy`, so it does no video work at all and
+        # finishes in seconds; the only thing forfeited is the grade.
+        _fx_ok = False
+        try:
+            run_ffmpeg([
+                "ffmpeg", "-y", "-i", video_path, "-i", video_path,
+                "-filter_complex", filter_complex,
+                "-map", "[out]", "-map", "[mixedaudio]",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-c:a", "aac", "-ar", "44100", output_path
+            ], label="horror-fx", timeout=900)
+            _fx_ok = (Path(output_path).exists()
+                      and Path(output_path).stat().st_size > 1_000_000)
+            if not _fx_ok:
+                log("  Horror FX: graded output invalid — retrying audio-only.")
+        except Exception as e:
+            log(f"  Horror FX video grade failed ({str(e)[:160]}) — retrying "
+                f"audio-only so the sound design still lands.")
 
-        if Path(output_path).exists() and Path(output_path).stat().st_size > 1_000_000:
+        if _fx_ok:
             log(f"  Horror atmosphere FX applied: grain + {len(beat_fracs[:2])} glitch bursts + "
                 f"1 jump-scare flash + no burned-in text + "
                 f"{len(content_cues)} content-matched SFX cues")
             return output_path
-        else:
-            log("  Horror FX: output invalid — using un-treated video (non-fatal)")
-            return video_path
+
+        # Audio-only fallback: same mix, stream-copied picture.
+        audio_only_path = str(Path(output_path).with_name("composed_sfx_only.mp4"))
+        audio_filter_complex = filter_complex.split("[out];", 1)[1]
+        run_ffmpeg([
+            "ffmpeg", "-y", "-i", video_path, "-i", video_path,
+            "-filter_complex", audio_filter_complex,
+            "-map", "0:v", "-map", "[mixedaudio]",
+            "-c:v", "copy", "-c:a", "aac", "-ar", "44100", audio_only_path
+        ], label="horror-fx-audio-only", timeout=600)
+        if Path(audio_only_path).exists() and Path(audio_only_path).stat().st_size > 1_000_000:
+            log(f"  Horror FX: picture grade skipped, but all "
+                f"{len(content_cues)} content-matched SFX cues + riser/impact/"
+                f"drone/{len(beat_fracs[:2])} stingers are in the mix.")
+            return audio_only_path
+        log("  Horror FX: audio-only fallback also failed — using un-treated video (non-fatal)")
+        return video_path
     except Exception as e:
         log(f"  Horror atmosphere FX failed (non-fatal): {e}")
         return video_path
@@ -10528,12 +10584,16 @@ def generate_thumbnail_text(niche, topic, title=""):
         f"Pick ONE of these two formats — whichever creates the strongest real\n"
         f"curiosity gap for THIS specific topic (must match the title's register\n"
         f"above if one is given):\n"
-        f"A. NUMBER+NOUN: a specific number + a concrete, visceral noun\n"
-        f"   (e.g. FOUND INSIDE WALLS, 4380 DAYS HIDDEN)\n"
+        f"A. NUMBER+NOUN: a real number from the case, WRITTEN AS DIGITS, plus a\n"
+        f"   concrete visceral noun (e.g. 4380 DAYS HIDDEN, 10 DAYS COMA, 0.1 WHITE CELLS).\n"
+        f"   The number MUST be digits — a number spelled as a word (ZERO, TEN,\n"
+        f"   THREE) does not count as a number and will be rejected.\n"
         f"B. DIRECT QUESTION: a short, unsettling question aimed straight at the\n"
         f"   viewer, tied to the real topic — not generic clickbait\n"
         f"   (e.g. WHO WAS WATCHING?, WHY DID SHE STOP?)\n\n"
         f"Rules: 2-4 words. ALL CAPS. Dark and specific. Never generic.\n"
+        f"Every answer must be EITHER format A with real digits OR format B ending\n"
+        f"in a question mark. An answer that is neither is not acceptable.\n"
         f"If format B, end with a single '?' and nothing else.\n"
         f"Return ONLY the text, nothing else."
     )
@@ -10594,8 +10654,27 @@ def generate_thumbnail_text(niche, topic, title=""):
                     # produce regardless of what the AI returned. Now preserves
                     # a single trailing "?" and allows 2-4 words (was a rigid
                     # exactly-3), since a real question often needs 3-4 words.
+                    #
+                    # FIX (found live, Ch1 run 31373726976 — this cost a
+                    # finished, thrice-human-approved episode): the class
+                    # `[^A-Z\s]` also deletes 0-9. score_thumbnail_text awards
+                    # +2.5 for containing a DIGIT and -2.0 for containing
+                    # neither a digit nor a question mark, so the ceiling for
+                    # a de-digited statement is 5.0-2.0+1.5+1.0 = 5.5 against
+                    # an 8.5 gate. Format A (NUMBER+NOUN) — the format the
+                    # prompt lists FIRST and the model picks almost every
+                    # time — was therefore mathematically incapable of ever
+                    # clearing the gate: "10 DAYS COMA" was silently rewritten
+                    # to "DAYS COMA" before it was scored. The live evidence is
+                    # unambiguous: 39 attempts across 3 rounds, every single one
+                    # scoring exactly 5.5, and the whole episode discarded over
+                    # overlay text. Digits are now preserved, as are decimal
+                    # points and thousands separators sitting BETWEEN digits
+                    # ("0.1", "4,380") since clinical numbers need them; any
+                    # other punctuation still goes.
                     has_question = result.strip().endswith("?")
-                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    result = re.sub(r'[^A-Z0-9%\.,\s]', '', result.upper()).strip()
+                    result = re.sub(r'(?<![0-9])[\.,]|[\.,](?![0-9])', '', result).strip()
                     words = result.split()[:4]
                     if 2 <= len(words) <= 4:
                         text = ' '.join(words) + ("?" if has_question else "")
@@ -12159,6 +12238,29 @@ def main():
                 abort_on_cancel(_av_review.get("video_decision"),
                                 "the video review", _prerendered_yt_vid_id)
                 _a_dec = _av_review["audio_decision"]["decision"]
+                _v_dec_early = (_av_review["video_decision"]["decision"]
+                                if _av_review["video_decision"] else "approve")
+                # AN UNDELIVERED REVIEW MUST NOT SPIN THIS LOOP FOREVER.
+                #
+                # FIX (found while tracing run 31373726976): resolve_silent_window
+                # returns "hold-undelivered" when the review message never
+                # reached Telegram, so nobody was ever asked. Every comparison
+                # in this loop tests for reject/remake/edit/swap/approve, so
+                # that value matched NONE of them and fell off the bottom of
+                # the `while True` body — re-sending the same review, waiting
+                # another full 60 minutes, and repeating until the episode's
+                # entire review budget was gone. Silence caused by a broken
+                # bot token would have looked exactly like a slow reviewer.
+                # Hold means hold: keep every artifact, publish nothing,
+                # delete nothing, and stop.
+                if "hold-undelivered" in (_a_dec, _v_dec_early):
+                    log("  Audio/video review was never delivered — holding the "
+                        "episode exactly where it is (nothing deleted, nothing "
+                        "published).")
+                    tg("🚨 Ch1: the audio/video review never reached you, so nobody "
+                       "was asked. This episode is held unlisted and unpublished — "
+                       "not rejected. Check the bot token and chat ID.")
+                    sys.exit(0)
                 if _a_dec == "reject":
                     # DECLINE MUST STOP THE EPISODE.
                     #
@@ -12548,6 +12650,17 @@ def main():
 
                 abort_on_cancel(_ttd_review, "the title/thumbnail/description review",
                                 _prerendered_yt_vid_id)
+                # Same unhandled value as the audio/video loop above: without
+                # this branch "hold-undelivered" matches none of the
+                # comparisons here and falls off the bottom of `while True`,
+                # re-asking a question that provably cannot be delivered.
+                if _ttd_review["decision"] == "hold-undelivered":
+                    log("  Title/thumbnail/description review was never delivered "
+                        "— holding the episode, publishing nothing.")
+                    tg("🚨 Ch1: the title/thumbnail/description review never reached "
+                       "you. This episode is held, not rejected — nothing published, "
+                       "nothing deleted.")
+                    sys.exit(0)
                 if _ttd_review["decision"] == "reject":
                     log("Rejected during title/thumbnail/description review."); sys.exit(0)
                 if _ttd_review["decision"] == "remake":
@@ -12760,6 +12873,16 @@ def main():
                     # that applies to edit/remake/swap below) — REJECT now
                     # genuinely deletes every Short from this batch.
                     abort_on_cancel(_sh_review, "the Shorts review", _prerendered_yt_vid_id)
+                    # This gate is a straight if/elif rather than a loop, so an
+                    # undelivered review already does the safe thing here by
+                    # falling through: nothing deleted, nothing approved, the
+                    # Shorts stay unlisted. Made explicit so it is a decision
+                    # in the log rather than an accident of control flow.
+                    if _sh_review["decision"] == "hold-undelivered":
+                        log("  Shorts review was never delivered — leaving every "
+                            "Short unlisted and unapproved. None deleted.")
+                        tg("🚨 Ch1: the Shorts review never reached you. The Shorts "
+                           "stay unlisted and unpublished until you see them.")
                     if _sh_review["decision"] == "reject":
                         _sh_token = get_yt_token()
                         for _s in _real_shorts:

@@ -1596,6 +1596,132 @@ def main():
     except Exception as e:
         check("undefined names (workflow gate)", True, "pyflakes unavailable: %r" % e)
 
+    # ══════════════════════════════════════════════════════════════════
+    # A GATE NOBODY CAN CLEAR IS NOT A STANDARD, IT IS A DEAD END.
+    #
+    # Ch1 run 31373726976 produced a real 8.5 script, human-approved audio
+    # narrated by Kokoro, a rendered 71MB video and three separate human
+    # approvals — and then binned the whole episode because the thumbnail
+    # OVERLAY TEXT could not clear 8.5 in 39 attempts. Every one of those 39
+    # attempts scored exactly 5.5, which is the signature of an arithmetic
+    # impossibility rather than a quality problem: the sanitizer deleted the
+    # digits that score_thumbnail_text awards +2.5 for, so the NUMBER+NOUN
+    # format the prompt asks for FIRST could never score above 5.5.
+    #
+    # These checks compose the two halves — the real sanitizer and the real
+    # scorer — and prove a well-formed answer can actually reach the bar.
+    # Checking either half alone is exactly what missed this for weeks.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        from thumbnail_engine_v2 import score_thumbnail_text as _sts
+
+        def _sanitize_like_pipeline(raw):
+            """The sanitizer as the pipelines run it, applied verbatim."""
+            hq = raw.strip().endswith("?")
+            r = re.sub(r'[^A-Z0-9%\.,\s]', '', raw.upper()).strip()
+            r = re.sub(r'(?<![0-9])[\.,]|[\.,](?![0-9])', '', r).strip()
+            w = r.split()[:4]
+            if not (2 <= len(w) <= 4):
+                return None
+            return ' '.join(w) + ("?" if hq else "")
+
+        _THUMB_GATE = 8.5
+        for _raw in ("10 DAYS COMA", "4,380 DAYS HIDDEN", "0.1 WHITE CELLS"):
+            _clean = _sanitize_like_pipeline(_raw)
+            check("a NUMBER+NOUN thumbnail line can clear the gate: %r" % _raw,
+                  _clean is not None and _sts(_clean) >= _THUMB_GATE,
+                  "sanitized to %r scoring %s — the gate is unreachable"
+                  % (_clean, _sts(_clean) if _clean else None))
+        _q = _sanitize_like_pipeline("WHY DID SHE STOP?")
+        check("a DIRECT QUESTION thumbnail line can clear the gate",
+              _q is not None and _sts(_q) >= _THUMB_GATE,
+              "sanitized to %r scoring %s" % (_q, _sts(_q) if _q else None))
+        # and the bar still bites — a fix that just lowers the standard is
+        # not a fix. A line with neither a digit nor a question mark must
+        # still fail, exactly as it did live.
+        _flat = _sanitize_like_pipeline("ZERO WHITE BLOOD")
+        check("a number-less, question-less line still fails the gate",
+              _flat is not None and _sts(_flat) < _THUMB_GATE,
+              "the gate stopped discriminating")
+        # the digits must survive the sanitizer itself, not just the scorer
+        check("the sanitizer preserves digits",
+              _sanitize_like_pipeline("10 DAYS COMA") == "10 DAYS COMA",
+              "digits stripped before scoring — the live 39x5.5 failure")
+    except Exception as _e:
+        check("thumbnail-text gate reachability", False, repr(_e))
+
+    # These next checks scan for defective CODE, and the fix commits carry
+    # comments that quote the defective code by name to explain it. Scanning
+    # raw text would flag the explanation as the defect, so comments are
+    # stripped first — the question is what the pipeline RUNS.
+    def _code_only(src):
+        out = []
+        for line in src.splitlines():
+            s = line.lstrip()
+            if s.startswith("#"):
+                continue
+            out.append(line)
+        return "\n".join(out)
+
+    # The identical sanitizer line exists in all five channel pipelines, so
+    # the identical dead end exists in all five unless all five are checked.
+    for _ch, _p in (("Ch1", ("channels", "betrayal_deepdive", "clinical_pipeline.py")),
+                    ("Ch2", ("channels", "evidence_room", "evidence_room_pipeline.py")),
+                    ("Ch3", ("channels", "collapse_index", "collapse_index_pipeline.py")),
+                    ("Ch4", ("channels", "archive", "archive_pipeline.py")),
+                    ("Ch5", ("channels", "control_files", "control_files_pipeline.py"))):
+        _src = _code_only(open(os.path.join(ROOT, *_p)).read())
+        check("%s thumbnail sanitizer does not delete digits" % _ch,
+              r"[^A-Z\s]" not in _src,
+              "the character class that made the 8.5 gate unreachable")
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE SOUND DESIGN MUST NOT BE HOSTAGE TO THE PICTURE GRADE.
+    #
+    # Same run: the FX step hit its timeout twice (20 min each) because the
+    # 0.15s jump-scare flash was built from a full-length synthesized white
+    # video plus a per-pixel blend expression. Because the audio mix shared
+    # that one ffmpeg call, every content-matched SFX cue died with it —
+    # the log shows the cues being selected and then discarded, twice.
+    # ══════════════════════════════════════════════════════════════════
+    _cp_code = _code_only(_cp)
+    check("the jump-scare flash costs nothing outside its own window",
+          "blend=all_expr" not in _cp_code and "eq=brightness=1.0" in _cp_code,
+          "a full-length white stream + per-pixel blend for 0.15s of white")
+    check("no full-length white source is synthesized for the flash",
+          "color=c=white:size=1920x1080" not in _cp_code,
+          "45,000 frames synthesized to show 4 of them")
+    check("the SFX mix survives a failed picture grade",
+          "horror-fx-audio-only" in _cp_code and '"-c:v", "copy"' in _cp_code,
+          "one ffmpeg call welded the cheap valuable half to the expensive one")
+    check("the FX step cannot eat more of the clock than it did live",
+          "timeout=1200" not in _cp_code.split("label=\"horror-fx\"")[0][-400:],
+          "a 20-minute timeout it could never finish inside")
+
+    # ══════════════════════════════════════════════════════════════════
+    # EVERY GATE THAT CAN RECEIVE "hold-undelivered" MUST HANDLE IT.
+    #
+    # resolve_silent_window returns this whenever a review message could not
+    # be delivered, so nobody was ever asked. Two of the five consumers were
+    # written before that value existed and compared only against
+    # reject/remake/edit/swap/approve — so it matched nothing and fell off
+    # the bottom of a `while True`, re-asking a question that provably could
+    # not arrive, once an hour, until the review budget was gone. A value a
+    # gate cannot name is a value that gate mishandles.
+    # ══════════════════════════════════════════════════════════════════
+    _hold_consumers = (
+        ("script gate", 'if _review["decision"] == "hold-undelivered":'),
+        ("final pre-publish gate", 'if _final_gate["decision"] == "hold-undelivered":'),
+        ("audio/video gate", 'if "hold-undelivered" in (_a_dec, _v_dec_early):'),
+        ("title/thumbnail/description gate",
+         'if _ttd_review["decision"] == "hold-undelivered":'),
+        ("Shorts gate", 'if _sh_review["decision"] == "hold-undelivered":'),
+    )
+    for _label, _needle in _hold_consumers:
+        check("the %s handles an undelivered review" % _label,
+              _needle in _cp,
+              "an undelivered review falls through this gate unhandled")
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:

@@ -1682,7 +1682,14 @@ Return ONLY 3 words. Example: PAPER TRAIL FOUND or NOBODY EVER LISTENED"""
             for _ in range(3):
                 result = ai(prompt, temp=0.82, tokens=15, min_chars=3, prefer="groq")
                 if result:
-                    result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                    # FIX (found live on Ch1, run 31373726976 — identical line in all five
+                    # channels): this class also deletes 0-9, and
+                    # score_thumbnail_text gives +2.5 for a digit and -2.0 for
+                    # having neither digit nor '?', capping a de-digited
+                    # NUMBER+NOUN line at 5.5 against an 8.5 gate. Digits are
+                    # now kept, along with '.' and ',' between digits.
+                    result = re.sub(r'[^A-Z0-9%\.,\s]', '', result.upper()).strip()
+                    result = re.sub(r'(?<![0-9])[\.,]|[\.,](?![0-9])', '', result).strip()
                     words = result.split()[:3]
                     if len(words) == 3:
                         candidates.append(' '.join(words))

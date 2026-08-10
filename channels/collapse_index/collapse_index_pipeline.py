@@ -7233,7 +7233,14 @@ def generate_thumbnail_text(niche, topic, title=""):
                 # trailing "?" (previously stripped, making a genuine
                 # question format impossible) and allow 2-4 words.
                 has_question = result.strip().endswith("?")
-                result = re.sub(r'[^A-Z\s]', '', result.upper()).strip()
+                # FIX (found live on Ch1, run 31373726976 — identical line in
+                # all five channels): this class also deletes 0-9, and
+                # score_thumbnail_text gives +2.5 for a digit and -2.0 for
+                # having neither digit nor '?', capping a de-digited
+                # NUMBER+NOUN line at 5.5 against an 8.5 gate. Digits are
+                # now kept, along with '.' and ',' between digits.
+                result = re.sub(r'[^A-Z0-9%\.,\s]', '', result.upper()).strip()
+                result = re.sub(r'(?<![0-9])[\.,]|[\.,](?![0-9])', '', result).strip()
                 words = result.split()[:4]
                 if 2 <= len(words) <= 4:
                     text = ' '.join(words) + ("?" if has_question else "")
