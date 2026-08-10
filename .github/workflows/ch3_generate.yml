@@ -80,7 +80,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
-          pip install requests pillow edge-tts gTTS -q
+          pip install requests pillow edge-tts -q
           # v5 addition: Kokoro TTS — real local model, no API rate limit.
           # CPU-only torch wheel specifically (avoids downloading
           # unnecessary CUDA packages that would slow this step down and

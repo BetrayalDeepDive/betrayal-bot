@@ -1145,6 +1145,29 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── a missing artifact must not cost a finished episode ────────
+    # Generate and Upload are separate runs on separate ephemeral runners,
+    # so the video reaches Upload only as a downloaded artifact — and that
+    # step is configured `if_no_artifact_found: warn`, so a missing or
+    # expired artifact arrives here as a missing FILE, not a failed step.
+    # The episode is usually already on YouTube unlisted by then (today's
+    # real pending_upload.json carries prerendered_yt_video_id lo1b3ays1ms),
+    # and publishing it needs a metadata call, not the bytes.
+    check("a missing artifact does not kill an already-uploaded episode",
+          "_have_remote = bool(pending.get(\"prerendered_yt_video_id\"))" in _cp
+          and "if not _have_remote:" in _cp,
+          "the file check used to exit(1) before looking for the remote copy")
+    check("with no remote copy AND no file, it still fails loudly",
+          "no unlisted upload exists to publish instead" in _cp,
+          "silently continuing without a video would be worse")
+    _up = _cp[_cp.find("UPLOAD PHASE"):]
+    _upload_call = _up.find("video_path, title, description, tags")
+    _else = _up.rfind("else:", 0, _upload_call)
+    _if = _up.rfind("if _prerendered_vid_id:", 0, _else)
+    check("the byte-consuming upload only runs without a remote copy",
+          0 < _if < _else < _upload_call,
+          "otherwise a missing file would still crash the reuse path")
+
     # ── an approved Short has to actually reach the channel ────────
     # Making Shorts upload unlisted stopped four unreviewed ones going live,
     # and left the opposite bug: approve did nothing, so a Short a human had

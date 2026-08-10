@@ -188,12 +188,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          # espeak-ng stays, and it is NOT a voice. Kokoro — the primary
+          # human narration route — phonemizes through it. No code calls it
+          # as a synthesiser any more (see video_pipeline/voice_policy.py);
+          # removing the package here would break Kokoro, not enforce the
+          # policy. The policy is enforced in the code, where it belongs.
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
           # reportlab: real PDF export for the script review checkpoint,
           # per explicit user request that a wall of chunked Telegram
           # text is unreadable -- the script now goes out as a proper
           # PDF attachment instead.
-          pip install requests pillow edge-tts gTTS reportlab -q
+          pip install requests pillow edge-tts reportlab -q
           # Kokoro (local TTS, genuinely natural-sounding, no rate limit) —
           # CPU-only torch wheel keeps this from downloading unnecessary
           # CUDA packages, which matters since GitHub Actions runners have
@@ -212,8 +217,10 @@ jobs:
           #
           # Counting only the routes that can actually clear the 8.5 audio
           # gate, narration had TWO -- Kokoro and edge-tts. gTTS and espeak
-          # were listed as backups but their ceilings are 7.6 and 6.6, so
-          # neither can ever ship an episode. Lose Kokoro's weights and
+          # were listed as backups but their ceilings were 7.6 and 6.6, so
+          # neither could ever ship an episode; both are now deleted from
+          # every pipeline outright, and the gTTS package with them. Lose
+          # Kokoro's weights and
           # Microsoft's endpoint on the same day and there was no episode.
           # Piper is neural, needs no key and no network at synthesis time,
           # and its voice model comes from GitHub releases rather than the

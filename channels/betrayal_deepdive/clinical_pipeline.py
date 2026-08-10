@@ -10778,10 +10778,34 @@ def main():
         short_titles= pending.get("short_titles", {})
         short_cross = pending.get("short_cross", "")
 
-        # Verify video file exists
+        # THE LOCAL FILE IS ONLY NEEDED IF THERE IS NOTHING ON YOUTUBE YET.
+        #
+        # This was an unconditional exit, and it can throw away a finished
+        # episode for no reason. Generate and Upload are separate workflow
+        # runs on separate ephemeral runners, so the video only reaches this
+        # one as a downloaded artifact — and that download is configured
+        # `if_no_artifact_found: warn`, so a missing or expired artifact
+        # lands here as a missing file rather than a failed step.
+        #
+        # But by this point the episode has usually ALREADY been uploaded to
+        # YouTube, unlisted, for the generate-phase video review. Today's real
+        # pending_upload.json carries prerendered_yt_video_id lo1b3ays1ms.
+        # When that id is present the file is not needed at all: the upload
+        # phase pushes final metadata and flips privacy, neither of which
+        # touches the bytes. Exiting first turned a fully recoverable
+        # situation into a lost episode.
+        _have_remote = bool(pending.get("prerendered_yt_video_id"))
         if not Path(video_path).exists():
-            tg(f"❌ Ch1 Upload FAILED: video file missing at {video_path}")
-            sys.exit(1)
+            if not _have_remote:
+                tg(f"❌ Ch1 Upload FAILED: video file missing at {video_path}, "
+                   f"and no unlisted upload exists to publish instead.")
+                sys.exit(1)
+            log(f"  Local file missing at {video_path}, but the episode is "
+                f"already on YouTube unlisted — publishing that instead of "
+                f"re-uploading. No bytes are needed for a privacy flip.")
+            tg("ℹ️ Ch1 Upload: the video artifact was not available on this "
+               "runner, so the already-uploaded unlisted copy is being "
+               "published instead. Nothing was lost.")
 
         token = get_yt_token()
 

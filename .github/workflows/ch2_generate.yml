@@ -65,7 +65,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation espeak-ng -qq
-          pip install requests pillow edge-tts gTTS -q
+          pip install requests pillow edge-tts -q
           # Kokoro (local TTS, genuinely natural-sounding, no rate limit) —
           # CPU-only torch wheel avoids unnecessary CUDA packages.
           # espeak-ng is already installed above (a Kokoro dependency).
