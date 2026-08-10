@@ -63,6 +63,37 @@ import re
 # that both names a place and reports a value is read as the value.
 INTENTS = ("evidence", "mechanism", "value", "chronology", "place", "state")
 
+# A NARRATION SCRIPT WRITES ITS NUMBERS BOTH WAYS, AND THIS ONLY READ ONE.
+#
+# FIX (found live, Ch1 run 31373726976): the shot list came back "state 52,
+# value 10, evidence 2, place 2, chronology 2" out of 68 beats — three
+# quarters of the episode read as atmosphere — and the log warned about a
+# 12-beat run of identical shot types, blaming the script. The script was
+# not the problem. Every value pattern below required `\d+`, and this
+# channel's scripts spell numbers out because a voice has to read them:
+# "neutrophils at three percent", "exceeded the dosage by tenfold", "at nine
+# PM on July fifteen". Checked against the real beats from that run, all
+# four classified as `state`. The comment on the unit pattern already knew
+# narration spells its UNITS out — it just kept demanding a digit for the
+# NUMBER, which is the half that never survives narration either.
+#
+# Deliberately NOT included: ages ("a forty-six-year-old woman"). That is a
+# person, not a measurement, and a chart of it would be absurd — the point
+# is to find the beats that genuinely want a chart, not to drive the state
+# count down.
+_NUM = (r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|"
+        r"twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+        r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|"
+        r"hundred|thousand|million|\d+(?:\.\d+)?)")
+# "thirty nine", "four hundred", "twenty-two", "one hundred and eighteen"
+_NUMS = r"%s(?:[\s-]+(?:and[\s-]+)?%s)*" % (_NUM, _NUM)
+_UNITS = (r"(?:percent|per cent|degrees?|milligrams?|millilitres?|milliliters?|"
+          r"millimoles?|micrograms?|kilograms?|grams?|litres?|liters?|"
+          r"centimetres?|centimeters?|metres?|meters?|beats?|units?|points?|"
+          r"milligrams? per|millimoles? per)")
+_MONTHS = (r"(?:january|february|march|april|may|june|july|august|september|"
+           r"october|november|december)")
+
 _SIGNALS = (
     # A finding was SEEN. This is the paper's own image or nothing.
     ("evidence", (
@@ -84,12 +115,36 @@ _SIGNALS = (
         # A NARRATION script spells its units out -- the voice says "one
         # hundred and eighteen millimoles per litre", never "118 mmol/L". The
         # symbol-only pattern read a real value beat as atmosphere.
-        r"\b\d+(?:\.\d+)?\s*(?:mg|ml|mmol|mcg|g/dl|mm|cm|kg|%|bpm)\b",
+        # SYMBOL UNITS THE LIST HAD NEVER HEARD OF.
+        #
+        # FIX (found live, Ch1 run 31373726976, same shot-list audit): the
+        # script does use digits where a real paper's units are symbols —
+        # "a total of 5 L of plasma", "platinum to 1.2 μg/mL", "0.8 μg/mL" —
+        # and every one of those beats came back `state`, because L, μg, /mL,
+        # U/L and IU were simply not in this alternation. These are the most
+        # chart-worthy lines in the whole episode: the treatment working,
+        # measured. Case-folded before matching, so μg and MG both land.
+        r"\b\d+(?:\.\d+)?\s*(?:mg|ml|l|mmol|mol|mcg|μg|ug|ng|g/dl|g/l|u/l|iu|"
+        r"mm|cm|m|kg|g|%|bpm|mmhg|cells?/)\b",
+        r"\b\d+(?:\.\d+)?\s*(?:μg|mcg|mg|ng|g)\s*/\s*(?:ml|l|dl|kg)\b",
         r"\b\d+(?:\.\d+)?\s+(?:milli|micro|kilo|centi)?"
         r"(?:moles?|grams?|litres?|liters?|metres?|meters?|degrees?|beats?|"
         r"percent|units?)\b",
-        r"\b(?:rose|fell|dropped|climbed|peaked|doubled|halved) to\b",
+        # "dipped from 2.5 to 1.8" missed on both counts: `dipped` was not a
+        # movement verb here, and `from X to Y` puts a number between the verb
+        # and the `to`. A number that MOVED is the definition of a chart beat.
+        r"\b(?:rose|fell|dropped|climbed|peaked|doubled|halved|dipped|slid|"
+        r"jumped|spiked|plunged|plummeted|crashed|recovered|returned|"
+        r"reduced|increased|decreased|declined)\b[^.]{0,40}?\bto\b",
+        r"\bfrom\s+\d+(?:\.\d+)?\s+to\s+\d+(?:\.\d+)?\b",
         r"\b(?:level|count|concentration|reading|titre|titer)s?\b",
+        # The same measurements as above, written the way a narrator reads
+        # them: "three percent", "four hundred units", "thirty nine degrees".
+        r"\b%s\s+%s\b" % (_NUMS, _UNITS),
+        # "tenfold", "ten-fold", "a hundredfold"
+        r"\b%s[\s-]?fold\b" % _NUM,
+        # "zero point one", "point three" — how a decimal is spoken
+        r"\b(?:%s\s+)?point\s+%s\b" % (_NUM, _NUM),
     )),
     # TIME passed. This is a timeline.
     ("chronology", (
@@ -97,6 +152,14 @@ _SIGNALS = (
         r"\b(?:hours|days|weeks|months|years) (?:later|after|earlier|before)\b",
         r"\b(?:by|on) the (?:following|next|fourth|fifth|ninth)\b",
         r"\bover the (?:next|following)\b", r"\bthat (?:evening|night|morning)\b",
+        # A spoken clock time: "at nine PM", "by eleven thirty AM"
+        r"\b%s(?:\s+%s)?\s*(?:am|pm|a\.m\.|p\.m\.)\b" % (_NUM, _NUM),
+        # A spoken calendar date: "on July fifteen", "July the fifteenth"
+        r"\b%s\s+(?:the\s+)?%s\b" % (_MONTHS, _NUMS),
+        # "three days later", "ten weeks after" — the digit-free form of the
+        # pattern directly above, which only matched "days later" unqualified.
+        r"\b%s\s+(?:hours?|days?|weeks?|months?|years?)\s+"
+        r"(?:later|after|earlier|before|in)\b" % _NUMS,
     )),
     # Somewhere REAL. This is a photograph.
     ("place", (

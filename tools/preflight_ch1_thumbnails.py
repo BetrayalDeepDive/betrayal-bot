@@ -1722,6 +1722,39 @@ def main():
               _needle in _cp,
               "an undelivered review falls through this gate unhandled")
 
+    # ══════════════════════════════════════════════════════════════════
+    # THE SHOT LIST MUST READ NUMBERS THE WAY THE SCRIPT WRITES THEM.
+    #
+    # Run 31373726976's shot list came back state 52 / 68 with a 12-beat run
+    # of one kind, and the log blamed the writing. It was the reader: every
+    # value pattern demanded a digit, while the script says "neutrophils at
+    # three percent" and "by tenfold" because a voice has to read it aloud;
+    # and where the script DID use digits, the unit alternation had never
+    # heard of L, μg/mL or U/L, so "5 L of plasma" and "platinum to 1.2
+    # μg/mL" — the treatment working, measured — read as atmosphere too.
+    # Same failure as the thumbnail gate above: a detector looking for a
+    # shape the producer never emits.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import visual_brief as _vb
+        for _want, _line in (
+            ("value", "Blood work showed neutrophils at three percent."),
+            ("value", "Infusion rate exceeded the prescribed dosage by tenfold."),
+            ("value", "A total of 5 L of plasma was removed."),
+            ("value", "Plasma platinum fell to 1.2 ug/mL after the session."),
+            ("value", "Kidney markers dipped from 2.5 to 1.8 that week."),
+            ("chronology", "At nine PM on July fifteen the pulse changed."),
+            # and the reader must not simply call everything a value — an age
+            # is a person, not a chart, and atmosphere must stay atmosphere.
+            ("state", "The patient was a forty-six-year-old woman."),
+            ("state", "Nobody could explain what was happening to her."),
+        ):
+            _got = _vb.classify(_line)[0]
+            check("shot list reads %r as %s" % (_line[:34], _want),
+                  _got == _want, "read as %s" % _got)
+    except Exception as _e:
+        check("shot-list number reading", False, repr(_e))
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:

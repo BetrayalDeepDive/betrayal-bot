@@ -414,5 +414,29 @@
     "video_id": null,
     "ctr_pct": null,
     "timestamp": "2026-08-10T13:29:05.354668"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "countdown_list",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-10T13:39:51.869298"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-10T13:41:58.424045"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "before_after",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-10T13:43:46.822380"
   }
 ]
