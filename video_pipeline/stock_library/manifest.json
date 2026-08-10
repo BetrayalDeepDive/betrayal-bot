@@ -127,6 +127,166 @@
       "role": "hero",
       "tags": "human eye macro iris dark close up",
       "w": 1600
+    },
+    {
+      "file": "scene_6e6a98b576a38c8c.jpg",
+      "h": 1164,
+      "role": "scene",
+      "sha": "6e6a98b576a38c8c",
+      "tags": "chemotherapy",
+      "w": 1600
+    },
+    {
+      "file": "scene_4b9a49bcf24474f4.jpg",
+      "h": 1200,
+      "role": "scene",
+      "sha": "4b9a49bcf24474f4",
+      "tags": "infusion",
+      "w": 1600
+    },
+    {
+      "file": "scene_eeeac71c7d59ce5b.jpg",
+      "h": 1067,
+      "role": "scene",
+      "sha": "eeeac71c7d59ce5b",
+      "tags": "chair",
+      "w": 1600
+    },
+    {
+      "file": "scene_9c47a900f953ce70.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "9c47a900f953ce70",
+      "tags": "drip",
+      "w": 1066
+    },
+    {
+      "file": "scene_43b86181841e7688.jpg",
+      "h": 1067,
+      "role": "scene",
+      "sha": "43b86181841e7688",
+      "tags": "blood",
+      "w": 1600
+    },
+    {
+      "file": "scene_6f39934c8cee33f6.jpg",
+      "h": 1200,
+      "role": "scene",
+      "sha": "6f39934c8cee33f6",
+      "tags": "sample",
+      "w": 1600
+    },
+    {
+      "file": "evidence_21194ea5c280ec32.jpg",
+      "h": 798,
+      "role": "evidence",
+      "sha": "21194ea5c280ec32",
+      "tags": "hospital",
+      "w": 1600
+    },
+    {
+      "file": "evidence_5c1441e5764ca085.jpg",
+      "h": 1173,
+      "role": "evidence",
+      "sha": "5c1441e5764ca085",
+      "tags": "chest",
+      "w": 1600
+    },
+    {
+      "file": "evidence_79e9810e5a94fd6b.jpg",
+      "h": 720,
+      "role": "evidence",
+      "sha": "79e9810e5a94fd6b",
+      "tags": "lung",
+      "w": 1600
+    },
+    {
+      "file": "evidence_89d5d2438ba7d2f1.jpg",
+      "h": 550,
+      "role": "evidence",
+      "sha": "89d5d2438ba7d2f1",
+      "tags": "scanner",
+      "w": 460
+    },
+    {
+      "file": "scene_1cdd0272e3465541.jpg",
+      "h": 1199,
+      "role": "scene",
+      "sha": "1cdd0272e3465541",
+      "tags": "tube",
+      "w": 1600
+    },
+    {
+      "file": "scene_3bac05ce3d1b581b.jpg",
+      "h": 1557,
+      "role": "scene",
+      "sha": "3bac05ce3d1b581b",
+      "tags": "pipette",
+      "w": 1600
+    },
+    {
+      "file": "scene_40fd50a7c61a24bf.jpg",
+      "h": 1309,
+      "role": "scene",
+      "sha": "40fd50a7c61a24bf",
+      "tags": "laboratory",
+      "w": 1600
+    },
+    {
+      "file": "scene_a3845af94e4a5ff3.jpg",
+      "h": 1194,
+      "role": "scene",
+      "sha": "a3845af94e4a5ff3",
+      "tags": "gloved",
+      "w": 1600
+    },
+    {
+      "file": "scene_aeea591f16a6470f.jpg",
+      "h": 827,
+      "role": "scene",
+      "sha": "aeea591f16a6470f",
+      "tags": "hand",
+      "w": 1600
+    },
+    {
+      "file": "scene_79e23547ac7e4d2d.jpg",
+      "h": 1067,
+      "role": "scene",
+      "sha": "79e23547ac7e4d2d",
+      "tags": "test",
+      "w": 1600
+    },
+    {
+      "file": "evidence_93230766f2c02625.jpg",
+      "h": 1032,
+      "role": "evidence",
+      "sha": "93230766f2c02625",
+      "tags": "imaging",
+      "w": 1300
+    },
+    {
+      "file": "evidence_aa78539217670623.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "aa78539217670623",
+      "tags": "vital",
+      "w": 1151
+    },
+    {
+      "file": "evidence_ef70073127599d23.jpg",
+      "h": 1426,
+      "role": "evidence",
+      "sha": "ef70073127599d23",
+      "tags": "signs",
+      "w": 1600
+    },
+    {
+      "file": "evidence_0f5366dc6a322f92.jpg",
+      "h": 1067,
+      "role": "evidence",
+      "sha": "0f5366dc6a322f92",
+      "tags": "monitor",
+      "w": 1600
     }
   ]
 }

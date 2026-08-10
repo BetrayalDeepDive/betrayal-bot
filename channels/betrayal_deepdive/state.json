@@ -80,6 +80,42 @@
         "A 70\u2011year-old patient reports sudden onset of bilateral leg weakness; MRI spine shows longitudinally extensive transverse myelitis; CSF reveals oligoclonal bands; initially treated for multiple sclerosis, later identified as paraneoplastic syndrome related to a hidden ovarian carcinoma."
       ],
       "last_run": "2026-08-01T06:47:30.464735"
+    },
+    "toxicology_cases": {
+      "top_hook_formulas": [
+        "The labs were normal, but the patient was crashing from [Symptom].",
+        "A routine [Procedure] revealed a toxin that shouldn't have been there.",
+        "The presenting complaint was [Symptom], but the toxicology screen showed something impossible."
+      ],
+      "winning_title_patterns": [
+        "The Case of the [Unexpected Symptom]: A Toxicology Mystery",
+        "Why This [Age/Gender] Patient's Blood Turned [Color/State]",
+        "Clinical Puzzle: The Hidden Danger of [Compound/Substance]"
+      ],
+      "thumbnail_text_examples": [
+        "LABS DON'T MATCH",
+        "HIDDEN TOXIN FOUND",
+        "MYSTERIOUS BLOOD COLOR",
+        "THE WRONG DOSAGE",
+        "SUDDEN ORGAN FAILURE"
+      ],
+      "retention_hooks": {
+        "30pct": "Just as the team considered a psychiatric cause, a single outlier in the metabolic panel changed everything.",
+        "60pct": "The standard antidote was administered, but the patient's condition paradoxically worsened.",
+        "80pct": "The final clue lay not in the bloodwork, but in a forgotten detail of the patient's environment."
+      },
+      "niche_power_words": [
+        "Refractory",
+        "Pathognomonic",
+        "Iatrogenic",
+        "Toxidrome",
+        "Metabolic",
+        "Idiopathic"
+      ],
+      "fresh_topic_ideas": [
+        "A 60-year-old male shows profound bradycardia and hypotension; EKG shows characteristic PR prolongation indicating digitalis toxicity from an herbal tea."
+      ],
+      "last_run": "2026-08-10T09:40:37.412430"
     }
   },
   "last_title_register": "dread",
