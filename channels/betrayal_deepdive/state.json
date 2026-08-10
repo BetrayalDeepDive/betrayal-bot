@@ -189,5 +189,14 @@
       "date": "2026-07-21"
     }
   ],
-  "ie_female_trial_done": true
+  "ie_female_trial_done": true,
+  "thumbnail_ab": {
+    "last_style": "A",
+    "last_episode": 11
+  },
+  "clinical_thumb_formats": [
+    "verdict",
+    "banner",
+    "verdict"
+  ]
 }

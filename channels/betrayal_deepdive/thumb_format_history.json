@@ -169,5 +169,32 @@
     "video_id": null,
     "timestamp": "2026-08-08T17:12:16.541444",
     "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "toxicology_cases",
+    "episode": 11,
+    "format": "verdict",
+    "video_id": null,
+    "timestamp": "2026-08-10T16:52:43.451593",
+    "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "toxicology_cases",
+    "episode": 11,
+    "format": "banner",
+    "video_id": null,
+    "timestamp": "2026-08-10T18:28:20.530667",
+    "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "toxicology_cases",
+    "episode": 11,
+    "format": "verdict",
+    "video_id": null,
+    "timestamp": "2026-08-10T19:12:58.604973",
+    "ctr_pct": null
   }
 ]

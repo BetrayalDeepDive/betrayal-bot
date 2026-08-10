@@ -287,6 +287,198 @@
       "sha": "0f5366dc6a322f92",
       "tags": "monitor",
       "w": 1600
+    },
+    {
+      "file": "scene_fca15be189b827ea.jpg",
+      "h": 630,
+      "role": "scene",
+      "sha": "fca15be189b827ea",
+      "tags": "lung",
+      "w": 770
+    },
+    {
+      "file": "scene_57abdf4e0bb9b514.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "57abdf4e0bb9b514",
+      "tags": "scan",
+      "w": 1393
+    },
+    {
+      "file": "scene_fc5f904f5c481c9d.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "fc5f904f5c481c9d",
+      "tags": "radiology",
+      "w": 1196
+    },
+    {
+      "file": "evidence_58b974424587b83a.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "58b974424587b83a",
+      "tags": "bedside",
+      "w": 1200
+    },
+    {
+      "file": "evidence_7eb145a70324e9d5.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "7eb145a70324e9d5",
+      "tags": "ventilator",
+      "w": 1112
+    },
+    {
+      "file": "evidence_76f76c0e66c0dce1.jpg",
+      "h": 1046,
+      "role": "evidence",
+      "sha": "76f76c0e66c0dce1",
+      "tags": "intensive",
+      "w": 1600
+    },
+    {
+      "file": "scene_776204f2acaf9d09.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "776204f2acaf9d09",
+      "tags": "ventilator",
+      "w": 1112
+    },
+    {
+      "file": "evidence_e7476c2bb9e32bf7.jpg",
+      "h": 1205,
+      "role": "evidence",
+      "sha": "e7476c2bb9e32bf7",
+      "tags": "care",
+      "w": 1600
+    },
+    {
+      "file": "evidence_da558ea88eb8272b.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "da558ea88eb8272b",
+      "tags": "tablets",
+      "w": 1270
+    },
+    {
+      "file": "evidence_aabced629d0e05fd.jpg",
+      "h": 1042,
+      "role": "evidence",
+      "sha": "aabced629d0e05fd",
+      "tags": "medication",
+      "w": 1600
+    },
+    {
+      "file": "scene_288845a7eb770219.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "288845a7eb770219",
+      "tags": "chest x-ray film",
+      "w": 1488
+    },
+    {
+      "file": "scene_691ceb532b6bb954.jpg",
+      "h": 1396,
+      "role": "scene",
+      "sha": "691ceb532b6bb954",
+      "tags": "thoracic surgery operating",
+      "w": 1264
+    },
+    {
+      "file": "evidence_0cd136626b5c709f.jpg",
+      "h": 898,
+      "role": "evidence",
+      "sha": "0cd136626b5c709f",
+      "tags": "lung ct scan",
+      "w": 1300
+    },
+    {
+      "file": "evidence_49bc08072e28d253.jpg",
+      "h": 636,
+      "role": "evidence",
+      "sha": "49bc08072e28d253",
+      "tags": "mri brain scan",
+      "w": 1300
+    },
+    {
+      "file": "evidence_858e930410cd12e4.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "858e930410cd12e4",
+      "tags": "pills",
+      "w": 1068
+    },
+    {
+      "file": "evidence_bb62a6b845b43054.jpg",
+      "h": 1200,
+      "role": "evidence",
+      "sha": "bb62a6b845b43054",
+      "tags": "blister",
+      "w": 1600
+    },
+    {
+      "file": "scene_10648e3fabb994d8.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "10648e3fabb994d8",
+      "tags": "hospital corridor",
+      "w": 857
+    },
+    {
+      "file": "scene_8ad706e3762a53bb.jpg",
+      "h": 1200,
+      "role": "scene",
+      "sha": "8ad706e3762a53bb",
+      "tags": "hospital ward night",
+      "w": 1600
+    },
+    {
+      "file": "evidence_ec647ec66a245d55.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "ec647ec66a245d55",
+      "tags": "ct scan film",
+      "w": 1049
+    },
+    {
+      "file": "evidence_b6ee1e706088ecb7.jpg",
+      "h": 1200,
+      "role": "evidence",
+      "sha": "b6ee1e706088ecb7",
+      "tags": "blood sample tube",
+      "w": 1600
+    },
+    {
+      "file": "scene_9f84b6cf0aab944d.jpg",
+      "h": 480,
+      "role": "scene",
+      "sha": "9f84b6cf0aab944d",
+      "tags": "emergency department",
+      "w": 640
+    },
+    {
+      "file": "scene_75cc45e02826daa3.jpg",
+      "h": 1200,
+      "role": "scene",
+      "sha": "75cc45e02826daa3",
+      "tags": "clinic hallway",
+      "w": 1600
+    },
+    {
+      "file": "evidence_94709d12147422c6.jpg",
+      "h": 866,
+      "role": "evidence",
+      "sha": "94709d12147422c6",
+      "tags": "laboratory blood test",
+      "w": 1300
+    },
+    {
+      "file": "evidence_5c6cd7767963259d.jpg",
+      "h": 866,
+      "role": "evidence",
+      "sha": "5c6cd7767963259d",
+      "tags": "medical scan",
+      "w": 1300
     }
   ]
 }
