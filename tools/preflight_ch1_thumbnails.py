@@ -1145,6 +1145,47 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── the two non-negotiables, asserted rather than assumed ──────
+    # "CC BY only — never CC BY-NC or CC BY-ND", and no medical advice.
+    # Both were implemented carefully and NEITHER had a preflight check,
+    # which is the wrong way round: these are the two rules where a silent
+    # regression is a legal and safety problem, not a quality one.
+    import pmc_data as _pmc
+    _lic_cases = [("cc by", True), ("CC BY", True), ("cc-by", True),
+                  ("cc by 4.0", True), ("cc0", True), ("public domain", True),
+                  ("cc by-nc", False), ("CC BY-NC 4.0", False),
+                  ("cc by-nd", False), ("cc by-nc-nd", False),
+                  ("cc_by_nc", False), ("non-commercial", False),
+                  ("noderivatives", False), ("", False), (None, False),
+                  ("all rights reserved", False)]
+    _lic_bad = [s for s, want in _lic_cases if bool(_pmc._license_ok(s)) != want]
+    check("CC BY passes and NC/ND never does",
+          not _lic_bad,
+          "misclassified: %r" % (_lic_bad[:3],))
+    check("the NC/ND rejection runs BEFORE the allow-list",
+          not _pmc._license_ok("cc by-nc"),
+          "'cc by-nc' contains 'cc by' — order is the whole point")
+    check("every article path re-checks the licence locally",
+          "_license_ok(a.get(\"license\"" in open(
+              os.path.join(ROOT, "video_pipeline", "pmc_data.py")).read(),
+          "never trust a remote filter for a licensing decision")
+
+    import medical_policy_gate as _mpg
+    _cit = "Smith J et al. BMJ Case Rep 2021. PMC1234567 — licensed CC BY 4.0"
+    _adv_ok, _adv_v = _mpg.check_script(
+        "You should take 500mg of ibuprofen twice daily if you feel this way.", _cit)
+    _rep_ok, _rep_v = _mpg.check_script(
+        "The patient was given 500mg of ibuprofen twice daily. Her sodium was 122.", _cit)
+    check("second-person medical advice is blocked",
+          bool(_adv_v) and any(v.get("severity") == "block" for v in _adv_v),
+          "this is the YouTube policy line, not a style preference")
+    check("reporting what happened to a patient is not blocked",
+          not _rep_v,
+          "the channel cannot function if describing a real case trips the gate")
+    check("a script with no citation is blocked",
+          bool(_mpg.check_script("Her sodium was 122.", "")[1]),
+          "an uncited clinical claim is the thing the licence requires")
+
     # ── a missing artifact must not cost a finished episode ────────
     # Generate and Upload are separate runs on separate ephemeral runners,
     # so the video reaches Upload only as a downloaded artifact — and that
