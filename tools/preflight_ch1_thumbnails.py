@@ -1145,6 +1145,42 @@ def main():
           "{_overlap_note}" in _sre_src and "_overlap_note = _reuse_note(" in _sre_src,
           "a note nothing reads changes nothing")
 
+    # ── silence only means yes if we actually asked ────────────────
+    # Auto-approving on timeout is deliberate and stays. But the button
+    # sender returned nothing, so a message Telegram REJECTED was byte-for-
+    # byte identical to a message nobody answered — and every content gate
+    # reads "no reply" as APPROVE. One 400 therefore published an episode no
+    # human had been shown: "no buttons, auto-approved", exactly as reported.
+    import human_review_gate as _hrg0
+    _hrg0_src = open(os.path.join(ROOT, "video_pipeline",
+                                  "human_review_gate.py")).read()
+    check("the review sender reports whether the ask arrived",
+          "THE REVIEWER WAS NEVER ASKED" in _hrg0_src,
+          "a send that fails silently is indistinguishable from a timeout")
+    check("an undelivered review is held, not auto-approved",
+          _hrg0.resolve_silent_window(False, "", "", 60, what="t") == "hold-undelivered"
+          and _hrg0.resolve_silent_window(True, "", "", 60, what="t") == "approve",
+          "silence means yes only when somebody was actually asked")
+    # Exactly ONE occurrence: the auto-approve notice may only be emitted
+    # from inside resolve_silent_window(). A second copy anywhere means a
+    # gate is still approving on silence without asking whether it asked.
+    check("every auto-approve branch goes through that decision",
+          _hrg0_src.count("resolve_silent_window(") >= 9
+          and _hrg0_src.count("min expired — auto-approved.") == 1,
+          "found %d copies of the auto-approve notice (want exactly 1)"
+          % _hrg0_src.count("min expired — auto-approved."))
+    check("a rejected HTML message is retried as plain text",
+          '"chat_id": tg_chat, "text": text, "reply_markup": keyboard' in _hrg0_src,
+          "losing the formatting beats losing the review")
+    check("HOLD does not delete the episode",
+          'if _final_gate["decision"] == "hold-undelivered":' in _cp
+          and _cp.index('if _final_gate["decision"] == "hold-undelivered":')
+              < _cp.index('if _final_gate["decision"] != "approve":'),
+          "deleting an upload because Telegram 400'd would be absurd")
+    check("HOLD breaks the script gate's while-True instead of spinning",
+          'if _review["decision"] == "hold-undelivered":' in _cp,
+          "re-sending to a dead channel just burns the job clock")
+
     # ── the two non-negotiables, asserted rather than assumed ──────
     # "CC BY only — never CC BY-NC or CC BY-ND", and no medical advice.
     # Both were implemented carefully and NEITHER had a preflight check,

@@ -159,6 +159,38 @@ def _no_human_reply(decision):
     return decision in _NO_REPLY
 
 
+# A SILENT WINDOW MEANS TWO DIFFERENT THINGS.
+#
+# Auto-approving on timeout is deliberate and stays: the pipeline must keep
+# moving when the reviewer is asleep. But it is only defensible if the
+# reviewer was actually ASKED. When the Telegram send fails, nothing arrives,
+# nobody can press anything, the window expires, and the old code read that
+# identical silence as approval -- publishing an episode no human had seen.
+# That is the reported "no buttons, auto-approved" in full.
+#
+# HOLD is not REJECT. A rejection deletes the upload and bins the work, which
+# would be an absurd response to a 400 from Telegram. Hold leaves everything
+# exactly where it is, unlisted and unpublished, and says so loudly.
+HOLD_UNDELIVERED = "hold-undelivered"
+
+
+def resolve_silent_window(delivered, tg_token, tg_chat, timeout_minutes,
+                          what="this checkpoint"):
+    """What an expired review window means. 'approve' only if we asked."""
+    if delivered:
+        _tg_send_message(tg_token, tg_chat,
+                         f"⏱️ {timeout_minutes} min expired — auto-approved.")
+        return "approve"
+    _tg_send_message(
+        tg_token, tg_chat,
+        f"🚨 {what}: the review message could not be delivered, so nobody was "
+        f"ever asked. NOT auto-approving — the episode is held exactly where "
+        f"it is, unlisted and unpublished. Check the bot token, the chat ID, "
+        f"and the run log.")
+    print(f"  {what}: undelivered review — holding instead of auto-approving.")
+    return HOLD_UNDELIVERED
+
+
 def _review_time_spent_hours():
     """How long this episode has actually spent WAITING FOR A HUMAN."""
     return sum(w["seconds"] for w in _REVIEW_WAITS) / 3600.0
@@ -611,18 +643,46 @@ def _tg_send_message_with_buttons(tg_token, tg_chat, text, include_swap_visuals=
     prompt is treated as the edit content, not a fresh decision.
     `include_swap_visuals` is kept only for backward compatibility with
     older call sites — prefer passing `fifth_option` directly.
+
+    THIS RETURNS WHETHER THE ASK ACTUALLY ARRIVED, AND THAT MATTERS.
+
+    It used to return nothing. Every one of its call sites fired it and went
+    straight to polling for a decision, so a message Telegram REJECTED was
+    indistinguishable from a message nobody answered -- and the timeout
+    branch of every content gate reads "no reply" as APPROVE. A single 400
+    therefore published an episode that no human had been shown. That is the
+    reported failure in its original words: "no buttons, auto-approved".
+
+    A non-200 is not an exception, so nothing raised; the old code printed a
+    line into a log nobody reads at 3am and carried on.
+
+    On failure it retries once as plain text. The likeliest cause of a
+    rejection here is an HTML parse error from dynamic content that slipped
+    past _esc(), and losing the formatting is obviously better than losing
+    the review. Buttons survive the retry -- reply_markup is independent of
+    parse_mode.
     """
     if fifth_option is None and include_swap_visuals:
         fifth_option = ("🎨 SWAP VISUALS", "swap_visuals")
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                      json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
-                            "reply_markup": _button_keyboard(fifth_option=fifth_option)},
-                      timeout=15)
-        if r.status_code != 200:
-            print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): {e}")
+    keyboard = _button_keyboard(fifth_option=fifth_option)
+    for attempt, payload in enumerate((
+            {"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
+             "reply_markup": keyboard},
+            {"chat_id": tg_chat, "text": text, "reply_markup": keyboard})):
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                              json=payload, timeout=15)
+            if r.status_code == 200 and r.json().get("ok"):
+                if attempt:
+                    print("  Review buttons delivered on the plain-text retry "
+                          "(the HTML version was rejected).")
+                return True
+            print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): "
+                  f"{r.status_code} {r.text[:200]}")
+        except Exception as e:
+            print(f"  Telegram sendMessage (buttons) failed (check the bot token/chat ID): {e}")
+    print("  THE REVIEWER WAS NEVER ASKED — no auto-approval may follow this.")
+    return False
 
 
 def _button_keyboard(options=("approve", "reject", "remake", "edit"), fifth_option=None):
@@ -1168,7 +1228,7 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
     _ttd_photo_sent = _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption=caption,
                    reply_markup=_button_keyboard())
     if not _ttd_photo_sent:
-        _tg_send_message_with_buttons(tg_token, tg_chat,
+        _delivered = _tg_send_message_with_buttons(tg_token, tg_chat,
             f"⚠️ Could not send the thumbnail image (missing file, too large, or a "
             f"Telegram error) — review the title/description below and decide anyway.\n\n{caption}")
     # FIX (found on deep re-audit): this used to send the ENTIRE
@@ -1216,8 +1276,9 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
-        decision = "approve"
+        decision = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
 
@@ -1360,7 +1421,7 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
     lines.append("\nNote: EDIT/REMAKE/SWAP VISUALS here produce a genuinely fresh replacement "
                  "Short and publish it as an addition — the original already-published Short "
                  "cannot be un-published from this review step.")
-    _tg_send_message_with_buttons(tg_token, tg_chat, "\n".join(lines), include_swap_visuals=True)
+    _delivered = _tg_send_message_with_buttons(tg_token, tg_chat, "\n".join(lines), include_swap_visuals=True)
 
     if gmail_app_password:
         html_body = f"<p>{schedule_line}</p><p>Shorts published:</p><ul>" + \
@@ -1380,8 +1441,9 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
-        decision = "approve"
+        decision = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
 
@@ -1784,8 +1846,9 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
-        decision = "approve"
+        decision = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
 
@@ -1805,7 +1868,7 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
     text = (f"🏷️ {channel_name} — TITLE REVIEW\n\nSelected: {_esc(title)}\n\n"
             f"Other real options that were scored:\n{alt_text}\n\n"
             f"Or tap EDIT and reply with which option to use (e.g. \"use option 2\")")
-    _tg_send_message_with_buttons(tg_token, tg_chat, text)
+    _delivered = _tg_send_message_with_buttons(tg_token, tg_chat, text)
 
     if gmail_app_password:
         send_email_notification(f"[{channel_name}] Title ready for review",
@@ -1822,8 +1885,9 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
-        decision = "approve"
+        decision = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
 
@@ -2015,7 +2079,7 @@ def review_script(channel_name, title, full_script, score, niche_name,
              f"Length: {len(full_script.split())} words\n\n"
              f"Tap a button below — EDIT will ask what to change\n"
              f"(auto-approves in {timeout_minutes} min)")
-    _tg_send_message_with_buttons(tg_token, tg_chat, header)
+    _delivered = _tg_send_message_with_buttons(tg_token, tg_chat, header)
 
     # FIX (found on direct user report, July 23 2026): a long wall of
     # chunked text messages ("cutting down the paragraphs") is genuinely
@@ -2092,8 +2156,9 @@ def review_script(channel_name, title, full_script, score, niche_name,
                          "further is generated and nothing is published.")
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ {timeout_minutes} min expired — auto-approved.")
-        decision = "approve"
+        decision = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
 
@@ -2167,8 +2232,9 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                                      gmail_sender, gmail_app_password)
         d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
         if _no_human_reply(d):
-            _tg_send_message(tg_token, tg_chat, f"⏱️ Audio: {timeout_minutes} min expired — auto-approved.")
-            d = "approve"
+            d = resolve_silent_window(
+                locals().get("_delivered", True), tg_token, tg_chat,
+                timeout_minutes, what="Audio review")
         audio_decision = {"decision": d, "feedback": fb}
 
     if audio_decision["decision"] in ("reject", "remake", "swap_voice"):
@@ -2216,7 +2282,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     # silently waiting out the full timeout on a message that was never
     # delivered, with no visible sign anything was expected of them.
     if not preview_ready or not _video_sent:
-        _tg_send_message_with_buttons(tg_token, tg_chat,
+        _delivered = _tg_send_message_with_buttons(tg_token, tg_chat,
                          f"⚠️ {channel_name}: could not send a video preview "
                          f"(too large for Telegram's upload limit, or the send failed) "
                          f"— sending thumbnail only. Full video review happens at the "
@@ -2234,8 +2300,9 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
 
     d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
     if _no_human_reply(d):
-        _tg_send_message(tg_token, tg_chat, f"⏱️ Video: {timeout_minutes} min expired — auto-approved.")
-        d = "approve"
+        d = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what="Video review")
     video_decision = {"decision": d, "feedback": fb}
 
     return {"audio_decision": audio_decision, "video_decision": video_decision}
@@ -2365,7 +2432,7 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
                f"Watch or download the whole thing, then decide:\n"
                f"Tap a button below — auto-approves and goes PUBLIC in "
                f"{timeout_minutes} min if untouched")
-    _tg_send_message_with_buttons(tg_token, tg_chat, caption)
+    _delivered = _tg_send_message_with_buttons(tg_token, tg_chat, caption)
     if thumbnail_path and Path(thumbnail_path).exists():
         _tg_send_photo(tg_token, tg_chat, thumbnail_path, caption="Final thumbnail")
 
@@ -2379,9 +2446,12 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
     decision, feedback = _poll_for_decision(tg_token, tg_chat, timeout_minutes,
                                              gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
     if _no_human_reply(decision):
-        _tg_send_message(tg_token, tg_chat,
-                         f"⏱️ {timeout_minutes} min expired — auto-approved, going public now.")
-        return {"decision": "approve", "feedback": None}
+        # The last gate before the world sees it. If the ask never landed,
+        # holding is the only defensible reading of silence.
+        return {"decision": resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what="Final pre-publish review"),
+            "feedback": None}
     if decision == "approve":
         return {"decision": "approve", "feedback": None}
     if decision == "cancel":

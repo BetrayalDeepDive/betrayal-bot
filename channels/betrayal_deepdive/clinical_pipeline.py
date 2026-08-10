@@ -10842,6 +10842,24 @@ def main():
         # waiting for this phase. They live and die with the episode.
         _approved_shorts = pending.get("approved_short_ids") or []
 
+        # HOLD IS NOT REJECT.
+        #
+        # A rejection deletes the unlisted upload and bins the episode. That
+        # is right when a human looked and said no. It is absurd as a
+        # response to Telegram returning a 400 — which is what
+        # hold-undelivered means: the ask never arrived, so nobody said
+        # anything. Everything stays exactly where it is, unlisted and
+        # unpublished, and the queue is left intact so the next upload run
+        # can offer it again.
+        if _final_gate["decision"] == "hold-undelivered":
+            log("  Final gate: the review was never delivered. Holding the "
+                "episode unlisted — not published, not deleted, still queued.")
+            tg("⏸️ Ch1: the final review could not be delivered, so the "
+               "episode is being HELD, not published and not deleted. It is "
+               "sitting unlisted and still queued. Fix the Telegram bot "
+               "token/chat ID and the next upload run will offer it again.")
+            sys.exit(0)
+
         if _final_gate["decision"] != "approve":
             delete_yt_video(vid_id, token=token)
             # The episode is not being published, so neither are its Shorts.
@@ -11473,6 +11491,20 @@ def main():
                                             stage_texts=_stage_texts_ch1, stage_names=_stage_names_ch1,
                                             sub_scores=_review_sub_scores or None)
                     abort_on_cancel(_review, "the script review")
+                    # This is a `while True`. Every other decision either
+                    # breaks, exits, or loops back for another round — which
+                    # is right for a human who wants changes, and wrong for a
+                    # Telegram outage, because re-sending a message that
+                    # cannot be delivered simply spins until the job clock
+                    # dies. Nothing has been uploaded at this point, so
+                    # holding means stopping cleanly and keeping the work.
+                    if _review["decision"] == "hold-undelivered":
+                        log("  Script review was never delivered — holding the "
+                            "episode rather than looping on a dead channel.")
+                        tg("⏸️ Ch1: the script review could not be delivered, "
+                           "so nothing was auto-approved and the episode is "
+                           "held. Fix the Telegram bot token / chat ID.")
+                        sys.exit(0)
                     if _review["decision"] == "reject":
                         log("Rejected during full script review."); sys.exit(0)
                     # FIX (found on deep re-audit): REMAKE was never handled
