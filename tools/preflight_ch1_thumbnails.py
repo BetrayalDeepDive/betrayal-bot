@@ -1172,6 +1172,33 @@ def main():
     check("a rejected HTML message is retried as plain text",
           '"chat_id": tg_chat, "text": text, "reply_markup": keyboard' in _hrg0_src,
           "losing the formatting beats losing the review")
+    # EVERY gate, not most of them. Enumerated from the source rather than
+    # listed by hand, so a gate added later is checked automatically instead
+    # of being the one nobody remembered to add here.
+    import re as _re2
+    _gate_gaps = []
+    for _f in _re2.split(r"\ndef ", _hrg0_src):
+        _n = _f.split("(")[0].strip()
+        if not _n.startswith("review_") or _n in ("review_time_report", "review_recipient"):
+            continue
+        _btn = ("_button_keyboard(" in _f or "_tg_send_message_with_buttons(" in _f
+                or "send_with_keyboard(" in _f)
+        if not (_btn and "_delivered" in _f and "_poll_for_decision" in _f):
+            _gate_gaps.append(_n)
+    check("every review gate has buttons, tracks delivery, and polls",
+          not _gate_gaps, "gaps: %r" % (_gate_gaps,))
+    check("the audio gate never approves without asking",
+          "proceeding on quality-gate score alone" not in _hrg0_src
+          and "review_audio_excerpt.mp3" in _hrg0_src,
+          "a narration too big to send used to skip the audio review entirely")
+    check("all button messages go through one hardened sender",
+          _hrg0_src.count('"reply_markup": _community_tab_keyboard()') == 0
+          and _hrg0_src.count('"reply_markup": {"inline_keyboard": buttons}') == 0,
+          "a gate posting its own keyboard bypasses the retry and the check")
+    check("a tapped button is acknowledged so it cannot read as expired",
+          "answerCallbackQuery" in _hrg0_src,
+          "an unanswered callback spins and then says expired")
+
     check("HOLD does not delete the episode",
           'if _final_gate["decision"] == "hold-undelivered":' in _cp
           and _cp.index('if _final_gate["decision"] == "hold-undelivered":')

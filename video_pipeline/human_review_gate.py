@@ -630,6 +630,36 @@ def _tg_send_message(tg_token, tg_chat, text):
         print(f"  Telegram sendMessage failed (check the bot token/chat ID): {e}")
 
 
+def send_with_keyboard(tg_token, tg_chat, text, keyboard):
+    """ONE path for every button message. Returns True only if it arrived.
+
+    Two gates built their own keyboards and posted them with a bare
+    requests.post: the Community Tab prompt and the resume checkpoint. That
+    meant the hardening applied to the main sender -- confirm delivery,
+    retry as plain text -- covered most buttons but not all of them, and
+    "most" is the wrong answer for a review system. Both now come through
+    here, so there is a single place where a button message can fail and a
+    single behaviour when it does.
+    """
+    for attempt, payload in enumerate((
+            {"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
+             "reply_markup": keyboard},
+            {"chat_id": tg_chat, "text": text, "reply_markup": keyboard})):
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                              json=payload, timeout=15)
+            if r.status_code == 200 and r.json().get("ok"):
+                if attempt:
+                    print("  Buttons delivered on the plain-text retry "
+                          "(the HTML version was rejected).")
+                return True
+            print(f"  Telegram sendMessage (buttons) failed: {r.status_code} {r.text[:200]}")
+        except Exception as e:
+            print(f"  Telegram sendMessage (buttons) failed: {e}")
+    print("  THE REVIEWER WAS NEVER ASKED — no auto-approval may follow this.")
+    return False
+
+
 def _tg_send_message_with_buttons(tg_token, tg_chat, text, include_swap_visuals=False, fifth_option=None):
     """
     v9 addition, v10 revision (July 14 2026 audit): real, genuine Telegram
@@ -1779,15 +1809,8 @@ def review_community_tab(channel_name, question, options, tg_token, tg_chat,
     lines.append("\nTap POSTED IT once it's live on the Community tab, or SKIP THIS EPISODE to skip.")
     text = "\n".join(lines)
 
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                          json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
-                                "reply_markup": _community_tab_keyboard()},
-                          timeout=15)
-        if r.status_code != 200:
-            print(f"  Telegram sendMessage (community tab) failed: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"  Telegram sendMessage (community tab) failed: {e}")
+    _delivered = send_with_keyboard(tg_token, tg_chat, text,
+                                    _community_tab_keyboard())
 
     if gmail_app_password:
         html_body = f"<p>{schedule_line}</p><p>Post this to the Community tab:</p><p><b>{_esc(question)}</b></p>"
@@ -2216,26 +2239,74 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
                      f"{audio_score_line}"
                      f"Tap a button below — EDIT prompts you for what to change, "
                      f"SWAP VOICE regenerates with a different voice tier")
+    # THE AUDIO GATE USED TO DISAPPEAR ENTIRELY WHEN THE FILE WAS BIG.
+    #
+    # The decision buttons ride on the sendAudio call. If that send failed --
+    # and an eighteen-minute narration routinely exceeds Telegram's ~50MB bot
+    # upload limit -- the old code sent a plain notice with NO buttons and
+    # then set the decision to "approve" without polling at all. Not a
+    # timeout, not a fallback: the audio review simply did not happen, and
+    # the reviewer never saw a single button for it. Reported exactly that
+    # way: no workable buttons for the audio stage.
+    #
+    # The video half of this same function already solved this correctly a
+    # while ago -- trim a preview, and if that cannot be sent either, fall
+    # back to a TEXT message that still carries the buttons. Audio never got
+    # the same treatment. It does now, and there is no path here that
+    # approves anything without a human tapping something.
     sent = _tg_send_audio(tg_token, tg_chat, audio_path, caption=audio_caption,
                           reply_markup=_button_keyboard(fifth_option=("🎙️ SWAP VOICE", "swap_voice")))
+    _delivered = bool(sent)
     if not sent:
-        _tg_send_message(tg_token, tg_chat,
-                         f"⚠️ {channel_name}: could not send audio file for review "
-                         f"(may be too large for Telegram) — proceeding on quality-gate score alone.")
-        audio_decision = {"decision": "approve", "feedback": None}
-    else:
-        if gmail_app_password:
-            send_email_notification(f"[{channel_name}] Audio ready for review",
-                                     f"<p>{schedule_line}</p><p>Voice tier: <b>{voice_used}</b></p>"
-                                     f"{'<p>Audio quality score: ' + str(audio_score) + '/10</p>' if audio_score is not None else ''}"
-                                     f"<p>Listen via Telegram — audio isn't emailed directly.</p>",
-                                     gmail_sender, gmail_app_password)
-        d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
-        if _no_human_reply(d):
-            d = resolve_silent_window(
-                locals().get("_delivered", True), tg_token, tg_chat,
-                timeout_minutes, what="Audio review")
-        audio_decision = {"decision": d, "feedback": fb}
+        # 1. A short excerpt is usually sendable even when the full file is
+        #    not, and hearing 90 seconds of the voice is the whole point of
+        #    this checkpoint.
+        _clip = str(Path(audio_path).parent / "review_audio_excerpt.mp3")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-i", audio_path, "-t", "90",
+                            "-c:a", "libmp3lame", "-b:a", "96k", _clip],
+                           capture_output=True, timeout=180)
+            _clip_ok = (Path(_clip).exists()
+                        and 10_000 < Path(_clip).stat().st_size < 45_000_000)
+        except Exception:
+            _clip_ok = False
+        if _clip_ok:
+            sent = _tg_send_audio(
+                tg_token, tg_chat, _clip,
+                caption="⚠️ The full narration was too large for Telegram — "
+                        "here is the first 90 seconds.\n\n" + audio_caption,
+                reply_markup=_button_keyboard(
+                    fifth_option=("🎙️ SWAP VOICE", "swap_voice")))
+            _delivered = bool(sent)
+    if not sent:
+        # 2. Still no audio. Send the BUTTONS anyway on a text message, so
+        #    the decision is always available to a human even when the file
+        #    is not. Approving without hearing it is a choice the reviewer
+        #    is allowed to make; it is not one the pipeline may make for
+        #    them.
+        _delivered = _tg_send_message_with_buttons(
+            tg_token, tg_chat,
+            f"⚠️ {channel_name} — AUDIO REVIEW (no playable file)\n\n"
+            f"{schedule_line}\n\nThe narration could not be sent to Telegram "
+            f"even as a 90-second excerpt — it is too large, or the send "
+            f"failed.\n\nVoice tier: {voice_used}\n{audio_score_line}"
+            f"Decide from the score, or REJECT/SWAP VOICE if you would "
+            f"rather not approve audio you have not heard.",
+            fifth_option=("🎙️ SWAP VOICE", "swap_voice"))
+    # The reviewer now always has buttons in front of them, whichever
+    # of the three delivery routes above succeeded.
+    if gmail_app_password:
+        send_email_notification(f"[{channel_name}] Audio ready for review",
+                                 f"<p>{schedule_line}</p><p>Voice tier: <b>{voice_used}</b></p>"
+                                 f"{'<p>Audio quality score: ' + str(audio_score) + '/10</p>' if audio_score is not None else ''}"
+                                 f"<p>Listen via Telegram — audio isn't emailed directly.</p>",
+                                 gmail_sender, gmail_app_password)
+    d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
+    if _no_human_reply(d):
+        d = resolve_silent_window(
+            locals().get("_delivered", True), tg_token, tg_chat,
+            timeout_minutes, what="Audio review")
+    audio_decision = {"decision": d, "feedback": fb}
 
     if audio_decision["decision"] in ("reject", "remake", "swap_voice"):
         return {"audio_decision": audio_decision, "video_decision": None}
@@ -2369,14 +2440,8 @@ def review_resume_checkpoint(channel_name, title, script_clean, score, niche_nam
         buttons.append([{"text": "🎙️ REDO AUDIO ONLY (keep script+title)", "callback_data": "redo_audio_only"}])
     buttons.append([{"text": "🔄 RESTART FROM SCRATCH", "callback_data": "restart_scratch"}])
 
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                          json={"chat_id": tg_chat, "text": text, "parse_mode": "HTML",
-                                "reply_markup": {"inline_keyboard": buttons}}, timeout=15)
-        if r.status_code != 200:
-            print(f"  Resume-checkpoint message failed: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"  Resume-checkpoint message failed: {e}")
+    _delivered = send_with_keyboard(tg_token, tg_chat, text,
+                                    {"inline_keyboard": buttons})
 
     d, _ = _poll_for_decision(tg_token, tg_chat, timeout_minutes, max_attempts=2,
                               gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
