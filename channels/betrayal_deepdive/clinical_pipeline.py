@@ -11340,6 +11340,17 @@ def main():
             title            = _resume_script["title"]
             episode          = _resume_script["episode"]
             _approved_topic_id_for_pending = _resume_script.get("approved_topic_id_for_pending")
+            # Two more names that only the SKIPPED branch ever bound, found by
+            # the same audit that caught voice_used below. Neither is fatal on
+            # its own — _stage_texts_ch1 feeds the on-screen card word counts
+            # and _script_was_edited decides whether to reuse the script's
+            # stage texts for the fingerprint — but both are read later on
+            # every resumed run, and an unbound name there is a crash, not a
+            # missing feature. A resumed script was accepted as-is, so it was
+            # not edited; its stage texts come from the same script_result the
+            # non-resume path reads them from.
+            _stage_texts_ch1   = script_result.get("stage_texts", [])
+            _script_was_edited = False
             tg(f"▶ Ch1: resuming from checkpoint — script + title already "
                f"passed ({wc}w, {score_val}/10, \"{title[:60]}\"). Skipping straight to "
                f"{'video (audio also passed)' if _resume_audio else 'audio'}.")
@@ -11733,6 +11744,26 @@ def main():
             audio_duration = _resume_audio["audio_duration"]
             edge_voice     = _resume_audio["edge_voice"]
             tool_used      = _resume_audio.get("tool_used", "unknown (resumed from an older checkpoint)")
+            # RESUMING SKIPPED THE ONLY LINE THAT EVER BOUND voice_used.
+            #
+            # FIX (found while auditing the live resume run 31393310000,
+            # before it could hit this): `voice_used` is assigned in exactly
+            # one place on the happy path — the tuple unpack of the Stage 3
+            # audio call in the `else` below — and save_pending() reads it at
+            # the very end of the generate phase. On a resumed run Stage 3 is
+            # skipped, so the name was never bound, and the episode would die
+            # with UnboundLocalError at save_pending: after the script, the
+            # audio, the video, every review gate and roughly three hours of
+            # work, at the last line that matters. It is caught by the outer
+            # handler, announced as "Ch1 Pipeline FAILED" and re-raised, so
+            # the whole run fails and nothing is queued.
+            #
+            # It never fired before because every previous run generated its
+            # audio fresh; this is the first resume that would have reached
+            # the finish line. The resumed voice IS the voice that narrated
+            # the checkpointed audio, which is exactly what save_pending
+            # wants to record.
+            voice_used     = edge_voice
         else:
             log("\nSTAGE 3: Audio")
             audio_path, audio_duration, audio_size, voice_used, tool_used = run_stage_with_retry(

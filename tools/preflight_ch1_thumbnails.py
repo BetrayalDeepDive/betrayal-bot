@@ -1755,6 +1755,121 @@ def main():
     except Exception as _e:
         check("shot-list number reading", False, repr(_e))
 
+    # ══════════════════════════════════════════════════════════════════
+    # A RESUMED RUN MUST NOT DIE ON A NAME THE SKIPPED STAGE WOULD HAVE SET.
+    #
+    # Resuming works by SKIPPING a stage. Every name that stage assigned is
+    # then unbound for the rest of the episode, and Python does not complain
+    # until the moment something reads it — which for `voice_used` was
+    # save_pending(), the very last line of the generate phase. Found while
+    # auditing live resume run 31393310000: script, audio, video, every
+    # review gate and about three hours of work, then UnboundLocalError at
+    # the finish line, caught by the outer handler, announced as "Pipeline
+    # FAILED" and re-raised so nothing was queued. It had never fired before
+    # because no earlier resume had reached the end.
+    #
+    # pyflakes cannot see this — the name IS assigned somewhere in the
+    # function, just not on this path. So the check is a real definite-
+    # assignment analysis of both resume branches.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import ast as _ast
+        _tree = _ast.parse(_cp)
+
+        _comp_targets = set()
+        for _n in _ast.walk(_tree):
+            if isinstance(_n, (_ast.ListComp, _ast.SetComp, _ast.DictComp,
+                               _ast.GeneratorExp)):
+                for _g in _n.generators:
+                    for _nn in _ast.walk(_g.target):
+                        if isinstance(_nn, _ast.Name):
+                            _comp_targets.add(_nn.id)
+
+        def _stores(node):
+            return {n.id for n in _ast.walk(node)
+                    if isinstance(n, _ast.Name) and isinstance(n.ctx, _ast.Store)}
+
+        _unbound = []
+        for _n in _ast.walk(_tree):
+            if not isinstance(_n, _ast.If):
+                continue
+            try:
+                _t = _ast.unparse(_n.test)
+            except Exception:
+                continue
+            if _t not in ("_resume_audio", "_resume_script"):
+                continue
+
+            _body = set().union(*[_stores(s) for s in _n.body]) if _n.body else set()
+            _else = set().union(*[_stores(s) for s in _n.orelse]) if _n.orelse else set()
+
+            # Conditional blocks that START after the resume branch: their
+            # bodies may simply not run on the resumed path.
+            _guards = [_a for _a in _ast.walk(_tree)
+                       if isinstance(_a, (_ast.If, _ast.While, _ast.For,
+                                          _ast.Try, _ast.ExceptHandler))
+                       and _a.lineno > _n.end_lineno]
+
+            def _enclosing(_line, _guards=_guards):
+                return [_g for _g in _guards
+                        if _g.lineno <= _line <= (_g.end_lineno or 0)]
+
+            # A try/except assigns DEFINITELY when its body and every handler
+            # assign the name — that is how _audio_score is bound, and calling
+            # it conditional would be a false alarm.
+            def _try_is_total(_t2, _nm):
+                if not isinstance(_t2, _ast.Try):
+                    return False
+                _b = set().union(*[_stores(s) for s in _t2.body]) if _t2.body else set()
+                if _nm not in _b or not _t2.handlers:
+                    return False
+                return all(_nm in (set().union(*[_stores(s) for s in _h.body])
+                                   if _h.body else set())
+                           for _h in _t2.handlers)
+
+            for _name in sorted(_else - _body - _comp_targets):
+                if any(isinstance(x, _ast.Name) and isinstance(x.ctx, _ast.Store)
+                       and x.id == _name and x.lineno < _n.lineno
+                       for x in _ast.walk(_tree)):
+                    continue
+
+                _reads = sorted(x.lineno for x in _ast.walk(_tree)
+                                if isinstance(x, _ast.Name)
+                                and isinstance(x.ctx, _ast.Load)
+                                and x.id == _name
+                                and x.lineno > _n.end_lineno)
+                _writes = sorted(x.lineno for x in _ast.walk(_tree)
+                                 if isinstance(x, _ast.Name)
+                                 and isinstance(x.ctx, _ast.Store)
+                                 and x.id == _name
+                                 and x.lineno > _n.end_lineno)
+
+                # EVERY read must be dominated, not just the first. voice_used
+                # is read inside the REMAKE block that assigns it (dominated,
+                # fine) and then AGAIN at save_pending, where nothing on the
+                # approved path ever assigned it. Checking only the first read
+                # is exactly how the first version of this check missed it.
+                for _r in _reads:
+                    _rg = _enclosing(_r)
+                    _dominated = False
+                    for _w in _writes:
+                        if _w >= _r:
+                            break
+                        _extra = [_g for _g in _enclosing(_w)
+                                  if _g not in _rg and not _try_is_total(_g, _name)]
+                        if not _extra:
+                            _dominated = True
+                            break
+                    if not _dominated:
+                        _unbound.append("%s (read at line %d)" % (_name, _r))
+                        break
+
+        check("a resumed run binds every name it later reads",
+              not _unbound,
+              "unbound on the resume path: " + ", ".join(_unbound[:4]))
+    except Exception as _e:
+        check("resume-path definite assignment", False, repr(_e))
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:
