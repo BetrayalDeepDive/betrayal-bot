@@ -1663,6 +1663,29 @@ def main():
             out.append(line)
         return "\n".join(out)
 
+    # THE PROMPT MUST NOT TEACH THE MODEL TO OMIT THE NUMBER.
+    #
+    # Scoring was only half of it. Ch1's prompt introduced the NUMBER+NOUN
+    # format with the lead example "FOUND INSIDE WALLS" — which contains no
+    # number — so the model dutifully produced number-less lines, and the
+    # sanitizer then deleted any digit that did survive. Two independent
+    # causes pushing the same way, which is why 39 of 39 attempts landed on
+    # exactly 5.5. The other four channels illustrate the format only with
+    # digits ('$2.4M GONE', '47 REPORTS', '4380 DAYS'), and were fine.
+    # Scoped to format A only: format B is a QUESTION and its examples
+    # ("WHO WAS WATCHING?") correctly have no digits, so a wider window
+    # would fail on the one format that is right.
+    _ch1_prompt = ""
+    if "A. NUMBER+NOUN" in _cp and "B. DIRECT QUESTION" in _cp:
+        _a0 = _cp.index("A. NUMBER+NOUN")
+        _ch1_prompt = _cp[_a0:_cp.index("B. DIRECT QUESTION", _a0)]
+    _examples = re.findall(r"\(e\.g\.\s*([^)]+)\)", _ch1_prompt)
+    _ex_items = [e.strip() for grp in _examples for e in grp.split(",")]
+    check("every NUMBER+NOUN example in the prompt contains a digit",
+          bool(_ex_items) and all(any(c.isdigit() for c in e) for e in _ex_items),
+          "an example without a number teaches the model to omit it: %s"
+          % [e for e in _ex_items if not any(c.isdigit() for c in e)][:3])
+
     # The identical sanitizer line exists in all five channel pipelines, so
     # the identical dead end exists in all five unless all five are checked.
     for _ch, _p in (("Ch1", ("channels", "betrayal_deepdive", "clinical_pipeline.py")),
