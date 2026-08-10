@@ -275,6 +275,30 @@ jobs:
       - name: Preflight — known defect classes
         run: python tools/defect_classes.py --check
 
+      # THE BIGGEST PREFLIGHT SUITE WAS NEVER ACTUALLY RUN BY THIS WORKFLOW.
+      #
+      # FIX (found while watching run 31397175263): the three gates around
+      # this one — pyflakes, defect classes, the fuzzer — have always run on
+      # the runner. tools/preflight_ch1_thumbnails.py, which by now carries
+      # 232 assertions including every regression found live in this
+      # channel, ran only when a human remembered to type it. So each of
+      # those checks was written to make a defect "impossible to ship again"
+      # and then never stood between a defect and a run. Two failures the
+      # suite already covers reached production anyway: the thumbnail gate
+      # nothing could clear, and the unbound name on the resume path.
+      #
+      # Measured at 107s, needs no secrets and no network — it passes in a
+      # bare checkout — so there is no reason it was not a gate except that
+      # nobody wired it up. It blocks, like the other three.
+      - name: Preflight — Ch1 assertions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/channels:${{ github.workspace }}/video_pipeline
+        run: |
+          python tools/preflight_ch1_thumbnails.py || {
+            echo "::error::a Ch1 preflight assertion failed — see NOT READY above"
+            exit 1
+          }
+
       - name: Preflight — fuzz the case shape
         run: |
           python tools/fuzz_case_shapes.py --render-dir "${RUNNER_TEMP}/fuzz" || {

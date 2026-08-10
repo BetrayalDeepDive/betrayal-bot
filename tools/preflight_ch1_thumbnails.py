@@ -1870,6 +1870,33 @@ def main():
     except Exception as _e:
         check("resume-path definite assignment", False, repr(_e))
 
+    # ══════════════════════════════════════════════════════════════════
+    # AND THIS SUITE MUST ACTUALLY BE A GATE.
+    #
+    # Every check above was written so a defect found live could not ship
+    # again. That promise was empty: for its whole existence this file ran
+    # only when a human typed it, while ch1_generate.yml gated on pyflakes,
+    # defect classes and the fuzzer alone. Two failures this suite already
+    # covers reached a real run anyway — the thumbnail gate nothing could
+    # clear, and the unbound name on the resume path. An unwired check is
+    # not a weaker check, it is decoration.
+    #
+    # So the suite asserts its own wiring. If someone removes the step, the
+    # next local run says so instead of the next four-hour job.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        _wf = open(os.path.join(ROOT, ".github", "workflows",
+                                "ch1_generate.yml")).read()
+        check("the generate workflow actually runs this preflight",
+              "tools/preflight_ch1_thumbnails.py" in _wf,
+              "these assertions gate nothing until the workflow runs them")
+        check("a failed assertion stops the run",
+              "exit 1" in _wf.split("tools/preflight_ch1_thumbnails.py")[-1][:300]
+              if "tools/preflight_ch1_thumbnails.py" in _wf else False,
+              "a non-blocking gate is a log line, not a gate")
+    except Exception as _e:
+        check("preflight is wired into the workflow", False, repr(_e))
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:
