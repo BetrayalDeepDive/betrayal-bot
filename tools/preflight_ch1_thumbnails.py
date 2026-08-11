@@ -957,10 +957,17 @@ def main():
     # proceeded as generated anyway. It now belongs to _NEVER_ASKED and must
     # NOT be in _NO_REPLY, because a gate that never put the question to a
     # human holds the episode instead of shipping it.
+    # Asked of the MODULE, not of its source text. The previous two versions
+    # of this check both read the file: the first asserted the value sat in
+    # _NO_REPLY (encoding the bug), the second looked for the literal string
+    # after "_NEVER_ASKED = " and failed because the tuple names the constant
+    # rather than repeating the literal. Neither was wrong about the
+    # behaviour, only about how the behaviour happens to be spelled.
     check("an unreviewed stage is never called approved",
-          "unreviewable-no-time" in _hsrc
-          and "unreviewable-no-time" in _hsrc.split("_NEVER_ASKED = ")[1][:200]
-          and "unreviewable-no-time" not in _hsrc.split("_NO_REPLY = ")[1][:200],
+          _hrg.never_asked(_hrg.UNREVIEWABLE_NO_TIME)
+          and _hrg.never_asked(_hrg.HOLD_UNDELIVERED)
+          and not _hrg.never_asked("timeout")
+          and _hrg.UNREVIEWABLE_NO_TIME not in _hrg._NO_REPLY,
           "'auto-approved' on a gate that never opened reads as consent")
     check("the spent-review measure is waiting, not wall clock",
           "_review_time_spent_hours" in _hsrc
