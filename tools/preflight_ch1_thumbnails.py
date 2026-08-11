@@ -1546,7 +1546,7 @@ def main():
     check("a clinical title can score full marks without crime words",
           _sre.score_short_script(
               "x " * 130, "The 9cm tumour 3 doctors missed", "written twice"
-          )["title"] >= 2.0,
+          )["title"] >= _sre.TITLE_AXIS_MAX,
           "the rubric used to require SHOCKING/BETRAYAL/CAUGHT")
 
     # ── a Short link must survive the trip to Telegram ─────────────
@@ -2146,6 +2146,71 @@ def main():
               "a forgotten flag would publish the paused format")
     except Exception as _e:
         check("Shorts pause switch", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE REBUILT SHORTS RUBRIC MUST BE REACHABLE, AND MUST DISCRIMINATE.
+    #
+    # Both halves, because either alone has already shipped a broken gate on
+    # this channel: the thumbnail gate was reachable-looking but arithmetically
+    # impossible, and the old Shorts rubric discriminated on crime vocabulary
+    # a clinical script is forbidden from using, scoring 0.0 on every correct
+    # answer. A bar nothing can clear and a bar everything clears are the same
+    # defect wearing different clothes.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import shorts_strategy as _ss
+        from shorts_reels_engine import score_short_script as _sss, QUALITY_MIN as _sq
+
+        _good = ("A fatal chemotherapy dose was given ten times over. 225 milligrams "
+                 "per square metre, an unexplained error nobody caught. Her white "
+                 "cell count fell to zero point one and the team prepared for the "
+                 "worst as ventilator support began. Then on day ten the marrow "
+                 "started making cells again on its own, a reversal that is absent "
+                 "from the literature. Nobody has explained it since. The fatal "
+                 "chemotherapy dose that should have ended her life is the one no "
+                 "doctor can account for. A real case every week.")
+        _bad = ("Hi guys, welcome back to the channel. Today I want to talk about an "
+                "incredible medical story that I think you will find really amazing. "
+                "There was a patient who had a bad reaction to some medicine and the "
+                "doctors were very worried about what might happen to her over time. "
+                "In the end everything worked out fine and she went home happy and "
+                "healthy, which is a wonderful outcome for everybody involved here. "
+                "Thanks so much for watching and please remember to subscribe.")
+        _gr = _sss(_good, "Fatal 10x Dose: The Recovery Nobody Explains",
+                   "A fatal chemotherapy dose was given ten times over.")
+        _br = _sss(_bad, "An Amazing Medical Story", "Hi guys, welcome back.")
+        check("a well-built clinical Short can clear the Shorts gate",
+              _gr["total"] >= _sq,
+              "best realistic script scores %s against %s — unreachable"
+              % (_gr["total"], _sq))
+        check("a boring Short is still rejected",
+              _br["total"] < _sq - 2.0,
+              "the rubric stopped discriminating (%s)" % _br["total"])
+        check("the length band is read off seconds, not a word count",
+              30.0 <= _gr["_seconds"] <= 42.0,
+              "%.1fs is outside the researched band" % _gr["_seconds"])
+        # The old band, restated as the regression it was.
+        _old_lo, _old_hi = 120, 160
+        _s_lo = _ss.seconds_for_words(_old_lo)
+        _s_hi = _ss.seconds_for_words(_old_hi)
+        _lo_w, _hi_w = _ss.target_word_band()
+        _brief = __import__("shorts_reels_engine").SHORTS_RUBRIC_BLOCK
+        check("the brief asks for the researched band, not the old one",
+              _s_hi > _ss.HARD_SECONDS_MAX
+              and ("%d-%d words" % (_lo_w, _hi_w)) in _brief,
+              "the brief does not state the %d-%d word (%.0f-%.0fs) target"
+              % (_lo_w, _hi_w, _ss.TARGET_SECONDS_MIN, _ss.TARGET_SECONDS_MAX))
+        # Diagnostics must never be summed into the score.
+        check("diagnostics are not summed into the Shorts score",
+              _gr["total"] <= 10.0,
+              "a diagnostic leaked into the total and clamped every script to 10")
+        # A clinical script must not be punished for refusing tabloid words.
+        _turn, _ = _ss.score_turn(_good)
+        check("a clinical script scores on its turn, not on tabloid adjectives",
+              _turn >= 2.0,
+              "the emotion axis still penalises the channel's own register")
+    except Exception as _e:
+        check("rebuilt Shorts rubric", False, repr(_e))
 
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))

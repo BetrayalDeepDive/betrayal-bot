@@ -905,26 +905,40 @@ def hollow_phrases(script: str, title: str = "", hook: str = ""):
 # a failed attempt's specific weak axes into real, targeted instructions
 # for the next attempt, so retries are corrective, not blind re-rolls.
 SHORTS_RUBRIC_BLOCK = """
-This script will be mechanically scored on these EXACT criteria (write
-to hit all of them, don't just aim for "good"):
-- Word count: script must be 120-160 words (not shorter, not longer).
-- Hook: the hook_text + first ~15 words of the script must contain at
-  least 3 of these words (verbatim): shocking, betrayal, secret, exposed,
-  truth, destroyed, lied, hidden, never, suddenly, revealed, discovered,
-  stolen, fraud, murdered, arrested, collapsed, billion, affair, caught.
-- Title: must be under 60 characters, contain a real number/digit
-  somewhere, AND contain one of: SHOCKING, SECRET, TRUTH, EXPOSED,
-  BETRAYAL, CAUGHT (any case).
-- Ending/loop: the final 2-3 sentences must reuse a real, specific noun
-  or name from the opening sentence (a genuine callback, not a generic
-  word like "today" or "happened").
-- Emotional escalation: emotion words (devastated, shocked, horrified,
-  betrayed, furious, heartbroken, stunned, chilling, terrifying, etc.)
-  must appear MORE in the back half of the script than the front half —
-  a real escalating arc, not front-loaded or flat.
-- First 3 seconds (~8 words): must NOT start with "hi guys"/"so
-  today"/"welcome back"/similar throat-clearing, and MUST contain one of
-  the hook words listed above.
+This script is mechanically scored. Write to hit every one of these.
+
+LENGTH: 78-109 words, which is 30-42 seconds of narration. Do not exceed it.
+  Shorts past ~52s lose most of their reach, and under 40s is where the
+  replay loop that multiplies views actually happens. The old brief asked
+  for 120-160 words; that was 46-62 seconds and it was the reason these
+  never looped.
+
+FIRST FRAME: the first sentence IS the hook. No "hi guys", no "in this
+  video", no setup of any kind. Open on a concrete checkable detail -- a
+  number, a dose, a timespan, a named role. Never "something incredible".
+
+THE TURN: the script must contain a moment where the expected outcome stops
+  happening, and it must land in the BACK HALF. That turn is what the viewer
+  stays for. Do not narrate it in tabloid adjectives -- no "devastated",
+  no "horrifying". The facts carry it.
+
+LOOP: the closing sentence must return to a specific noun, name or number
+  from the FIRST sentence, so replaying the opening means something new.
+  Not a stock phrase -- the actual subject.
+
+LEAVE ONE QUESTION OPEN: do NOT answer everything. End on the thing the full
+  video explains ("nobody has explained it since", "no doctor can account for
+  it"). A Short that resolves itself gives the viewer no reason to click
+  through, and the click-through is the entire point: a viewer moved to the
+  long video is worth 50-100x the same viewer kept here.
+
+GIVE A REASON TO COME BACK: state what the next one is -- "a real case every
+  week", "the full case is on the channel". A bare "subscribe" converts worse
+  than a stated reason.
+
+TITLE: under 60 characters, containing a real digit and one of MISSED,
+  MISDIAGNOSED, OVERLOOKED, UNDETECTED, RARE, UNEXPLAINED, WRONG, SYMPTOM,
+  DIAGNOSIS, FATAL, UNTREATED, MYSTERY, NOBODY, WHY.
 """
 
 
@@ -958,6 +972,13 @@ def _shorts_feedback_block(prev_score):
     return "\n\nFEEDBACK FROM YOUR LAST ATTEMPT (fix these specific gaps):\n" + "\n".join(notes)
 
 
+import shorts_strategy as _strategy
+
+# Per-axis caps, named so nothing downstream has to restate the weighting.
+TITLE_AXIS_MAX = 1.0
+FUNNEL_AXIS_MAX = 1.0
+
+
 def score_short_script(script: str, title: str, hook: str,
                         for_reels: bool = False) -> dict:
     """
@@ -984,16 +1005,35 @@ def score_short_script(script: str, title: str, hook: str,
                    "misdiagnosed","missed","wrong","fatal","undetected","overlooked",
                    "symptom","diagnosis","collapse","untreated","rare","unexplained"]
     hook_hits = sum(1 for w in shock_words if w in hook.lower() or w in script[:80].lower())
-    scores["hook"] = min(2.0, hook_hits * 0.7)
+    # Vocabulary is half of it. The other half is whether the hook is IN THE
+    # FIRST FRAME at all: no throat-clearing, and a concrete checkable detail
+    # rather than a promise. 30-50% of viewers leave between second 1 and
+    # second 3, and the algorithm reads that cliff as low value regardless of
+    # how good the rest is -- so an opening that is merely keyword-rich but
+    # starts with setup still loses. Averaged so neither half alone is enough.
+    _kw = min(2.0, hook_hits * 0.7)
+    _frame, _frame_issues = _strategy.score_first_frame(script, hook)
+    scores["hook"] = round((_kw + _frame) / 2.0, 2)
 
-    # 2. Script length (0-2 pts) — 120-160 words ideal
+    # 2. Script length (0-2 pts) — DERIVED FROM SECONDS, NOT WORDS.
+    #
+    # This demanded 120-160 words. At this pipeline's own 2.6 words/sec that
+    # is 46-62 seconds: at best the top of the good band, and always past the
+    # 40s line under which the replay loop happens. Shorts of 34-52s carry
+    # 2.7x the median views of long ones, and a looping Short earns 3-5x a
+    # comparable non-looping one -- so the word counter was mandating a
+    # length that excluded the format's single biggest multiplier. The band
+    # now comes from shorts_strategy in SECONDS and the words follow, so a
+    # change to narration pace cannot silently push the real duration back
+    # out of range.
     wc = len(script.split())
-    if 120 <= wc <= 160:
-        scores["length"] = 2.0
-    elif 100 <= wc < 120 or 160 < wc <= 180:
-        scores["length"] = 1.5
-    else:
-        scores["length"] = 1.0
+    _wps = 2.6
+    try:
+        from shorts_formats import WORDS_PER_SECOND as _wps
+    except Exception:
+        pass
+    scores["length"], _len_issues, _secs = _strategy.score_length(wc, _wps)
+    scores["_seconds"] = round(_secs, 1)
 
     # 3. Replay loop ending (0-2 pts)
     # FIX (direct user report, July 24 2026 — same real-production
@@ -1022,13 +1062,35 @@ def score_short_script(script: str, title: str, hook: str,
         _open_words  = {w.strip(".,!?;:\"'").lower() for w in _sw[:8] if len(w) > 4}
         _close_words = {w.strip(".,!?;:\"'").lower() for w in _sw[-15:] if len(w) > 4}
         loop_hit = bool((_open_words & _close_words) - _loop_stopwords)
-    scores["loop"] = 2.0 if loop_hit else 1.0
+    # The strategy module scores this structurally (does a real, specific noun
+    # from the opening return at the close). The phrase list above still
+    # counts, but cannot by itself earn the point: a stock connective is a
+    # costume, not a loop.
+    _struct, _loop_issues = _strategy.score_loop(script)
+    scores["loop"] = max(_struct, 2.0 if loop_hit else 1.0) if _struct >= 2.0 \
+        else (1.5 if loop_hit else _struct)
 
     # 4. Emotional arc (0-2 pts) — real shape across open/middle/close,
     # not just a flat word count (video_pipeline/shorts_formats.py).
     try:
         from shorts_formats import score_emotional_arc
         scores["emotion"], _arc_issues = score_emotional_arc(script)
+        # THE EMOTION AXIS READS ZERO ON EVERY CORRECT CLINICAL SCRIPT.
+        #
+        # score_emotional_arc counts "devastated"/"horrified"/"betrayed"
+        # rising across the script. This channel's editorial line is that a
+        # real patient's illness is not narrated in tabloid adjectives, so a
+        # correctly-written Short scores 0.0 here and the axis becomes a
+        # 2-point penalty for following the brief. Same mismatch already
+        # fixed for the thumbnail specificity bank and the title word list.
+        # What actually holds a clinical viewer is the TURN -- the moment the
+        # expected outcome stops happening -- so the better of the two is
+        # taken. A crime channel keeps its arc; this one is not punished for
+        # refusing the vocabulary.
+        _turn, _turn_issues = _strategy.score_turn(script)
+        if _turn > scores["emotion"]:
+            scores["emotion"] = _turn
+            _arc_issues = _turn_issues
     except Exception:
         emotion_words = ["outraged","devastated","shocked","horrified","betrayed","furious",
                          "heartbroken","stunned","unbelievable","disgusting","disgraceful"]
@@ -1057,7 +1119,28 @@ def score_short_script(script: str, title: str, hook: str,
         title_score += 1.0
     if any(c.isdigit() for c in title):
         title_score += 0.5
-    scores["title"] = min(2.0, title_score)
+    # Title drops from a 2.0 axis to TITLE_AXIS_MAX so the funnel can hold a
+    # full point. The cap is a named constant because a preflight check
+    # asserted `["title"] >= 2.0` -- encoding the OLD weighting as a
+    # requirement, so rebalancing the rubric failed a check whose actual
+    # intent ("a clinical title can reach full marks without crime words")
+    # was still perfectly satisfied. Checks should read the cap, not restate
+    # it.
+    # A Short's title matters far less than whether the Short sends anyone to
+    # the long video, which is the entire reason this channel makes them.
+    scores["title"] = min(TITLE_AXIS_MAX, title_score * 0.5)
+
+    # 5b. THE FUNNEL (0-1 pt here, 0-2 internally) — the point of a Short.
+    #
+    # Shorts RPM is roughly $0.01-$0.06 against $6-15 for health long-form,
+    # and qualifying needs 10M Shorts views in 90 days; a viewer moved to the
+    # long video is worth 50-100x the same viewer kept on the Short. So the
+    # thing worth scoring is whether this Short leaves one real question for
+    # the long video to answer, and gives a reason to expect the next one. A
+    # Short that resolves itself completely is a dead end no matter how well
+    # it is made.
+    _funnel, _funnel_issues = _strategy.score_funnel(script)
+    scores["funnel"] = round(min(FUNNEL_AXIS_MAX, _funnel / 2.0), 2)
 
     # 6. The 3-second rule (bonus/penalty) — real, timing-based check that
     # the opening ~3 seconds of narration (video_pipeline/shorts_formats.py,
@@ -1083,7 +1166,16 @@ def score_short_script(script: str, title: str, hook: str,
     # penalty (a slow windup opening) still drags a good script down, and a
     # script already at 10 on the rubric gains nothing from a bonus, which is
     # correct -- it has nowhere left to go.
-    total = round(min(10.0, max(0.0, sum(scores.values()))), 1)
+    # ONLY RUBRIC AXES ARE SUMMED.
+    #
+    # scores now also carries diagnostics -- "_seconds" is the real narration
+    # length, which is a number in the tens. Summing dict.values() blindly
+    # would add 30-ish points to a 10-point scale and every script would
+    # "pass" at a clamped 10.0, hiding the actual rubric completely. Keys
+    # starting with an underscore are diagnostics, never scores.
+    total = round(min(10.0, max(0.0, sum(
+        v for k, v in scores.items()
+        if not str(k).startswith("_") and isinstance(v, (int, float))))), 1)
     scores["total"] = total
     scores["passed"] = total >= QUALITY_MIN
     if three_sec_issues:
