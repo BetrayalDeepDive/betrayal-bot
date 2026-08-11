@@ -1499,12 +1499,28 @@ def main():
     # Asserted by BEHAVIOUR, not by searching for the phrase: the phrases
     # legitimately still appear in the source, in the ban list and in the
     # comment recording what was removed.
+    # A CHECK MUST NOT LEAVE FOOTPRINTS IN PRODUCTION STATE.
+    #
+    # This call reaches the Shorts format chooser, which appends to the real
+    # channels/betrayal_deepdive/shorts_format_history.json. Running the
+    # suite therefore wrote entries for Shorts that were never produced --
+    # video_id null, ctr null -- into the history that drives format
+    # rotation and the CTR learning. Harmless individually, wrong in
+    # aggregate: the suite is run repeatedly, and every run taught the
+    # rotation about episodes that do not exist. The format recorder is
+    # stubbed for the same reason llm_json is, and by the same mechanism.
+    import shorts_formats as _sf_mod
     _real_llm_json = _sre.llm_json
+    _real_record = getattr(_sf_mod, "record_format_used", None)
     try:
         _sre.llm_json = lambda *a, **k: None      # model fails
+        if _real_record:
+            _sf_mod.record_format_used = lambda *a, **k: None
         _fallback = _sre.get_trending_short_topic("standalone_1")
     finally:
         _sre.llm_json = _real_llm_json
+        if _real_record:
+            _sf_mod.record_format_used = _real_record
     check("a failed topic ships nothing rather than filler",
           _fallback == {},
           "it used to return hype with no fact in it, got %r" % (_fallback,))
