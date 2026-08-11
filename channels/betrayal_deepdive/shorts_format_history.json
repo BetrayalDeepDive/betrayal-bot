@@ -502,5 +502,13 @@
     "video_id": null,
     "ctr_pct": null,
     "timestamp": "2026-08-10T14:36:43.091574"
+  },
+  {
+    "channel": "betrayal_deepdive",
+    "mode": "standalone_1",
+    "format": "question_hook",
+    "video_id": null,
+    "ctr_pct": null,
+    "timestamp": "2026-08-11T09:47:00.517054"
   }
 ]

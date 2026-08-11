@@ -981,21 +981,45 @@ def render_last_resort_still(segment_text, out_path, niche_label="NO KNOWN CAUSE
     renderable from local fonts, needs no network, and cannot be irrelevant
     because it literally shows what is being said.
     """
+    # THIS CARD USED TO BE THE NARRATION, PRINTED LARGE.
+    #
+    # FIX (direct user report, with screenshots): the docstring above argued
+    # that showing the spoken line "cannot be irrelevant because it literally
+    # shows what is being said". That is exactly the objection: the captions
+    # already say it, so the card was the same sentence twice, once clipped
+    # mid-word. And because every register that lacks its data (no labs, no
+    # figures, no chart) falls through to here, this was not a rare fallback
+    # -- it was a large share of the episode.
+    #
+    # What replaces it is a real image, not a blank: the same shape/anomaly
+    # rendering the ANATOMY register uses, which is procedural, always
+    # available offline, and carries no words. The card still cannot be
+    # irrelevant -- it is driven by the same segment -- it just does not
+    # print the sentence.
     c = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(c)
-    _eyebrow(d, niche_label)
+    try:
+        import clinical_anatomy as _ca
+        _shape = _ca.shape_for("", segment_text or "")
+        _col = _ca.anomaly_colour(segment_text or "")
+        _box = (int(W * 0.36), int(H * 0.06), int(W * 0.81), int(H * 0.90))
+        _ca.draw_shape(d, _shape, _box, (46, 58, 68))
+        _rb = _ca.region_box(_shape, _box)
+        _cx, _cy = (_rb[0] + _rb[2]) / 2, (_rb[1] + _rb[3]) / 2
+        _r = max(_rb[2] - _rb[0], _rb[3] - _rb[1]) * 0.42
+        d.ellipse([_cx - _r, _cy - _r, _cx + _r, _cy + _r], fill=_col)
+        d.ellipse([_cx - _r * 1.25, _cy - _r * 1.25,
+                   _cx + _r * 1.25, _cy + _r * 1.25], outline=EDGE, width=4)
+    except Exception:
+        # Even the fallback's fallback stays wordless: a plain graded field
+        # beats a wall of text the viewer is already hearing.
+        d.ellipse([W // 2 - 220, H // 2 - 220, W // 2 + 220, H // 2 + 220],
+                  outline=EDGE, width=3)
 
-    line = _tidy_display_line(segment_text, 240)
-    f = _f(52, bold=False)
-    lines = mfr._wrap(d, line, f, W - 320)[:7]
-    y = max(250, (CONTENT_BOTTOM - len(lines) * 78) // 2)
-    for ln in lines:
-        d.text((160, y), ln, font=f, fill=TEXT_C)
-        y += 78
-
-    d.line([(160, y + 30), (420, y + 30)], fill=EDGE, width=2)
     if citation:
-        d.text((160, y + 56), citation[:96], font=_f(24, False), fill=DIM)
+        # CC BY attribution is a licence condition, not decoration. It is the
+        # only text this card is allowed to carry.
+        d.text((160, H - 58), citation[:96], font=_f(24, False), fill=DIM)
     c.save(out_path)
     return Path(out_path).exists()
 
@@ -1159,10 +1183,12 @@ def render_medical_segment(register, case, segment_text, duration, index,
             # Alternate between the mechanism explanation and THIS segment's
             # own narration line, so consecutive ANATOMY segments are not the
             # same frame with the same caption.
-            _expl = (anat.get("explanation") or "") if variant % 2 == 0 else ""
+            # The still fallback used to caption itself with the mechanism
+            # text, or failing that with a clipped slice of THIS segment's
+            # narration. Both are words on the picture; neither is wanted.
+            _expl = ""
             _bi = anat.get("blocked_step")
-            ok = render_anatomy_still(anat.get("title", "Mechanism"),
-                                      _expl or _tidy_display_line(segment_text, 150),
+            ok = render_anatomy_still("", _expl,
                                       str(still), image_path=img,
                                       pathway=anat.get("pathway"),
                                       blocked_index=(int(_bi) if isinstance(_bi, (int, float))

@@ -157,9 +157,23 @@ def _frame(shape, motion, t, colour, label, sub, citation, accent):
 
     d.rectangle([110, 96, 640, 188], fill=PANEL, outline=EDGE, width=2)
     d.rectangle([110, 96, 122, 188], fill=accent)
-    d.text((150, 118), label[:26], font=mfr._font(34, True), fill=accent)
-    if sub:
-        d.text((110, 214), sub[:64], font=mfr._font(28, False), fill=TEXT)
+    # NO TEXT ON THE PICTURE. NONE.
+    #
+    # FIX (direct user report, repeated across several sessions, with
+    # screenshots): this drew a "WHAT WAS HAPPENING" label and a clipped
+    # slice of the narration -- "Smith recorded the paradoxical recovery,
+    # urging further toxicolo" -- over the animation, while the captions
+    # said the same words at the bottom of the frame. The instruction has
+    # been explicit and unconditional: nothing written on the visuals, the
+    # font is not even wanted. Earlier passes trimmed the wording and fixed
+    # the clipping instead of removing the text, which is why it kept
+    # coming back.
+    #
+    # `label` and `sub` are still accepted so every caller keeps working;
+    # they are simply never drawn. The citation below is the ONE exception
+    # and is not negotiable in the other direction: CC BY requires visible
+    # attribution, and dropping it would put the channel in breach of the
+    # licence the whole source pipeline depends on.
 
     # Progress bar: the card is visibly going somewhere.
     d.rectangle([110, mfr.CONTENT_BOTTOM - 26, 640, mfr.CONTENT_BOTTOM - 16],

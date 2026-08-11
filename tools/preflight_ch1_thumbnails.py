@@ -1920,6 +1920,80 @@ def main():
     except Exception as _e:
         check("preflight is wired into the workflow", False, repr(_e))
 
+    # ══════════════════════════════════════════════════════════════════
+    # NO NARRATION WORDS ARE PRINTED ON THE PICTURE. ANY CARD, ANY PATH.
+    #
+    # Reported repeatedly, with screenshots, and "fixed" more than once by
+    # trimming the wording or the clipping instead of removing the text. The
+    # cards showed a label plus a slice of the spoken line -- "Smith recorded
+    # the paradoxical recovery, urging further toxicolo" -- while the
+    # captions said the same words at the bottom of the same frame.
+    #
+    # Checking the source for d.text() calls would not settle it: five
+    # different register paths reached the same offending draw, and a card
+    # that merely CHOOSES its motion or its photograph from the narration is
+    # fine. So this instruments PIL directly, renders every register, and
+    # asserts no distinctive narration token was ever handed to a text call.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        from PIL import ImageDraw as _ID
+        _drawn = []
+        _orig_text = _ID.ImageDraw.text
+
+        def _spy(self, xy, text, *a, **k):
+            if text:
+                _drawn.append(str(text))
+            return _orig_text(self, xy, text, *a, **k)
+
+        _ID.ImageDraw.text = _spy
+        try:
+            from medical_segments import render_medical_segment
+            _narr = ("Smith recorded the paradoxical recovery, urging further "
+                     "toxicology review after the neutrophil count collapsed.")
+            _tokens = {"smith", "paradoxical", "urging", "toxicology",
+                       "neutrophil", "collapsed"}
+            _case = {
+                "narrative": "A patient developed neutropenia after an overdose.",
+                "citation": "Hofmann G et al. BMC cancer 2006 doi:10.1186/1471-2407-6-1",
+                "quote": "paradoxical recovery", "figures": [],
+                "labs": [{"name": "Neutrophils", "value": 0.1, "low": 2.0,
+                          "high": 7.5, "unit": "x10^9/L", "flag": "LOW"}],
+                "chart_data": {"labels": ["d1", "d5"], "values": [3.2, 0.1],
+                               "title": "Neutrophils", "y_label": "x10^9/L",
+                               "chart_type": "line"},
+                "differentials": [{"name": "Sepsis", "reason": "fever", "value": 0.7}],
+                "timeline": [{"day": "Day 1", "events": ["admitted"]}],
+                "anatomy": {"title": "Marrow suppression",
+                            "explanation": "cell production halted", "search": ""},
+            }
+            _wd = os.path.join(tempfile.gettempdir(), "preflight_cards")
+            os.makedirs(_wd, exist_ok=True)
+            _leaks = {}
+            for _reg in ("CASEFILE", "LAB", "FIGURE", "CHART", "BOARD",
+                         "TIMELINE", "ANATOMY", "SCENE", "TEXT", "__NONE__"):
+                _drawn.clear()
+                try:
+                    render_medical_segment(
+                        _reg, _case, _narr, 2.0, 0,
+                        os.path.join(_wd, "seg.mp4"), work_dir=_wd,
+                        niche_label="NO KNOWN CAUSE", run_ffmpeg=None,
+                        log_fn=lambda *a, **k: None)
+                except Exception:
+                    pass
+                _hit = {w for s in _drawn
+                        for w in str(s).lower().replace(",", " ").replace(".", " ").split()
+                        if w in _tokens}
+                if _hit:
+                    _leaks[_reg] = sorted(_hit)
+            check("no card prints the narration on the picture",
+                  not _leaks,
+                  "; ".join("%s: %s" % (k, ", ".join(v))
+                            for k, v in list(_leaks.items())[:3]))
+        finally:
+            _ID.ImageDraw.text = _orig_text
+    except Exception as _e:
+        check("no card prints the narration on the picture", False, repr(_e))
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:
