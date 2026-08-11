@@ -226,6 +226,28 @@ def render(out_path, duration, mood="clinical", topic="", cold_open=30.0,
             gain = (0.42, 0.16, 0.30, 0.20)[k]
             f = chord_root * (2 ** (semitone / 12.0))
             mix[at:at + seg] += _note(f, seg) * env * gain
+
+        # THE BED HAS TO SURVIVE A PHONE SPEAKER.
+        #
+        # FIX (direct user report, "I don't see the background sound in the
+        # video"): everything above lives between the sub at root/2 (~41 Hz)
+        # and the 690 Hz softening filter, with the chord itself sitting near
+        # the root (~82 Hz). Measured on a real render: the bed is -26.7 LUFS
+        # full-range but only -33.4 LUFS above 200 Hz, which is roughly where
+        # a phone speaker starts reproducing anything at all. The bed already
+        # sits ~18 units under the narration by design, so on a phone it is
+        # effectively 25 under -- correctly mixed for headphones, and simply
+        # not there on the device most of this channel is watched on. Nothing
+        # was broken; it was inaudible, which from the far side of the screen
+        # is the same thing.
+        #
+        # A quiet two-octave-up voice puts real energy at ~330 Hz for an 82 Hz
+        # root: inside what a phone reproduces, still under the 690 Hz filter,
+        # and quiet enough (0.13 against the root's 0.42) that it colours the
+        # bed rather than turning it into a tune competing with the voice.
+        for semitone in _CHORD[quality][:3]:
+            f_up = chord_root * (2 ** ((semitone + 24) / 12.0))
+            mix[at:at + seg] += _note(f_up, seg) * env * 0.38
         at += max(SR // 2, seg - overlap)        # always moves forward
         step += 1
 
@@ -242,12 +264,20 @@ def render(out_path, duration, mood="clinical", topic="", cold_open=30.0,
     # -- the first version of this had not finished after two minutes on a
     # four-minute test bed. A running sum is the same moving average in one
     # pass over the array, and it is exact rather than approximate.
+    # FIX (direct user report, "I don't see the background sound in the
+    # video"): k was 64, putting -3dB near 300 Hz -- which cancelled most of
+    # the upper-octave voice added above for exactly this reason. Measured
+    # end to end: the bed lost 6.7 LU going through a 200 Hz high-pass (what
+    # a phone speaker effectively does), and now loses 2.8. k=40 sits the
+    # null at ~1100 Hz and -3dB near 485 Hz: still far below the 2-8 kHz
+    # band that carries speech consonants, so intelligibility is untouched.
+    #
     # k=220 puts the cutoff at about 200 Hz, which removes the chord itself
     # and leaves only the sub -- measured: the spectrum at minute 1 and minute
     # 10 were identical, which is the drone this replaces. k=64 sits the
     # cutoff near 690 Hz: above the bed's own harmonics, still well below the
     # consonants that carry speech intelligibility.
-    k = 64
+    k = 40
     csum = np.cumsum(np.concatenate([[0.0], mix.astype(np.float64)]))
     smooth = ((csum[k:] - csum[:-k]) / k).astype(np.float32)
     pad = n - smooth.shape[0]
