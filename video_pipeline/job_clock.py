@@ -74,6 +74,34 @@ JOB_LIMIT_MINUTES = _env_float("JOB_LIMIT_MINUTES", 360.0)
 # variants, description, artifact upload, checkpoint commit.
 RESERVE_MIN = _env_float("JOB_RESERVE_MIN", 45.0)
 
+# THE REVIEW WINDOW IS NOT SPARE TIME. IT IS RESERVED TIME.
+#
+# FIX (direct user report, with screenshots): generation was allowed to run
+# until only RESERVE_MIN remained, and RESERVE_MIN covers finalisation only —
+# Shorts, thumbnail, description, artifact upload. Nothing was set aside for
+# the human review gates at all. So a long generate phase left each gate a
+# share of roughly zero, the gate refused to open ("no buttons were sent"),
+# and the stage shipped unreviewed. The reviewer was then told the stage
+# "PROCEEDED AS GENERATED and was NOT approved by you", which correctly
+# describes a situation that should never have been reachable.
+#
+# A gate needs a window a person can actually answer in. Six gates at twelve
+# minutes is 72 minutes, and generation must stop before it eats them, not
+# after. Stopping early costs one run; shipping unreviewed costs trust.
+MIN_GATE_MIN = _env_float("JOB_MIN_GATE_MIN", 12.0)
+GATES_PER_EPISODE = _env_float("JOB_GATES_PER_EPISODE", 6.0)
+
+
+def review_floor_minutes(gates_left=None):
+    """Minutes that must survive generation so every remaining gate can open."""
+    n = GATES_PER_EPISODE if gates_left is None else float(gates_left)
+    return max(0.0, n) * MIN_GATE_MIN
+
+
+def generation_may_continue(gates_left=None):
+    """False once more generation would eat a gate's minimum window."""
+    return remaining_minutes() > RESERVE_MIN + review_floor_minutes(gates_left)
+
 
 def _job_start():
     """

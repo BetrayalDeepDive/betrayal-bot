@@ -952,9 +952,15 @@ def main():
 
     _hsrc = open(os.path.join(ROOT, "video_pipeline",
                               "human_review_gate.py")).read()
+    # This used to assert "unreviewable-no-time" sat INSIDE _NO_REPLY, which
+    # encoded the old, wrong behaviour: the gate never opened and the stage
+    # proceeded as generated anyway. It now belongs to _NEVER_ASKED and must
+    # NOT be in _NO_REPLY, because a gate that never put the question to a
+    # human holds the episode instead of shipping it.
     check("an unreviewed stage is never called approved",
           "unreviewable-no-time" in _hsrc
-          and "unreviewable-no-time" in _hsrc.split("_NO_REPLY = ")[1][:200],
+          and "unreviewable-no-time" in _hsrc.split("_NEVER_ASKED = ")[1][:200]
+          and "unreviewable-no-time" not in _hsrc.split("_NO_REPLY = ")[1][:200],
           "'auto-approved' on a gate that never opened reads as consent")
     check("the spent-review measure is waiting, not wall clock",
           "_review_time_spent_hours" in _hsrc
@@ -1006,7 +1012,15 @@ def main():
 
     # And the library has to know what it is missing, or harvest() grows it
     # toward a list written once instead of toward what episodes ask for.
-    _gaps = smatch.gaps("scene", smatch.terms_for("The clot travelled to the lung"))
+    # This used to ask for the gaps in "The clot travelled to the lung" and
+    # assert the answer was non-empty -- a check that PASSED only while the
+    # library was still missing those pictures, and started failing the
+    # moment a run harvested them. A test that breaks when the thing it
+    # guards improves is worse than no test: it trains you to ignore a red
+    # line. What actually needs guarding is that gaps() still reports a term
+    # the library genuinely does not hold, so harvest() keeps being aimed at
+    # what episodes ask for.
+    _gaps = smatch.gaps("scene", ["zzzqqxnonexistentterm"])
     check("the library reports its own gaps", bool(_gaps),
           "a term nothing matches is the one worth an API call: %s"
           % ", ".join(_gaps[:4]))
@@ -1993,6 +2007,73 @@ def main():
             _ID.ImageDraw.text = _orig_text
     except Exception as _e:
         check("no card prints the narration on the picture", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # A RETRY MUST PRODUCE SOMETHING DIFFERENT, AND A GATE THAT NEVER
+    # ASKED MUST NOT APPROVE.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        from retry_variation import AttemptLedger
+        _led = AttemptLedger("t", near=0.8)
+        _led.note("HOURS LATER", 5.5)
+        check("a repeated candidate is recognised as a repeat",
+              _led.is_repeat("HOURS LATER") and _led.is_repeat("HOURS LATER?")
+              and _led.is_repeat("hours  later"),
+              "thirteen identical attempts counted as thirteen attempts")
+        check("a genuinely different candidate is not a repeat",
+              not _led.is_repeat("0.1 WHITE CELLS"),
+              "the ledger would block real variety")
+        check("the next prompt is told what was rejected",
+              "HOURS LATER" in _led.avoid_clause(),
+              "the model is asked the identical question again")
+    except Exception as _e:
+        check("retry variation ledger", False, repr(_e))
+
+    check("the thumbnail gate refuses to count a repeat as an attempt",
+          "_thumb_ledger.is_repeat(text)" in _cp
+          and "_thumb_ledger.avoid_clause(" in _cp,
+          "the gate scores one candidate thirteen times")
+
+    try:
+        from clinical_variation import EpisodeVariation as _EV
+        _t = ["beat"] * 40
+        _a, _b, _c = _EV(12, 40), _EV(12, 40), _EV(12, 40, nonce=1)
+        check("re-rendering the same episode stays reproducible",
+              _a.tint == _b.tint and _a.durations(400, _t) == _b.durations(400, _t),
+              "determinism was lost")
+        check("a REMAKE genuinely re-rolls the presentation",
+              (_a.tint, _a.durations(400, _t)) != (_c.tint, _c.durations(400, _t)),
+              "REMAKE hands back the same render as the new version")
+    except Exception as _e:
+        check("remake variation", False, repr(_e))
+
+    check("every video redo bumps the remake nonce",
+          _cp.count("_VIDEO_REMAKE_NONCE[0] += 1") >= 8,
+          "a redo path reproduces the previous render")
+
+    try:
+        import human_review_gate as _hrg2
+        check("a gate that never asked cannot auto-approve",
+              _hrg2.never_asked("unreviewable-no-time")
+              and _hrg2.never_asked("hold-undelivered")
+              and not _hrg2.never_asked("timeout"),
+              "no buttons sent, then reported as approved")
+        check("an unasked gate is not in the proceed-anyway set",
+              "unreviewable-no-time" not in _hrg2._NO_REPLY,
+              "it would still ship the stage unreviewed")
+        import job_clock as _jc
+        check("generation reserves a real window for every gate",
+              _jc.review_floor_minutes() >= 60.0
+              and not _jc.generation_may_continue.__doc__ is None,
+              "generation may eat the review window again")
+    except Exception as _e:
+        check("review-window protection", False, repr(_e))
+
+    _hrg_src2 = open(os.path.join(ROOT, "video_pipeline",
+                                 "human_review_gate.py")).read()
+    check("the delivered flag defaults to NOT delivered",
+          'locals().get("_delivered", True)' not in _hrg_src2,
+          "an unsent review still reports itself as auto-approved")
 
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))

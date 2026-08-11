@@ -2541,10 +2541,18 @@ def _generation_may_continue():
     episode. A generate stage that runs 2h43m does not just run long, it
     spends that window -- and the review gate then reports having no usable
     time, which is a symptom of this, not a separate fault.
+
+    FIX (direct user report, with screenshots): this compared against
+    RESERVE_MIN alone, and RESERVE_MIN covers FINALISATION -- Shorts,
+    thumbnail, description, artifact upload. It set aside nothing for the
+    review gates, so generation was free to run until the gates had no
+    window left, at which point they declined to open and the stage shipped
+    unreviewed. job_clock.generation_may_continue also withholds a real
+    minimum for every gate that has not run yet.
     """
     try:
-        from job_clock import remaining_minutes, RESERVE_MIN
-        return remaining_minutes() > RESERVE_MIN
+        from job_clock import generation_may_continue
+        return generation_may_continue()
     except Exception:
         return True
 
@@ -6907,7 +6915,8 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     _seg_starts = [i * segment_dur for i in range(n_buckets)]
     try:
         from clinical_variation import EpisodeVariation
-        _variation = EpisodeVariation(episode or 1, n_buckets)
+        _variation = EpisodeVariation(episode or 1, n_buckets,
+                                     nonce=_VIDEO_REMAKE_NONCE[0])
         _seg_texts = [" ".join(words[i * bucket_words:(i + 1) * bucket_words])
                       for i in range(n_buckets)]
         _seg_durs = _variation.durations(audio_duration, _seg_texts)
@@ -10478,6 +10487,13 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
         return video_path
 
 
+# How many times a human has asked for THIS episode's video to be redone.
+# Feeds clinical_variation.EpisodeVariation, so REMAKE / SWAP VISUALS / EDIT
+# genuinely re-roll pacing, tint, anchors and transitions instead of handing
+# back an identical render and calling it the new version. 0 on a first
+# render, so ordinary runs are unchanged.
+_VIDEO_REMAKE_NONCE = [0]
+
 _last_video_fallback_flags = {}  # FIX (final re-audit): see collapse_index_pipeline.py for full rationale
 
 def assemble_video(niche_name, audio_path, audio_duration, topic, script="", episode=1, real_cases=None, ass_path=None, title=""):
@@ -10624,6 +10640,21 @@ def generate_thumbnail_text(niche, topic, title=""):
     THUMB_TEXT_MAX_ATTEMPTS = 13  # raised from 8, direct user request July 24 2026
     THUMB_TEXT_ROUNDS = 3         # 3 x 13, direct user request Aug 1 2026
 
+    # THIRTEEN ATTEMPTS THAT WERE ALL THE SAME ANSWER.
+    #
+    # FIX (direct user report, with a screenshot of thirteen consecutive
+    # "Attempt N/13: 5.5/10 ... 'HOURS LATER'" messages): nothing about the
+    # question changed between attempts, so the model returned its most
+    # likely answer every time -- the one that had just been rejected. The
+    # gate was not getting thirteen chances, it was scoring one candidate
+    # thirteen times and reporting it as thirteen attempts.
+    #
+    # The ledger carries the rejects into the next prompt and refuses to
+    # count a repeat as an attempt, so "attempt 7 of 13" now means seven
+    # genuinely different candidates were considered.
+    from retry_variation import AttemptLedger
+    _thumb_ledger = AttemptLedger(label="thumbnail text", near=0.8)
+
     def _thumb_attempts(round_no, angles=None):
         """
         One round of thirteen attempts. Returns the cleared text, or None.
@@ -10639,14 +10670,22 @@ def generate_thumbnail_text(niche, topic, title=""):
                             "FROM THE CASE (pick the strongest, do not list them):\n"
                             + "\n".join(f"- {a}" for a in angles[:8]))
         candidates = []
-        for attempt in range(1, THUMB_TEXT_MAX_ATTEMPTS + 1):
+        attempt = 0
+        _wasted = 0          # generations that came back as something already rejected
+        _MAX_WASTED = 8      # give up asking rather than loop forever on a stuck model
+        while attempt < THUMB_TEXT_MAX_ATTEMPTS:
+            attempt += 1
             try:
                 # 22-char cap in the prompt; the 100-char default floor made
                 # every correct answer unacceptable, so all 13 attempts burned
                 # the provider chain to exhaustion. The scorer below is the
                 # real check on this text.
-                set_ai_variant(attempt + round_no * THUMB_TEXT_MAX_ATTEMPTS)
-                result = ai_generate(round_prompt, tokens=15, min_chars=3)
+                set_ai_variant(attempt + round_no * THUMB_TEXT_MAX_ATTEMPTS
+                               + _wasted * 97)
+                # Every rejected candidate so far is named in the prompt, so
+                # this is a different question from the one that failed.
+                result = ai_generate(round_prompt + _thumb_ledger.avoid_clause(
+                    what="thumbnail line"), tokens=15, min_chars=3)
                 if result:
                     # FIX (direct user report, July 24 2026): this used to strip
                     # EVERY non-letter character including "?", which made a
@@ -10678,6 +10717,24 @@ def generate_thumbnail_text(niche, topic, title=""):
                     words = result.split()[:4]
                     if 2 <= len(words) <= 4:
                         text = ' '.join(words) + ("?" if has_question else "")
+                        # A repeat is not an attempt. Hand the slot back and
+                        # ask again with the reject list grown by one, rather
+                        # than scoring the same line a second time and
+                        # reporting it as progress.
+                        if _thumb_ledger.is_repeat(text):
+                            _wasted += 1
+                            attempt -= 1
+                            log(f"  Thumbnail text round {round_no}: model "
+                                f"returned '{text}' again — already rejected, "
+                                f"not counting it as an attempt "
+                                f"({_wasted}/{_MAX_WASTED} repeats).")
+                            if _wasted >= _MAX_WASTED:
+                                log(f"  Thumbnail text round {round_no}: the "
+                                    f"model keeps returning rejected lines. "
+                                    f"Ending this round early so the next one "
+                                    f"can research genuinely new material.")
+                                break
+                            continue
                         candidates.append(text)
             except Exception as e:
                 log(f"  Thumbnail text attempt {attempt}/{THUMB_TEXT_MAX_ATTEMPTS} "
@@ -10686,8 +10743,18 @@ def generate_thumbnail_text(niche, topic, title=""):
             if candidates:
                 scored = [(c, score_thumbnail_text(c)) for c in dict.fromkeys(candidates)]
                 best_text, best_score = max(scored, key=lambda pair: pair[1])
+                # Record THIS attempt's own candidate as rejected unless it
+                # clears; that is what the next prompt is told to avoid.
+                # Logging only "best so far" is also what hid the repetition:
+                # thirteen identical lines look the same in the log whether
+                # the model produced one candidate or thirteen.
+                _this = candidates[-1]
+                _this_score = score_thumbnail_text(_this)
+                if _this_score < THUMB_TEXT_MIN:
+                    _thumb_ledger.note(_this, _this_score)
                 log(f"  Thumbnail text round {round_no}, attempt "
-                    f"{attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: best so far "
+                    f"{attempt}/{THUMB_TEXT_MAX_ATTEMPTS}: this attempt "
+                    f"'{_this}' ({_this_score}/10); best so far "
                     f"'{best_text}' ({best_score}/10)")
                 notify_stage_score(f"Thumbnail text (round {round_no})", attempt,
                                    THUMB_TEXT_MAX_ATTEMPTS, best_score,
@@ -12034,6 +12101,7 @@ def main():
                 f"{_video_round + 1} with a clean fetch/encode pass.")
             _video_round += 1
             _video_attempt = 1
+            _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
             return run_stage_with_retry(
                 assemble_video, "Video", niche_name, audio_path, audio_duration,
                 topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12141,6 +12209,7 @@ def main():
                f"reassembling (attempt {_video_attempt + 1}/{_VIDEO_MAX_ATTEMPTS}) instead of "
                f"publishing it as-is. {_job_status()}")
             _video_attempt += 1
+            _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
             video_path = run_stage_with_retry(
                 assemble_video, "Video", niche_name, audio_path, audio_duration,
                 topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12335,6 +12404,7 @@ def main():
                     ass_path = str(WORK_DIR / "main_captions.ass")
                     if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
                         ass_path = None
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12353,6 +12423,7 @@ def main():
                     tg("🔄 Ch1: REMAKE requested at video review — reassembling the video now, "
                        "same script and audio.")
                     log("  REMAKE requested during video review — reassembling.")
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12362,6 +12433,7 @@ def main():
                        f"{' for: ' + _av_review['video_decision']['feedback'] if _av_review['video_decision']['feedback'] else ''}"
                        f" — regenerating the video assembly now, same script and audio.")
                     log(f"  SWAP VISUALS requested: {_av_review['video_decision']['feedback']}")
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12384,6 +12456,7 @@ def main():
                     tg(f"🎨 Regenerating visuals per your feedback: {_fb_video}")
                     log(f"  Video EDIT requested: '{_fb_video}' — reassembling (the video "
                         f"checkpoint's only real lever; script changes belong at the script checkpoint).")
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12418,6 +12491,7 @@ def main():
                     ass_path = str(WORK_DIR / "main_captions.ass")
                     if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
                         ass_path = None
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)
@@ -12458,6 +12532,7 @@ def main():
                     # never re-assembled video_path — the published video
                     # would have kept the OLD, discarded narration muxed
                     # in regardless of what the human approved here.
+                    _VIDEO_REMAKE_NONCE[0] += 1  # a redo must not reproduce the same render
                     video_path = run_stage_with_retry(
                         assemble_video, "Video", niche_name, audio_path, audio_duration,
                         topic, script_clean, episode, real_cases, ass_path, title=title)

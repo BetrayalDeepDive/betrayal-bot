@@ -98,17 +98,38 @@ def _rng(episode, salt=""):
 class EpisodeVariation:
     """Every presentation decision for one episode, decided up front."""
 
-    def __init__(self, episode, n_segments):
+    def __init__(self, episode, n_segments, nonce=0):
+        """
+        REMAKE HAS TO PRODUCE SOMETHING DIFFERENT.
+
+        FIX (direct user report): every presentation decision here was seeded
+        on the episode number alone, so re-rendering episode 12 reproduced
+        episode 12 exactly -- same tint, same anchor cycle, same transitions,
+        same pacing. That determinism is deliberate and worth keeping (a
+        review decision stays true if the episode is re-rendered, and a bad
+        frame can be reproduced), but it also meant tapping REMAKE or SWAP
+        VISUALS handed back a byte-for-byte equivalent video and announced it
+        as the new version. Reported exactly that way: "it keeps repeating
+        the same topic, the same subtitles, or the same thumbnail... telling
+        me that this is the new version."
+
+        `nonce` is the remake counter. At 0 -- every first render -- the
+        stream is identical to before, so nothing about normal runs changes.
+        Each remake bumps it and genuinely re-rolls the presentation.
+        """
         self.episode = int(episode)
         self.n = max(1, int(n_segments))
-        r = _rng(self.episode, "episode")
+        self.nonce = int(nonce or 0)
+        _seed = self.episode if not self.nonce else f"{self.episode}r{self.nonce}"
+        self.episode_seed = _seed
+        r = _rng(_seed, "episode")
         self.tint = TINTS[r.randrange(len(TINTS))]
         # A per-episode phase so the anchor cycle does not start in the same
         # place every time; without it every episode's first card is "left".
         self._anchor_phase = r.randrange(len(ANCHORS))
-        self._trans_rng = _rng(self.episode, "transitions")
+        self._trans_rng = _rng(_seed, "transitions")
         self._last_transition = None
-        self._ann_rng = _rng(self.episode, "annotations")
+        self._ann_rng = _rng(_seed, "annotations")
 
     # ── duration ───────────────────────────────────────────────────────
     def durations(self, total_seconds, texts):
@@ -129,7 +150,7 @@ class EpisodeVariation:
             # A gentle arc: open a little quicker, hold longer at the reveal.
             pos = i / max(1, self.n - 1)
             w *= 0.92 + 0.22 * pos
-            w *= _rng(self.episode, f"dur{i}").uniform(0.94, 1.06)
+            w *= _rng(self.episode_seed, f"dur{i}").uniform(0.94, 1.06)
             weights.append(w)
 
         total_w = sum(weights) or 1.0
@@ -179,8 +200,8 @@ class EpisodeVariation:
         Sparse on purpose: an annotation on every card is just another
         machine-perfect element, which defeats the point of having it.
         """
-        return _rng(self.episode, f"ann{index}").random() < 0.2
+        return _rng(self.episode_seed, f"ann{index}").random() < 0.2
 
     def annotation_style(self, index):
-        r = _rng(self.episode, f"annsty{index}")
+        r = _rng(self.episode_seed, f"annsty{index}")
         return r.choice(("circle", "underline", "bracket", "tick"))

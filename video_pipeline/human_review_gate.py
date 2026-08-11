@@ -146,17 +146,45 @@ def _gate_share_seconds():
 # they are compared through this helper rather than against one string, which
 # is what made adding an honest name safe.
 #
-# "unreviewable-no-time" is the fourth and it is deliberately NOT called
-# auto-approved. It means the gate never opened, because the window left was
-# too short for anyone to answer in. Every caller still proceeds as generated
-# -- there is nothing else it can do -- but the run's own record, and the
-# message the reviewer receives, no longer imply they agreed to anything.
-_NO_REPLY = ("timeout", "share-spent", "budget-exhausted",
-             "unreviewable-no-time")
+# "unreviewable-no-time" is the fourth. It means the gate never opened,
+# because the window left was too short for anyone to answer in.
+#
+# FIX (direct user report, with screenshots): this comment used to end "Every
+# caller still proceeds as generated -- there is nothing else it can do".
+# That was wrong, and it was the whole bug. There IS something else: hold the
+# episode exactly where it is, unlisted and unpublished, the way an
+# undelivered review already does. Live, the reviewer received
+#
+#   "there was not enough of this job left to review this stage properly, so
+#    no buttons were sent ... This stage PROCEEDED AS GENERATED"
+#
+# and, one second later, "60 min expired — auto-approved" for the same stage.
+# Two contradictory messages about one gate, and the stage shipped anyway.
+#
+# The rule now: A GATE THAT NEVER ASKED CANNOT PRODUCE AN APPROVAL. If the
+# question was never delivered -- no buttons sent, or the send failed -- the
+# episode holds and the next run resumes it from checkpoint. Nothing is
+# deleted and nothing is published. Only a gate that genuinely asked, and got
+# silence, may auto-approve on timeout; that part is deliberate and stays,
+# because the pipeline has to keep moving when the reviewer is asleep.
+UNREVIEWABLE_NO_TIME = "unreviewable-no-time"
+
+# Ends where a human WAS asked and simply did not answer. These may proceed.
+_NO_REPLY = ("timeout", "share-spent", "budget-exhausted")
+
+# Ends where the human was never asked at all. These must HOLD.
+# The literal is used rather than HOLD_UNDELIVERED because that constant is
+# defined further down this module; the assertion below keeps the two honest.
+_NEVER_ASKED = (UNREVIEWABLE_NO_TIME, "hold-undelivered")
 
 
 def _no_human_reply(decision):
-    return decision in _NO_REPLY
+    return decision in _NO_REPLY or decision in _NEVER_ASKED
+
+
+def never_asked(decision):
+    """True when this gate never actually put the question to a human."""
+    return decision in _NEVER_ASKED
 
 
 # A SILENT WINDOW MEANS TWO DIFFERENT THINGS.
@@ -172,6 +200,8 @@ def _no_human_reply(decision):
 # would be an absurd response to a 400 from Telegram. Hold leaves everything
 # exactly where it is, unlisted and unpublished, and says so loudly.
 HOLD_UNDELIVERED = "hold-undelivered"
+assert HOLD_UNDELIVERED in _NEVER_ASKED, (
+    "_NEVER_ASKED hardcodes this value; they must not drift apart")
 
 
 def resolve_silent_window(delivered, tg_token, tg_chat, timeout_minutes,
@@ -183,10 +213,12 @@ def resolve_silent_window(delivered, tg_token, tg_chat, timeout_minutes,
         return "approve"
     _tg_send_message(
         tg_token, tg_chat,
-        f"🚨 {what}: the review message could not be delivered, so nobody was "
-        f"ever asked. NOT auto-approving — the episode is held exactly where "
-        f"it is, unlisted and unpublished. Check the bot token, the chat ID, "
-        f"and the run log.")
+        f"🚨 {what}: no reviewable question ever reached you — either the "
+        f"message failed to send, or too little job time was left to open a "
+        f"window anyone could answer in. Nobody was asked, so this is NOT "
+        f"being auto-approved. The episode is held exactly where it is, "
+        f"unlisted and unpublished, and the next run resumes it from the "
+        f"checkpoint. Nothing has been deleted.")
     print(f"  {what}: undelivered review — holding instead of auto-approving.")
     return HOLD_UNDELIVERED
 
@@ -1307,7 +1339,7 @@ def review_title_thumbnail_description(channel_name, title, thumbnail_path, desc
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
         decision = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
@@ -1472,7 +1504,7 @@ def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
         decision = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
@@ -1870,7 +1902,7 @@ def review_thumbnail(channel_name, thumbnail_path, title, tg_token, tg_chat,
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
         decision = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
@@ -1909,7 +1941,7 @@ def review_title(channel_name, title, alternate_titles, tg_token, tg_chat,
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
         decision = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
@@ -2180,7 +2212,7 @@ def review_script(channel_name, title, full_script, score, niche_name,
         return {"decision": "cancel", "feedback": feedback}
     if _no_human_reply(decision):
         decision = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what=_CURRENT_GATE[0] or "this checkpoint")
     return {"decision": decision, "feedback": feedback}
 
@@ -2304,7 +2336,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
     if _no_human_reply(d):
         d = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what="Audio review")
     audio_decision = {"decision": d, "feedback": fb}
 
@@ -2372,7 +2404,7 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
     d, fb = _poll_for_decision(tg_token, tg_chat, timeout_minutes, gmail_sender=gmail_sender, gmail_app_password=gmail_app_password)
     if _no_human_reply(d):
         d = resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what="Video review")
     video_decision = {"decision": d, "feedback": fb}
 
@@ -2514,7 +2546,7 @@ def review_final_video_before_publish(channel_name, yt_url, thumbnail_path,
         # The last gate before the world sees it. If the ask never landed,
         # holding is the only defensible reading of silence.
         return {"decision": resolve_silent_window(
-            locals().get("_delivered", True), tg_token, tg_chat,
+            locals().get("_delivered", False), tg_token, tg_chat,
             timeout_minutes, what="Final pre-publish review"),
             "feedback": None}
     if decision == "approve":
