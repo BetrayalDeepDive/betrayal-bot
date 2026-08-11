@@ -2098,6 +2098,55 @@ def main():
           'locals().get("_delivered", True)' not in _hrg_src2,
           "an unsent review still reports itself as auto-approved")
 
+    # The review floor is one policy read from two ends. Two literals would
+    # drift the moment either was tuned, and the failure would be silent:
+    # generation reserving less than the gates demand recreates the exact
+    # "no buttons were sent" report the floor exists to prevent.
+    try:
+        import job_clock as _jc2
+        import human_review_gate as _hrg3
+        check("the review floor has one source of truth",
+              _hrg3.MIN_USABLE_GATE_MINUTES == _jc2.MIN_GATE_MIN,
+              "generation and the gates disagree about a usable window")
+        check("the reserved review window is the floor times the gate count",
+              abs(_jc2.review_floor_minutes()
+                  - _jc2.MIN_GATE_MIN * _jc2.GATES_PER_EPISODE) < 0.01,
+              "the reserve does not match the policy")
+    except Exception as _e:
+        check("review floor single source", False, repr(_e))
+
+    # Shorts are paused on instruction. The switch must actually gate every
+    # producing call, and must default to OFF -- a flag that defaults ON is a
+    # flag someone forgets, and that failure publishes the very thing that was
+    # supposed to be stopped.
+    try:
+        import ast as _a2
+        _t2 = _a2.parse(_cp)
+        _guard = None
+        for _n2 in _a2.walk(_t2):
+            if isinstance(_n2, _a2.If):
+                try:
+                    if _a2.unparse(_n2.test) == "not SHORTS_ENABLED":
+                        _guard = _n2
+                except Exception:
+                    pass
+        _lo = min(x.lineno for x in _guard.orelse) if _guard and _guard.orelse else 0
+        _hi = max(getattr(x, "end_lineno", x.lineno)
+                  for x in _guard.orelse) if _guard and _guard.orelse else 0
+        _loose = [n.lineno for n in _a2.walk(_t2)
+                  if isinstance(n, _a2.Call) and isinstance(n.func, _a2.Name)
+                  and n.func.id in ("produce_video_topic_short",
+                                    "produce_standalone_short")
+                  and not (_lo <= n.lineno <= _hi)]
+        check("every Shorts-producing call sits behind the pause switch",
+              _guard is not None and not _loose,
+              "a Short can still be produced while Shorts are paused: %s" % _loose)
+        check("the Shorts switch defaults to OFF",
+              'os.environ.get("SHORTS_ENABLED", "")' in _cp,
+              "a forgotten flag would publish the paused format")
+    except Exception as _e:
+        check("Shorts pause switch", False, repr(_e))
+
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
     if FAIL:

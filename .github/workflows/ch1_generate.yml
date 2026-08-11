@@ -173,10 +173,22 @@ jobs:
       # pipeline believe it has an hour more than it does. JOB_LIMIT_MINUTES
       # is exported alongside it so it cannot drift from timeout-minutes
       # above without both being edited together.
+      #
+      # JOB_MIN_GATE_MIN is the review floor: the shortest window in which a
+      # person can actually watch the artifact, judge it and press a button.
+      # It is exported here, next to the job limit, because the two are one
+      # budget: generation is allowed to run until
+      #   remaining > JOB_RESERVE_MIN + (gates left x JOB_MIN_GATE_MIN)
+      # and everything after that point belongs to the reviewer. Raising it
+      # buys longer windows and stops generation sooner; lowering it does the
+      # reverse. Stated here so changing the policy is one visible edit rather
+      # than a constant buried in a module.
       - name: Anchor the job clock
         run: |
           echo "JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
           echo "JOB_LIMIT_MINUTES=360" >> "$GITHUB_ENV"
+          echo "JOB_MIN_GATE_MIN=12" >> "$GITHUB_ENV"
+          echo "JOB_GATES_PER_EPISODE=6" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
         with:

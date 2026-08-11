@@ -122,7 +122,22 @@ _GATES_PER_EPISODE = 6
 # Below this floor a gate does not pretend. It says plainly that there was not
 # enough of the job left to review this stage properly, which is a fact the
 # reviewer can act on, rather than "auto-approved" which reads like consent.
-MIN_USABLE_GATE_MINUTES = 12.0
+#
+# ONE NUMBER, ONE PLACE.
+#
+# This floor and job_clock.MIN_GATE_MIN are the same policy seen from the two
+# ends of the same problem: job_clock uses it to decide when GENERATION must
+# stop, this module uses it to decide whether a gate can honestly OPEN. Two
+# independent 12.0 literals would drift the moment either was tuned, and the
+# failure would be quiet and asymmetric — generation reserving 72 minutes
+# while the gates demanded 90 would recreate the exact "no buttons were sent"
+# report this floor exists to prevent, with nothing in the logs to explain it.
+# job_clock owns the value; this reads it.
+try:
+    from job_clock import MIN_GATE_MIN as MIN_USABLE_GATE_MINUTES
+except Exception:
+    # Standalone use (tests, ad-hoc) still needs a sane floor.
+    MIN_USABLE_GATE_MINUTES = 12.0
 
 
 def _gate_share_seconds():

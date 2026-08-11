@@ -1050,6 +1050,20 @@ MAX_WORDS   = 2100
 # day's target") purely to give the SAME 8.5 bar more real tries before
 # the day is skipped, not to relax the bar itself.
 MIN_GATE    = 8.5
+
+# SHORTS: OFF BY DEFAULT UNTIL THE REBUILD LANDS.
+#
+# Paused on instruction -- "they are really boring and not even picking up the
+# audience" -- and the honest reading of the evidence agrees: the Shorts this
+# channel has published have not earned their slot. Rather than keep shipping
+# them while the format is reworked, the stage is skipped entirely.
+#
+# Default OFF is the point. A flag that defaults ON is a flag someone forgets
+# to set, and the failure mode there is publishing exactly the thing that was
+# supposed to be stopped. Set SHORTS_ENABLED=1 to bring them back once the
+# rebuilt engine is worth running.
+SHORTS_ENABLED = os.environ.get("SHORTS_ENABLED", "").strip().lower() in (
+    "1", "true", "yes", "on")
 MAX_ATTEMPTS = 13
 
 # Word targets per stage (sum = MIN_WORDS baseline)
@@ -12906,201 +12920,222 @@ def main():
         # name never bound and kill the generate phase on a NameError, after
         # the entire episode had already been built.
         _approved_short_ids = []
-        try:
-            import importlib.util
-            if importlib.util.find_spec("shorts_reels_engine") is None:
-                raise ImportError("shorts_reels_engine not in PYTHONPATH")
-            from shorts_reels_engine import (produce_video_topic_short,
-                                             produce_standalone_short,
-                                             set_clinical_case)
-            # Shorts draw from the SAME sourced paper as the episode. Without
-            # this they fell through to the Pixabay path -- the main video's
-            # stock footage was removed after a real episode about a newborn's
-            # liver failure shipped illustrated with a mountain and a woman
-            # dancing, but the Shorts path was never touched, so a third of
-            # this channel's daily output was still library clips.
+        # SHORTS ARE PAUSED, ON INSTRUCTION, UNTIL THEY ARE REBUILT.
+        #
+        # "stop the shorts as well.. as they need proper work to be done on
+        # them.. they are really boring and not even picking up the audience."
+        #
+        # A real switch, not a comment: the entire stage is skipped, so no
+        # Short is written, none is uploaded even unlisted, and
+        # _approved_short_ids stays empty -- the upload phase then has nothing
+        # to publish. Re-enabling is one environment variable, so the rebuilt
+        # engine goes live without editing the pipeline again.
+        #
+        # Deliberately NOT touching the Shorts already on the channel. Deleting
+        # published videos is irreversible and is the account owner's decision,
+        # not a side effect of a feature flag.
+        if not SHORTS_ENABLED:
+            log("  Shorts are PAUSED (SHORTS_ENABLED is off) — none generated, "
+                "none uploaded. They are being rebuilt.")
+            tg("⏸️ Ch1: Shorts are paused while they get rebuilt — none made or "
+               "uploaded for this episode. The main video is unaffected.")
+            shorts = []
+        else:
             try:
-                set_clinical_case(get_episode_case())
-            except Exception as _e:
-                log(f"  Shorts case handoff (non-fatal): {_e}")
-
-            def _post_short_comment_safe(short_url, mode_name):
-                if not short_url:
-                    return
+                import importlib.util
+                if importlib.util.find_spec("shorts_reels_engine") is None:
+                    raise ImportError("shorts_reels_engine not in PYTHONPATH")
+                from shorts_reels_engine import (produce_video_topic_short,
+                                                 produce_standalone_short,
+                                                 set_clinical_case)
+                # Shorts draw from the SAME sourced paper as the episode. Without
+                # this they fell through to the Pixabay path -- the main video's
+                # stock footage was removed after a real episode about a newborn's
+                # liver failure shipped illustrated with a mountain and a woman
+                # dancing, but the Shorts path was never touched, so a third of
+                # this channel's daily output was still library clips.
                 try:
-                    import re as _re
-                    m = _re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', short_url)
-                    if not m:
+                    set_clinical_case(get_episode_case())
+                except Exception as _e:
+                    log(f"  Shorts case handoff (non-fatal): {_e}")
+
+                def _post_short_comment_safe(short_url, mode_name):
+                    if not short_url:
                         return
-                    _short_token = get_yt_token()
-                    post_short_creator_comment(_short_token, m.group(1), niche_name, title)
-                except Exception as e:
-                    log(f"  Short pinned comment ({mode_name}, non-fatal): {e}")
-
-            # 2 Shorts genuinely about today's real topic — fresh, complete,
-            # standalone accounts (not a literal clip, not a teaser/recap).
-            for angle in ("angle_1", "angle_2"):
-                vt = produce_video_topic_short(topic, script_clean, angle, channel="betrayal_deepdive")
-                shorts.append({"ok": vt.get("status") == "success",
-                               "path": vt.get("local_path"), "url": vt.get("url"), "name": f"video_topic_{angle}"})
-                log(f"  Video-topic ({angle}): {vt.get('status')}")
-                _post_short_comment_safe(vt.get("url"), f"video_topic_{angle}")
-
-            # 2 Shorts on genuinely different, trending, in-demand topics —
-            # real research into what's actually working today.
-            for mode in ("standalone_1", "standalone_2"):
-                sa = produce_standalone_short(mode, channel="betrayal_deepdive")
-                # FIX: produce_standalone_short returns its URL under the key
-                # "yt_url", inconsistent with produce_video_topic_short which
-                # uses "url" — this was silently returning None here every
-                # time, even on success, dropping standalone Shorts from
-                # every downstream count.
-                shorts.append({"ok": sa.get("status") == "success",
-                               "path": sa.get("local_path"), "url": sa.get("yt_url"), "name": mode})
-                log(f"  Trending ({mode}): {sa.get('status')}")
-                _post_short_comment_safe(sa.get("yt_url"), mode)
-
-            ok_count = sum(1 for s in shorts if s.get("ok"))
-            log(f"  Shorts (generate phase): {ok_count}/{len(shorts)} generated")
-            # FIX (found on direct user report, July 23 2026 — real gap):
-            # a total Shorts failure (0 produced) was only ever logged to
-            # the GitHub Actions console, never surfaced to Telegram —
-            # the review checkpoint below is skipped entirely when there's
-            # nothing to review, so a real, complete content failure had
-            # zero visibility to the actual human reviewing the episode.
-            if ok_count == 0 and shorts:
-                tg(f"⚠️ Ch1: 0/{len(shorts)} Shorts produced this episode — "
-                   f"all attempts failed pre-score or assembly. Check the "
-                   f"Generate run's log for details.")
-
-            # SHORTS REVIEW — the real final checkpoint (5 options).
-            # The old note here said Shorts are "already published by this
-            # point". They are not, any more: they upload UNLISTED during
-            # generate, so this review happens before anybody can see them,
-            # which is the entire point of the change. Approved ids are
-            # collected into _approved_short_ids (declared at the top of this
-            # stage) and carried to the upload phase in pending_upload.json.
-            try:
-                from human_review_gate import review_shorts
-                _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
-                _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-                def _score_short_safe(short_path):
-                    if not short_path:
-                        return None
                     try:
-                        from quality_scoring import score_shorts_quality
-                        if not os.path.exists(short_path):
-                            return None
-                        return score_shorts_quality(short_path)[0]
+                        import re as _re
+                        m = _re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', short_url)
+                        if not m:
+                            return
+                        _short_token = get_yt_token()
+                        post_short_creator_comment(_short_token, m.group(1), niche_name, title)
                     except Exception as e:
-                        log(f"  Shorts scoring (non-fatal): {e}")
-                        return None
-                _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
-                                for s in shorts if s.get("url")]
-                if _real_shorts:
-                    _sh_review = review_shorts("No Known Cause", _real_shorts, TG_TOKEN, TG_CHAT,
-                                               check_ins_used=0, gmail_sender=_gmail_sender,
-                                               gmail_app_password=_gmail_pass, timeout_minutes=60)
-                    # FIX (direct user report, July 24 2026 — "if I tell it
-                    # reject then it needs to rework on it"): REJECT used to
-                    # be a silent no-op here — the already-published Shorts
-                    # just stayed live regardless, identical to APPROVE.
-                    # Shorts are real YouTube videos, so they CAN actually
-                    # be deleted (unlike the "can't unpublish" constraint
-                    # that applies to edit/remake/swap below) — REJECT now
-                    # genuinely deletes every Short from this batch.
-                    abort_on_cancel(_sh_review, "the Shorts review", _prerendered_yt_vid_id)
-                    # This gate is a straight if/elif rather than a loop, so an
-                    # undelivered review already does the safe thing here by
-                    # falling through: nothing deleted, nothing approved, the
-                    # Shorts stay unlisted. Made explicit so it is a decision
-                    # in the log rather than an accident of control flow.
-                    if _sh_review["decision"] == "hold-undelivered":
-                        log("  Shorts review was never delivered — leaving every "
-                            "Short unlisted and unapproved. None deleted.")
-                        tg("🚨 Ch1: the Shorts review never reached you. The Shorts "
-                           "stay unlisted and unpublished until you see them.")
-                    if _sh_review["decision"] == "reject":
-                        _sh_token = get_yt_token()
-                        for _s in _real_shorts:
-                            _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
-                            if _m:
-                                try:
-                                    delete_yt_video(_m.group(1), token=_sh_token)
-                                    log(f"  Deleted rejected Short: {_s['name']}")
-                                except Exception as e:
-                                    log(f"  Failed to delete rejected Short {_s['name']} (non-fatal): {e}")
-                        tg("🗑️ Ch1: Shorts REJECTED — all of this episode's Shorts have been deleted.")
-                    elif _sh_review["decision"] == "approve":
-                        # APPROVE HAD NO EFFECT, AND NOW IT HAS TO.
-                        #
-                        # Shorts used to upload PUBLIC during generate, so
-                        # approving one was a no-op: it was already live. That
-                        # is how four unreviewed Shorts reached the channel and
-                        # why they now upload unlisted. But making them unlisted
-                        # without giving approve something to do left the
-                        # opposite bug — an approved Short sitting unlisted for
-                        # ever, reviewed by a human and seen by nobody.
-                        #
-                        # They follow the main video's route: approved here,
-                        # published by the upload phase, so nothing whatsoever
-                        # goes public from a generate-only run.
-                        for _s in _real_shorts:
-                            _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
-                            if _m:
-                                _approved_short_ids.append(_m.group(1))
-                        log(f"  Shorts approved — {len(_approved_short_ids)} queued for the "
-                            f"upload phase to publish.")
-                    if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
-                        log(f"  Shorts {_sh_review['decision']} requested: "
-                            f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")
-                        tg(f"🎞️ Producing a fresh replacement Short per your feedback: "
-                           f"{_sh_review['feedback']}")
-                        _replacement = produce_standalone_short("standalone_1", channel="betrayal_deepdive")
-                        _post_short_comment_safe(_replacement.get("yt_url"), "replacement_standalone")
+                        log(f"  Short pinned comment ({mode_name}, non-fatal): {e}")
 
-                # ── COMMUNITY TAB checkpoint — YouTube's API has no way
-                # to post to the Community tab, so this drafts the real
-                # poll/post and gates on a human confirming they posted
-                # it manually (see review_community_tab's docstring).
-                try:
-                    from human_review_gate import draft_community_post, review_community_tab
-                    _cp_draft = draft_community_post(
-                        topic, niche["name"], title,
-                        lambda p, tokens=260, min_chars=100:
-                            ai_generate(p, tokens=tokens, min_chars=min_chars))
-                    # An empty draft means nothing cleared the bar and the
-                    # generic-filler fallback is gone. Skip the post rather
-                    # than asking for a placeholder to be published.
-                    if not _cp_draft or not _cp_draft.get("question"):
-                        log("  Community Tab: no draft worth posting — skipped")
-                    else:
-                        _cp_result = review_community_tab(
-                            "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
-                            check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
-                            below_bar=_cp_draft.get("below_bar", False),
-                            score=_cp_draft.get("score"),
-                            issues=_cp_draft.get("issues", ()))
-                        log(f"  Community Tab: {_cp_result['decision']}")
-                except Exception as e:
-                    log(f"  Community Tab checkpoint (non-fatal): {e}")
-            except Exception as e:
-                log(f"  Shorts review (non-fatal): {e}")
-                tg(f"⚠️ Ch1: the Shorts review system failed to load ({str(e)[:150]}) — "
-                   f"the Shorts already published stand as-is, with no human review "
-                   f"applied this time. If human_review_gate.py isn't deployed to this "
-                   f"repo yet, that's the likely cause.")
-        except Exception as e:
-            log(f"  Shorts engine (non-fatal): {e} — using built-in FFmpeg fallback instead")
-            try:
-                shorts = generate_basic_shorts(video_path, audio_duration, title,
-                                                niche_name, str(WORK_DIR))
+                # 2 Shorts genuinely about today's real topic — fresh, complete,
+                # standalone accounts (not a literal clip, not a teaser/recap).
+                for angle in ("angle_1", "angle_2"):
+                    vt = produce_video_topic_short(topic, script_clean, angle, channel="betrayal_deepdive")
+                    shorts.append({"ok": vt.get("status") == "success",
+                                   "path": vt.get("local_path"), "url": vt.get("url"), "name": f"video_topic_{angle}"})
+                    log(f"  Video-topic ({angle}): {vt.get('status')}")
+                    _post_short_comment_safe(vt.get("url"), f"video_topic_{angle}")
+
+                # 2 Shorts on genuinely different, trending, in-demand topics —
+                # real research into what's actually working today.
+                for mode in ("standalone_1", "standalone_2"):
+                    sa = produce_standalone_short(mode, channel="betrayal_deepdive")
+                    # FIX: produce_standalone_short returns its URL under the key
+                    # "yt_url", inconsistent with produce_video_topic_short which
+                    # uses "url" — this was silently returning None here every
+                    # time, even on success, dropping standalone Shorts from
+                    # every downstream count.
+                    shorts.append({"ok": sa.get("status") == "success",
+                                   "path": sa.get("local_path"), "url": sa.get("yt_url"), "name": mode})
+                    log(f"  Trending ({mode}): {sa.get('status')}")
+                    _post_short_comment_safe(sa.get("yt_url"), mode)
+
                 ok_count = sum(1 for s in shorts if s.get("ok"))
-                log(f"  Fallback Shorts: {ok_count}/{len(shorts)} generated")
-                tg(f"  Shorts (fallback): {ok_count}/{len(shorts)} generated")
-            except Exception as e2:
-                log(f"  Fallback Shorts also failed (non-fatal): {e2}")
-                shorts = []
+                log(f"  Shorts (generate phase): {ok_count}/{len(shorts)} generated")
+                # FIX (found on direct user report, July 23 2026 — real gap):
+                # a total Shorts failure (0 produced) was only ever logged to
+                # the GitHub Actions console, never surfaced to Telegram —
+                # the review checkpoint below is skipped entirely when there's
+                # nothing to review, so a real, complete content failure had
+                # zero visibility to the actual human reviewing the episode.
+                if ok_count == 0 and shorts:
+                    tg(f"⚠️ Ch1: 0/{len(shorts)} Shorts produced this episode — "
+                       f"all attempts failed pre-score or assembly. Check the "
+                       f"Generate run's log for details.")
+
+                # SHORTS REVIEW — the real final checkpoint (5 options).
+                # The old note here said Shorts are "already published by this
+                # point". They are not, any more: they upload UNLISTED during
+                # generate, so this review happens before anybody can see them,
+                # which is the entire point of the change. Approved ids are
+                # collected into _approved_short_ids (declared at the top of this
+                # stage) and carried to the upload phase in pending_upload.json.
+                try:
+                    from human_review_gate import review_shorts
+                    _gmail_sender = os.environ.get("GMAIL_SENDER_EMAIL", "")
+                    _gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
+                    def _score_short_safe(short_path):
+                        if not short_path:
+                            return None
+                        try:
+                            from quality_scoring import score_shorts_quality
+                            if not os.path.exists(short_path):
+                                return None
+                            return score_shorts_quality(short_path)[0]
+                        except Exception as e:
+                            log(f"  Shorts scoring (non-fatal): {e}")
+                            return None
+                    _real_shorts = [{"name": s["name"], "url": s["url"], "score": _score_short_safe(s.get("path"))}
+                                    for s in shorts if s.get("url")]
+                    if _real_shorts:
+                        _sh_review = review_shorts("No Known Cause", _real_shorts, TG_TOKEN, TG_CHAT,
+                                                   check_ins_used=0, gmail_sender=_gmail_sender,
+                                                   gmail_app_password=_gmail_pass, timeout_minutes=60)
+                        # FIX (direct user report, July 24 2026 — "if I tell it
+                        # reject then it needs to rework on it"): REJECT used to
+                        # be a silent no-op here — the already-published Shorts
+                        # just stayed live regardless, identical to APPROVE.
+                        # Shorts are real YouTube videos, so they CAN actually
+                        # be deleted (unlike the "can't unpublish" constraint
+                        # that applies to edit/remake/swap below) — REJECT now
+                        # genuinely deletes every Short from this batch.
+                        abort_on_cancel(_sh_review, "the Shorts review", _prerendered_yt_vid_id)
+                        # This gate is a straight if/elif rather than a loop, so an
+                        # undelivered review already does the safe thing here by
+                        # falling through: nothing deleted, nothing approved, the
+                        # Shorts stay unlisted. Made explicit so it is a decision
+                        # in the log rather than an accident of control flow.
+                        if _sh_review["decision"] == "hold-undelivered":
+                            log("  Shorts review was never delivered — leaving every "
+                                "Short unlisted and unapproved. None deleted.")
+                            tg("🚨 Ch1: the Shorts review never reached you. The Shorts "
+                               "stay unlisted and unpublished until you see them.")
+                        if _sh_review["decision"] == "reject":
+                            _sh_token = get_yt_token()
+                            for _s in _real_shorts:
+                                _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
+                                if _m:
+                                    try:
+                                        delete_yt_video(_m.group(1), token=_sh_token)
+                                        log(f"  Deleted rejected Short: {_s['name']}")
+                                    except Exception as e:
+                                        log(f"  Failed to delete rejected Short {_s['name']} (non-fatal): {e}")
+                            tg("🗑️ Ch1: Shorts REJECTED — all of this episode's Shorts have been deleted.")
+                        elif _sh_review["decision"] == "approve":
+                            # APPROVE HAD NO EFFECT, AND NOW IT HAS TO.
+                            #
+                            # Shorts used to upload PUBLIC during generate, so
+                            # approving one was a no-op: it was already live. That
+                            # is how four unreviewed Shorts reached the channel and
+                            # why they now upload unlisted. But making them unlisted
+                            # without giving approve something to do left the
+                            # opposite bug — an approved Short sitting unlisted for
+                            # ever, reviewed by a human and seen by nobody.
+                            #
+                            # They follow the main video's route: approved here,
+                            # published by the upload phase, so nothing whatsoever
+                            # goes public from a generate-only run.
+                            for _s in _real_shorts:
+                                _m = re.search(r'(?:shorts/|v=)([A-Za-z0-9_-]{11})', _s.get("url", ""))
+                                if _m:
+                                    _approved_short_ids.append(_m.group(1))
+                            log(f"  Shorts approved — {len(_approved_short_ids)} queued for the "
+                                f"upload phase to publish.")
+                        if _sh_review["decision"] in ("edit", "remake", "swap_visuals"):
+                            log(f"  Shorts {_sh_review['decision']} requested: "
+                                f"{_sh_review['feedback']} — publishing one fresh replacement standalone Short.")
+                            tg(f"🎞️ Producing a fresh replacement Short per your feedback: "
+                               f"{_sh_review['feedback']}")
+                            _replacement = produce_standalone_short("standalone_1", channel="betrayal_deepdive")
+                            _post_short_comment_safe(_replacement.get("yt_url"), "replacement_standalone")
+
+                    # ── COMMUNITY TAB checkpoint — YouTube's API has no way
+                    # to post to the Community tab, so this drafts the real
+                    # poll/post and gates on a human confirming they posted
+                    # it manually (see review_community_tab's docstring).
+                    try:
+                        from human_review_gate import draft_community_post, review_community_tab
+                        _cp_draft = draft_community_post(
+                            topic, niche["name"], title,
+                            lambda p, tokens=260, min_chars=100:
+                                ai_generate(p, tokens=tokens, min_chars=min_chars))
+                        # An empty draft means nothing cleared the bar and the
+                        # generic-filler fallback is gone. Skip the post rather
+                        # than asking for a placeholder to be published.
+                        if not _cp_draft or not _cp_draft.get("question"):
+                            log("  Community Tab: no draft worth posting — skipped")
+                        else:
+                            _cp_result = review_community_tab(
+                                "No Known Cause", _cp_draft["question"], _cp_draft["options"], TG_TOKEN, TG_CHAT,
+                                check_ins_used=0, gmail_sender=_gmail_sender, gmail_app_password=_gmail_pass,
+                                below_bar=_cp_draft.get("below_bar", False),
+                                score=_cp_draft.get("score"),
+                                issues=_cp_draft.get("issues", ()))
+                            log(f"  Community Tab: {_cp_result['decision']}")
+                    except Exception as e:
+                        log(f"  Community Tab checkpoint (non-fatal): {e}")
+                except Exception as e:
+                    log(f"  Shorts review (non-fatal): {e}")
+                    tg(f"⚠️ Ch1: the Shorts review system failed to load ({str(e)[:150]}) — "
+                       f"the Shorts already published stand as-is, with no human review "
+                       f"applied this time. If human_review_gate.py isn't deployed to this "
+                       f"repo yet, that's the likely cause.")
+            except Exception as e:
+                log(f"  Shorts engine (non-fatal): {e} — using built-in FFmpeg fallback instead")
+                try:
+                    shorts = generate_basic_shorts(video_path, audio_duration, title,
+                                                    niche_name, str(WORK_DIR))
+                    ok_count = sum(1 for s in shorts if s.get("ok"))
+                    log(f"  Fallback Shorts: {ok_count}/{len(shorts)} generated")
+                    tg(f"  Shorts (fallback): {ok_count}/{len(shorts)} generated")
+                except Exception as e2:
+                    log(f"  Fallback Shorts also failed (non-fatal): {e2}")
+                    shorts = []
 
         # Description already generated + reviewed earlier (Stage 5, alongside
         # title/thumbnail) — the `description` variable here is that real,
