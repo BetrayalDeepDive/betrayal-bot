@@ -1448,17 +1448,47 @@ def regenerate_description_until_good(niche, topic, title, episode, chapters_tex
     called fresh each attempt so real variation actually happens.
     """
     best_desc, best_score, best_missing = None, -1.0, []
-    for attempt in range(1, max_attempts + 1):
+    # Four calls to the same function with the same arguments is one
+    # description generated four times, not four attempts. A provider that
+    # answers deterministically returns the identical text every time, and
+    # the loop then reports "4 attempts" for one piece of work.
+    #
+    # An identical answer is no longer counted or scored. That is the honest
+    # half of the fix. The dishonest half would be pretending this module can
+    # rotate the provider: set_ai_variant lives in the channel pipeline, not
+    # here, and generate_fn's signature is fixed by every caller -- a first
+    # version of this imported a module that does not exist, which the
+    # surrounding try/except would have swallowed silently while appearing
+    # to work. Real variation between description attempts has to come from
+    # the caller passing a variant-aware generator -- which Ch1 now does
+    # (_desc_gen rotates set_ai_variant per call, in clinical_pipeline). This
+    # side of it is the backstop: a caller that does not rotate, or a rotation
+    # that lands on the same provider, still cannot report one description
+    # as four.
+    _seen_desc = set()
+    _real = 0                       # attempts that were genuinely different
+    for _call in range(1, max_attempts + 1):
         desc = generate_fn(niche, topic, title, episode, chapters_text, audio_duration)
         if not desc:
             continue
+        _norm = " ".join(str(desc).lower().split())
+        if _norm in _seen_desc:
+            print("  Description call %d returned the same text — not a "
+                  "new attempt." % _call)
+            continue
+        _seen_desc.add(_norm)
+        _real += 1
         score, missing = score_description(desc, title, niche_name)
         if score > best_score:
             best_desc, best_score, best_missing = desc, score, missing
         if score >= min_score:
-            return {"description": desc, "score": score, "missing": [], "hit_target": True, "attempts": attempt}
+            return {"description": desc, "score": score, "missing": [],
+                    "hit_target": True, "attempts": _real}
+    # Report the attempts really made. Returning max_attempts here was the
+    # same false progress the repeat-skip above exists to stop: one
+    # description generated four times logged as "4 attempts".
     return {"description": best_desc, "score": best_score, "missing": best_missing,
-            "hit_target": False, "attempts": max_attempts}
+            "hit_target": False, "attempts": _real}
 
 
 def review_shorts(channel_name, shorts_list, tg_token, tg_chat, check_ins_used=0,
@@ -1682,7 +1712,28 @@ def draft_community_post(topic, niche_name, title, ai_fn):
     if not ai_fn:
         return {}
 
-    def _generate_once():
+    # THIRTEEN ATTEMPTS, ONE QUESTION.
+    #
+    # The loop below was already a real gate -- scored, budgeted, honest about
+    # its best draft. What it was not was thirteen ATTEMPTS: _generate_once
+    # took no varying input, so every pass sent byte-identical text to the
+    # provider and got the provider's most likely answer back, which is the
+    # answer that just failed. Exactly the shape that produced thirteen
+    # identical 5.5/10 lines in the thumbnail gate. The ledger is what makes
+    # attempt two different from attempt one: the rejected question goes into
+    # the next prompt by name, and a draft that comes back the same anyway
+    # does not get to spend one of the attempts.
+    #
+    # Imported here rather than at module scope, matching how job_clock is
+    # imported throughout this file: video_pipeline is a directory on
+    # sys.path, not a package, so a sibling import only resolves once the
+    # caller has set the path up. Deliberately NOT wrapped in a try/except --
+    # a missing ledger must be a loud failure, not a gate that quietly goes
+    # back to asking the same question thirteen times.
+    from retry_variation import AttemptLedger
+    _post_ledger = AttemptLedger(label="community post", near=0.8)
+
+    def _generate_once(avoid=""):
         raw = ai_fn(
             f"""Write ONE YouTube Community Tab poll for a published clinical
 case documentary titled "{title}".
@@ -1717,7 +1768,7 @@ OPTION2: <short option, under 30 chars>
 OPTION3: <short option, under 30 chars — or blank if only 2 make sense>
 OPTION4: <short option, under 30 chars — or blank>
 
-No markdown, no extra commentary — just those lines.""",
+No markdown, no extra commentary — just those lines.{avoid}""",
             min_chars=40,
         )
         if not raw:
@@ -1747,10 +1798,27 @@ No markdown, no extra commentary — just those lines.""",
         # real bar, keeps the best draft seen, and only falls back to the
         # template after the full budget is spent.
         best, best_score, best_issues = None, -1.0, []
-        for _attempt in range(1, COMMUNITY_POST_ATTEMPTS + 1):
-            result = _generate_once()
+        _attempt = 0
+        _wasted = 0          # repeats, which do not count as attempts
+        _MAX_WASTED = 6      # but cannot loop forever either
+        while _attempt < COMMUNITY_POST_ATTEMPTS:
+            result = _generate_once(_post_ledger.avoid_clause(what="poll question"))
             if not result:
+                _attempt += 1
                 continue
+            _q = result.get("question") or ""
+            if _post_ledger.is_repeat(_q):
+                _wasted += 1
+                print("  Community post: same question as one already "
+                      f"rejected — not counting it as an attempt ({_wasted}/"
+                      f"{_MAX_WASTED}).")
+                if _wasted >= _MAX_WASTED:
+                    print("  Community post: the provider keeps returning the "
+                          "same question — stopping instead of burning the "
+                          "budget on one draft.")
+                    break
+                continue
+            _attempt += 1
             _sc, _issues = score_community_post(result.get("question"),
                                                 result.get("options"),
                                                 topic, title)
@@ -1773,15 +1841,22 @@ No markdown, no extra commentary — just those lines.""",
                     if not _audit["passed"]:
                         print("  Community post cleared the score but the "
                               "AI judge disagreed — trying again.")
+                        _post_ledger.note(_q, _sc)
                         continue
                 except Exception:
                     pass
                 print(f"  Community post cleared {COMMUNITY_POST_MIN}/10 on "
                       f"attempt {_attempt}.")
                 return result
+            # Below the bar: name it in the next prompt, so the next attempt
+            # is asked for a different question rather than the same one.
+            _post_ledger.note(_q, _sc)
         if best is not None:
+            # Report the attempts REALLY made, not the budget. Saying "13
+            # attempts" when the provider gave one draft twelve times over is
+            # the same false progress the ledger exists to stop.
             print(f"  Community post never cleared {COMMUNITY_POST_MIN}/10 in "
-                  f"{COMMUNITY_POST_ATTEMPTS} attempts (best {best_score}/10: "
+                  f"{_attempt} attempts (best {best_score}/10: "
                   f"{'; '.join(best_issues[:3])}). Sending the best draft to "
                   f"review, flagged, rather than a template.")
             best["below_bar"] = True

@@ -973,6 +973,7 @@ def _shorts_feedback_block(prev_score):
 
 
 import shorts_strategy as _strategy
+from retry_variation import AttemptLedger
 
 # Per-axis caps, named so nothing downstream has to restate the weighting.
 TITLE_AXIS_MAX = 1.0
@@ -2385,15 +2386,44 @@ def _produce_standalone_short_once(mode: str, channel: str = "betrayal_deepdive"
     log.info("=== PRODUCING STANDALONE SHORT: %s (%s) ===", mode, cfg["display_name"])
 
     prev_score = None  # feeds _shorts_feedback_block() so retries target real gaps, not blind re-rolls
-    for attempt in range(MAX_ATTEMPTS):
+    # A REPEATED SHORT IS NOT A NEW ATTEMPT.
+    #
+    # _shorts_feedback_block already tells the next attempt which axes were
+    # weak, which is real closed-loop feedback. What it does not do is stop
+    # the model returning the SAME script with the same weaknesses: the
+    # feedback describes the fault, it does not forbid the answer. Thirteen
+    # attempts could therefore be one script scored thirteen times, which is
+    # exactly the failure the thumbnail gate was caught doing.
+    _short_ledger = AttemptLedger(label="short script", near=0.8)
+    _short_wasted = 0
+    _SHORT_MAX_WASTED = 6
+
+    attempt = -1
+    while attempt < MAX_ATTEMPTS - 1:
+        attempt += 1
         log.info("Attempt %d/%d", attempt + 1, MAX_ATTEMPTS)
 
         # 1. Get topic. An empty dict means generation failed and the generic
         # filler template that used to paper over it is gone — retry instead.
-        topic_data = get_trending_short_topic(mode, feedback_block=_shorts_feedback_block(prev_score))
+        topic_data = get_trending_short_topic(
+            mode,
+            feedback_block=_shorts_feedback_block(prev_score)
+            + _short_ledger.avoid_clause(what="Short script and title"))
         if not topic_data or not topic_data.get("script") or not topic_data.get("title"):
             log.info("No usable trending topic this attempt — retrying")
             continue
+
+        if _short_ledger.is_repeat(topic_data.get("script", "")):
+            _short_wasted += 1
+            attempt -= 1
+            log.info("Attempt returned an already-rejected Short — not counting "
+                     "it (%d/%d repeats)", _short_wasted, _SHORT_MAX_WASTED)
+            if _short_wasted >= _SHORT_MAX_WASTED:
+                log.info("The generator keeps returning rejected Shorts; "
+                         "ending this round so the next can research afresh.")
+                break
+            continue
+        _short_ledger.note(topic_data.get("script", ""))
 
         # 2. Reject empty hype before spending a voice and a render on it.
         _hollow = hollow_phrases(topic_data.get("script", ""),

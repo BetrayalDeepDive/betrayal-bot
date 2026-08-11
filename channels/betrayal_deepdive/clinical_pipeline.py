@@ -447,6 +447,8 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
     # specifically what came back empty rather than just being run again
     # identically"). The title loop never did.
     tried = [best_title]
+    _title_wasted = [0]
+    _TITLE_MAX_WASTED = 8
     while attempt < max_attempts:
         attempt += 1
         # A different model each attempt (see set_ai_variant): the previous
@@ -513,6 +515,33 @@ def run_title_ctr_gate(title_str, title_scores, topic, niche_name,
                 m = re.search(r'\[[\s\S]*?\]', result)
                 if m:
                     titles  = [t for t in json.loads(m.group()) if t]
+                    # A REPEAT IS NOT AN ATTEMPT.
+                    #
+                    # The reject list and the angle rotation above already
+                    # make each attempt ASK something different, which is
+                    # most of the problem. What was still missing: when the
+                    # model ignored all of it and returned titles already
+                    # rejected, that still burned one of the thirteen. So a
+                    # stalled provider could spend the whole round without
+                    # the gate ever seeing a new candidate.
+                    _seen = {re.sub(r'[^a-z0-9 ]', '', t.lower()).strip()
+                             for t in tried}
+                    _fresh = [t for t in titles
+                              if re.sub(r'[^a-z0-9 ]', '', t.lower()).strip()
+                              not in _seen]
+                    if titles and not _fresh:
+                        attempt -= 1
+                        _title_wasted[0] += 1
+                        log(f"  Title attempt returned only already-rejected "
+                            f"titles — not counting it "
+                            f"({_title_wasted[0]}/{_TITLE_MAX_WASTED} repeats).")
+                        if _title_wasted[0] >= _TITLE_MAX_WASTED:
+                            log("  Title: the provider keeps returning rejected "
+                                "titles. Ending this round so the next one can "
+                                "research genuinely new angles.")
+                            break
+                        continue
+                    titles = _fresh or titles
                     tried.extend(titles)
                     new_scored = sorted([(t, score_title_v2(t)[0]) for t in titles],
                                          key=lambda x: x[1], reverse=True)
@@ -8807,8 +8836,28 @@ def compose_video(narration_path, bg_path, music_path, ass_path,
             "-stream_loop", str(loop_n), "-i", bg_path,
             "-i", narration_path, "-i", music_path,
             "-filter_complex",
+            # THE SHELF IS WHAT MAKES THE BED AUDIBLE ON THE DEVICE IT IS
+            # ACTUALLY WATCHED ON.
+            #
+            # loudnorm alone put the bed 18.5 LU under the voice BROADBAND --
+            # correct on headphones, and still inaudible on a phone. A phone
+            # speaker reproduces almost nothing below ~200 Hz and a pad is
+            # mostly low end, so measured through this exact graph the part a
+            # phone can actually play sat 21.2 LU down, outside the 15-20
+            # band entirely. The bed was correct on paper and absent in the
+            # hand, which is what "I don't see the background sound in the
+            # video" describes.
+            #
+            # Lifting the whole bed to fix that would put the low end three
+            # units too loud on headphones. The shelf lifts only the band a
+            # phone can reproduce, BEFORE loudnorm measures it, so loudnorm
+            # still lands the bed where it belongs. Measured after the change:
+            # 17.4 LU under broadband, 19.0 LU under above 200 Hz -- both
+            # inside the band -- with the finished mix unchanged at
+            # -16.4 LUFS, so nothing was taken from the narration to pay
+            # for it.
             "[1:a]volume=1.0[n];"
-            "[2:a]loudnorm=I=-37:LRA=11:TP=-6[m];"
+            "[2:a]highshelf=f=350:g=8,loudnorm=I=-36:LRA=11:TP=-6[m];"
             "[n][m]amix=inputs=2:duration=first:normalize=0[mx];"
             "[mx]alimiter=limit=0.94[aout]",
             "-map", "0:v", "-map", "[aout]",
@@ -8925,7 +8974,7 @@ def create_short(narration_path, bg_path, music_path, ass_path,
             # and why the target is -37 rather than -34.
             "-filter_complex",
             "[1:a]volume=1.0[n];"
-            "[2:a]loudnorm=I=-37:LRA=11:TP=-6[m];"
+            "[2:a]highshelf=f=350:g=8,loudnorm=I=-36:LRA=11:TP=-6[m];"
             "[n][m]amix=inputs=2:duration=first:normalize=0[mx];"
             "[mx]alimiter=limit=0.94[aout]",
             "-map", "0:v", "-map", "[aout]",
@@ -12106,6 +12155,16 @@ def main():
             # in round 2, which is why the stuck-check above ends each round
             # early rather than spending thirteen attempts proving it.
             globals()["_last_video_fallback_flags"] = {}
+            # A RETRY THAT REBUILDS THE SAME FILM IS NOT A RETRY.
+            #
+            # The comment above is honest that a rebuild "does NOT reshuffle
+            # the visuals" -- it redoes fetches and encodes only. That is the
+            # right recovery for a figure download that 503'd, and no recovery
+            # at all for a video the gate judged weak, which is the case that
+            # actually reaches here. Bumping the same nonce a human REMAKE
+            # uses means round 2 genuinely re-rolls pacing, tint, anchors and
+            # transitions instead of proving the same arrangement twice.
+            _VIDEO_REMAKE_NONCE[0] += 1
             tg(f"\U0001F504 Ch1: video round {_video_round} of {_VIDEO_ROUNDS} ended "
                f"without clearing {_VIDEO_MIN_GATE}/10 ({_reason}). Rebuilding from "
                f"scratch — re-fetching every figure and re-running every encode, "
@@ -12663,7 +12722,22 @@ def main():
         # Runs through a real scoring loop — regenerates up to 4 times if
         # it doesn't genuinely hit 9/10 on real, checkable criteria.
         from human_review_gate import regenerate_description_until_good
+        # EACH DESCRIPTION ATTEMPT MUST ASK A DIFFERENT PROVIDER.
+        #
+        # regenerate_description_until_good calls this four times with
+        # identical arguments. A deterministic provider returns the identical
+        # text every time, and the loop reports "4 attempts" for one piece of
+        # work. set_ai_variant lives here, not in the review-gate module, so
+        # the rotation has to be applied by the generator the caller passes
+        # in -- this is the only place with access to both.
+        _desc_calls = [0]
+
         def _desc_gen(n, t, ti, ep, ch, dur):
+            _desc_calls[0] += 1
+            try:
+                set_ai_variant(_desc_calls[0] * 17)
+            except Exception:
+                pass
             return generate_seo_description(n, t, ti, ep, ch, dur,
                                              citations_block=format_citations_block(real_cases),
                                              needs_fiction_disclosure=needs_fiction_disclosure)

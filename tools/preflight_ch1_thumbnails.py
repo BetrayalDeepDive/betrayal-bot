@@ -429,9 +429,20 @@ def main():
     # They were both wrong in the same way, so fixing one and not the other
     # would have left every Short silent behind the voice -- on the surface
     # watched almost entirely on a phone speaker.
-    _beds = len(re.findall(r"loudnorm=I=-37:LRA=11:TP=-6", _cp))
-    check("the Shorts get the same balance as the main video", _beds >= 2,
-          "%d of 2 mixes carry the bed target" % _beds)
+    #
+    # The bed target used to be written into this check as a literal
+    # (`loudnorm=I=-37...`), which meant retuning the bed for the phone band
+    # made the CHECK fail rather than the code -- a check encoding a number
+    # it is supposed to be verifying is downstream of. What actually matters
+    # is that the two mixes carry the SAME chain as each other, whatever it
+    # currently is, so the chain is read out of the pipeline and counted.
+    _bedchains = re.findall(r"\[2:a\](.*?)\[m\];", _cp)
+    _beds = (len([c for c in _bedchains if c == _bedchains[0]])
+             if _bedchains else 0)
+    check("the Shorts get the same balance as the main video",
+          _beds >= 2 and "loudnorm" in (_bedchains[0] if _bedchains else ""),
+          "%d of 2 mixes carry the same measured bed chain (%s)"
+          % (_beds, "; ".join(sorted(set(_bedchains)))[:90] or "none found"))
     # Narrowly the narration-against-music pattern. `volume=0.08` also appears
     # inside _synthesize_mood_track, where it balances that drone's own sine
     # components against each other -- nothing to do with the voice, and now
@@ -2211,6 +2222,164 @@ def main():
               "the emotion axis still penalises the channel's own register")
     except Exception as _e:
         check("rebuilt Shorts rubric", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # EVERY GATE, DRIVEN WITH A STUCK PROVIDER.
+    #
+    # The checks above this point that read source text for a ledger call
+    # cannot tell code from the comment describing it -- that mistake has
+    # been made repeatedly. These two DRIVE the real functions with a fake
+    # provider that always answers the same thing, and assert on what the
+    # function actually did: whether the rejected answer was named in the
+    # next prompt, and whether the repeat was allowed to spend an attempt.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import human_review_gate as _hrg3
+        _c_topic = ("A 34-year-old woman had recurrent fevers for eleven "
+                    "months. Every culture was negative and four specialists "
+                    "found nothing.")
+        _c_title = "11 MONTHS OF FEVER, EVERY TEST NORMAL"
+        _prompts = []
+
+        def _stuck_ai(prompt, min_chars=0):
+            _prompts.append(prompt)
+            return ("QUESTION: What's your take on this case? Drop your "
+                    "theory below.\nOPTION1: Infection\nOPTION2: Autoimmune\n")
+
+        _hrg3.draft_community_post(_c_topic, "medical", _c_title, _stuck_ai)
+        check("the community post names its rejected draft in the next prompt",
+              any("ALREADY TRIED AND REJECTED" in p for p in _prompts),
+              "every attempt asked the identical question")
+        check("a repeated community post does not spend an attempt",
+              len(_prompts) < _hrg3.COMMUNITY_POST_ATTEMPTS,
+              "one draft was scored %d times and logged as %d attempts"
+              % (len(_prompts), _hrg3.COMMUNITY_POST_ATTEMPTS))
+
+        # And it must still accept a genuinely different draft.
+        _seq = [("QUESTION: What's your take on this case?\n"
+                 "OPTION1: Infection\nOPTION2: Cancer\n"),
+                ("QUESTION: Eleven months of fever, every culture negative. "
+                 "What would you have imaged next?\nOPTION1: Abdominal CT\n"
+                 "OPTION2: Tagged WBC scan\nOPTION3: Echocardiogram\n"
+                 "OPTION4: Bone marrow\n")]
+        _i = [0]
+
+        def _varying_ai(prompt, min_chars=0):
+            _r = _seq[min(_i[0], len(_seq) - 1)]
+            _i[0] += 1
+            return _r
+
+        _got = _hrg3.draft_community_post(_c_topic, "medical", _c_title,
+                                          _varying_ai) or {}
+        check("a genuinely better community post is still accepted",
+              bool(_got.get("question")) and not _got.get("below_bar"),
+              "the ledger blocks real variety instead of repeats")
+
+        # The description loop, same treatment.
+        _dcalls = [0]
+
+        def _stuck_desc(n, t, ti, ep, ch, dur):
+            _dcalls[0] += 1
+            return "A short description that will not score well.\n\n" * 3
+
+        _dres = _hrg3.regenerate_description_until_good(
+            "n", "t", "Title", 1, "", 600.0, "niche", _stuck_desc,
+            min_score=9.0, max_attempts=4)
+        check("one description repeated is not reported as four attempts",
+              _dres["attempts"] <= 1,
+              "reported %s attempts for one piece of work"
+              % _dres["attempts"])
+    except Exception as _e:
+        check("repeat protection, driven end to end", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE BACKGROUND BED, MEASURED WHERE THE EAR IS.
+    #
+    # Reported directly and more than once: "I don't see the background
+    # sound in the video." Every previous answer to that was a gain number
+    # nobody measured. This renders a real bed, pushes it through the
+    # LITERAL filtergraph taken out of the shipping pipeline, subtracts the
+    # same mix built with a silent bed, and reads the LUFS of what is left.
+    # That difference IS the bed as delivered, so the assertion is on the
+    # sound, not on the source text.
+    #
+    # Two numbers, because they fail independently: broadband (headphones)
+    # and above 200 Hz (a phone speaker reproduces essentially nothing
+    # below that, and a pad is mostly low end -- which is how a bed can be
+    # correctly placed on paper and inaudible in the hand).
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        _bedgraph = re.search(
+            r'"(\[2:a\][^"]*loudnorm[^"]*\[m\];)"', _cp)
+        _wd2 = os.path.join(tempfile.gettempdir(), "preflight_bed")
+        os.makedirs(_wd2, exist_ok=True)
+        import ambient_bed as _ab
+        _bp = os.path.join(_wd2, "bed.mp3")
+        _ab.render(_bp, 24.0, mood="clinical", topic="unexplained fever",
+                   log=lambda *a, **k: None)
+
+        def _lufs(path, pre=""):
+            _r = subprocess.run(
+                ["ffmpeg", "-i", path, "-af", pre + "ebur128=peak=true",
+                 "-f", "null", "-"], capture_output=True, text=True)
+            _m = re.findall(r"I:\s+(-?[\d.]+) LUFS", _r.stderr)
+            return float(_m[-1]) if _m else None
+
+        _nar = os.path.join(_wd2, "narr.wav")
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i",
+                        "anoisesrc=d=24:c=pink:a=0.5", "-af",
+                        "loudnorm=I=-16.9:LRA=7:TP=-1.5", "-ar", "44100",
+                        _nar], capture_output=True)
+        _bedchain = (_bedgraph.group(1) if _bedgraph
+                     else "[2:a]loudnorm=I=-37:LRA=11:TP=-6[m];")
+        _tail = ("[n][m]amix=inputs=2:duration=first:normalize=0[mx];"
+                 "[mx]alimiter=limit=0.94[aout]")
+        _mix = os.path.join(_wd2, "mix.wav")
+        _nob = os.path.join(_wd2, "nobed.wav")
+        _dif = os.path.join(_wd2, "diff.wav")
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-t", "24", "-i",
+                        "color=c=black:s=64x64:r=5", "-i", _nar, "-i", _bp,
+                        "-filter_complex", "[1:a]volume=1.0[n];" + _bedchain + _tail,
+                        "-map", "[aout]", "-ar", "44100", _mix],
+                       capture_output=True)
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-t", "24", "-i",
+                        "color=c=black:s=64x64:r=5", "-i", _nar,
+                        "-f", "lavfi", "-t", "24", "-i", "anullsrc=r=44100:cl=mono",
+                        "-filter_complex", "[1:a]volume=1.0[n];[2:a]anull[m];" + _tail,
+                        "-map", "[aout]", "-ar", "44100", _nob],
+                       capture_output=True)
+        subprocess.run(["ffmpeg", "-y", "-i", _mix, "-i", _nob,
+                        "-filter_complex",
+                        "[1:a]volume=-1[inv];[0:a][inv]amix=inputs=2:normalize=0[d]",
+                        "-map", "[d]", "-ar", "44100", _dif], capture_output=True)
+        _nl = _lufs(_nar)
+        _under = _nl - _lufs(_dif)
+        _under_phone = _nl - _lufs(_dif, "highpass=f=200,")
+        check("the background bed is audible under the narration",
+              15.0 <= _under <= 21.0,
+              "%.1f LU under the voice — broadcast practice is 15-20, and "
+              "past ~30 it is not quiet, it is absent" % _under)
+        check("the bed survives into the band a phone speaker can play",
+              15.0 <= _under_phone <= 21.0,
+              "%.1f LU under above 200 Hz — correct on headphones, inaudible "
+              "in the hand" % _under_phone)
+        check("the bed is not paid for out of the narration",
+              _lufs(_mix) >= _nl - 0.5,
+              "adding the bed pushed the finished mix down to %.1f LUFS"
+              % _lufs(_mix))
+    except Exception as _e:
+        check("background bed, measured", False, repr(_e))
+
+    # The remaining gates live inside long pipeline functions that cannot be
+    # driven standalone, so these assert on the mechanism each one uses.
+    check("the Shorts gate refuses to count a repeat as an attempt",
+          "_short_ledger.is_repeat(" in open(
+              os.path.join(ROOT, "video_pipeline",
+                           "shorts_reels_engine.py")).read(),
+          "a rejected Short could be resubmitted and scored again")
+    check("the title gate refuses to count a repeat as an attempt",
+          "_title_wasted[0] += 1" in _cp and "_fresh = [t for t in titles" in _cp,
+          "already-rejected titles still burn one of the thirteen")
 
     print("-" * 78)
     print("  %d passed, %d failed\n" % (len(PASS), len(FAIL)))
