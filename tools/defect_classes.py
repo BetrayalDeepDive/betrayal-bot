@@ -341,6 +341,16 @@ def scan_retry_without_variation():
 def scan_phantom_imports():
     import importlib.util
     sys.path.insert(0, str(ROOT / "video_pipeline"))
+    # Each channel directory is also a real module location in this repo --
+    # clinical_pipeline.py and its siblings live there and are imported by
+    # bare name, exactly like the video_pipeline modules above. Without these
+    # the scan reports every channel module as a phantom dependency, which is
+    # a false alarm about the repo's own code and trains the reader to ignore
+    # the check. Only directories that actually exist are added, so this
+    # cannot mask a genuinely missing third-party package.
+    for _chan in sorted((ROOT / "channels").glob("*")):
+        if _chan.is_dir() and any(_chan.glob("*.py")):
+            sys.path.insert(0, str(_chan))
     stdlib = set(sys.stdlib_module_names)
     # Installed at runtime by the workflows, not present in this sandbox.
     # Modules that resolve at runtime but not in every environment.

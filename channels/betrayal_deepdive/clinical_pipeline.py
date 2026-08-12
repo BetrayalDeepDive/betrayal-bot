@@ -2248,6 +2248,25 @@ def call_github_models(prompt, tokens=8000, min_chars=100):
                 log(f"GitHub Models {model}: 403 — GITHUB_TOKEN likely missing 'models: read' "
                     f"permission in the workflow")
                 return None  # a permissions problem won't fix itself on the next model
+            elif r.status_code == 410:
+                # A RETIRED SERVICE IS NOT A TRANSIENT FAILURE.
+                #
+                # Found live in run 31580988663. GitHub Models entered its
+                # retirement brownout and returned 410 for ALL FIVE models.
+                # 410 fell into the generic `else` below, which only logs and
+                # tries the next model -- so every single AI call in the run
+                # made five doomed round-trips before moving on, and the
+                # provider was never marked dead because nothing here told the
+                # chain it was gone. Across 13 script attempts x several calls
+                # each, that is a large part of why one script stage ran for
+                # five hours and the job died with nothing rendered.
+                #
+                # 410 Gone means gone. Retire the whole provider for the run
+                # on the first one, rather than rediscovering it every call.
+                log(f"GitHub Models: 410 Gone ({model}) — the service is retired, "
+                    f"not rate limited. Dropping GitHub Models for this run.")
+                _note_quota_exhausted("github_models")
+                return None
             else:
                 log(f"GitHub Models {model}: {r.status_code}: {r.text[:200]}")
         except Exception as e:
@@ -2271,6 +2290,15 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
     for model in ["@cf/meta/llama-3.3-70b-instruct-fp8-fast",
                   "@cf/mistralai/mistral-small-3.1-24b-instruct",
                   "@cf/google/gemma-3-12b-it"]:
+        # A model this account is not entitled to will never become
+        # entitled mid-run. Observed live: gemma-3-12b-it returned
+        # "Account ... is not allowed to access" on every single call for
+        # five hours, because 403 was handled as an ordinary failure and
+        # the model kept its place in the list. Skipping it after the
+        # first refusal costs one round-trip per run instead of one per
+        # call, and self-heals if entitlement is ever granted.
+        if model in _DENIED_MODELS_THIS_RUN:
+            continue
         try:
             r = requests.post(url,
                 headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
@@ -2290,6 +2318,13 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
             elif r.status_code == 429:
                 log(f"Cloudflare {model}: 429 — daily 10k Neuron allocation likely used up")
                 _note_quota_exhausted("cloudflare")
+            elif r.status_code == 403:
+                # Entitlement, not quota: "Account N is not allowed to access
+                # <model>". The other models on this account still work, so
+                # this retires the MODEL rather than the provider.
+                log(f"Cloudflare {model}: 403 — this account is not entitled to "
+                    f"this model. Dropping the model for this run.")
+                _DENIED_MODELS_THIS_RUN.add(model)
             else:
                 log(f"Cloudflare {model}: {r.status_code}: {r.text[:200]}")
         except Exception as e:
@@ -2334,6 +2369,16 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                 log(f"NVIDIA NIM {model}: {r.status_code} (wrong model name) — trying next")
             elif r.status_code == 429:
                 log(f"NVIDIA NIM {model}: 429 rate limited — trying next")
+                _note_quota_exhausted("nvidia_nim")
+            elif r.status_code == 503 and "ResourceExhausted" in (r.text or ""):
+                # NIM signals a saturated shared worker pool as 503
+                # "ResourceExhausted: Worker local total request limit reached
+                # (27/16)", not 429. Only the 429 branch above marked the
+                # provider, so in run 31580988663 NIM was hammered with 503s
+                # for five hours and kept its place at the front of the chain.
+                # Same meaning as a 429, so same treatment.
+                log(f"NVIDIA NIM {model}: 503 ResourceExhausted (shared pool "
+                    f"saturated) — treating as rate limited, not transient.")
                 _note_quota_exhausted("nvidia_nim")
             else:
                 log(f"NVIDIA NIM {model}: {r.status_code}: {r.text[:200]}")
@@ -2444,6 +2489,18 @@ _DEAD_PROVIDERS_THIS_RUN = set()
 # So a provider that reports a DAILY exhaustion is retired for the run and
 # never revived. Only transient failures are ever given a second chance.
 _EXHAUSTED_PROVIDERS_THIS_RUN = set()
+
+# Individual MODELS this account is not entitled to. Distinct from the
+# provider-level set above: one refused model must not take a working
+# provider down with it, and must not be re-asked on every call either.
+_DENIED_MODELS_THIS_RUN = set()
+
+# CONSECUTIVE failures per provider, and whether it has ever answered in
+# this run. Together these are what separate "this provider is down" from
+# "this provider had a bad minute" -- see the retirement logic in
+# ai_generate for what conflating the two cost run 31580988663.
+_PROVIDER_STRIKES = {}
+_PROVIDER_WINS = {}
 
 
 def _note_quota_exhausted(name):
@@ -2562,9 +2619,36 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens, min_chars)
         if r:
+            # A success wipes the slate. Strikes are for a provider that is
+            # actually going down, not for one that had a bad minute.
+            _PROVIDER_STRIKES[name] = 0
+            _PROVIDER_WINS[name] = _PROVIDER_WINS.get(name, 0) + 1
             return _strip_reasoning(r)
-        _DEAD_PROVIDERS_THIS_RUN.add(name)
-        if i < len(live) - 1:
+        # ONE BAD MINUTE IS NOT A DEAD PROVIDER.
+        #
+        # This retired a provider for the WHOLE RUN on its first failure of
+        # any kind -- a read timeout, a 500, one short answer. Measured on
+        # run 31580988663: Cerebras, Groq, Mistral and OpenRouter each
+        # answered successfully TWICE, hit one transient failure, and were
+        # gone for the remaining five hours. Everything then piled onto
+        # NVIDIA NIM, which served 38 of the run's 46 successful calls and
+        # was itself returning 503 "ResourceExhausted" under the load. A
+        # chain of ten providers had effectively collapsed to one, and the
+        # script stage never recovered.
+        #
+        # A provider that has already answered in this run has proved it is
+        # reachable and configured, so it gets three consecutive failures
+        # before being retired. One that has never answered still goes on
+        # the first failure -- there is no evidence it will ever work, and
+        # patience there costs the clock for nothing.
+        _PROVIDER_STRIKES[name] = _PROVIDER_STRIKES.get(name, 0) + 1
+        _limit = 3 if _PROVIDER_WINS.get(name) else 1
+        if _PROVIDER_STRIKES[name] >= _limit:
+            _DEAD_PROVIDERS_THIS_RUN.add(name)
+        elif i < len(live) - 1:
+            log(f"  {name} failed ({_PROVIDER_STRIKES[name]}/{_limit}) but has "
+                f"answered before this run — keeping it in the chain.")
+        if name in _DEAD_PROVIDERS_THIS_RUN and i < len(live) - 1:
             # The 10s pause exists to let a rate limit breathe. It is wasted
             # on a DAILY exhaustion -- the next provider is a different
             # account with its own allocation, so waiting helps nobody and

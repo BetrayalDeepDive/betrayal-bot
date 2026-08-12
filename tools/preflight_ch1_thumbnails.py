@@ -24,6 +24,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "video_pipeline"))
 sys.path.insert(0, os.path.join(ROOT, "channels"))
+# Ch1's pipeline module itself, so the provider-chain checks below can drive
+# the real call_* functions rather than reading their source. Without this,
+# `import clinical_pipeline` does not resolve and the checks fail closed --
+# which is how the defect scanner caught it, correctly.
+sys.path.insert(0, os.path.join(ROOT, "channels", "betrayal_deepdive"))
 
 PASS, FAIL = [], []
 
@@ -2369,6 +2374,141 @@ def main():
               % _lufs(_mix))
     except Exception as _e:
         check("background bed, measured", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE PROVIDER CHAIN, DRIVEN WITH THE FAILURES THAT ACTUALLY HAPPENED.
+    #
+    # Run 31580988663 spent 5h04m on the script stage and died with nothing
+    # rendered. Not one cause -- a collapse:
+    #   * GitHub Models returned 410 (retirement brownout) on all 5 models,
+    #     and 410 was handled as an ordinary error, so every AI call made
+    #     five doomed round-trips and the provider was never marked dead.
+    #   * NVIDIA NIM signalled saturation as 503 "ResourceExhausted" rather
+    #     than 429, which no branch recognised.
+    #   * Cloudflare's gemma-3-12b-it 403'd on every call because the
+    #     account is not entitled to it, and the model kept its place.
+    #   * Worst of all, ONE transient failure retired a provider for the
+    #     whole run, so four providers that had each answered successfully
+    #     vanished after a single blip and everything piled onto NIM.
+    # These drive the real functions with the real response bodies.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        os.environ.setdefault("GITHUB_TOKEN", "preflight")
+        os.environ.setdefault("CLOUDFLARE_API_TOKEN", "preflight")
+        os.environ.setdefault("CLOUDFLARE_ACCOUNT_ID", "0")
+        import clinical_pipeline as _cp_mod
+
+        class _Resp:
+            def __init__(s, code, text=""):
+                s.status_code, s.text = code, text
+
+            def json(s):
+                return {}
+
+        _real_post = _cp_mod.requests.post
+        try:
+            _hits = []
+            _cp_mod.requests.post = lambda url, **kw: (
+                _hits.append(kw.get("json", {}).get("model")),
+                _Resp(410, '{"error":{"code":"github_models_retirement_brownout"}}')
+            )[1]
+            _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN.discard("github_models")
+            _cp_mod._DEAD_PROVIDERS_THIS_RUN.discard("github_models")
+            _cp_mod.call_github_models("x", tokens=50, min_chars=5)
+            check("a retired provider is dropped, not re-asked per model",
+                  len(_hits) == 1
+                  and "github_models" in _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                  "410 Gone walked all %d models and left the provider live"
+                  % len(_hits))
+
+            _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN.discard("nvidia_nim")
+            _cp_mod._DEAD_PROVIDERS_THIS_RUN.discard("nvidia_nim")
+            # The key is read into a module constant at import, and this check
+            # is worthless without one: call_nvidia_nim returns at its first
+            # line when the key is missing, so the 503 branch is never reached
+            # and the check passes having exercised nothing. That is exactly
+            # how it passed before the branch existed at all.
+            _saved_key = _cp_mod.NVIDIA_NIM_KEY
+            _cp_mod.NVIDIA_NIM_KEY = "preflight"
+            _cp_mod.requests.post = lambda url, **kw: _Resp(
+                503, '{"error":{"message":"ResourceExhausted: Worker local '
+                     'total request limit reached (27/16)"}}')
+            _cp_mod.call_nvidia_nim("x", tokens=50, min_chars=5)
+            _cp_mod.NVIDIA_NIM_KEY = _saved_key
+            check("a saturated pool counts as rate limited",
+                  "nvidia_nim" in _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                  "503 ResourceExhausted was treated as transient and the "
+                  "provider stayed at the front of the chain")
+
+            _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN.discard("cloudflare")
+            _cp_mod._DENIED_MODELS_THIS_RUN.clear()
+            _seen = []
+
+            def _cf(url, **kw):
+                _m = kw.get("json", {}).get("model")
+                _seen.append(_m)
+                return _Resp(403, "not allowed to access") \
+                    if "gemma" in (_m or "") else _Resp(500, "transient")
+
+            _cp_mod.requests.post = _cf
+            _cp_mod.call_cloudflare("x", tokens=50, min_chars=5)
+            _first = len(_seen)
+            _seen.clear()
+            _cp_mod.call_cloudflare("x", tokens=50, min_chars=5)
+            check("an unentitled model is dropped without killing its provider",
+                  len(_seen) == _first - 1
+                  and "cloudflare" not in _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                  "the 403 model is re-asked every call, or took the whole "
+                  "provider down with it")
+        finally:
+            _cp_mod.requests.post = _real_post
+
+        # The amplifier: one blip must not retire a provider that works.
+        _sleep, _log = _cp_mod.time.sleep, _cp_mod.log
+        _saved = {n: getattr(_cp_mod, n) for n in (
+            "call_cerebras", "call_github_models", "call_cloudflare",
+            "call_nvidia_nim", "call_sambanova", "call_gemini", "call_groq",
+            "call_openrouter", "call_cohere", "call_mistral")}
+        try:
+            _cp_mod.time.sleep = lambda *a, **k: None
+            _cp_mod.log = lambda *a, **k: None
+            for _n in _saved:
+                setattr(_cp_mod, _n, lambda p, t=8000, m=100: None)
+            _seq = ["y" * 200, "y" * 200, None, "y" * 200]
+            _i = [0]
+
+            def _flaky(p, t=8000, m=100):
+                _v = _seq[_i[0]] if _i[0] < len(_seq) else "y" * 200
+                _i[0] += 1
+                return _v
+
+            _cp_mod.call_cerebras = _flaky
+            _cp_mod._DEAD_PROVIDERS_THIS_RUN.clear()
+            _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN.clear()
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+            _cp_mod._AI_VARIANT[0] = 0
+            _out = [bool(_cp_mod.ai_generate("x", 50, 5)) for _ in range(4)]
+            check("one transient failure does not retire a working provider",
+                  _out == [True, True, False, True],
+                  "a provider that answered twice was lost to one blip: %s"
+                  % _out)
+
+            _cp_mod._DEAD_PROVIDERS_THIS_RUN.clear()
+            _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN.clear()
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+            _cp_mod.call_cerebras = lambda p, t=8000, m=100: None
+            _cp_mod.ai_generate("x", 50, 5)
+            check("a provider that never answers is still dropped at once",
+                  "cerebras" in _cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                  "the clock is spent being patient with a dead provider")
+        finally:
+            _cp_mod.time.sleep, _cp_mod.log = _sleep, _log
+            for _n, _f in _saved.items():
+                setattr(_cp_mod, _n, _f)
+    except Exception as _e:
+        check("provider chain under real failures", False, repr(_e))
 
     # The remaining gates live inside long pipeline functions that cannot be
     # driven standalone, so these assert on the mechanism each one uses.
