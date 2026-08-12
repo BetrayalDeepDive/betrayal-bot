@@ -116,6 +116,53 @@
         "A 60-year-old male shows profound bradycardia and hypotension; EKG shows characteristic PR prolongation indicating digitalis toxicity from an herbal tea."
       ],
       "last_run": "2026-08-10T09:40:37.412430"
+    },
+    "neurology_cases": {
+      "top_hook_formulas": [
+        "When a simple headache hides a deadly tumor",
+        "The symptom that fooled every neurologist",
+        "What a routine scan missed\u2026 until it was too late"
+      ],
+      "winning_title_patterns": [
+        "Rare [Condition] presenting as [Unexpected Symptom] \u2013 How It Was Missed",
+        "Unusual Neurological Case: [Symptom] Reveals Hidden [Diagnosis]",
+        "The Shocking Diagnosis Behind a Common Complaint \u2013 A Real Case Study"
+      ],
+      "thumbnail_text_examples": [
+        "Hidden Brain Tumor",
+        "Mystery Stroke",
+        "Silent Seizure",
+        "Unexpected Paralysis",
+        "Invisible Lesion"
+      ],
+      "retention_hooks": [
+        "30pct",
+        "60pct",
+        "80pct"
+      ],
+      "niche_power_words": [
+        "Unmask",
+        "Mystery",
+        "Deadly",
+        "Rare",
+        "Shock",
+        "Breakthrough"
+      ],
+      "fresh_topic_ideas": [
+        "A 34-year-old woman presented with sudden unilateral facial numbness, later diagnosed as isolated brainstem glioma despite normal MRI initially.",
+        "A 58-year-old man experienced progressive gait instability, ultimately found to have copper deficiency neuropathy mimicking Parkinson\u2019s disease.",
+        "A 67-year-old retiree reported chronic headaches, with CSF analysis uncovering neurosarcoidosis despite unremarkable brain CT.",
+        "A 50-year-old accountant presented with sudden hearing loss, later diagnosed as vestibular schwannoma after high\u2011resolution MRI revealed a tiny CPA mass.",
+        "A 19-year-old athlete suffered brief seizures, with serum sodium showing hyponatremia from SIADH linked to a hidden small\u2011cell lung carcinoma.",
+        "A 73-year-old woman had progressive memory loss, ultimately found to have autoimmune encephalitis associated with anti\u2011LGI1 antibodies despite normal EEG.",
+        "A 40-year-old teacher reported chronic fatigue and leg tingling, later identified as vitamin B12 deficiency causing subacute combined degeneration mimicking multiple sclerosis.",
+        "A 55-year-old pilot experienced sudden vertigo, with CT angiography revealing a paradoxical embolus from a patent foramen ovale causing cerebellar infarct.",
+        "A 62-year-old gardener complained of unexplained foot drop, finally linked to Lyme disease neuroborreliosis after serology confirmed Borrelia infection.",
+        "A 47-year-old musician suffered abrupt loss of smell, with MRI showing an inflammatory lesion in the olfactory bulb consistent with paraneoplastic syndrome.",
+        "A 39-year-old photographer reported intermittent double vision, later traced to a Chiari I malformation causing cerebellar tonsillar herniation on MRI.",
+        "A 71-year-old veteran complained of progressive numbness, with spinal MRI uncovering intramedullary spinal cord tumor masquerading as diabetic neuropathy."
+      ],
+      "last_run": "2026-08-12T09:31:22.008033"
     }
   },
   "last_title_register": "dread",
