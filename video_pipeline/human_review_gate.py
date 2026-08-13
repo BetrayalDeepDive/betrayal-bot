@@ -319,6 +319,158 @@ def review_time_report():
     return "\n".join(lines)
 
 
+# ── TELLING THE OWNER WHAT JUST HAPPENED ───────────────────────────────
+# Direct request: after approving a stage by hand, say so and say what is
+# happening next -- "so that I can be best in loop of things and not blind
+# sided with just auto approvals and updates."
+#
+# The second half of that is the important half. Before this, a gate the
+# owner answered and a gate that simply ran out of time both continued in
+# exactly the same silence, so from the phone they were indistinguishable.
+# A receipt that only ever said "approved" would make that WORSE, because
+# it would put the owner's name on decisions the owner never made. So the
+# receipt's first job is to state who decided, and an unanswered gate is
+# reported in a visibly different register from an approval.
+_STAGE_AFTER = {
+    "script":                      "Stage 2 — Audio: narration, voice pick, music bed",
+    "audio+video":                 "Stage 5 — Title, thumbnail and description",
+    "title":                       "the thumbnail",
+    "thumbnail":                   "the description",
+    "title+thumbnail+description": "final assembly, then the pre-publish check",
+    "shorts":                      "finalising the episode",
+    "community tab":               "the end of the run",
+    "final pre-publish":           "publishing",
+    "resume confirmation":         "picking up from the last stage that passed",
+}
+
+# (headline, what it means for the episode)
+_DECISION_WORDS = {
+    "approve":      ("APPROVED",          "moving on"),
+    "reject":       ("REJECTED",          "this episode stops here, nothing is published"),
+    "edit":         ("EDIT REQUESTED",    "your notes go back in and it is rewritten"),
+    "remake":       ("REMAKE REQUESTED",  "this stage is built again from scratch"),
+    "swap_visuals": ("VISUALS SWAPPED",   "the picture is rebuilt, the audio is kept"),
+    "swap_voice":   ("VOICE SWAPPED",     "re-narrated in a different voice"),
+    "cancel":       ("CANCELLED",         "the run is stopping"),
+}
+
+_GATE_LEDGER = []
+
+
+def _clock_left_line():
+    """How much of the 6-hour job remains, when that is knowable."""
+    try:
+        from job_clock import remaining_minutes
+        _m = remaining_minutes()
+        if _m is None:
+            return ""
+        return "\n⏱ %d min left of this run's 6-hour budget." % _m
+    except Exception:
+        return ""
+
+
+def send_decision_receipt(tg_token, tg_chat, label, decision, waited_s,
+                          feedback=None):
+    """
+    Confirm, on Telegram, what was just decided at `label` and what happens
+    next. Records the same facts in a ledger so the end of the run can show
+    which decisions were the owner's and which were not.
+    """
+    _human = not _no_human_reply(decision)
+    _nxt = _STAGE_AFTER.get(label, "the next stage")
+    _mins = waited_s / 60.0
+    _GATE_LEDGER.append({"gate": label, "decision": decision,
+                         "by_owner": _human, "minutes": round(_mins, 1)})
+    try:
+        if never_asked(decision):
+            # The question never reached a human. This must never read like
+            # a decision -- nobody made one.
+            _txt = ("⛔ <b>%s — COULD NOT REACH YOU</b>\n"
+                    "The review never got to your phone, so <b>nothing was "
+                    "approved</b>. The episode is being HELD exactly where it "
+                    "is: not published, not deleted.\n"
+                    "Fix the Telegram bot token/chat and the next run offers "
+                    "it again." % label.upper())
+        elif _human:
+            _head, _means = _DECISION_WORDS.get(
+                decision, (decision.upper(), "continuing"))
+            _txt = ("✅ <b>%s — %s BY YOU</b>\n"
+                    "%s.\n"
+                    "You answered in %s.\n"
+                    "▶️ Next: %s"
+                    % (label.upper(), _head, _means.capitalize(),
+                       ("%.0f sec" % waited_s) if _mins < 1
+                       else ("%.0f min" % _mins), _nxt))
+            if feedback:
+                _txt += "\n📝 Your note, going in verbatim:\n<i>%s</i>" % (
+                    _html_module.escape(str(feedback)[:400]))
+        else:
+            # Answered by the clock, not by a person. Say that plainly.
+            _txt = ("⚠️ <b>%s — NO ANSWER FROM YOU</b>\n"
+                    "Waited %.0f min and heard nothing, so the pipeline "
+                    "proceeded on its own (<code>%s</code>).\n"
+                    "<b>This was NOT your approval.</b>\n"
+                    "▶️ Next: %s" % (label.upper(), _mins, decision, _nxt))
+        _tg_send_message(tg_token, tg_chat, _txt + _clock_left_line())
+    except Exception as e:
+        print(f"  Decision receipt not sent (non-fatal): {e}")
+
+
+def heads_up(tg_token, tg_chat, doing, minutes, next_question=None):
+    """
+    "Nothing needed from you for a while" — so the owner knows the silence
+    is work rather than a stall, and roughly when to look again. A run that
+    goes quiet for 25 minutes of rendering is indistinguishable from a run
+    that has died, unless it says so.
+    """
+    try:
+        _txt = ("🔧 <b>Working — nothing needed from you</b>\n"
+                "%s (about %d min)." % (doing, minutes))
+        if next_question:
+            _txt += "\n🔔 Next thing I'll ask you about: %s" % next_question
+        _tg_send_message(tg_token, tg_chat, _txt + _clock_left_line())
+    except Exception as e:
+        print(f"  Heads-up not sent (non-fatal): {e}")
+
+
+def send_run_ledger(tg_token, tg_chat, outcome=""):
+    """
+    The end-of-run receipt: every gate, what was decided, and — the point —
+    which of those were actually yours. Anything the clock decided is listed
+    separately, so a run can never quietly end up "all approved" without the
+    owner being told exactly which approvals were not theirs.
+    """
+    if not _GATE_LEDGER:
+        return
+    try:
+        _mine = [g for g in _GATE_LEDGER if g["by_owner"]]
+        _auto = [g for g in _GATE_LEDGER if not g["by_owner"]]
+        _lines = ["🧾 <b>Run summary — who decided what</b>"]
+        if outcome:
+            _lines.append(outcome)
+        _lines.append("\n<b>You decided %d of %d:</b>"
+                      % (len(_mine), len(_GATE_LEDGER)))
+        for g in _GATE_LEDGER:
+            _lines.append("  %s %s — <b>%s</b>%s"
+                          % ("✅" if g["by_owner"] else "⚠️",
+                             g["gate"], g["decision"].upper(),
+                             "" if g["by_owner"] else "  ← not you"))
+        if _auto:
+            _lines.append("\n⚠️ <b>%d gate(s) went ahead without you.</b> "
+                          "If that is not what you wanted, reply sooner next "
+                          "run or raise REVIEW_TIMEOUT_MIN." % len(_auto))
+        else:
+            _lines.append("\n👍 Every gate this run was decided by you.")
+        _tg_send_message(tg_token, tg_chat, "\n".join(_lines))
+    except Exception as e:
+        print(f"  Run ledger not sent (non-fatal): {e}")
+
+
+def gate_ledger():
+    """The decisions so far, for the run's own logging."""
+    return list(_GATE_LEDGER)
+
+
 def default_review_timeout():
     """
     Per-gate poll timeout in minutes.
@@ -964,7 +1116,12 @@ def _poll_for_decision(tg_token, tg_chat, timeout_minutes=None, max_attempts=3,
             gmail_sender, gmail_app_password)
     finally:
         pass
-    record_review_wait(label, time.time() - _t0, decision)
+    _waited = time.time() - _t0
+    record_review_wait(label, _waited, decision)
+    # Every gate in this module returns through here, so the receipt is sent
+    # once, from one place. Wiring it into each gate separately is how a gate
+    # ends up silently missing one.
+    send_decision_receipt(tg_token, tg_chat, label, decision, _waited, feedback)
     return decision, feedback
 
 

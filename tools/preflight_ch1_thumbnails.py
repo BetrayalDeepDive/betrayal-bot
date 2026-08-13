@@ -2587,6 +2587,71 @@ def main():
           "grain strength 15 with temporal noise measured 11.3x the source "
           "size; 10 measures 1.1x and still plainly reads as film")
 
+    # ══════════════════════════════════════════════════════════════════
+    # THE RECEIPT MUST NEVER PUT THE OWNER'S NAME ON A DECISION THEY DID
+    # NOT MAKE.
+    #
+    # Requested: confirm on Telegram what was decided and what happens
+    # next, "so that I can be best in loop of things and not blind sided
+    # with just auto approvals". A receipt that said "approved" for a gate
+    # nobody answered would be worse than no receipt at all -- it would
+    # manufacture consent. So the load-bearing assertion here is not that
+    # the message is sent, it is that an unanswered gate reads differently
+    # from an approved one, in every wording the gates can return.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import human_review_gate as _hrg4
+        _sent = []
+        _real_send = _hrg4._tg_send_message
+        try:
+            _hrg4._tg_send_message = lambda t, c, txt: _sent.append(txt)
+
+            _hrg4.send_decision_receipt("t", "c", "script", "approve", 40.0)
+            _yours = _sent[-1]
+            check("an approval you gave says so, and says what is next",
+                  "BY YOU" in _yours and "Next:" in _yours
+                  and "Audio" in _yours,
+                  "the receipt does not confirm the decision or the next stage")
+
+            _bad = []
+            for _d in list(_hrg4._NO_REPLY) + list(_hrg4._NEVER_ASKED):
+                _sent.clear()
+                _hrg4.send_decision_receipt("t", "c", "thumbnail", _d, 3600.0)
+                _m = _sent[-1] if _sent else ""
+                # It must not claim the owner did anything, and must not
+                # borrow the approval headline.
+                if "BY YOU" in _m or "✅" in _m:
+                    _bad.append(_d)
+            check("a gate nobody answered is never reported as your approval",
+                  not _bad,
+                  "these decisions still read as owner approvals: %s" % _bad)
+
+            _sent.clear()
+            _hrg4.send_decision_receipt("t", "c", "audio+video", "edit", 90.0,
+                                        "cut the first two sentences")
+            check("your own words come back to you verbatim",
+                  "cut the first two sentences" in _sent[-1],
+                  "an EDIT receipt does not quote the note being acted on")
+
+            # The ledger is the end-of-run backstop for the same concern.
+            _sent.clear()
+            _hrg4.send_run_ledger("t", "c", "done")
+            _ledger = _sent[-1] if _sent else ""
+            check("the end-of-run summary separates your calls from the clock's",
+                  "not you" in _ledger and "went ahead without you" in _ledger,
+                  "the run can end without saying which approvals were not "
+                  "the owner's")
+        finally:
+            _hrg4._tg_send_message = _real_send
+            _hrg4._GATE_LEDGER.clear()
+
+        check("every gate reports through one place, so none can be missed",
+              _hrg_src2.count("send_decision_receipt(") >= 2
+              and "record_review_wait(label, _waited, decision)" in _hrg_src2,
+              "a gate could return without ever confirming what happened")
+    except Exception as _e:
+        check("decision receipts", False, repr(_e))
+
     # The remaining gates live inside long pipeline functions that cannot be
     # driven standalone, so these assert on the mechanism each one uses.
     check("the Shorts gate refuses to count a repeat as an attempt",

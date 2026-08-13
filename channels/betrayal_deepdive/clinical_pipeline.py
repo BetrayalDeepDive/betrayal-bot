@@ -12274,6 +12274,21 @@ def main():
         ass_path = str(WORK_DIR / "main_captions.ass")
         if not _captions_for(audio_path, ass_path, script_clean, audio_duration):
             ass_path = None
+        # THE LONGEST SILENCE IN THE RUN, ANNOUNCED.
+        #
+        # Assembly measured 110 minutes end to end on run 31695910257, and
+        # nearly half of that is this one call: matching ~100 segments to the
+        # audio, then the grain/SFX pass. From a phone that is a long time
+        # with nothing arriving, and a run that is working looks exactly like
+        # a run that has died. Saying so costs one message.
+        try:
+            from human_review_gate import heads_up
+            heads_up(TG_TOKEN, TG_CHAT,
+                     "Building the video — matching visuals to the narration, "
+                     "then the grain and sound-design pass",
+                     45, "the finished video, to approve or send back")
+        except Exception:
+            pass
         video_path = run_stage_with_retry(
             assemble_video, "Video", niche_name, audio_path, audio_duration, topic, script_clean, episode, real_cases, ass_path, title=title)
 
@@ -13550,6 +13565,23 @@ def _log_runtime_breakdown(t0):
             f"{(total-waiting)/60:.0f} min of real work")
         log(review_time_report())
         log("─" * 58)
+        # THE RUN DOES NOT END WITHOUT SAYING WHO DECIDED WHAT.
+        #
+        # The breakdown above goes to the Actions log, which nobody reads
+        # from a phone. This sends the same accounting to Telegram, and its
+        # real purpose is the column nothing else reports: which gates the
+        # owner actually decided, and which ones went ahead because the
+        # clock ran out. A run that ends "all approved" without saying that
+        # two of those approvals were nobody's is the exact blind spot this
+        # exists to close.
+        from human_review_gate import send_run_ledger, gate_ledger
+        _led = gate_ledger()
+        if _led:
+            _auto = sum(1 for g in _led if not g["by_owner"])
+            send_run_ledger(TG_TOKEN, TG_CHAT,
+                            "Generate phase finished." if not _auto else
+                            "Generate phase finished — %d gate(s) went ahead "
+                            "without you." % _auto)
     except Exception as e:
         log(f"  runtime breakdown unavailable: {e}")
 
