@@ -535,6 +535,54 @@
       "sha": "f27f5593901c976c",
       "tags": "a healthy breastfeeding woman unexpectedly developed a serious condition after starting a low-carb diet, despite not having diabetes.",
       "w": 640
+    },
+    {
+      "file": "scene_c1380761370cd4fb.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "c1380761370cd4fb",
+      "tags": "heart",
+      "w": 1071
+    },
+    {
+      "file": "scene_ed5ce7386dd29ef7.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "ed5ce7386dd29ef7",
+      "tags": "ultrasound",
+      "w": 1121
+    },
+    {
+      "file": "scene_dad26e79e98db2d5.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "dad26e79e98db2d5",
+      "tags": "brain",
+      "w": 1270
+    },
+    {
+      "file": "evidence_49bf28c782799c11.jpg",
+      "h": 765,
+      "role": "evidence",
+      "sha": "49bf28c782799c11",
+      "tags": "paramedic",
+      "w": 1018
+    },
+    {
+      "file": "scene_16d218cee287843d.jpg",
+      "h": 468,
+      "role": "scene",
+      "sha": "16d218cee287843d",
+      "tags": "human brain specimen",
+      "w": 829
+    },
+    {
+      "file": "scene_0880eb02c796ef81.jpg",
+      "h": 1200,
+      "role": "scene",
+      "sha": "0880eb02c796ef81",
+      "tags": "neurosurgery operating",
+      "w": 1600
     }
   ]
 }
