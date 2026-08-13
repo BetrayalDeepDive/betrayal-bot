@@ -125,6 +125,46 @@ ORGAN_TERMS = {
 }
 
 
+def featureless_fraction(img):
+    """
+    How much of this picture is flat, textureless surface: a wall, a floor,
+    an empty corridor, a studio backdrop. 0.0 = detail everywhere,
+    1.0 = a blank rectangle.
+
+    THE SAME NUMBER HAS TO DECIDE AND TO JUDGE.
+    -------------------------------------------
+    Run 31695910257 fetched a Pixabay photo that was ~60% blank surface,
+    and every one of the five thumbnail layouts then scored exactly 8.0/10
+    with the same complaint. That is the correct verdict and it arrives far
+    too late: no arrangement of text can rescue a photograph with nothing
+    in it, so the loop was re-rendering the same dead picture five times
+    and the reviewer rejected the result.
+
+    The measurement already existed inside score_photo_card. It is lifted
+    out here so the SELECTION step can apply the identical test before a
+    photo is ever downloaded into the pipeline -- if the chooser and the
+    judge use different definitions of "blank", the chooser will keep
+    handing the judge pictures it is going to reject.
+
+    Accepts a PIL image or a path.
+    """
+    if not isinstance(img, Image.Image):
+        img = Image.open(img)
+    g = np.asarray(img.convert("RGB").resize((160, 90), Image.LANCZOS)
+                   .convert("L")).astype(np.float32)
+    # diff along an axis shortens THAT axis by one, so both planes are
+    # trimmed on both axes before they can be combined.
+    dx = np.abs(np.diff(g, axis=1))[:-1, :]
+    dy = np.abs(np.diff(g, axis=0))[:, :-1]
+    return float(((dx < 4) & (dy < 4)).mean())
+
+
+# Above this, score_photo_card docks the card 2.0 points and calls it "a
+# blank surface". Selection refuses a candidate at the same line, so the
+# two stages cannot disagree about what a usable photograph is.
+FEATURELESS_MAX = 0.55
+
+
 def organ_terms(text):
     """Search terms for whichever organ this episode is actually about.
 
@@ -809,14 +849,11 @@ def score_image(path, topic=""):
         why.append("content sits under YouTube's duration badge")
 
     # A card that is mostly one featureless surface is the "boring" complaint
-    # in measurable form: a wall, a floor, an empty corridor.
-    g = np.asarray(im.resize((160, 90), Image.LANCZOS).convert("L")).astype(np.float32)
-    # diff along each axis shortens THAT axis by one, so both planes have to
-    # be trimmed on both axes before they can be combined.
-    dx = np.abs(np.diff(g, axis=1))[:-1, :]     # (h-1, w-1)
-    dy = np.abs(np.diff(g, axis=0))[:, :-1]     # (h-1, w-1)
-    dead = ((dx < 4) & (dy < 4)).mean()
-    if dead > 0.55:
+    # in measurable form: a wall, a floor, an empty corridor. Shared with the
+    # photo CHOOSER (see featureless_fraction) so a picture this would reject
+    # is never selected in the first place.
+    dead = featureless_fraction(im)
+    if dead > FEATURELESS_MAX:
         sc -= 2.0
         why.append("%.0f%% of the frame is featureless — the photo is a blank surface" % (dead * 100))
 

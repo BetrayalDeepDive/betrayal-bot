@@ -8394,6 +8394,76 @@ def get_thumbnail_style(state, episode):
     return style
 
 
+def _pick_photo_with_a_subject(urls, out_path, source, search_kw):
+    """
+    Download the first candidate that is actually a photograph OF something,
+    and say so. Returns True when one was written to out_path.
+
+    FIVE CANDIDATES WERE FETCHED AND ONE WAS LOOKED AT.
+    ---------------------------------------------------
+    Both stock searches already ask for per_page=5 and then take [0]
+    unconditionally. On run 31695910257 that first hit was a near-empty
+    surface, and the consequence was visible all the way downstream: the
+    thumbnail renderer tried banner, reaction, bubbles, pointing and verdict,
+    and every single layout scored exactly 8.0/10 with the same complaint --
+    "60% of the frame is featureless — the photo is a blank surface". Five
+    layouts cannot fix one blank photograph. The reviewer rejected it.
+
+    So the candidates that were already paid for get looked at. The test is
+    photo_thumbnail.featureless_fraction, the same function that scores the
+    finished card, so the chooser cannot hand the judge something the judge
+    is about to refuse. If every candidate is blank, this returns False and
+    the caller falls through to the next source, which is the honest
+    outcome -- better a different provider than a picture of nothing.
+    """
+    try:
+        from photo_thumbnail import featureless_fraction, FEATURELESS_MAX
+    except Exception as e:
+        featureless_fraction, FEATURELESS_MAX = None, 1.0
+        log(f"  photo subject check unavailable ({e}) — taking the first hit")
+    # best_dead starts ABOVE the 0.0-1.0 range on purpose: seeded at 1.0, a
+    # set of candidates that are all perfectly blank (dead == 1.0 exactly,
+    # which a flat studio backdrop really does score) never satisfies
+    # `dead < best_dead`, so the keep-the-best fallback below would be
+    # unreachable in precisely the case it exists for.
+    best_dead, best_bytes = 2.0, None
+    for url in [u for u in urls if u][:5]:
+        try:
+            ir = requests.get(url, timeout=30)
+            if ir.status_code != 200 or len(ir.content) <= 20000:
+                continue
+            if featureless_fraction is None:
+                with open(out_path, "wb") as f:
+                    f.write(ir.content)
+                log(f"  Case image ({source}): {search_kw}")
+                return True
+            import io
+            from PIL import Image as _PILImage
+            dead = featureless_fraction(_PILImage.open(io.BytesIO(ir.content)))
+            if dead < best_dead:
+                best_dead, best_bytes = dead, ir.content
+            if dead <= FEATURELESS_MAX:
+                with open(out_path, "wb") as f:
+                    f.write(ir.content)
+                log(f"  Case image ({source}): {search_kw} "
+                    f"({dead:.0%} featureless)")
+                return True
+            log(f"  {source} candidate rejected: {dead:.0%} of the frame is "
+                f"blank surface — trying the next hit")
+        except Exception as e:
+            log(f"  {source} candidate (non-fatal): {e}")
+    if best_bytes is not None:
+        # Every candidate was blank. The least blank one still beats falling
+        # through to an AI-generated fallback, and the card scorer will dock
+        # it honestly rather than this pretending it is fine.
+        with open(out_path, "wb") as f:
+            f.write(best_bytes)
+        log(f"  Case image ({source}): {search_kw} — every candidate was "
+            f"mostly blank, kept the best at {best_dead:.0%} featureless")
+        return True
+    return False
+
+
 def fetch_case_relevant_image(topic, niche_name, out_path):
     """
     Search for a REAL case-relevant image using Pixabay/Pexels photo APIs.
@@ -8459,15 +8529,11 @@ def fetch_case_relevant_image(topic, niche_name, out_path):
                         "per_page": 5, "order": "popular"},
                 timeout=25)
             if r.status_code == 200 and r.json().get("hits"):
-                hit = r.json()["hits"][0]
-                img_url = hit.get("webformatURL") or hit.get("largeImageURL")
-                if img_url:
-                    ir = requests.get(img_url, timeout=30)
-                    if ir.status_code == 200 and len(ir.content) > 20000:
-                        with open(out_path, "wb") as f:
-                            f.write(ir.content)
-                        log(f"  Case image (Pixabay): {search_kw}")
-                        return True, "photo"
+                _urls = [h.get("webformatURL") or h.get("largeImageURL")
+                         for h in r.json()["hits"]]
+                if _pick_photo_with_a_subject(_urls, out_path, "Pixabay",
+                                              search_kw):
+                    return True, "photo"
         except Exception as e:
             log(f"  Pixabay photo (non-fatal): {e}")
 
@@ -8480,15 +8546,12 @@ def fetch_case_relevant_image(topic, niche_name, out_path):
                         "orientation": "landscape", "size": "large"},
                 timeout=25)
             if r.status_code == 200 and r.json().get("photos"):
-                photo = r.json()["photos"][0]
-                img_url = photo.get("src", {}).get("large2x") or photo.get("src", {}).get("large")
-                if img_url:
-                    ir = requests.get(img_url, timeout=30)
-                    if ir.status_code == 200 and len(ir.content) > 20000:
-                        with open(out_path, "wb") as f:
-                            f.write(ir.content)
-                        log(f"  Case image (Pexels): {search_kw}")
-                        return True, "photo"
+                _urls = [p.get("src", {}).get("large2x")
+                         or p.get("src", {}).get("large")
+                         for p in r.json()["photos"]]
+                if _pick_photo_with_a_subject(_urls, out_path, "Pexels",
+                                              search_kw):
+                    return True, "photo"
         except Exception as e:
             log(f"  Pexels photo (non-fatal): {e}")
 
@@ -10426,7 +10489,32 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
         font_path = next((fp for fp in font_paths if Path(fp).exists()), None)
 
         # ── Continuous film grain — applied throughout ──
-        video_filters = ["noise=alls=15:allf=t+u"]
+        # GRAIN IS THE MOST EXPENSIVE THING IN THIS FILTERGRAPH.
+        #
+        # Measured on run 31695910257: the composed video was 108MB and the
+        # finished file was 2594MB -- a 24x blow-up from the FX pass alone,
+        # for no visible gain. A previous run died outright when the artifact
+        # reached 4.65GB, so this was sitting just under a cliff, and it made
+        # every YouTube upload minutes longer.
+        #
+        # `allf=t` regenerates the noise every frame, which is what makes it
+        # look like film -- and also what destroys inter-frame compression,
+        # because no two frames share anything. Measured on a 30s 1080p clip,
+        # against the same source encoded the way compose_video encodes it:
+        #
+        #   alls=15 t+u, crf 20  (what shipped)   11.3x source
+        #   alls=15 t+u, crf 23                    3.0x
+        #   alls=15 u   , crf 23 (static grain)    1.2x
+        #   alls=10 t+u, crf 23                    1.1x   <- this
+        #   no grain at all                        0.8x
+        #
+        # So the moving grain is kept -- it is the "found footage" texture
+        # this channel is built on, and dropping the t was not necessary.
+        # alls=15 -> 10 is where the cost curve turns, and the grain is still
+        # plainly there. The crf change is the other half: the source is
+        # already crf 23, so re-encoding it at 20 spends bits inventing
+        # precision that was never in the picture.
+        video_filters = ["noise=alls=10:allf=t+u"]
 
         # ── Chromatic aberration bursts at 2 dread beats ──
         if len(phrases) >= 2:
@@ -10596,7 +10684,10 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
                 "ffmpeg", "-y", "-i", video_path, "-i", video_path,
                 "-filter_complex", filter_complex,
                 "-map", "[out]", "-map", "[mixedaudio]",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                # crf 23 matches what compose_video wrote. See the grain
+                # comment above for the measurements: 20 cost 11.3x the
+                # source size and bought nothing the source contained.
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-c:a", "aac", "-ar", "44100", output_path
             ], label="horror-fx", timeout=900)
             _fx_ok = (Path(output_path).exists()

@@ -2510,6 +2510,83 @@ def main():
     except Exception as _e:
         check("provider chain under real failures", False, repr(_e))
 
+    # ══════════════════════════════════════════════════════════════════
+    # A BLANK PHOTOGRAPH IS REJECTED BEFORE IT IS RENDERED, NOT AFTER.
+    #
+    # Run 31695910257: the chosen Pixabay photo was ~60% blank surface, and
+    # all five layouts then scored exactly 8.0/10 with the same complaint.
+    # Five layouts cannot rescue one empty picture. The searches already ask
+    # for five candidates and took [0] regardless.
+    # ══════════════════════════════════════════════════════════════════
+    try:
+        import io as _io
+        import numpy as _np
+        from PIL import Image as _Im, ImageDraw as _ID2
+        from photo_thumbnail import featureless_fraction as _ff, FEATURELESS_MAX as _FMAX
+        import clinical_pipeline as _cp3
+        _rng = _np.random.default_rng(1)
+
+        def _blankish():
+            _a = (_np.full((720, 1280, 3), 118, dtype=_np.int16)
+                  + _rng.integers(-1, 2, (720, 1280, 3)))
+            return _Im.fromarray(_np.clip(_a, 0, 255).astype(_np.uint8))
+
+        def _subject():
+            _im = _Im.fromarray(_rng.integers(0, 255, (720, 1280, 3), dtype=_np.uint8))
+            _ID2.Draw(_im).ellipse((400, 150, 900, 650), fill=(30, 40, 60))
+            return _im
+
+        def _png(_i):
+            _b = _io.BytesIO(); _i.save(_b, "PNG"); return _b.getvalue()
+
+        check("the blank/subject test tells them apart at all",
+              _ff(_blankish()) > _FMAX >= _ff(_subject()),
+              "blank %.2f vs subject %.2f against a %.2f bar"
+              % (_ff(_blankish()), _ff(_subject()), _FMAX))
+
+        _BL, _BU = _png(_blankish()), _png(_subject())
+        _out = os.path.join(tempfile.gettempdir(), "preflight_photo.png")
+        _saved_get, _saved_log = _cp3.requests.get, _cp3.log
+        try:
+            _cp3.log = lambda *a, **k: None
+
+            class _Rp:
+                def __init__(s, c):
+                    s.status_code, s.content = 200, c
+
+            _cp3.requests.get = lambda url, **kw: _Rp({"b": _BL, "g": _BU}[url])
+            _ok = _cp3._pick_photo_with_a_subject(["b", "g"], _out, "T", "kw")
+            check("a blank first hit is skipped for one with a subject in it",
+                  _ok and _ff(_out) <= _FMAX,
+                  "the chooser still hands the renderer a blank surface")
+
+            _cp3.requests.get = lambda url, **kw: _Rp(_BL)
+            _ok2 = _cp3._pick_photo_with_a_subject(["b", "b"], _out, "T", "kw")
+            check("all-blank candidates still yield a picture, not nothing",
+                  _ok2,
+                  "the keep-the-best fallback is unreachable — a set of "
+                  "perfectly blank candidates returns empty-handed")
+        finally:
+            _cp3.requests.get, _cp3.log = _saved_get, _saved_log
+    except Exception as _e:
+        check("blank-photo rejection at selection time", False, repr(_e))
+
+    # ══════════════════════════════════════════════════════════════════
+    # THE FX PASS MUST NOT INFLATE THE FILE IT IS HANDED.
+    # Measured live: 108MB composed -> 2594MB finished, and a previous run
+    # died when the artifact hit 4.65GB.
+    # ══════════════════════════════════════════════════════════════════
+    check("the FX re-encode does not out-quality its own source",
+          '"-crf", "23",' in _cp[_cp.find("label=\"horror-fx\"") - 900:
+                                _cp.find("label=\"horror-fx\"")]
+          if "label=\"horror-fx\"" in _cp else False,
+          "the FX pass re-encodes above the source's crf, spending bits on "
+          "precision the picture never had")
+    check("grain is not the most expensive thing in the render",
+          "noise=alls=10:allf=t+u" in _cp,
+          "grain strength 15 with temporal noise measured 11.3x the source "
+          "size; 10 measures 1.1x and still plainly reads as film")
+
     # The remaining gates live inside long pipeline functions that cannot be
     # driven standalone, so these assert on the mechanism each one uses.
     check("the Shorts gate refuses to count a repeat as an attempt",
