@@ -1,7 +1,4 @@
 {
   "status": "uploaded",
-  "cleared_at": "2026-08-10T07:51:40.274015",
-  "cleared_reason": "Stale queue entry from the 2026-08-08 generate run, cleared before the first test run on the rebuilt pipeline. Its unlisted YouTube upload lo1b3ays1ms was NOT deleted - it stays unlisted and invisible, and removing someone's video is not a cleanup decision to take unilaterally.",
-  "cleared_episode_title": "Treated As Leukemia For 40 Days. It Was Never That",
-  "cleared_prerendered_video_id": "lo1b3ays1ms"
+  "cleared_at": "2026-08-13T13:44:30.880076"
 }

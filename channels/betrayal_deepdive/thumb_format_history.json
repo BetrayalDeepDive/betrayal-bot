@@ -196,5 +196,14 @@
     "video_id": null,
     "timestamp": "2026-08-10T19:12:58.604973",
     "ctr_pct": null
+  },
+  {
+    "channel": "No Known Cause",
+    "niche": "rare_disease_cases",
+    "episode": 11,
+    "format": "banner",
+    "video_id": null,
+    "timestamp": "2026-08-13T13:43:00.751058",
+    "ctr_pct": null
   }
 ]

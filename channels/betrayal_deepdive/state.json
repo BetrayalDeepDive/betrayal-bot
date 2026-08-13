@@ -163,6 +163,55 @@
         "A 71-year-old veteran complained of progressive numbness, with spinal MRI uncovering intramedullary spinal cord tumor masquerading as diabetic neuropathy."
       ],
       "last_run": "2026-08-12T09:31:22.008033"
+    },
+    "rare_disease_cases": {
+      "top_hook_formulas": [
+        "What if a common symptom hides a life\u2011changing rare disease?",
+        "Imagine discovering a diagnosis no one expected after an ordinary ER visit.",
+        "When the lab result looks normal, the truth is anything but."
+      ],
+      "winning_title_patterns": [
+        "Rare Disease Shock: {Age}\u2011Year\u2011Old with {Symptom} Reveals {Condition}",
+        "First\u2011Ever Reported Case: {Condition} Presenting as {Unexpected Finding}",
+        "You Won\u2019t Believe What This {Gender} Had: {Condition} Mimics {Common Disease}"
+      ],
+      "thumbnail_text_examples": [
+        "UNEXPECTED DIAGNOSIS",
+        "RARE FINDING",
+        "SHOCKING LABS",
+        "MYSTERY CASE",
+        "FIRST REPORT"
+      ],
+      "retention_hooks": [
+        "30pct",
+        "60pct",
+        "80pct"
+      ],
+      "niche_power_words": [
+        "unmask",
+        "cryptic",
+        "breakthrough",
+        "enigmatic",
+        "life\u2011threatening",
+        "miracle"
+      ],
+      "fresh_topic_ideas": [
+        "A 34\u2011year\u2011old woman presented with progressive vision loss; MRI showed optic nerve enhancement, leading to the first reported case of cerebral X\u2011linked adrenoleukodystrophy mimicking optic neuritis.",
+        "A 58\u2011year\u2011old man arrived with unexplained seizures; serum ammonia was normal, yet liver biopsy revealed the inaugural case of adult\u2011onset mitochondrial DNA depletion syndrome.",
+        "A 22\u2011year\u2011old male complained of recurrent abdominal pain; CT scan incidentally identified a pancreatic mass later diagnosed as the first reported pancreatic manifestation of Fabry disease.",
+        "A 47\u2011year\u2011old female presented with sudden hearing loss; audiogram was atypical, and genetic testing uncovered the first documented case of hereditary otosclerosis linked to COQ8A mutation.",
+        "A 45\u2011year\u2011old woman reported intermittent fever and rash; skin biopsy showed vasculitis, and subsequent workup diagnosed the first case of adult\u2011onset Blau syndrome misinterpreted as sarcoidosis.",
+        "A 28\u2011year\u2011old patient presented with severe hyponatremia; urine studies were inconclusive, yet a novel SCNN1B mutation revealed the first case of Liddle\u2011type hypertension presenting as euvolemic hyponatremia.",
+        "A 71\u2011year\u2011old male arrived with progressive gait instability; spinal MRI showed normal imaging, but CSF analysis detected the first case of sporadic adult\u2011onset neuronal ceroid lipofuscinosis.",
+        "A 50\u2011year\u2011old woman complained of persistent headaches; angiography was unremarkable, yet genetic sequencing identified the first reported case of cerebral cavernous malformation caused by a KRIT1 de novo mutation.",
+        "A 33\u2011year\u2011old man experienced unexplained hypoglycemia; insulin levels were low, and liver biopsy uncovered the inaugural case of glycogen storage disease type Ib presenting in adulthood.",
+        "A 40\u2011year\u2011old female presented with severe muscle weakness; EMG suggested myopathy, but muscle biopsy revealed the first case of mitochondrial myopathy due to TFAM gene deletion.",
+        "A 26\u2011year\u2011old patient had recurrent episodes of dizziness; cardiac MRI was normal, yet endomyocardial biopsy diagnosed the first case of cardiac amyloidosis caused by hereditary transthyretin mutation.",
+        "A 31\u2011year\u2011old male presented with unexplained arthralgia; joint fluid analysis was sterile, yet whole\u2011exome sequencing diagnosed the first case of hereditary autoinflammatory syndrome due to a MEFV nonsense mutation.",
+        "A 47\u2011year-old man arrived with acute renal failure; urinalysis was bland, but renal biopsy revealed the inaugural case of renal thrombotic microangiopathy linked to complement factor H deficiency.",
+        "A 55\u2011year-old woman complained of chronic fatigue; endocrine workup was normal, yet pituitary MRI detected a microadenoma later identified as the first case of hypophysitis secondary to IgG4\u2011related disease."
+      ],
+      "last_run": "2026-08-13T11:56:22.173773"
     }
   },
   "last_title_register": "dread",
@@ -244,6 +293,7 @@
   "clinical_thumb_formats": [
     "verdict",
     "banner",
-    "verdict"
+    "verdict",
+    "banner"
   ]
 }

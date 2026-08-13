@@ -479,6 +479,62 @@
       "sha": "5c6cd7767963259d",
       "tags": "medical scan",
       "w": 1300
+    },
+    {
+      "file": "scene_aa94c10ccc7f5763.jpg",
+      "h": 1010,
+      "role": "scene",
+      "sha": "aa94c10ccc7f5763",
+      "tags": "sphygmomanometer",
+      "w": 1600
+    },
+    {
+      "file": "scene_7758efb963ae01db.jpg",
+      "h": 427,
+      "role": "scene",
+      "sha": "7758efb963ae01db",
+      "tags": "pressure",
+      "w": 640
+    },
+    {
+      "file": "scene_739eb5210059898c.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "739eb5210059898c",
+      "tags": "nurse",
+      "w": 1067
+    },
+    {
+      "file": "scene_0be552e49ce9d1a7.jpg",
+      "h": 427,
+      "role": "scene",
+      "sha": "0be552e49ce9d1a7",
+      "tags": "arm",
+      "w": 640
+    },
+    {
+      "file": "scene_d995822fb963ebcb.jpg",
+      "h": 1600,
+      "role": "scene",
+      "sha": "d995822fb963ebcb",
+      "tags": "thermometer",
+      "w": 919
+    },
+    {
+      "file": "evidence_ec1d6fe347f61361.jpg",
+      "h": 1600,
+      "role": "evidence",
+      "sha": "ec1d6fe347f61361",
+      "tags": "nurse",
+      "w": 1067
+    },
+    {
+      "file": "scene_f27f5593901c976c.jpg",
+      "h": 427,
+      "role": "scene",
+      "sha": "f27f5593901c976c",
+      "tags": "a healthy breastfeeding woman unexpectedly developed a serious condition after starting a low-carb diet, despite not having diabetes.",
+      "w": 640
     }
   ]
 }
