@@ -1924,6 +1924,11 @@ OPTION1: <short option, under 30 chars>
 OPTION2: <short option, under 30 chars>
 OPTION3: <short option, under 30 chars — or blank if only 2 make sense>
 OPTION4: <short option, under 30 chars — or blank>
+ANSWER: <which option number was correct in the real case, e.g. "OPTION2">
+WHY: <2-3 sentences: what the answer was and why the others were ruled
+out, written for a reader who has watched the episode. Past tense, about
+this documented patient. No dosing, no advice, nothing anyone could act on
+for their own health.>
 
 No markdown, no extra commentary — just those lines.{avoid}""",
             min_chars=40,
@@ -1932,17 +1937,23 @@ No markdown, no extra commentary — just those lines.{avoid}""",
             return None
         question = ""
         options = []
+        answer, why = "", ""
         for line in raw.splitlines():
             line = line.strip()
             if line.upper().startswith("QUESTION:"):
                 question = line.split(":", 1)[1].strip()[:100]
+            elif line.upper().startswith("ANSWER:"):
+                answer = line.split(":", 1)[1].strip()[:40]
+            elif line.upper().startswith("WHY:"):
+                why = line.split(":", 1)[1].strip()[:600]
             elif line.upper().startswith("OPTION"):
                 val = line.split(":", 1)[1].strip()[:30] if ":" in line else ""
                 if val:
                     options.append(val)
         if not question:
             return None
-        return {"question": question, "options": options[:4]}
+        return {"question": question, "options": options[:4],
+                "answer": answer, "why": why}
 
     try:
         # ONE ATTEMPT AND ONE REWORK IS NOT A GATE.
@@ -2085,6 +2096,46 @@ def review_community_tab(channel_name, question, options, tg_token, tg_chat,
         lines.extend(f"  {i+1}. {_esc(o)}" for i, o in enumerate(options))
     else:
         lines.append("(text post — no poll options, ask people to reply in comments)")
+    # WHERE TO GO AND WHAT TO TAP.
+    #
+    # "I would post it in the community tab. I would really need help with
+    # where I need to go, how I post it, and everything. I want a detailed
+    # description on this before the community post."
+    #
+    # The gate used to hand over the text and say "post this", which assumes
+    # the reviewer already knows a flow that is several screens deep and
+    # differs between phone and desktop. Both are spelled out, because the
+    # phone app is where a Telegram message actually gets read.
+    lines.append("\n" + "─" * 28)
+    lines.append("<b>HOW TO POST THIS — step by step</b>")
+    lines.append("\n<b>On your phone (YouTube app):</b>")
+    lines.append("1. Open the YouTube app and tap your profile picture "
+                 "(bottom-right).")
+    lines.append("2. Tap <b>Your channel</b>.")
+    lines.append("3. Tap the <b>Posts</b> tab along the top "
+                 "(it may read <b>Community</b>).")
+    lines.append("4. Tap <b>+ Create post</b>, then choose <b>Poll</b>.")
+    lines.append("5. Paste the question above into the text box.")
+    lines.append("6. Tap each poll option in turn and paste options 1–4.")
+    lines.append("7. Tap <b>Post</b>.")
+    lines.append("\n<b>On a computer (YouTube Studio):</b>")
+    lines.append("1. Go to <b>studio.youtube.com</b> and sign in.")
+    lines.append("2. In the left menu click <b>Content</b>, then the "
+                 "<b>Posts</b> tab at the top.")
+    lines.append("3. Click <b>Create post</b> (top right).")
+    lines.append("4. Click the <b>Poll</b> icon under the text box.")
+    lines.append("5. Paste the question, then each option into its own row.")
+    lines.append("6. Click <b>Post</b>.")
+    lines.append("\n<b>Timing:</b> post it a few hours after the video goes "
+                 "live, while people are still watching. The poll stays open "
+                 "until you delete it.")
+    lines.append("\n<b>The answer:</b> I will send you the answer and a short "
+                 "explanation in 24–36 hours, written so you can paste it "
+                 "straight in as a reply to your own post. Do not reveal it "
+                 "before then — the guessing is what drives the comments.")
+    lines.append("\n<i>If the Posts tab is missing, the channel has not "
+                 "reached the subscriber threshold for Community posts yet; "
+                 "tap SKIP THIS EPISODE and I will hold the quiz.</i>")
     lines.append("\nTap POSTED IT once it's live on the Community tab, or SKIP THIS EPISODE to skip.")
     text = "\n".join(lines)
 
@@ -2868,3 +2919,121 @@ def notify_degraded(what, detail):
     except Exception as e:
         print(f"  Degraded-notice send failed (non-fatal): {e}")
     print(f"  DEGRADED — {what}: {detail}")
+
+
+# ===========================================================================
+# THE QUIZ ANSWER, 24-36 HOURS LATER
+#
+# "Within 24 to 36 hours, you can just let me know the answers. I will just
+# paste it over there as well."
+#
+# There is no daemon here and there should not be one: a run is a GitHub
+# Actions job that starts, works, and dies. So the answer is written to disk
+# when the poll is posted, and every later run checks whether one has come
+# due before it does anything else. The channel runs daily, so a poll posted
+# today has its answer delivered by the next run at or after the due time.
+#
+# Honest about what that means: delivery is "the first run after 24 hours",
+# not "exactly 30 hours". If a day's run is skipped the answer waits for the
+# one after. It is never lost and never sent early -- and sending it early
+# would be the real failure, because the guessing is what drives the
+# comments.
+# ===========================================================================
+
+COMMUNITY_ANSWER_HOURS = 30          # inside the 24-36 window that was asked for
+_ANSWER_QUEUE_NAME = "community_answer_due.json"
+
+
+def queue_community_answer(state_dir, question, options, answer, why,
+                            hours=COMMUNITY_ANSWER_HOURS, log_fn=None):
+    """Park the answer to a poll that was just posted, due `hours` from now."""
+    import json as _json
+    import time as _time
+    if not (question and (answer or why)):
+        return False
+    path = os.path.join(str(state_dir), _ANSWER_QUEUE_NAME)
+    try:
+        queue = []
+        if os.path.exists(path):
+            with open(path) as f:
+                queue = _json.load(f) or []
+        queue.append({
+            "due": _time.time() + hours * 3600,
+            "posted": _time.time(),
+            "question": question,
+            "options": list(options or []),
+            "answer": answer,
+            "why": why,
+        })
+        with open(path, "w") as f:
+            _json.dump(queue, f, indent=1)
+        if log_fn:
+            log_fn("  Quiz answer queued, due in %dh" % hours)
+        return True
+    except Exception as e:
+        if log_fn:
+            log_fn("  Could not queue the quiz answer (non-fatal): %s" % e)
+        return False
+
+
+def deliver_due_community_answers(state_dir, tg_token, tg_chat, log_fn=None):
+    """Send any quiz answer whose 24-36 hours have elapsed. Returns how many.
+
+    Written to be paste-ready: the owner replies to their own Community post
+    with this text, so it opens by restating the question and names the
+    winning option in full rather than by number -- a reader scrolling past
+    has no idea what "option 2" was.
+    """
+    import json as _json
+    import time as _time
+    path = os.path.join(str(state_dir), _ANSWER_QUEUE_NAME)
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(path) as f:
+            queue = _json.load(f) or []
+    except Exception:
+        return 0
+    now, sent, keep = _time.time(), 0, []
+    for item in queue:
+        if item.get("due", 0) > now:
+            keep.append(item)
+            continue
+        opts = item.get("options") or []
+        ans = (item.get("answer") or "").strip()
+        # "OPTION2" -> the actual text of option 2, because a number alone
+        # means nothing to someone reading the reply under the poll.
+        named = ans
+        m = re.search(r"(\d+)", ans)
+        if m:
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < len(opts):
+                named = opts[idx]
+        hours_up = (now - item.get("posted", now)) / 3600.0
+        body = (
+            "🧠 <b>QUIZ ANSWER — ready to paste</b>\n\n"
+            "Your Community poll has been up %.0f hours. Reply to your own "
+            "post with the text below.\n\n"
+            "<b>Poll:</b> %s\n\n"
+            "─────────────\n"
+            "<b>ANSWER: %s</b>\n\n%s\n"
+            "─────────────\n\n"
+            "<i>Copy from ANSWER down to the line above.</i>"
+            % (hours_up, _esc(item.get("question") or ""),
+               _esc(named or "see below"), _esc(item.get("why") or ""))
+        )
+        if _tg_send_message(tg_token, tg_chat, body):
+            sent += 1
+        else:
+            keep.append(item)      # undelivered stays queued, never dropped
+    try:
+        if keep:
+            with open(path, "w") as f:
+                _json.dump(keep, f, indent=1)
+        elif os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+    if sent and log_fn:
+        log_fn("  Delivered %d due quiz answer(s)" % sent)
+    return sent

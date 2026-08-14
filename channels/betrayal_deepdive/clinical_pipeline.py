@@ -5019,9 +5019,22 @@ built from a real published, peer-reviewed case report.
 Title: {title} | Series: {niche["series"]}, Episode {episode}
 Topic: {topic} | Duration: ~{dur_min} minutes
 
+THE TOP OF THIS DESCRIPTION MUST BE SHORT. That is a direct instruction from
+the channel owner: "The description should be brief — what is about to be
+discussed, and what viewers can expect by the end." Only the first two or
+three lines are visible before YouTube's "...more" cut, so those lines carry
+the whole job. Everything after them exists for search and for the licence.
+
 Structure:
-1. Two sentences on the documented clinical puzzle. Factual, no spoilers.
-2. Three sentences on how the diagnosis was reached. Never reveal it outright.
+1. WHAT THIS EPISODE IS. Two sentences, maximum 45 words together, on the
+   documented clinical puzzle. Concrete and specific to this case — a
+   presenting problem and why it did not add up. No spoilers, no throat
+   clearing, no "in this video we will explore".
+2. WHAT THE VIEWER WALKS AWAY WITH. Exactly one sentence beginning "By the
+   end you will know" — naming the actual understanding they gain, not a
+   tease. The owner's standard: a viewer must gain real knowledge, and it
+   must not be "something we are just discussing for the sake of
+   discussing".
 3. One line: The answer comes in the last third of the video.
 4. Chapters section (paste verbatim):\n{chapters_text or "0:00 Introduction"}
 5. Eight keyword sentences using: medical case study, clinical case report,
@@ -5029,8 +5042,12 @@ Structure:
    peer-reviewed medicine, differential diagnosis, medical education
 6. One line: New cases every week — subscribe so you never miss one.
 
+Sections 1-3 together must be under 90 words. Do not pad them.
+
 NEVER write medical advice, symptoms to watch for, or anything a viewer could
-act on. NEVER suggest anyone concealed or mishandled anything.
+act on. NEVER state a drug dose or dosing schedule, and never say what a
+condition "is treated with" — naming a drug is fine, prescribing is not.
+NEVER suggest anyone concealed or mishandled anything.
 
 Total: 250-320 words. Plain text. No markdown. Do NOT include any hashtags —
 those are added separately afterward."""
@@ -8923,7 +8940,20 @@ def generate_thumbnail(thumb_text, niche_name, title, topic="", episode=0):
             _sc = _i.get("image_score", 0.0)
             if _best is None or _sc > _best[0].get("image_score", 0.0):
                 _best = (_i, _cand)
-            if _sc >= 8.9:                  # the bar the channel owner set
+            # STOP ONLY ON AS-GOOD-AS-IT-GETS, NOT ON GOOD-ENOUGH.
+            #
+            # This used to break at 8.9, the pass mark. So the moment any
+            # layout cleared the bar the search ended, and a 9.6 sitting two
+            # positions later was never rendered. That is "an acceptable
+            # thumbnail", and the instruction is "the most interesting one" —
+            # different targets. Five layouts is a handful of seconds against
+            # a thumbnail that has to earn every click for the life of the
+            # video, so all of them are now scored and the highest wins.
+            # 9.8 remains as a short-circuit: nothing meaningfully beats it,
+            # and there is no point rendering more once it appears.
+            if _sc >= 9.8:
+                log(f"  Thumbnail format '{_try}' scored {_sc}/10 — "
+                    f"nothing will beat that, stopping here")
                 break
             log(f"  Thumbnail format '{_try}' scored {_sc}/10 on the picture "
                 f"({'; '.join(_i.get('image_issues') or []) or 'no reason given'}) "
@@ -11323,6 +11353,21 @@ def main():
     SCRIPT_DIR = Path(__file__).parent
     state = load_state()
 
+    # A QUIZ ANSWER THAT CAME DUE WHILE NOTHING WAS RUNNING.
+    #
+    # "Within 24 to 36 hours, you can just let me know the answers."
+    #
+    # There is no daemon and there should not be one -- a run is a job that
+    # starts, works and dies. So the answer is parked on disk when the poll
+    # goes up and every later run checks, before anything else, whether one
+    # has come due. Done first so it still lands even if this run goes on to
+    # fail: the answer is owed regardless of what happens to today's episode.
+    try:
+        from human_review_gate import deliver_due_community_answers
+        deliver_due_community_answers(SCRIPT_DIR, TG_TOKEN, TG_CHAT, log_fn=log)
+    except Exception as e:
+        log(f"  Due quiz answers (non-fatal): {e}")
+
     # ══════════════════════════════════════════════════════════
     # UPLOAD PHASE — reads pending_upload.json, uploads, done
     # ══════════════════════════════════════════════════════════
@@ -13596,6 +13641,18 @@ def main():
                                 score=_cp_draft.get("score"),
                                 issues=_cp_draft.get("issues", ()))
                             log(f"  Community Tab: {_cp_result['decision']}")
+                            # THE ANSWER, PARKED FOR 24-36 HOURS.
+                            #
+                            # Only queued when the poll actually went up. An
+                            # answer to a poll nobody posted is noise, and
+                            # worse, it would arrive claiming a post exists.
+                            if _cp_result["decision"] == "posted":
+                                from human_review_gate import queue_community_answer
+                                queue_community_answer(
+                                    SCRIPT_DIR, _cp_draft["question"],
+                                    _cp_draft.get("options") or [],
+                                    _cp_draft.get("answer") or "",
+                                    _cp_draft.get("why") or "", log_fn=log)
                     except Exception as e:
                         log(f"  Community Tab checkpoint (non-fatal): {e}")
                 except Exception as e:
