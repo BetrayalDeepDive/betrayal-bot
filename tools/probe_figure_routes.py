@@ -344,7 +344,25 @@ def map_the_ftp_tree():
         import ftplib
         ftp = ftplib.FTP("ftp.ncbi.nlm.nih.gov", timeout=60)
         ftp.login()
-        for d in ("/pub/pmc", "/pub/pmc/oa_package", "/pub/pmc/oa_bulk"):
+        # NCBI LEFT A NOTE. READ IT.
+        #
+        # /pub/pmc holds four things and one of them is a directory called
+        # "deprecated" -- the OA package tree was retired, not moved within
+        # the same layout. readme.txt is NCBI's own statement of where the
+        # distribution went, which is a better source than a tenth guessed
+        # URL from someone who cannot reach the host.
+        try:
+            buf = io.BytesIO()
+            ftp.retrbinary("RETR /pub/pmc/readme.txt", buf.write)
+            note = buf.getvalue().decode("utf-8", "replace")
+            print("  --- /pub/pmc/readme.txt (first 2500 chars) ---")
+            for line in note[:2500].splitlines():
+                print("      %s" % line)
+            print("  --- end readme ---")
+        except Exception as e:
+            print("  readme.txt: %s" % str(e)[:60])
+
+        for d in ("/pub/pmc", "/pub/pmc/deprecated", "/pub/pmc/oa_package"):
             try:
                 entries = ftp.nlst(d)
                 print("  %-26s %d entr(y/ies)" % (d, len(entries)))
