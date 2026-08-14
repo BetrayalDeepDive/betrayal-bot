@@ -7100,6 +7100,11 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
                 _fixed_durs.append(d)
         _seg_durs = _fixed_durs
         n_buckets = len(_seg_durs)
+        # bucket_words was computed from the OLD count. Leaving it stale
+        # would walk the narration slices off the end of the script and the
+        # extra cards would come out with no text at all.
+        bucket_words = max(1, total // n_buckets)
+        segment_dur = audio_duration / n_buckets
         _acc = 0.0
         _seg_starts = []
         for _d in _seg_durs:

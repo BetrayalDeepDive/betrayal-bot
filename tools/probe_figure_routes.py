@@ -328,6 +328,35 @@ def probe_package(ftp_url):
     return ("OA package (decoded figure)", ok, detail)
 
 
+def map_the_ftp_tree():
+    """Where do the OA packages actually live now?
+
+    The OA service points at /pub/pmc/oa_package/db/2e/PMCxxxx.tar.gz and the
+    server says that directory does not exist -- not the file, the directory.
+    So the tree moved and the service's response was never updated. Rather
+    than propose a tenth path and test it, ask the server for its own layout
+    once and read the answer.
+    """
+    print("\n" + "=" * 74)
+    print("WHERE DID THE PACKAGES GO? (one listing beats another guess)")
+    print("=" * 74)
+    try:
+        import ftplib
+        ftp = ftplib.FTP("ftp.ncbi.nlm.nih.gov", timeout=60)
+        ftp.login()
+        for d in ("/pub/pmc", "/pub/pmc/oa_package", "/pub/pmc/oa_bulk"):
+            try:
+                entries = ftp.nlst(d)
+                print("  %-26s %d entr(y/ies)" % (d, len(entries)))
+                for e in entries[:14]:
+                    print("      %s" % e)
+            except Exception as e:
+                print("  %-26s %s" % (d, str(e)[:55]))
+        ftp.quit()
+    except Exception as e:
+        print("  ftp connect failed: %s" % str(e)[:70])
+
+
 def main():
     pmcids = sys.argv[1:] or DEFAULT_PMCIDS
     all_results = {}
@@ -349,6 +378,7 @@ def main():
         print("\nUse: %s" % winners[0])
         print("Wire this into pmc_data.FIGURE_URL_PATTERNS as the first entry.")
         return 0
+    map_the_ftp_tree()
     print("\nNo route returned a decodable image for every paper.")
     print("Figures cannot be sourced from PMC on this runner; the case gate")
     print("must reject figure-dependent episodes until one is found.")

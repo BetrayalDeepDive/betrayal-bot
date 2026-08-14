@@ -108,6 +108,70 @@ _GRAPHIC_MARKERS = (
     "surgical site", "incision",
 )
 
+# ---------------------------------------------------------------------------
+# RULE 7 -- actionable dosing and treatment recommendation.
+#
+# ADDED BECAUSE THE GATE PASSED A SCRIPT THAT SHOULD NOT HAVE PASSED. The
+# episode from run 31740721781 cleared every check above while narrating
+# "argatroban at 2 micrograms per kilogram per minute", "IVIG 1 g/kg/day",
+# and "first-line therapies". None of the rules were looking for it: rule 1
+# catches second-person direction and this was third person, rule 3 catches
+# comparative claims and this compared nothing. It was simply a dosing
+# regimen, stated plainly, in a documentary a member of the public can act on.
+#
+# THE HARD PART IS NOT MATCHING DOSES, IT IS NOT MATCHING LAB VALUES.
+#
+# This channel's entire CHART register plots the case's real reported
+# numbers -- sodium 118 mmol/L, platelets 12,000 per microlitre, creatinine
+# 2.4 mg/dL. Those are measurements OF the patient and they are the content.
+# A regex that swallowed them would block every good script and get switched
+# off, which is how an over-eager gate becomes no gate at all.
+#
+# The distinction is the denominator. A dose is an amount per body weight,
+# per body surface, or per unit of time -- mg/kg, µg/kg/min, g/day. A lab
+# value is an amount per volume of fluid -- mg/dL, mmol/L, per microlitre.
+# So the numerator list and the denominator list are both closed, and no
+# per-volume unit appears in the denominator list at all.
+_DOSING_PATTERNS = [
+    # 2 µg/kg/min, 1 g/kg/day, 500 mg/m2, 10 units/kg -- amount per body or
+    # per time. Deliberately excludes /dL, /L, /mL, /µL: those are assays.
+    r"\d+(?:\.\d+)?\s*(?:mg|mcg|µg|μg|ug|g|grams?|milligrams?|micrograms?|"
+    r"units?|iu|mmol|mEq)\s*(?:/|\s+per\s+)\s*(?:kg|kilogram|m2|m\^2|"
+    r"square metre|square meter|day|hour|hr|minute|min|dose|week)\b",
+    # the same thing spelled out, which is how narration actually says it
+    r"\d+(?:\.\d+)?\s*(?:micrograms?|milligrams?|grams?|units?)\s+per\s+"
+    r"(?:kilogram|kilo|square metre|square meter|day|hour|minute)\b",
+    # 500 mg twice daily / 20 mg once a day / 5 g every eight hours
+    r"\d+(?:\.\d+)?\s*(?:mg|mcg|µg|μg|ug|g|grams?|milligrams?|micrograms?|"
+    r"units?|iu)\b[^.]{0,20}\b(?:once|twice|three times|four times|daily|"
+    r"nightly|hourly|every\s+\w+\s+hours?|per\s+day|a\s+day)\b",
+    # dosing language even without a number attached
+    r"\b(?:at|in) a dose of\b", r"\bdosed at\b", r"\bdosage of\b",
+    r"\bloading dose\b", r"\bmaintenance dose\b", r"\btitrated to\b",
+]
+
+# Treatment-recommendation framing. "First-line" and "treatment of choice"
+# are not descriptions of what happened to one patient -- they are clinical
+# guidance about what should be done, which is precisely the line this
+# channel does not cross. Narration can always say what the team actually
+# tried instead: "the first drugs they reached for", "what they gave next".
+_TREATMENT_RECOMMENDATION_PATTERNS = [
+    r"\bfirst[- ]line\b", r"\bsecond[- ]line\b", r"\bthird[- ]line\b",
+    r"\btreatment of choice\b", r"\bdrug of choice\b",
+    r"\bmainstay of (?:treatment|therapy|management)\b",
+    r"\bstandard of care\b", r"\bstandard treatment for\b",
+    r"\bshould be treated with\b", r"\bmust be treated with\b",
+    # PRESENT TENSE ONLY, AND THAT IS THE WHOLE POINT. "She was treated with
+    # argatroban" is this patient's history and is exactly what the channel
+    # exists to narrate. "HIT is treated with a direct thrombin inhibitor" is
+    # a general clinical rule a viewer can apply to themselves. Same verb,
+    # opposite meaning, and the tense is what separates them.
+    r"\bis treated with\b", r"\bis managed with\b",
+    r"\bthe recommended (?:treatment|therapy|regimen|management)\b",
+    r"\btreatment guidelines? (?:recommend|require|state)\b",
+    r"\bindicated for the treatment of\b",
+]
+
 REQUIRED_DISCLAIMER_MARKERS = ("not medical advice", "published medical literature")
 
 
@@ -143,6 +207,10 @@ def check_script(script_text, citation=""):
                             "rule3_drug_efficacy_claim")
     violations += _findings(text, _LIVE_CASE_PATTERNS,
                             "rule6_live_case")
+    violations += _findings(text, _DOSING_PATTERNS,
+                            "rule7_actionable_dosing")
+    violations += _findings(text, _TREATMENT_RECOMMENDATION_PATTERNS,
+                            "rule7_treatment_recommendation")
 
     # Rule 2 -- a sourced clinical claim requires a source. This cannot
     # verify each individual claim automatically (that would need the paper
@@ -295,4 +363,15 @@ these is rejected outright and rewritten):
    never by telling the viewer what to do about their own health.
 6. Write about the case only in the past tense as a closed, published,
    resolved investigation. Never frame anything as ongoing or breaking.
+7. NEVER state a drug dose or a dosing schedule, and never say what a
+   condition "is treated with". No "2 micrograms per kilogram per minute",
+   no "1 g/kg/day", no "500 mg twice daily", no "first-line", no "treatment
+   of choice", no "standard of care". Name the drug if the case turns on it
+   and say what happened — "they started argatroban; the platelet count kept
+   falling" — and stop there. The viewer must never be able to act on the
+   episode as if it were a prescription.
+   Laboratory VALUES are different and are wanted: "her sodium was 118",
+   "the platelet count was twelve thousand" are measurements of the patient
+   and belong in the script. The prohibited thing is an amount given per
+   kilogram, per square metre, or per unit of time.
 """
