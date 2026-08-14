@@ -251,24 +251,40 @@ def probe_package(ftp_url):
     """
     import tarfile
     path = ftp_url.split("ftp.ncbi.nlm.nih.gov", 1)[-1]
+    # THE TREE MOVED INTO deprecated/, AND DEPRECATED IS NOT DELETED.
+    #
+    # Listing /pub/pmc showed four entries, one of them a directory called
+    # "deprecated" holding oa_package, oa_bulk, oa_pdf and the OA file lists.
+    # So the OA Web Service is not pointing at nothing -- it is pointing at
+    # the pre-move location of files that still exist one level down. This is
+    # the first candidate path in this whole exercise that is not a guess:
+    # the server's own listing says the tree is there.
+    paths = [path]
+    if "/pub/pmc/" in path and "/deprecated/" not in path:
+        paths.append(path.replace("/pub/pmc/", "/pub/pmc/deprecated/", 1))
     print("\n-- OA package: getting the bytes --")
     blob = None
     # The HTTPS mirror is the first choice: no extra protocol, no extra
     # library, and it goes through the same proxy as everything else. But
     # "the FTP tree is also on HTTPS" is itself an assumption, so each form
     # is tried and reported rather than assumed.
-    for label, url in (("https ftp.ncbi", "https://ftp.ncbi.nlm.nih.gov" + path),
-                       ("https www.ncbi", "https://www.ncbi.nlm.nih.gov" + path)):
-        try:
-            r = requests.get(url, timeout=120, headers=UA)
-        except Exception as e:
-            print("  %-34s CONNECT FAIL  %s" % (label, str(e)[:50]))
-            continue
-        print("  %-34s HTTP %s  %.2f MB  %s"
-              % (label, r.status_code, len(r.content) / 1e6,
-                 (r.headers.get("Content-Type") or "?").split(";")[0]))
-        if r.status_code == 200 and len(r.content) > 5000:
-            blob = r.content
+    for _p in paths:
+        _where = "deprecated" if "/deprecated/" in _p else "original"
+        for label, url in (("https ftp.ncbi (%s)" % _where,
+                            "https://ftp.ncbi.nlm.nih.gov" + _p),):
+            try:
+                r = requests.get(url, timeout=120, headers=UA)
+            except Exception as e:
+                print("  %-34s CONNECT FAIL  %s" % (label, str(e)[:50]))
+                continue
+            print("  %-34s HTTP %s  %.2f MB  %s"
+                  % (label, r.status_code, len(r.content) / 1e6,
+                     (r.headers.get("Content-Type") or "?").split(";")[0]))
+            if r.status_code == 200 and len(r.content) > 5000:
+                blob = r.content
+                path = _p
+                break
+        if blob:
             break
     if blob is None:
         # Plain FTP, straight from the URL the OA service actually gave us.
@@ -284,12 +300,20 @@ def probe_package(ftp_url):
             buf = io.BytesIO()
             ftp = ftplib.FTP("ftp.ncbi.nlm.nih.gov", timeout=90)
             ftp.login()
-            try:
-                ftp.retrbinary("RETR " + path, buf.write)
-                blob = buf.getvalue()
-                print("  %-34s OK  %.2f MB" % ("plain ftp", len(blob) / 1e6))
-            except Exception as e:
-                print("  %-34s FAIL  %s" % ("plain ftp", str(e)[:60]))
+            for _p in paths:
+                _where = "deprecated" if "/deprecated/" in _p else "original"
+                try:
+                    buf = io.BytesIO()
+                    ftp.retrbinary("RETR " + _p, buf.write)
+                    blob = buf.getvalue()
+                    print("  %-34s OK  %.2f MB"
+                          % ("plain ftp (%s)" % _where, len(blob) / 1e6))
+                    path = _p
+                    break
+                except Exception as e:
+                    print("  %-34s FAIL  %s"
+                          % ("plain ftp (%s)" % _where, str(e)[:55]))
+            if not blob:
                 parent = path.rsplit("/", 1)[0]
                 try:
                     listing = ftp.nlst(parent)

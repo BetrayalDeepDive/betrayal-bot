@@ -4016,6 +4016,26 @@ def generate_script_content(niche, topic, episode, attempt,
         except Exception as e:
             log(f"  Register-availability check (non-fatal): {e}")
 
+        # RICHNESS, MEASURED ON FIGURES THAT ACTUALLY DOWNLOADED.
+        #
+        # The check above asks "is any register alive at all", which is a
+        # floor against total emptiness. It is not a judgement about whether
+        # this case can carry twenty interesting minutes, and it counts
+        # ADVERTISED figures -- so PMC8068274 passed it with nine figures it
+        # could not produce, and the episode was built from about four pieces
+        # of source material.
+        #
+        # Downloading first and scoring second is the whole point. A paper
+        # that promises pictures and delivers none scores as what it is.
+        try:
+            _ok, _score, _why = accept_case_or_repick(case, WORK_DIR, log_fn=log)
+            if not _ok:
+                log(f"  Case REJECTED on richness ({_score}/10) — repicking. "
+                    f"A thin case is not worth an episode.")
+                return None
+        except Exception as e:
+            log(f"  Case richness gate (non-fatal): {e}")
+
     # Make the case available to the per-segment renderers deep inside
     # get_stage_matched_video (see the EPISODE CASE HOLDER note above).
     set_episode_case(case)
@@ -6810,7 +6830,34 @@ def set_episode_case(case):
     _EPISODE_CASE = case or {}
     if _EPISODE_CASE:
         log(f"  Episode case set: {_EPISODE_CASE.get('pmcid','?')} "
-            f"({len(_EPISODE_CASE.get('figures') or [])} usable figures)")
+            f"({len(_EPISODE_CASE.get('figures') or [])} advertised figures)")
+
+
+def accept_case_or_repick(case, work_dir, log_fn=None):
+    """Is this case rich enough to be an episode? Verified, not advertised.
+
+    "When the case is really thin, yes, I wanted to reject and repick it."
+
+    Two steps, in this order and for a reason. First actually download the
+    figures, because everything downstream is sized from the figure count and
+    a count of promises sizes it wrong -- the register quota scheduled a fifth
+    of run 31740721781 as FIGURE cards on the strength of nine advertised
+    figures and then had nothing to fill any of them with. Second, score the
+    case on what survived.
+
+    Returns (accepted, score, reasons). A rejection is not a failure: the
+    caller moves to the next candidate, which is the whole point.
+    """
+    _log = log_fn or log
+    from pmc_data import case_richness, verify_figures, CASE_RICHNESS_FLOOR
+    verified = verify_figures(case, work_dir, log_fn=_log)
+    score, reasons = case_richness(case, verified_figures=verified)
+    ok = score >= CASE_RICHNESS_FLOOR
+    _log(f"  Case richness {case.get('pmcid','?')}: {score}/10 "
+         f"(floor {CASE_RICHNESS_FLOOR}) — {'ACCEPTED' if ok else 'REJECTED, repicking'}")
+    for _r in reasons:
+        _log(f"    · {_r}")
+    return ok, score, reasons
 
 
 def get_episode_case():

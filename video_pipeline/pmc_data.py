@@ -756,13 +756,27 @@ def get_real_cases(niche_name, count=6, max_candidates=20):
             "journal": ((article.get("journalInfo") or {}).get("journal") or {}).get("title", ""),
             "license": article.get("license") or "",
         })
-    # Figure-bearing papers first. The caller uses out[attempt-1], so this
-    # puts the best-illustrated case on attempt 1 -- the attempt most likely
-    # to be the one that publishes. A paper with no usable figures is still
-    # kept (it can carry the episode on BOARD/TIMELINE/CHART/ANATOMY), just
-    # ranked below one that can actually show the patient's own imaging,
-    # which is the channel's entire differentiator.
-    out.sort(key=lambda c: len(c.get("figures") or []), reverse=True)
+    # RANK BY WHAT THE CASE CAN ACTUALLY PUT ON SCREEN.
+    #
+    # This used to sort on len(figures) alone -- the ADVERTISED figure count.
+    # That is precisely how run 31740721781 came to pick PMC8068274: it
+    # advertised nine figures, sorted to the top, was scripted as attempt 1,
+    # and delivered zero images. One promised number outranked every real
+    # signal the paper carried.
+    #
+    # case_richness weighs narrative depth, timeline entries, differentials
+    # and charted values alongside figures, so a paper that can genuinely
+    # carry twenty minutes outranks one that merely claims pictures. Figures
+    # still count and still count heavily -- they are the differentiator --
+    # but they are now one dimension of five rather than the only one.
+    #
+    # Scored here on the advertised count because verifying a download for
+    # every candidate would mean dozens of fetches during selection. The
+    # caller re-scores the chosen case against VERIFIED figures once, which
+    # is where a paper that only promised pictures gets rejected.
+    for c in out:
+        c["richness"], c["richness_reasons"] = case_richness(c)
+    out.sort(key=lambda c: c["richness"], reverse=True)
     return out
 
 
@@ -807,3 +821,134 @@ def format_script_context(case):
         "anyone):\n"
         f"  {case['narrative'][:2600]}{fig_note}\n"
     )
+
+
+# ===========================================================================
+# IS THIS CASE RICH ENOUGH TO BE AN EPISODE AT ALL?
+#
+# "When the case is really thin, yes, I wanted to reject and repick it."
+#
+# Selection used to have no opinion about this. It walked candidates until
+# one produced a case narrative of any length and returned it, and the only
+# thing resembling a richness signal was a log line counting ADVERTISED
+# figures. Run 31740721781 picked PMC8068274 BECAUSE it listed nine usable
+# figures -- and downloaded zero of them. The number that drove the choice
+# was a promise the paper made, never a thing the pipeline held.
+#
+# The distinction between advertised and verified runs through everything
+# here. `figures` is what the XML claims exists. `figures_verified` is how
+# many actually arrived as decodable image bytes. Only the second may be
+# scored, because only the second can be put on screen.
+# ===========================================================================
+
+# What a case must supply to carry twenty minutes. Each dimension is
+# something a visual register actually consumes, so a case that scores well
+# here is one the episode can genuinely be built from.
+#
+# The floor is 5 of a possible 10. Deliberately not higher: the search
+# already restricts to open-access CC BY case reports, so the candidate pool
+# is not large, and a gate nothing can pass means every run falls back to
+# whatever it can get -- which is the situation this replaces. 5 rejects the
+# genuinely threadbare while leaving a workable pool.
+CASE_RICHNESS_FLOOR = 5.0
+
+
+def case_richness(case, verified_figures=None):
+    """Score 0-10 for how much real content this case can put on screen.
+
+    Returns (score, reasons) where reasons explains every point, so a
+    rejection can say what was missing rather than just refusing.
+
+    verified_figures, when given, overrides the advertised figure count.
+    Pass the number that actually downloaded.
+    """
+    c = case or {}
+    reasons, score = [], 0.0
+
+    narrative = (c.get("narrative") or "").strip()
+    words = len(narrative.split())
+    # A twenty-minute episode is roughly 2,800 spoken words. The narrative is
+    # the seed, not the script, but a 200-word case cannot support one.
+    if words >= 900:
+        score += 3.0; reasons.append("narrative %d words (rich)" % words)
+    elif words >= 500:
+        score += 2.0; reasons.append("narrative %d words (adequate)" % words)
+    elif words >= 300:
+        score += 1.0; reasons.append("narrative %d words (thin)" % words)
+    else:
+        reasons.append("narrative only %d words (too thin)" % words)
+
+    n_fig = (len(c.get("figures") or []) if verified_figures is None
+             else int(verified_figures))
+    label = "advertised" if verified_figures is None else "VERIFIED"
+    if n_fig >= 4:
+        score += 2.5; reasons.append("%d %s figure(s)" % (n_fig, label))
+    elif n_fig >= 2:
+        score += 1.5; reasons.append("%d %s figure(s)" % (n_fig, label))
+    elif n_fig == 1:
+        score += 0.5; reasons.append("1 %s figure" % label)
+    else:
+        reasons.append("NO %s figures" % label)
+
+    timeline = c.get("timeline") or []
+    if len(timeline) >= 5:
+        score += 1.5; reasons.append("%d timeline entries" % len(timeline))
+    elif len(timeline) >= 3:
+        score += 1.0; reasons.append("%d timeline entries" % len(timeline))
+    elif timeline:
+        reasons.append("only %d timeline entr(y/ies)" % len(timeline))
+    else:
+        reasons.append("no timeline")
+
+    diffs = c.get("differentials") or []
+    if len(diffs) >= 4:
+        score += 1.5; reasons.append("%d differentials" % len(diffs))
+    elif len(diffs) >= 2:
+        score += 1.0; reasons.append("%d differentials" % len(diffs))
+    else:
+        reasons.append("%d differential(s)" % len(diffs))
+
+    chart = (c.get("chart_data") or {}).get("labels") or []
+    if len(chart) >= 4:
+        score += 1.5; reasons.append("%d charted values" % len(chart))
+    elif chart:
+        score += 0.75; reasons.append("%d charted value(s)" % len(chart))
+    else:
+        reasons.append("no chart data")
+
+    return round(min(10.0, score), 2), reasons
+
+
+def verify_figures(case, work_dir, log_fn=None, cap=6):
+    """How many of this paper's figures actually arrive as image bytes.
+
+    Sets case["figures_verified"] and prunes case["figures"] down to the ones
+    that really downloaded, so every later consumer -- the register quota
+    above all -- is sized from what exists rather than what was promised.
+
+    This is the whole lesson of run 31740721781 in one function: the quota
+    scheduled roughly a fifth of the episode as FIGURE cards on the strength
+    of nine advertised figures, then had nothing to put in any of them.
+    """
+    figures = (case or {}).get("figures") or []
+    if not figures:
+        case["figures_verified"] = 0
+        return 0
+    import os
+    kept = []
+    for idx, fig in enumerate(figures[:cap]):
+        out = os.path.join(str(work_dir), "verify_fig_%d.jpg" % idx)
+        try:
+            if download_figure(fig, out, log_fn=log_fn):
+                fig = dict(fig)
+                fig["local_path"] = out
+                kept.append(fig)
+        except Exception as e:
+            if log_fn:
+                log_fn("    figure verify error %s" % str(e)[:60])
+    case["figures"] = kept
+    case["figures_verified"] = len(kept)
+    if log_fn:
+        log_fn("  Figures: %d advertised, %d actually downloaded"
+               % (len(figures), len(kept)))
+    return len(kept)
