@@ -139,10 +139,61 @@ def probe(pmcid):
                  links[0][:60] if links else ""))
         results.append(("OA web service (package)", bool(links),
                         links[0][:70] if links else "no links"))
+        if links:
+            results.append(probe_package(links[0]))
     except Exception as e:
         print("  %-34s CONNECT FAIL %s" % ("OA web service", str(e)[:50]))
         results.append(("OA web service (package)", False, "connect fail"))
     return results
+
+
+def probe_package(ftp_url):
+    """Can the runner actually OPEN the package, and are there figures in it?
+
+    The OA service answers with an ftp:// URL. Knowing the URL exists is not
+    the same as being able to use it: GitHub runners commonly block outbound
+    FTP, and a tarball that turns out to hold only the XML would be no better
+    than the dead image routes. NCBI serves the identical tree over HTTPS, so
+    this rewrites the scheme and checks the whole path end to end -- fetch,
+    untar, find images, decode one.
+    """
+    import tarfile
+    https = ftp_url.replace("ftp://ftp.ncbi.nlm.nih.gov",
+                            "https://ftp.ncbi.nlm.nih.gov")
+    print("\n-- OA package over HTTPS --")
+    try:
+        r = requests.get(https, timeout=90, headers=UA)
+    except Exception as e:
+        print("  %-34s CONNECT FAIL  %s" % ("package download", str(e)[:60]))
+        return ("OA package (https, decoded figure)", False, "connect fail")
+    if r.status_code != 200:
+        print("  %-34s HTTP %s" % ("package download", r.status_code))
+        return ("OA package (https, decoded figure)", False,
+                "HTTP %s" % r.status_code)
+    print("  %-34s HTTP 200  %.1f MB" % ("package download",
+                                         len(r.content) / 1e6))
+    try:
+        tf = tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz")
+        names = tf.getnames()
+    except Exception as e:
+        print("  %-34s untar failed  %s" % ("package open", str(e)[:50]))
+        return ("OA package (https, decoded figure)", False, "untar failed")
+    imgs = [n for n in names
+            if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".tif"))]
+    print("  %-34s %d member(s), %d image(s) %s"
+          % ("package contents", len(names), len(imgs),
+             [n.split("/")[-1] for n in imgs[:4]]))
+    if not imgs:
+        return ("OA package (https, decoded figure)", False, "no images inside")
+    # Decode the largest, which is the one most likely to be a real figure
+    # rather than a publisher logo or an equation glyph.
+    biggest = max(imgs, key=lambda n: tf.getmember(n).size)
+    data = tf.extractfile(biggest).read()
+    ok, detail = _decodes(data)
+    print("  %-34s %s  %s  %d bytes  %s"
+          % ("largest image decodes", "OK   " if ok else "NOT AN IMAGE",
+             biggest.split("/")[-1], len(data), detail))
+    return ("OA package (https, decoded figure)", ok, detail)
 
 
 def main():
