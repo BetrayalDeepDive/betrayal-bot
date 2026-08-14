@@ -45,7 +45,7 @@ on:
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','report','clear','drafts','drafts_apply','cleanup','true']
+        options: ['false','probe','figures','report','clear','drafts','drafts_apply','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -67,12 +67,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # WHICH URL ACTUALLY SERVES A PMC FIGURE?
+  #
+  # Run 31740721781 lost all nine of its paper's figures — every candidate
+  # URL returned HTML or 403 — and shipped a 22-minute episode with 8-10
+  # visuals cycling. The pattern in pmc_data has carried a comment since it
+  # was written saying it could not be verified from a sandbox, and it still
+  # cannot: the dev environment's proxy blocks both ncbi.nlm.nih.gov and
+  # www.ebi.ac.uk. Only a runner can answer this, so a runner is asked.
+  # Read-only, ~2 minutes, touches no episode state.
+  figure_probe:
+    if: inputs.probe_only == 'figures'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests pillow -q
+      - name: Probe PMC figure routes
+        run: python tools/probe_figure_routes.py
+
   # Diagnostic only — see probe_only above. Uploads one ~6s PRIVATE clip
   # declaring containsSyntheticMedia=false and reads the stored status back,
   # to find out whether YouTube applies the "Made with AI" label from its own
   # detection regardless of what we declare. Never runs unless asked for.
   label_probe:
-    if: inputs.probe_only != 'false' && inputs.probe_only != ''
+    # 'figures' has its own job above; without excluding it here the AI-label
+    # probe would also fire and upload a clip nobody asked for.
+    if: inputs.probe_only != 'false' && inputs.probe_only != '' && inputs.probe_only != 'figures'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
