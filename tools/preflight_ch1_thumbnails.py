@@ -1306,6 +1306,69 @@ def main():
           bool(_dose_v) and any(v.get("severity") == "block" for v in _dose_v),
           "run 31740721781 narrated argatroban 2 mcg/kg/min and IVIG 1 g/kg/day "
           "past every gate")
+    # ── THE CARD CEILING, WHICH HAD NO TEST AT ALL ─────────────────
+    #
+    # The most-repeated instruction in this whole channel's history --
+    # "I don't want any visual card longer than X, it should be hardcoded" --
+    # was enforced by code nothing ever checked. That is how the previous
+    # ceiling shipped cards past it for months: durations() clamped every
+    # card correctly and then a final residue step added the leftover to the
+    # longest one WITHOUT re-clamping, so any episode whose audio outran
+    # n * MAX_SECONDS put the entire shortfall on a single card.
+    #
+    # Read from the module, never written as a literal here. A check that
+    # hardcodes 12.5 stops testing the rule the moment the rule is retuned --
+    # which already happened once in this file, when a bed-loudness check
+    # carried the value it was supposed to be verifying.
+    import clinical_variation as _cvar
+    _ceil_bad, _sum_bad, _floor_bad = [], [], []
+    for _mins in (15, 18, 20, 22, 25, 30):
+        _tot = _mins * 60
+        _n = _cvar.cards_needed(_tot)
+        _d = _cvar.EpisodeVariation(3, _n).durations(_tot, [""] * _n)
+        if max(_d) > _cvar.MAX_SECONDS + 1e-6:
+            _ceil_bad.append((_mins, round(max(_d), 2)))
+        if min(_d) < _cvar.MIN_SECONDS - 1e-6:
+            _floor_bad.append((_mins, round(min(_d), 2)))
+        if abs(sum(_d) - _tot) > 0.05:
+            _sum_bad.append((_mins, round(sum(_d) - _tot, 2)))
+    check("no card ever exceeds the hardcoded ceiling",
+          not _ceil_bad,
+          "over the %.1fs ceiling at: %s" % (_cvar.MAX_SECONDS, _ceil_bad))
+    check("no card falls under the floor either",
+          not _floor_bad,
+          "under the %.1fs floor at: %s" % (_cvar.MIN_SECONDS, _floor_bad))
+    check("the cards cover the audio exactly, at every length",
+          not _sum_bad,
+          "visuals drift out of sync with the narration at: %s" % (_sum_bad,))
+    # The specific bug, reproduced: ask for far too few cards and the old
+    # code silently handed one card the whole shortfall. It must refuse.
+    try:
+        _cvar.EpisodeVariation(1, 40).durations(1200, [""] * 40)
+        _too_few_raises = False
+    except _cvar.CardsTooFew:
+        _too_few_raises = True
+    except Exception:
+        _too_few_raises = False
+    check("too few cards is refused, not absorbed by one long card",
+          _too_few_raises,
+          "this is exactly how the old ceiling was breached — silently")
+    # And the pacing must not collapse onto the ceiling, which is the other
+    # way this goes wrong: every card the same length reads as static even
+    # though no single card breaks the rule.
+    _n75 = _cvar.cards_needed(900)
+    _slow = "the patient died that night and the diagnosis was finally revealed"
+    _fast = "then the next morning meanwhile the team also reviewed the chart"
+    _flat = "her admission notes recorded a temperature and a pulse on arrival"
+    _dd = _cvar.EpisodeVariation(3, _n75).durations(
+        900, [(_slow if i % 7 == 0 else _fast if i % 5 == 0 else _flat)
+              for i in range(_n75)])
+    _pinned = sum(1 for x in _dd if x > _cvar.MAX_SECONDS - 0.05) / float(_n75)
+    check("the pacing does not collapse onto the ceiling",
+          _pinned < 0.35,
+          "%.0f%% of cards render at exactly the ceiling — that is the flat "
+          "pace the variation engine exists to prevent" % (_pinned * 100))
+
     check("a lab value is never mistaken for a dose",
           not _mpg.check_script(
               "Her sodium was 118 mmol/L, creatinine 2.4 mg/dL, platelets "

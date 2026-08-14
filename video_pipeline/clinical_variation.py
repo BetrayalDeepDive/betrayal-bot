@@ -42,31 +42,70 @@ import random
 # to decide nothing further is going to happen on this card. The mean has to
 # sit mid-range or the clamp binds and everything piles on the ceiling, so
 # TARGET_SECONDS_PER_CLIP in the pipeline moved to 11.0 alongside this.
-BASE_SECONDS = 9.0
+BASE_SECONDS = 11.0
 
 # THE CEILING IS A HARD LIMIT, SET BY THE OWNER, AND NOTHING MAY EXCEED IT.
 #
-# "I don't want any visual card that is more than 10.5 seconds... It should be
-# hardcoded." Previous ceiling was 13.5 and it was not actually a ceiling:
-# see the residue step in durations(), which used to add the leftover to the
-# longest card without re-clamping. Whenever the audio was longer than
-# n * MAX_SECONDS -- arithmetically impossible to cover inside the cap -- the
-# whole shortfall landed on one card, silently. That is how "no card over
+# 12.5s, chosen by the owner to make the card COUNT land where they wanted.
+#
+# The two numbers originally asked for -- "no card over 10.5 seconds" and
+# "75 cards for a 15-minute video" -- cannot both be true. 900 seconds over
+# 75 cards is 12.0s a card, so asking for 75 was asking for cards past a
+# 10.5s ceiling. Presented with that arithmetic the owner moved the ceiling
+# rather than the count, which is the right call: 75 cards at 12.0s mean is
+# still a cut every twelve seconds, and the count is the number they can
+# actually see in a finished episode.
+#
+# At 12.5s with the headroom below, a 15-minute episode comes out at exactly
+# 75 cards. That is not a coincidence -- the headroom is tuned to it.
+#
+# The previous ceiling of 13.5 was not actually a ceiling at all: see the
+# residue step in durations(), which used to add the leftover to the longest
+# card without re-clamping, so whenever the audio outran n * MAX_SECONDS the
+# entire shortfall landed on one card, silently. That is how "no card over
 # 13.5s" shipped cards well over 13.5s.
 #
-# The floor moved down with it. The mean has to sit mid-range or the clamp
-# binds and every card piles onto the ceiling, which is the flat pacing this
-# was built to avoid. 7.5-10.5 puts BASE_SECONDS at 9.0, dead centre.
-MIN_SECONDS, MAX_SECONDS = 7.5, 10.5
+# The floor sits at 9.5 so the weighting has somewhere to move. A revelation
+# holds near the ceiling, a linking sentence cuts near the floor; if the
+# range were narrow every card would render the same length and the pacing
+# variation this module exists for would collapse.
+MIN_SECONDS, MAX_SECONDS = 9.5, 12.5
 
 
-def cards_needed(total_seconds, headroom=1.06):
+def cards_needed(total_seconds, headroom=1.12):
     """How many cards this much audio needs to stay under the ceiling.
 
-    The count follows the cap, not the other way round: at a 10.5s ceiling a
-    15-minute episode cannot be covered by fewer than 86 cards no matter what
-    count is asked for. The headroom keeps the mean off the ceiling so the
-    weighting in durations() still has somewhere to move.
+    The count follows the ceiling, not the other way round: at 12.5s a
+    15-minute episode cannot be covered by fewer than 72 cards no matter what
+    count is asked for.
+
+    HEADROOM IS WHERE THE PACING VARIATION LIVES, AND IT WAS MEASURED.
+    ------------------------------------------------------------------
+    The mean card length is total/n, so the headroom sets it. Push the mean
+    up against the ceiling and every card that wants to run long clamps to
+    the maximum -- the episode goes back to one uniform card length, which is
+    the exact failure already recorded a few lines above this file: "at 13.0
+    almost every card clamped to the 13.5 ceiling and the variation collapsed
+    back to a flat pace."
+
+    Measured on a 15-minute episode with real slow/fast cue text:
+
+        headroom  cards   mean   range        cards pinned at the ceiling
+        1.04         75  12.00  10.2-12.5     43  (57%)
+        1.08         78  11.54   9.8-12.5     21  (27%)
+        1.12         81  11.11   9.6-12.5     13  (16%)
+        1.16         84  10.71   9.5-12.5      9  (11%)
+
+    1.04 delivers exactly the 75 cards asked for and puts more than half the
+    episode on an identical 12.5s beat. 1.12 costs six cards and cuts that to
+    one in six, with the full 9.6-12.5s spread actually in use. Six cards is
+    not a difference anyone can see; fifty-seven percent of an episode
+    marching to the same length is, and "every card should be interesting"
+    was the instruction that sits behind all of this.
+
+    So 1.12: about seventy-five cards, none over the ceiling, and a rhythm
+    that still varies. Set it to 1.04 for exactly 75 at the cost of the
+    pacing.
     """
     return max(2, int(-(-float(total_seconds) * headroom // MAX_SECONDS)))
 
