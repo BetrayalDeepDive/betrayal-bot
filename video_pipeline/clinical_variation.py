@@ -42,8 +42,42 @@ import random
 # to decide nothing further is going to happen on this card. The mean has to
 # sit mid-range or the clamp binds and everything piles on the ceiling, so
 # TARGET_SECONDS_PER_CLIP in the pipeline moved to 11.0 alongside this.
-BASE_SECONDS = 11.0
-MIN_SECONDS, MAX_SECONDS = 9.0, 13.5
+BASE_SECONDS = 9.0
+
+# THE CEILING IS A HARD LIMIT, SET BY THE OWNER, AND NOTHING MAY EXCEED IT.
+#
+# "I don't want any visual card that is more than 10.5 seconds... It should be
+# hardcoded." Previous ceiling was 13.5 and it was not actually a ceiling:
+# see the residue step in durations(), which used to add the leftover to the
+# longest card without re-clamping. Whenever the audio was longer than
+# n * MAX_SECONDS -- arithmetically impossible to cover inside the cap -- the
+# whole shortfall landed on one card, silently. That is how "no card over
+# 13.5s" shipped cards well over 13.5s.
+#
+# The floor moved down with it. The mean has to sit mid-range or the clamp
+# binds and every card piles onto the ceiling, which is the flat pacing this
+# was built to avoid. 7.5-10.5 puts BASE_SECONDS at 9.0, dead centre.
+MIN_SECONDS, MAX_SECONDS = 7.5, 10.5
+
+
+def cards_needed(total_seconds, headroom=1.06):
+    """How many cards this much audio needs to stay under the ceiling.
+
+    The count follows the cap, not the other way round: at a 10.5s ceiling a
+    15-minute episode cannot be covered by fewer than 86 cards no matter what
+    count is asked for. The headroom keeps the mean off the ceiling so the
+    weighting in durations() still has somewhere to move.
+    """
+    return max(2, int(-(-float(total_seconds) * headroom // MAX_SECONDS)))
+
+
+class CardsTooFew(ValueError):
+    """This much audio cannot be covered by this many cards inside the cap.
+
+    Raised rather than papered over, because the only two ways to "handle" it
+    silently are to hold a card past the ceiling or to let the visuals run
+    short of the audio, and both ship a broken episode.
+    """
 
 # Words that mark a beat worth holding on, and one worth cutting away from.
 # A revelation earns screen time; a transitional sentence does not.
@@ -170,11 +204,41 @@ class EpisodeVariation:
             share = drift / len(room)
             for i in room:
                 out[i] = min(MAX_SECONDS, max(MIN_SECONDS, out[i] + share))
-        # Any residue lands on the longest card, where a tenth of a second
-        # is invisible.
+        # Any residue is spread over the cards that still have room, never
+        # dumped on one.
+        #
+        # THIS LINE USED TO BREAK THE CEILING. It was
+        #     out[out.index(max(out))] += residue
+        # which adds the leftover to the card that is, by definition, already
+        # closest to MAX_SECONDS -- and pushes it straight through. Normally
+        # the residue is a hundredth of a second and invisible. But when the
+        # audio is longer than n * MAX_SECONDS the loop above cannot converge,
+        # residue is the entire shortfall, and one card silently held for
+        # however long it took to cover the gap. A cap that is enforced except
+        # when it matters is not a cap.
         residue = total_seconds - sum(out)
-        if abs(residue) > 0.001 and out:
-            out[out.index(max(out))] += residue
+        for _ in range(4):
+            if abs(residue) < 0.001:
+                break
+            room = [i for i, v in enumerate(out)
+                    if (residue > 0 and v < MAX_SECONDS - 1e-6)
+                    or (residue < 0 and v > MIN_SECONDS + 1e-6)]
+            if not room:
+                break
+            share = residue / len(room)
+            for i in room:
+                out[i] = min(MAX_SECONDS, max(MIN_SECONDS, out[i] + share))
+            residue = total_seconds - sum(out)
+
+        # If it still does not fit, the caller asked for fewer cards than this
+        # much audio can be covered with. Say so instead of quietly holding a
+        # card past the ceiling -- the pipeline adds cards and calls again.
+        if residue > 0.05:
+            raise CardsTooFew(
+                "%.1fs of audio needs more than %d cards at a %.1fs ceiling "
+                "(short by %.1fs; %d needed)"
+                % (total_seconds, self.n, MAX_SECONDS, residue,
+                   cards_needed(total_seconds)))
         return out
 
     # ── transition ─────────────────────────────────────────────────────

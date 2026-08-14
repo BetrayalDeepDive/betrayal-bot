@@ -74,6 +74,55 @@ def _try(label, url, results):
     return r.content if ok else None
 
 
+def _try_zip(label, url, results, expect_images=True):
+    """Fetch an archive (or a plain file) and report what is actually inside.
+
+    Separate from _try because these routes answer with a container, and
+    "HTTP 200" on a container says nothing about whether there is a figure in
+    it -- an empty ZIP and a ZIP full of TIFFs look identical from the status
+    line.
+    """
+    import zipfile
+    try:
+        r = requests.get(url, timeout=90, headers=UA)
+    except Exception as e:
+        print("  %-34s CONNECT FAIL  %s" % (label, str(e)[:55]))
+        results.append((label, False, "connect fail"))
+        return
+    ctype = (r.headers.get("Content-Type") or "?").split(";")[0]
+    if r.status_code != 200:
+        print("  %-34s HTTP %s  %s" % (label, r.status_code, ctype))
+        results.append((label, False, "HTTP %s" % r.status_code))
+        return
+    if not expect_images:
+        print("  %-34s HTTP 200  %s  %d bytes"
+              % (label, ctype, len(r.content)))
+        results.append((label, False, "not an image container"))
+        return
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(r.content))
+        names = zf.namelist()
+    except Exception as e:
+        print("  %-34s HTTP 200 but not a zip  %s  %s"
+              % (label, ctype, str(e)[:35]))
+        results.append((label, False, "not a zip"))
+        return
+    imgs = [n for n in names
+            if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".tif"))]
+    print("  %-34s HTTP 200  %d member(s), %d image(s) %s"
+          % (label, len(names), len(imgs),
+             [n.split("/")[-1] for n in imgs[:3]]))
+    if not imgs:
+        results.append((label, False, "zip has no images"))
+        return
+    biggest = max(imgs, key=lambda n: zf.getinfo(n).file_size)
+    ok, detail = _decodes(zf.read(biggest))
+    print("  %-34s %s  %s  %s"
+          % ("  -> largest decodes", "OK   " if ok else "NOT AN IMAGE",
+             biggest.split("/")[-1], detail))
+    results.append((label, ok, detail))
+
+
 def graphic_hrefs(pmcid):
     """The figure filenames the article's own full text declares."""
     try:
@@ -146,6 +195,21 @@ def probe(pmcid):
             print("  %-34s FAIL %s" % ("article page " + host.split("/")[2],
                                        str(e)[:50]))
 
+    # Europe PMC's supplementary-files endpoint. Documented, returns a ZIP.
+    # Nominally "supplementary" rather than "figures", but on many articles
+    # the deposited package includes the figure images, and it is one HTTPS
+    # call against a host this pipeline already depends on.
+    _try_zip("europepmc supplementaryFiles",
+             "%s/%s/supplementaryFiles" % (EPMC, pmcid), results)
+
+    # The PMC Open Access subset on AWS Open Data. Public bucket, no
+    # credentials, and it is the route NCBI now points bulk users at -- which
+    # is consistent with the FTP package path having gone stale.
+    for sub in ("oa_comm", "oa_noncomm"):
+        _try_zip("s3 %s package" % sub,
+                 "https://pmc-oa-opendata.s3.amazonaws.com/%s/xml/all/%s.xml"
+                 % (sub, pmcid), results, expect_images=False)
+
     # The OA Web Service: the documented, supported way to get an open-access
     # article's files. Returns XML pointing at a package rather than an image,
     # so it is reported separately below.
@@ -158,11 +222,17 @@ def probe(pmcid):
               % ("OA web service", r.status_code, len(links)))
         for L in links:
             print("      %s" % L)
-        results.append(("OA web service (package)", bool(links),
-                        links[0][:70] if links else "no links"))
+        # NOT scored as usable on its own. The last run marked this route
+        # "USABLE 2/2" purely because it returned links -- and both links
+        # turned out to be 550 No such file. A route that answers with a
+        # dead pointer has not served a figure, and the verdict must not say
+        # otherwise. Only probe_package's result counts.
         tgz = [L for L in links if L.endswith(".tar.gz")]
         if tgz:
             results.append(probe_package(tgz[0]))
+        else:
+            results.append(("OA package (decoded figure)", False,
+                            "no tgz link offered"))
     except Exception as e:
         print("  %-34s CONNECT FAIL %s" % ("OA web service", str(e)[:50]))
         results.append(("OA web service (package)", False, "connect fail"))
@@ -202,20 +272,36 @@ def probe_package(ftp_url):
             break
     if blob is None:
         # Plain FTP, straight from the URL the OA service actually gave us.
-        # Runners often block it, which is exactly why it is the last resort
-        # and not the design.
+        #
+        # The previous run proved FTP itself is NOT blocked here: it connected
+        # and answered "550 No such file". So the OA service is handing out a
+        # path that does not exist -- its response is stale relative to the
+        # tree it points at. Which means the useful question is no longer
+        # "can we fetch this file" but "what is actually in that directory",
+        # so this lists the parent before giving up.
         try:
             import ftplib
-            host = "ftp.ncbi.nlm.nih.gov"
             buf = io.BytesIO()
-            ftp = ftplib.FTP(host, timeout=90)
+            ftp = ftplib.FTP("ftp.ncbi.nlm.nih.gov", timeout=90)
             ftp.login()
-            ftp.retrbinary("RETR " + path, buf.write)
+            try:
+                ftp.retrbinary("RETR " + path, buf.write)
+                blob = buf.getvalue()
+                print("  %-34s OK  %.2f MB" % ("plain ftp", len(blob) / 1e6))
+            except Exception as e:
+                print("  %-34s FAIL  %s" % ("plain ftp", str(e)[:60]))
+                parent = path.rsplit("/", 1)[0]
+                try:
+                    listing = ftp.nlst(parent)
+                    print("  %-34s %d entr(y/ies) in %s"
+                          % ("ftp listing", len(listing), parent))
+                    for n in listing[:10]:
+                        print("      %s" % n)
+                except Exception as e2:
+                    print("  %-34s %s" % ("ftp listing", str(e2)[:60]))
             ftp.quit()
-            blob = buf.getvalue()
-            print("  %-34s OK  %.2f MB" % ("plain ftp", len(blob) / 1e6))
         except Exception as e:
-            print("  %-34s FAIL  %s" % ("plain ftp", str(e)[:60]))
+            print("  %-34s CONNECT FAIL  %s" % ("plain ftp", str(e)[:60]))
     if not blob:
         return ("OA package (decoded figure)", False, "could not fetch package")
     try:

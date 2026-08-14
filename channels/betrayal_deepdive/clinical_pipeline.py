@@ -6968,15 +6968,32 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     # 11.0, not 13.0: the per-card range is 9-13.5s, so the mean has to sit
     # mid-range. At 13.0 almost every card clamped to the 13.5 ceiling and
     # the variation collapsed back to a flat pace.
-    TARGET_SECONDS_PER_CLIP = 11.0
-    n_buckets = int(round(audio_duration / TARGET_SECONDS_PER_CLIP))
-    n_buckets = max(55, min(200, n_buckets))
+    # THE CARD COUNT NOW FOLLOWS THE CEILING. IT IS NOT A SEPARATE DIAL.
+    #
+    # Owner spec: no card longer than 10.5 seconds, hardcoded, plus a wish for
+    # ~75 cards on a 15-18 minute episode. Those two numbers cannot both hold.
+    # 15 minutes is 900 seconds; 900/75 is 12.0s a card, and an 18-minute
+    # episode at 75 cards is 14.4s a card. Asking for 75 IS asking for cards
+    # past the ceiling.
+    #
+    # The ceiling is the one that was called hardcoded, and it is also the one
+    # that does the actual job -- it is what stops a card sitting long enough
+    # to feel static. So the ceiling is fixed and the count is derived from it:
+    # cards_needed() returns the smallest count that covers this much audio
+    # without any card touching 10.5s, with a little headroom so the pacing
+    # weights still have room to move. In practice that is ~91 cards at 15
+    # minutes, ~110 at 18, ~152 at 25.
+    #
+    # There is no upper clamp any more. The clamp is what broke this before:
+    # an 18.8-minute episode wanted 84 segments, min(65, 84) forced 65, and
+    # the result was 17.4 SECONDS PER CARD -- the longer the episode, the more
+    # static it got, exactly backwards. A cap on the count is a cap on nothing
+    # except the pacing it was supposed to protect.
+    from clinical_variation import cards_needed, MAX_SECONDS as CARD_CEILING
+    n_buckets = cards_needed(audio_duration)
     _secs_per_card = audio_duration / max(1, n_buckets)
-    log(f"  Visual pace: {n_buckets} segments over {audio_duration/60:.1f} min "
-        f"= {_secs_per_card:.1f}s per card (target {TARGET_SECONDS_PER_CLIP}s)")
-    if _secs_per_card > TARGET_SECONDS_PER_CLIP + 1.5:
-        log(f"  WARNING: cards are holding {_secs_per_card:.1f}s, longer than "
-            f"the {TARGET_SECONDS_PER_CLIP}s target — the clamp is binding.")
+    log(f"  Visual pace: {n_buckets} cards over {audio_duration/60:.1f} min "
+        f"= {_secs_per_card:.1f}s mean, hard ceiling {CARD_CEILING}s/card")
 
     # Expanded theme list (was 28, now 60) so segments this close together
     # don't hit the same theme label repeatedly — each tagged with a
@@ -7056,6 +7073,43 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
             f"(was a flat {segment_dur:.1f}s), accent {_variation.tint}")
     except Exception as e:
         log(f"  Variation engine unavailable, using flat pacing (non-fatal): {e}")
+        _seg_durs = [segment_dur] * n_buckets
+        _seg_starts = [i * segment_dur for i in range(n_buckets)]
+
+    # THE CEILING, CHECKED ON THE NUMBERS THAT WILL ACTUALLY BE RENDERED.
+    #
+    # Every guarantee above is about code paths. This is about the list. The
+    # previous ceiling was breached not by a missing clamp but by a later step
+    # that added to an already-clamped value, and no check looked at the
+    # finished array. So one looks at it now, after every branch has had its
+    # say, including the flat-pacing fallback.
+    _over = [(i, d) for i, d in enumerate(_seg_durs) if d > CARD_CEILING + 0.01]
+    if _over:
+        log(f"  Card ceiling breached on {len(_over)} card(s) "
+            f"(worst {max(d for _, d in _over):.1f}s) — splitting them.")
+        _fixed_durs, _fixed = [], 0
+        for d in _seg_durs:
+            if d > CARD_CEILING + 0.01:
+                # Split into as many equal parts as the ceiling requires. The
+                # sum is preserved exactly, so the audio stays in sync; the
+                # episode simply gets another cut where a card was too long.
+                _parts = int(-(-d // CARD_CEILING))
+                _fixed_durs.extend([d / _parts] * _parts)
+                _fixed += _parts - 1
+            else:
+                _fixed_durs.append(d)
+        _seg_durs = _fixed_durs
+        n_buckets = len(_seg_durs)
+        _acc = 0.0
+        _seg_starts = []
+        for _d in _seg_durs:
+            _seg_starts.append(_acc)
+            _acc += _d
+        log(f"  Added {_fixed} card(s) to stay inside the ceiling; "
+            f"now {n_buckets} cards.")
+    log(f"  Card ceiling verified: longest card {max(_seg_durs):.2f}s "
+        f"of {CARD_CEILING}s allowed, {n_buckets} cards, "
+        f"total {sum(_seg_durs):.1f}s vs {audio_duration:.1f}s audio")
 
     # Photographs already shown this episode. stock_match penalises anything
     # in here, so a small library still fills a long episode -- it exhausts
