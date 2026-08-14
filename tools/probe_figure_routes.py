@@ -126,6 +126,26 @@ def probe(pmcid):
          results)
     _try("europepmc /bin/ (current code)",
          "https://europepmc.org/articles/%s/bin/%s" % (pmcid, fname), results)
+    # What the live article page itself references. pmc_data already has an
+    # _article_image_urls() that scrapes this and it produced nothing in
+    # production, so print the raw <img> srcs: either the page has no usable
+    # image URLs at all, or the scraper is looking for the wrong shape, and
+    # those need opposite fixes.
+    for host in ("https://pmc.ncbi.nlm.nih.gov/articles/%s/" % pmcid,
+                 "https://europepmc.org/article/MED/%s" % pmcid.replace("PMC", "")):
+        try:
+            r = requests.get(host, timeout=TIMEOUT, headers=UA)
+            srcs = re.findall(r'<img[^>]+src="([^"]+)"', r.text or "")
+            big = [s for s in srcs if re.search(r"\.(jpg|jpeg|png|gif)", s, re.I)]
+            print("  %-34s HTTP %s  %d img tag(s), %d image-like"
+                  % ("article page " + host.split("/")[2], r.status_code,
+                     len(srcs), len(big)))
+            for s in big[:5]:
+                print("      %s" % s[:110])
+        except Exception as e:
+            print("  %-34s FAIL %s" % ("article page " + host.split("/")[2],
+                                       str(e)[:50]))
+
     # The OA Web Service: the documented, supported way to get an open-access
     # article's files. Returns XML pointing at a package rather than an image,
     # so it is reported separately below.
@@ -134,13 +154,15 @@ def probe(pmcid):
             "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=%s" % pmcid,
             timeout=TIMEOUT, headers=UA)
         links = re.findall(r'href="([^"]+)"', r.text or "")
-        print("  %-34s HTTP %s  %d package link(s) %s"
-              % ("OA web service", r.status_code, len(links),
-                 links[0][:60] if links else ""))
+        print("  %-34s HTTP %s  %d package link(s)"
+              % ("OA web service", r.status_code, len(links)))
+        for L in links:
+            print("      %s" % L)
         results.append(("OA web service (package)", bool(links),
                         links[0][:70] if links else "no links"))
-        if links:
-            results.append(probe_package(links[0]))
+        tgz = [L for L in links if L.endswith(".tar.gz")]
+        if tgz:
+            results.append(probe_package(tgz[0]))
     except Exception as e:
         print("  %-34s CONNECT FAIL %s" % ("OA web service", str(e)[:50]))
         results.append(("OA web service (package)", False, "connect fail"))
@@ -158,33 +180,57 @@ def probe_package(ftp_url):
     untar, find images, decode one.
     """
     import tarfile
-    https = ftp_url.replace("ftp://ftp.ncbi.nlm.nih.gov",
-                            "https://ftp.ncbi.nlm.nih.gov")
-    print("\n-- OA package over HTTPS --")
+    path = ftp_url.split("ftp.ncbi.nlm.nih.gov", 1)[-1]
+    print("\n-- OA package: getting the bytes --")
+    blob = None
+    # The HTTPS mirror is the first choice: no extra protocol, no extra
+    # library, and it goes through the same proxy as everything else. But
+    # "the FTP tree is also on HTTPS" is itself an assumption, so each form
+    # is tried and reported rather than assumed.
+    for label, url in (("https ftp.ncbi", "https://ftp.ncbi.nlm.nih.gov" + path),
+                       ("https www.ncbi", "https://www.ncbi.nlm.nih.gov" + path)):
+        try:
+            r = requests.get(url, timeout=120, headers=UA)
+        except Exception as e:
+            print("  %-34s CONNECT FAIL  %s" % (label, str(e)[:50]))
+            continue
+        print("  %-34s HTTP %s  %.2f MB  %s"
+              % (label, r.status_code, len(r.content) / 1e6,
+                 (r.headers.get("Content-Type") or "?").split(";")[0]))
+        if r.status_code == 200 and len(r.content) > 5000:
+            blob = r.content
+            break
+    if blob is None:
+        # Plain FTP, straight from the URL the OA service actually gave us.
+        # Runners often block it, which is exactly why it is the last resort
+        # and not the design.
+        try:
+            import ftplib
+            host = "ftp.ncbi.nlm.nih.gov"
+            buf = io.BytesIO()
+            ftp = ftplib.FTP(host, timeout=90)
+            ftp.login()
+            ftp.retrbinary("RETR " + path, buf.write)
+            ftp.quit()
+            blob = buf.getvalue()
+            print("  %-34s OK  %.2f MB" % ("plain ftp", len(blob) / 1e6))
+        except Exception as e:
+            print("  %-34s FAIL  %s" % ("plain ftp", str(e)[:60]))
+    if not blob:
+        return ("OA package (decoded figure)", False, "could not fetch package")
     try:
-        r = requests.get(https, timeout=90, headers=UA)
-    except Exception as e:
-        print("  %-34s CONNECT FAIL  %s" % ("package download", str(e)[:60]))
-        return ("OA package (https, decoded figure)", False, "connect fail")
-    if r.status_code != 200:
-        print("  %-34s HTTP %s" % ("package download", r.status_code))
-        return ("OA package (https, decoded figure)", False,
-                "HTTP %s" % r.status_code)
-    print("  %-34s HTTP 200  %.1f MB" % ("package download",
-                                         len(r.content) / 1e6))
-    try:
-        tf = tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz")
+        tf = tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz")
         names = tf.getnames()
     except Exception as e:
         print("  %-34s untar failed  %s" % ("package open", str(e)[:50]))
-        return ("OA package (https, decoded figure)", False, "untar failed")
+        return ("OA package (decoded figure)", False, "untar failed")
     imgs = [n for n in names
             if n.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".tif"))]
     print("  %-34s %d member(s), %d image(s) %s"
           % ("package contents", len(names), len(imgs),
              [n.split("/")[-1] for n in imgs[:4]]))
     if not imgs:
-        return ("OA package (https, decoded figure)", False, "no images inside")
+        return ("OA package (decoded figure)", False, "no images inside")
     # Decode the largest, which is the one most likely to be a real figure
     # rather than a publisher logo or an equation glyph.
     biggest = max(imgs, key=lambda n: tf.getmember(n).size)
@@ -193,7 +239,7 @@ def probe_package(ftp_url):
     print("  %-34s %s  %s  %d bytes  %s"
           % ("largest image decodes", "OK   " if ok else "NOT AN IMAGE",
              biggest.split("/")[-1], len(data), detail))
-    return ("OA package (https, decoded figure)", ok, detail)
+    return ("OA package (decoded figure)", ok, detail)
 
 
 def main():
