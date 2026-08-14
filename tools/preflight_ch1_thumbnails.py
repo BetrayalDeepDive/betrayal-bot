@@ -1274,14 +1274,44 @@ def main():
     _cit = "Smith J et al. BMJ Case Rep 2021. PMC1234567 — licensed CC BY 4.0"
     _adv_ok, _adv_v = _mpg.check_script(
         "You should take 500mg of ibuprofen twice daily if you feel this way.", _cit)
+    # THE DOSE CAME OUT OF THIS SENTENCE ON PURPOSE.
+    #
+    # This case used to read "given 500mg of ibuprofen twice daily" and
+    # asserted it was NOT blocked. That assertion is now wrong, by direct
+    # owner instruction after run 31740721781 shipped "argatroban at 2
+    # micrograms per kilogram per minute" and "IVIG 1 g/kg/day": a dosing
+    # schedule stated in a documentary is actionable by a member of the
+    # public, and it is now rule 7.
+    #
+    # Recording plainly that this is a POLICY CHANGE, not a test bent to fit
+    # new code. What the check protects is unchanged and still matters: the
+    # channel must be able to report what happened to a patient, or it cannot
+    # function at all. So the sentence still reports drug, timing and a lab
+    # value -- everything the narration genuinely needs -- and only the
+    # milligrams are gone. The dose form gets its own check right below, so
+    # the two halves of the rule are both pinned.
     _rep_ok, _rep_v = _mpg.check_script(
-        "The patient was given 500mg of ibuprofen twice daily. Her sodium was 122.", _cit)
+        "The patient was given ibuprofen twice that day. Her sodium was 122 "
+        "and by the third morning it had fallen further.", _cit)
+    _dose_ok, _dose_v = _mpg.check_script(
+        "She was started on argatroban at 2 micrograms per kilogram per "
+        "minute, and IVIG 1 g/kg/day was added.", _cit)
     check("second-person medical advice is blocked",
           bool(_adv_v) and any(v.get("severity") == "block" for v in _adv_v),
           "this is the YouTube policy line, not a style preference")
     check("reporting what happened to a patient is not blocked",
           not _rep_v,
           "the channel cannot function if describing a real case trips the gate")
+    check("an actionable dosing schedule IS blocked",
+          bool(_dose_v) and any(v.get("severity") == "block" for v in _dose_v),
+          "run 31740721781 narrated argatroban 2 mcg/kg/min and IVIG 1 g/kg/day "
+          "past every gate")
+    check("a lab value is never mistaken for a dose",
+          not _mpg.check_script(
+              "Her sodium was 118 mmol/L, creatinine 2.4 mg/dL, platelets "
+              "12,000 per microlitre.", _cit)[1],
+          "the CHART register plots exactly these numbers — a gate that eats "
+          "them blocks every good script and gets switched off")
     check("a script with no citation is blocked",
           bool(_mpg.check_script("Her sodium was 122.", "")[1]),
           "an uncited clinical claim is the thing the licence requires")

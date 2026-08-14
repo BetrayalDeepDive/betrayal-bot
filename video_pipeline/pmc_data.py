@@ -468,6 +468,115 @@ def _article_image_urls(pmcid, log_fn=None):
     return urls
 
 
+_OA_PACKAGE_CACHE = {}
+
+
+def _oa_package_images(pmcid, log_fn=None):
+    """Every image in this article's OA package, as {filename: bytes}.
+
+    THE ONLY ROUTE THAT ACTUALLY WORKS. Verified on the runner, two papers,
+    against nine alternatives that all failed:
+
+        europepmc render .............. HTTP 500
+        cdn.ncbi blobs (.jpg/.png) .... HTTP 404
+        ncbi /bin/ .................... serves text/html, not an image
+        europepmc /bin/ ............... connection dropped
+        europepmc supplementaryFiles .. HTTP 500
+        PMC OA on S3 (comm/noncomm) ... HTTP 404
+        OA package at the advertised path ... 550 No such file
+
+    The last one is the interesting failure. NCBI moved its whole open-access
+    FTP distribution into /pub/pmc/deprecated/ -- oa_package, oa_bulk, oa_pdf
+    and the file lists all live there now -- but the OA Web Service still
+    hands out the pre-move path. Deprecated is not deleted: the same file is
+    served, over HTTPS, one directory down. PMC7857393 came back as a 7.15 MB
+    gzip holding eight images, the largest of which decodes at 4380x4683.
+
+    This is also why the article-page scraper could never work: both PMC and
+    Europe PMC render their figures in JavaScript and serve zero <img> tags.
+
+    One fetch per paper, cached, because the package holds every figure at
+    once -- fetching it per figure would download the same 7 MB nine times.
+    """
+    if pmcid in _OA_PACKAGE_CACHE:
+        return _OA_PACKAGE_CACHE[pmcid]
+    images = {}
+    try:
+        import tarfile, io as _io
+        r = requests.get(
+            "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=%s" % pmcid,
+            headers=_headers(), timeout=30)
+        links = [L for L in re.findall(r'href="([^"]+)"', r.text or "")
+                 if L.endswith(".tar.gz")]
+        if not links:
+            if log_fn:
+                log_fn("    OA service offered no package for %s" % pmcid)
+            _OA_PACKAGE_CACHE[pmcid] = images
+            return images
+        path = links[0].split("ftp.ncbi.nlm.nih.gov", 1)[-1]
+        blob = None
+        # Deprecated first: the advertised path is the one that 550s.
+        for candidate in (path.replace("/pub/pmc/", "/pub/pmc/deprecated/", 1),
+                          path):
+            try:
+                pr = requests.get("https://ftp.ncbi.nlm.nih.gov" + candidate,
+                                  headers=_headers(), timeout=120)
+            except Exception:
+                continue
+            if pr.status_code == 200 and len(pr.content) > 5000:
+                blob = pr.content
+                break
+        if not blob:
+            if log_fn:
+                log_fn("    OA package unreachable for %s" % pmcid)
+            _OA_PACKAGE_CACHE[pmcid] = images
+            return images
+        tf = tarfile.open(fileobj=_io.BytesIO(blob), mode="r:gz")
+        for member in tf.getmembers():
+            name = member.name.split("/")[-1]
+            if not name.lower().endswith((".jpg", ".jpeg", ".png",
+                                          ".gif", ".tif", ".tiff")):
+                continue
+            try:
+                images[name.lower()] = tf.extractfile(member).read()
+            except Exception:
+                continue
+        if log_fn:
+            log_fn("    OA package %s: %.1f MB, %d image(s)"
+                   % (pmcid, len(blob) / 1e6, len(images)))
+    except Exception as e:
+        if log_fn:
+            log_fn("    OA package error %s: %s" % (pmcid, str(e)[:60]))
+    _OA_PACKAGE_CACHE[pmcid] = images
+    return images
+
+
+def _figure_from_package(figure, log_fn=None):
+    """This figure's bytes out of the article package, matched by filename.
+
+    Matched on the stem rather than the full name because the package
+    routinely carries both a .jpg and a .gif of the same figure. The .jpg is
+    preferred: on the verified papers the GIFs are low-resolution
+    thumbnails and the JPEGs are the full-size originals.
+    """
+    pmcid = (figure or {}).get("pmcid") or ""
+    fname = (figure or {}).get("filename") or ""
+    if not pmcid or not fname:
+        return None
+    images = _oa_package_images(pmcid, log_fn=log_fn)
+    if not images:
+        return None
+    stem = re.sub(r"\.\w+$", "", fname).lower()
+    hits = [n for n in images if re.sub(r"\.\w+$", "", n) == stem]
+    if not hits:
+        hits = [n for n in images if stem and stem in n]
+    if not hits:
+        return None
+    hits.sort(key=lambda n: (not n.endswith((".jpg", ".jpeg")),
+                             -len(images[n])))
+    return images[hits[0]]
+
+
 def download_figure(figure, out_path, min_bytes=6000, log_fn=None, retries=2):
     """
     Fetch one screened figure to disk, trying each known URL pattern.
@@ -494,6 +603,22 @@ def download_figure(figure, out_path, min_bytes=6000, log_fn=None, retries=2):
     """
     fname = figure.get("filename") or ""
     pmcid = figure.get("pmcid") or ""
+
+    # THE PACKAGE FIRST, BECAUSE EVERY PER-FIGURE URL IS DEAD.
+    #
+    # Nine routes were tested live against two papers and all nine failed --
+    # see _oa_package_images for the full table. The package is not a
+    # fallback, it is the route; the URL attempts below are kept only so that
+    # if NCBI restores a direct path this still picks it up.
+    _pkg = _figure_from_package(figure, log_fn=log_fn)
+    if _pkg and len(_pkg) > min_bytes and _decodes_as_usable_image(
+            _pkg, log_fn, "oa-package:%s" % fname):
+        with open(out_path, "wb") as f:
+            f.write(_pkg)
+        if log_fn:
+            log_fn("    figure from OA package: %s (%d bytes)"
+                   % (fname, len(_pkg)))
+        return True
 
     # WHAT THE PAGE SAYS BEATS WHAT WE GUESSED. The templates below produced
     # 77 failures and 0 successes on run 30717615638; the page's own <img>
