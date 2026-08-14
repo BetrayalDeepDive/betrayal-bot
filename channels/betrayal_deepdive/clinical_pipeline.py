@@ -7121,6 +7121,26 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
     # its variety first and only then starts recycling.
     _used_photos = set()
 
+    # A REMAKE MUST CHANGE THE PICTURES, NOT JUST THE TIMING.
+    #
+    # "It should not just give me the same video once again." Correct, and it
+    # was doing exactly that. _VIDEO_REMAKE_NONCE reached precisely one place:
+    # EpisodeVariation. That re-rolls card lengths, transitions, anchors and
+    # the accent tint -- presentation. It never touched which photograph or
+    # which figure a card shows, so every remake came back with the same
+    # pictures wearing a slightly different coat, and the reviewer was asked
+    # to look at the same episode again.
+    #
+    # Every photograph used by the PREVIOUS attempt is seeded into the used
+    # set, so the matcher is pushed off all of them and has to reach for
+    # different ones. It is the same mechanism that already stops one episode
+    # repeating itself, pointed at the previous attempt instead.
+    if _VIDEO_REMAKE_NONCE[0] and _PREVIOUS_ATTEMPT_PHOTOS:
+        _used_photos |= set(_PREVIOUS_ATTEMPT_PHOTOS)
+        log(f"  Remake #{_VIDEO_REMAKE_NONCE[0]}: avoiding "
+            f"{len(_PREVIOUS_ATTEMPT_PHOTOS)} photo(s) from the last attempt "
+            f"so this is a different set of pictures, not a re-tint.")
+
     # THE SHOT LIST, PRINTED BEFORE ANYTHING RENDERS.
     #
     # "I want an algorithm or you create the platform where it can go through
@@ -7268,6 +7288,10 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
             script, audio_duration, niche_name=niche["name"], topic=topic)]
     except Exception as e:
         log(f"  Audio-cue detection for register sync (non-fatal): {e}")
+
+    # One entry per card, filled in as each is decided, so the finished plan
+    # can be written out as an artifact instead of dying with this function.
+    _shot_plan = []
 
     for i in range(n_buckets):
         base_kw = theme_cycle[i % len(theme_cycle)]
@@ -7453,6 +7477,12 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
         # 0/21/24 render as identical frames -- see RegisterQuota.reveal.
         _occ, _exp = register_quota.reveal(register)
         _reg_progress = _occ / max(1, _exp)
+        _shot_plan.append({
+            "i": i, "register": register,
+            "start": _seg_starts[i] if i < len(_seg_starts) else i * segment_dur,
+            "seconds": _seg_durs[i] if i < len(_seg_durs) else segment_dur,
+            "keyword": (top_nouns[0] if top_nouns else base_kw),
+        })
         log(f"  Segment {i+1}/{n_buckets} (t={i*segment_dur:.0f}s) "
             f"[{register} {_occ}/{_exp}]")
         try:
@@ -7613,6 +7643,79 @@ def get_stage_matched_video(niche, script, audio_duration, topic="", title="",
 
         if Path(clip_path).exists():
             fetched_clips.append(clip_path)
+
+    # ── DID WE ACTUALLY MAKE A HUNDRED DIFFERENT PICTURES? ──────────────
+    #
+    # Everything above answers "did each card render?". 122 cards rendered on
+    # the episode reported as "8-10 cards playing continuously for the entire
+    # video" -- so that question has never been the one worth asking. This
+    # asks what the viewer actually experiences: how many genuinely different
+    # pictures are in here, and does the same one come back while they still
+    # remember it.
+    #
+    # Measured on the finished clips, not on intentions. A card that was
+    # SUPPOSED to be a fresh photograph and quietly fell back to the same
+    # scanner room counts as the repeat it is.
+    _visual_summary, _visual_thin = "", False
+    try:
+        from card_dedup import fingerprint as _fp, VisualLedger
+        _ledger = VisualLedger()
+        for _ci, _cp in enumerate(fetched_clips):
+            _ledger.check(_ci, _fp(_cp, _seg_durs[_ci] if _ci < len(_seg_durs) else None))
+            _ledger.record(_ci, _fp(_cp, _seg_durs[_ci] if _ci < len(_seg_durs) else None))
+        _visual_summary = _ledger.summary()
+        _visual_thin = _ledger.too_repetitive()
+        log(f"  {_visual_summary}")
+        for _idx, _match, _dist in _ledger.repeats[:8]:
+            log(f"    card {_idx+1} repeats card {_match+1} ({_dist} bits apart)")
+        if _visual_thin:
+            log("  VISUALS TOO REPETITIVE — this is the failure the owner "
+                "reported. Flagging it on the review message rather than "
+                "shipping it quietly.")
+            tg(f"⚠️ Ch1 visuals: {_visual_summary}\n\nThis episode is reusing "
+               f"the same few pictures — the exact thing you flagged. It is "
+               f"still being sent for review so you can see it, but REMAKE or "
+               f"SWAP VISUALS will now genuinely change the picture set.")
+    except Exception as e:
+        log(f"  Visual variety measurement (non-fatal): {e}")
+
+    # THE SHOT PLAN, WRITTEN DOWN.
+    #
+    # "I want the algorithm to read and keep the stock footage and the
+    # creation mode into the server as an artefact so that it can use it while
+    # making the main video. I don't see that happening."
+    #
+    # Correct -- the plan existed only as local variables inside this function
+    # and died with it. Persisted now next to the episode, so what was decided
+    # is inspectable after the fact, survives into the upload phase, and can
+    # be diffed between a video and its remake to show they really differ.
+    try:
+        _plan_path = WORK_DIR / "shot_plan.json"
+        with open(_plan_path, "w") as _pf:
+            json.dump({
+                "episode": episode,
+                "attempt": _VIDEO_REMAKE_NONCE[0],
+                "audio_seconds": round(audio_duration, 2),
+                "cards": len(fetched_clips),
+                "card_ceiling_seconds": CARD_CEILING,
+                "longest_card_seconds": round(max(_seg_durs), 2) if _seg_durs else None,
+                "visual_variety": _visual_summary,
+                "too_repetitive": _visual_thin,
+                "photos_used": sorted(_used_photos)[:400],
+                "shots": [
+                    {"i": _s["i"], "register": _s["register"],
+                     "start": round(_s["start"], 2), "seconds": round(_s["seconds"], 2),
+                     "keyword": _s["keyword"]}
+                    for _s in _shot_plan
+                ],
+            }, _pf, indent=1)
+        log(f"  Shot plan written: {_plan_path} ({len(_shot_plan)} shots)")
+    except Exception as e:
+        log(f"  Shot plan artifact (non-fatal): {e}")
+
+    # Hand this attempt's photographs to the next one, so a REMAKE is pushed
+    # onto different pictures instead of re-rendering these with a new tint.
+    globals()["_PREVIOUS_ATTEMPT_PHOTOS"] = set(_used_photos)
 
     # GROW THE LIBRARY TOWARD WHAT THIS EPISODE ACTUALLY NEEDED.
     #
@@ -10790,6 +10893,12 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 # back an identical render and calling it the new version. 0 on a first
 # render, so ordinary runs are unchanged.
 _VIDEO_REMAKE_NONCE = [0]
+
+# Which photographs the last video assembly actually used. Carried across a
+# remake so the next attempt is pushed onto different pictures rather than
+# re-rendering the same ones with a new tint. Repopulated at the end of every
+# assembly, so it always describes the attempt the reviewer just saw.
+_PREVIOUS_ATTEMPT_PHOTOS = set()
 
 _last_video_fallback_flags = {}  # FIX (final re-audit): see collapse_index_pipeline.py for full rationale
 

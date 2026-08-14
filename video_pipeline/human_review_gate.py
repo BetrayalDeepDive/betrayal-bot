@@ -2587,7 +2587,31 @@ def review_audio_and_video(channel_name, audio_path, voice_used, video_path, thu
             timeout_minutes, what="Audio review")
     audio_decision = {"decision": d, "feedback": fb}
 
-    if audio_decision["decision"] in ("reject", "remake", "swap_voice"):
+    # ONLY AN EXPLICIT APPROVAL MAY OPEN THE VIDEO REVIEW.
+    #
+    # THIS IS THE "I DIDN'T GET THE AUDIO, IT DIRECTLY TOOK ME TO THE VIDEO"
+    # BUG, AND IT WAS RIGHT HERE.
+    #
+    # The old test was a blocklist: stop for reject/remake/swap_voice, carry on
+    # for anything else. But "anything else" includes hold-undelivered -- the
+    # value resolve_silent_window returns when all three audio sends failed and
+    # NOBODY WAS EVER ASKED. That is not in the blocklist, so the audio stage
+    # fell through and the next thing the reviewer saw was the video gate. The
+    # audio review had not been declined; it had never happened.
+    #
+    # A blocklist of decisions that stop is the wrong shape for this. Every new
+    # decision value defaults to "proceed", so the failure mode of forgetting to
+    # update it is silently skipping a checkpoint. Inverted: the gate proceeds
+    # on approve and on nothing else, so a decision nobody anticipated holds the
+    # episode instead of waving it through.
+    if audio_decision["decision"] != "approve":
+        if never_asked(audio_decision["decision"]):
+            _tg_send_message(
+                tg_token, tg_chat,
+                "⛔ The audio review never reached you, so the video review is "
+                "NOT being opened — you would have been approving a video "
+                "built on narration you were never asked about. The episode is "
+                "held at the audio stage and resumes from there.")
         return {"audio_decision": audio_decision, "video_decision": None}
 
     # VIDEO — real 5-option decision, the 5th being SWAP VISUALS
