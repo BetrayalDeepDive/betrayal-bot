@@ -2661,6 +2661,76 @@ def main():
                        _cp_mod._NO_MODELS_LEFT):
                 _s.clear()
 
+            # ── 410 GONE: THE PROVIDER SAYING IT IN WORDS ──────────────
+            #
+            # Run 31888423963, AFTER the 404 version of this was fixed:
+            # "mistralai/mixtral-8x7b-instruct-v0.1: 410 ... has reached its
+            # end of life on 2026-07-27 and is no longer available." 410 fell
+            # through to the generic branch and was forgotten, so the retired
+            # model was re-requested for 117 minutes.
+            _cp_mod._DENIED_MODELS_THIS_RUN.clear()
+            _cp_mod._note_model_gone("NIM", "eol-model", 410, None)
+            _cp_mod._note_model_gone("NIM", "long-prompt", 400, None)
+            check("a model that announces its end of life is not re-asked",
+                  "eol-model" in _cp_mod._DENIED_MODELS_THIS_RUN,
+                  "a 410 Gone is logged and forgotten, so the retired model "
+                  "is requested again on the very next call")
+            check("a bad request is not held against the model",
+                  "long-prompt" not in _cp_mod._DENIED_MODELS_THIS_RUN,
+                  "one overlong prompt retires a working model for every "
+                  "shorter prompt that follows")
+
+            # ── THE BREAKER: AN OUTAGE MUST NOT COST THE WHOLE JOB ─────
+            _calls = [0]
+
+            def _all_dead(p, t=8000, m=100):
+                _calls[0] += 1
+                return None
+
+            _prev_fns = {}
+            for _fn in ("call_cerebras", "call_cloudflare", "call_sambanova",
+                        "call_gemini", "call_groq", "call_openrouter",
+                        "call_cohere", "call_mistral", "call_nvidia_nim"):
+                _prev_fns[_fn] = getattr(_cp_mod, _fn)
+                setattr(_cp_mod, _fn, _all_dead)
+            for _s in (_cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                       _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                       _cp_mod._DENIED_MODELS_THIS_RUN,
+                       _cp_mod._NO_MODELS_LEFT):
+                _s.clear()
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+            _cp_mod._WHOLE_CHAIN_FAILURES[0] = 0
+            _cp_mod._CHAIN_DOWN[0] = False
+            _out = [_cp_mod.ai_generate("x", 50, 5) for _ in range(300)]
+            check("a total outage stops the run instead of costing it",
+                  all(_r is None for _r in _out)
+                  and _cp_mod.chain_is_down() and _calls[0] < 200,
+                  "300 calls against a chain where nothing answers made %d "
+                  "provider requests and the breaker is %s — this is the 117 "
+                  "minutes run 31888423963 spent"
+                  % (_calls[0], "down" if _cp_mod.chain_is_down() else "OPEN"))
+
+            _cp_mod._WHOLE_CHAIN_FAILURES[0] = 0
+            _cp_mod._CHAIN_DOWN[0] = False
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+            for _s in (_cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                       _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                       _cp_mod._DENIED_MODELS_THIS_RUN,
+                       _cp_mod._NO_MODELS_LEFT):
+                _s.clear()
+            _cp_mod.call_cerebras = lambda p, t=8000, m=100: "z" * 200
+            check("one working provider keeps the breaker open",
+                  bool(_cp_mod.ai_generate("x", 50, 5))
+                  and not _cp_mod.chain_is_down(),
+                  "a chain that CAN answer was still declared down — the "
+                  "breaker would strand a working run")
+            for _fn, _f in _prev_fns.items():
+                setattr(_cp_mod, _fn, _f)
+            _cp_mod._WHOLE_CHAIN_FAILURES[0] = 0
+            _cp_mod._CHAIN_DOWN[0] = False
+
             # ── A MODEL PROVEN TO WORK SURVIVES THE RUN THAT PROVED IT ──
             #
             # Discovery re-ranks a live catalogue every run and remembers

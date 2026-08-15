@@ -1955,8 +1955,8 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
                 log("  Fix: go to https://cloud.cerebras.ai/ → API Keys → create new key")
                 log("  Then update CEREBRAS_API_KEY in GitHub Secrets.")
                 return None  # Wrong key — no point trying other model names
-            elif r.status_code == 404:
-                _note_model_gone("Cerebras", model, 404, log)
+            elif r.status_code in (404, 410):
+                _note_model_gone("Cerebras", model, r.status_code, log)
                 continue
             else:
                 log(f"  Cerebras {model}: {r.status_code} | {r.text[:150]}")
@@ -2036,7 +2036,7 @@ def call_groq(prompt, tokens=8000, min_chars=100):
                 # indistinguishable from "never tried this model at
                 # all" when reading the log. Real gap, now visible.
                 log(f"Groq {model}: 200 but response too short ({len(t.strip()) if t else 0} < {min_chars} chars) — trying next")
-            elif r.status_code in (400, 404):
+            elif r.status_code in (400, 404, 410):
                 _note_model_gone("Groq", model, r.status_code, log); continue
             else:
                 log(f"Groq {model}: {r.status_code}: {r.text[:200]}")
@@ -2084,7 +2084,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                         log("  Trying backup Gemini key (GEMINI_API_KEY_2)...")
                     quota_hit = True
                     break  # break model loop, try next key
-                elif r.status_code in [400, 404]:
+                elif r.status_code in [400, 404, 410]:
                     _note_model_gone("Gemini", model, r.status_code, log)
                     continue
                 elif r.status_code == 403 and key_idx == 0 and GEMINI_KEY_2:
@@ -2366,7 +2366,7 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
                     log(f"OK Cloudflare ({model})")
                     return t
                 log(f"Cloudflare {model}: 200 but response too short (< {min_chars} chars) — trying next")
-            elif r.status_code in (400, 404):
+            elif r.status_code in (400, 404, 410):
                 _note_model_gone("Cloudflare", model, r.status_code, log)
             elif r.status_code == 429:
                 log(f"Cloudflare {model}: 429 — daily 10k Neuron allocation likely used up")
@@ -2457,7 +2457,7 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                     log(f"OK NVIDIA NIM ({model})")
                     return t
                 log(f"NVIDIA NIM {model}: 200 but response too short (< {min_chars} chars) — trying next")
-            elif r.status_code in (400, 404):
+            elif r.status_code in (400, 404, 410):
                 _note_model_gone("NVIDIA NIM", model, r.status_code, log)
             elif r.status_code == 429:
                 log(f"NVIDIA NIM {model}: 429 rate limited — trying next")
@@ -2604,6 +2604,28 @@ _PROVIDER_WINS = {}
 # Providers with nothing left to ask. See _note_model_gone / _models_left.
 _NO_MODELS_LEFT = set()
 
+# HOW MANY WHOLE-CHAIN FAILURES IN A ROW MEAN "STOP ASKING".
+#
+# Every provider failing once is a bad minute. Every provider failing eight
+# times in a row, with not one answer in between, is an outage -- and the
+# pipeline's remaining 13 attempts x 3 rounds cannot fix an outage. Eight is
+# high enough that a transient wobble (a rate limit clearing, one slow
+# provider) never trips it, and low enough that it costs seconds rather than
+# the 117 minutes run 31888423963 spent.
+CHAIN_DOWN_AFTER = 8
+_WHOLE_CHAIN_FAILURES = [0]
+_CHAIN_DOWN = [False]
+
+
+def chain_is_down():
+    """True once the breaker has tripped — every provider failed repeatedly.
+
+    The pipeline reads this so a run that died of an outage says so, instead
+    of reporting "no script cleared 8.5/10", which blames the writing for a
+    failure of the infrastructure.
+    """
+    return _CHAIN_DOWN[0]
+
 # The model that last actually answered, per provider. The daily audit reads
 # this and writes it to provider_health.json, so a name PROVEN to work this
 # morning leads the list tonight -- across all five channels, and across runs.
@@ -2657,11 +2679,27 @@ def _note_model_gone(provider, model, code, log_fn=None):
     # model for every shorter prompt afterwards, which is the opposite of the
     # bug being fixed here. A 400 still moves to the next model, as before; it
     # is just not held against this one.
-    if int(code) == 404:
+    # 410 GONE IS THE PROVIDER SAYING IT IN WORDS.
+    #
+    # Run 31888423963 spent 117 minutes on this, having already had the 404
+    # version of the bug fixed:
+    #
+    #   NVIDIA NIM mistralai/mixtral-8x7b-instruct-v0.1: 410 "The model has
+    #   reached its end of life on 2026-07-27 and is no longer available."
+    #
+    # 410 fell through to the generic else-branch, so it was logged and
+    # forgotten, and the same retired model was re-requested until the job
+    # ran out of attempts. A model that announces its own end of life is the
+    # least ambiguous signal a catalogue can give -- more certain than 404,
+    # which can also mean a typo -- and it must be honoured permanently.
+    if int(code) in (404, 410):
         _DENIED_MODELS_THIS_RUN.add(model)
         if log_fn:
-            log_fn(f"  {provider} {model}: 404 — the provider does not serve "
-                   f"this model. Dropped for the rest of the run.")
+            _why = ("has been retired by the provider (end of life)"
+                    if int(code) == 410 else
+                    "is not served by this provider")
+            log_fn(f"  {provider} {model}: {code} — this model {_why}. "
+                   f"Dropped for the rest of the run.")
     elif log_fn:
         log_fn(f"  {provider} {model}: {code} (bad request — likely this "
                f"prompt, not this model) — trying next")
@@ -2797,6 +2835,22 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     # provider from the FRONT of a run. If everything is marked bad, or the
     # file is missing or stale, the chain is used in full -- a health file
     # must never be the reason nothing gets tried.
+    # ── CIRCUIT BREAKER: STOP ASKING A CHAIN THAT IS WHOLLY DOWN ──────────
+    #
+    # Run 31888423963 burned 117 minutes and produced nothing while EVERY
+    # provider was failing. The per-call logic was already correct -- each
+    # call swept the chain, found nothing, and returned None in a fraction of
+    # a second -- but nothing above it noticed the pattern, so the pipeline
+    # kept spending its 13 attempts x 3 rounds asking a chain that had not
+    # answered once. The run's own summary then blamed the SCRIPT ("no script
+    # cleared 8.5/10"), which is not what happened.
+    #
+    # After this many consecutive whole-chain failures with no success in
+    # between, the chain is declared down for the run: later calls return
+    # immediately, and the pipeline reports the real reason instead of
+    # spending an hour proving it again.
+    if _CHAIN_DOWN[0]:
+        return None
     _skip = _providers_known_dead()
     live = [(name, fn) for name, fn in providers
             if name not in _DEAD_PROVIDERS_THIS_RUN and name not in _skip
@@ -2860,6 +2914,8 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
             # actually going down, not for one that had a bad minute.
             _PROVIDER_STRIKES[name] = 0
             _PROVIDER_WINS[name] = _PROVIDER_WINS.get(name, 0) + 1
+            # A single answer proves the chain is alive. Reset the breaker.
+            _WHOLE_CHAIN_FAILURES[0] = 0
             return _strip_reasoning(r)
         # ONE BAD MINUTE IS NOT A DEAD PROVIDER.
         #
@@ -2895,6 +2951,24 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
                 continue
             log(f"  {name} failed — skipping it for the rest of this run. Waiting 10s before next provider...")
             time.sleep(10)
+    # Swept every live provider and got nothing. Count it; trip the breaker
+    # once the whole chain has failed this many times in a row.
+    _WHOLE_CHAIN_FAILURES[0] += 1
+    if _WHOLE_CHAIN_FAILURES[0] >= CHAIN_DOWN_AFTER and not _CHAIN_DOWN[0]:
+        _CHAIN_DOWN[0] = True
+        log("")
+        log("  ══════════════════════════════════════════════════════════")
+        log(f"  EVERY AI PROVIDER IS DOWN. {CHAIN_DOWN_AFTER} consecutive "
+            f"sweeps of the whole chain returned nothing.")
+        log("  Not asking again this run. Continuing would spend the rest of "
+            "the job re-proving it — run 31888423963 spent 117 minutes doing")
+        log("  exactly that and then reported it as a script-quality failure, "
+            "which it was not.")
+        log(f"  Out of quota: {sorted(_EXHAUSTED_PROVIDERS_THIS_RUN) or 'none'}")
+        log(f"  No model left: {sorted(_NO_MODELS_LEFT) or 'none'}")
+        log(f"  Credentials refused: {sorted(_providers_known_dead()) or 'none'}")
+        log("  ══════════════════════════════════════════════════════════")
+        log("")
     return None
 
 
@@ -10761,6 +10835,22 @@ def run_stage1(state):
         tg(f"⏱️ Ch1: script stopped after {rounds_used} round(s) because the job "
            f"ran out of time, not because the writing failed. Nothing published.")
         log(f"EXIT 2: script stopped for job time after {rounds_used} round(s).")
+    elif chain_is_down():
+        # AN OUTAGE IS NOT AN EDITORIAL DECISION, AND MUST NOT READ AS ONE.
+        #
+        # Run 31888423963 ended with "no script cleared 8.5/10 after 13
+        # attempts (best: 0.0/10)". A best score of ZERO across 39 scripts is
+        # not a channel with high standards -- it is a channel that never
+        # managed to write a script at all, because every provider was down.
+        # Reporting that as a quality decision sends the owner looking at the
+        # writing, which is the one thing that was never tested.
+        tg("Ch1 Day Skipped — NOT a quality problem. Every AI provider was "
+           "down or out of quota, so no script could be written at all. "
+           "Nothing was judged and nothing was published. The provider audit "
+           "will report which credentials or allocations need attention.")
+        log("EXIT 2: every AI provider was unavailable — no script was ever "
+            "generated, so nothing could be scored. This is an outage, not a "
+            "quality failure.")
     else:
         tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 in {rounds_used} "
            f"rounds x {MAX_ATTEMPTS} attempts ({rounds_used * MAX_ATTEMPTS} scripts, "
