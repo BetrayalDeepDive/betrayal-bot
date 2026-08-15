@@ -36,50 +36,53 @@
     },
     "drug_discovery_stories": {
       "top_hook_formulas": [
-        "What if the drug that saved millions was discovered by accident?",
-        "How a single lab value flipped a doctor\u2019s whole diagnosis in minutes!",
-        "The hidden mechanism behind a common symptom that led to a breakthrough drug"
+        "Unbelievable Symptoms, Shocking Diagnosis: What This Patient\u2019s Body Was Hiding",
+        "From Mystery to Medicine: How This Rare Case Rewrote the Textbooks",
+        "When Common Tests Fail: The Unseen Danger Lurking in Plain Sight"
       ],
       "winning_title_patterns": [
-        "\"[Patient Age]\u2011year\u2011old with [Unexpected Symptom] \u2013 The Real Story Behind [Drug] Discovery\"",
-        "\"Misdiagnosed [Condition] \u2013 How One Lab Result Uncovered the First Isolated Compound\"",
-        "\"From Mystery Imaging to Miracle Medicine: The Case That Changed History\""
+        "The [Age/Demographic] Patient with [Symptom/Condition]: A [Adjective] Diagnosis",
+        "How [Unexpected Finding] Led to a Breakthrough in [Disease/Condition]",
+        "The [Adjective] Case of [Condition]: What [Test/Finding] Revealed"
       ],
       "thumbnail_text_examples": [
-        "Jaundice Mystery",
-        "Lab Shock",
-        "Hidden Cure",
-        "Imaging Clue",
-        "Missed Diagnosis"
+        "RARE DISEASE",
+        "UNEXPECTED TWIST",
+        "MEDICAL MYSTERY",
+        "LIFE-SAVING DIAGNOSIS",
+        "HIDDEN DANGER"
       ],
       "retention_hooks": [
-        "30pct",
-        "60pct",
-        "80pct"
+        "At 30%: Did you know this symptom is often misdiagnosed? Here\u2019s why.",
+        "At 60%: The lab result that changed everything\u2014you won\u2019t believe it.",
+        "At 80%: How this case is reshaping medical understanding\u2014stay tuned."
       ],
       "niche_power_words": [
-        "breakthrough",
-        "isolated",
-        "mechanism",
+        "rare",
         "unexpected",
-        "clinical",
-        "revelation"
+        "breakthrough",
+        "life-threatening",
+        "misdiagnosed",
+        "revolutionary"
       ],
       "fresh_topic_ideas": [
-        "A 45\u2011year\u2011old woman presents with progressive jaundice; labs show isolated alkaline phosphatase elevation; MRI reveals cholangiocarcinoma; initially misdiagnosed as gallstones.",
-        "A 19\u2011year\u2011old man arrives with sudden severe chest pain; troponin is normal but ECG shows diffuse ST elevation; coronary angiography is clean; later diagnosed with myopericarditis linked to a novel antiviral.",
-        "A 62\u2011year\u2011old patient reports unexplained weight loss; labs reveal hypercalcemia with low PTH; PET scan shows a solitary lung nodule; biopsy uncovers ectopic production of 1,25\u2011dihydroxyvitamin D.",
-        "A 34\u2011year\u2011old woman experiences recurrent seizures; serum ammonia is markedly elevated despite normal liver function; MRI shows bilateral basal ganglia hyperintensity; discovered urea cycle disorder uncovering the first arginine analog treatment.",
-        "A 58\u2011year\u2011old man reports chronic cough and night sweats; chest X\u2011ray is normal; bronchoalveolar lavage reveals atypical lymphocytes; later identified as hypersensitivity pneumonitis triggered by a novel industrial solvent.",
-        "A 41\u2011year-old woman presents with severe hyponatremia; serum osmolality is low; MRI brain shows empty sella; initially treated for SIADH, later found to have adrenal insufficiency due to autoimmune polyglandular syndrome.",
-        "A 50\u2011year-old woman presents with persistent migraine\u2011like headaches; CT scan is negative; CSF analysis shows elevated protein; nerve conduction studies reveal demyelinating neuropathy; diagnosed with neurosarcoidosis, prompting the first use of a TNF\u2011alpha inhibitor.",
-        "A 29\u2011year-old female presents with unexplained bruising; platelet count is normal but bleeding time is prolonged; bone marrow biopsy reveals megakaryocyte dysfunction; later identified as a congenital Bernard\u2011Soulier syndrome, guiding development of a synthetic platelet mimetic.",
-        "A 66\u2011year-old patient reports progressive muscle weakness; CK levels are mildly elevated; EMG shows myopathic changes; muscle biopsy reveals inclusion bodies; initially misdiagnosed as polymyositis, later recognized as sporadic inclusion\u2011body myositis guiding the first anti\u2011amyloid therapy.",
-        "A 55\u2011year-old man experiences sudden onset of tinnitus and vertigo; audiometry is normal; MRI shows subtle cerebellar infarct; later linked to a rare thrombosis of the internal auditory artery caused by a novel oral anticoagulant.",
-        "A 48\u2011year-old woman presents with refractory hypertension; plasma renin activity is suppressed; adrenal CT shows a 2\u202fcm mass; biochemical workup uncovers cortisol\u2011producing adrenal adenoma, leading to the first use of a selective glucocorticoid receptor antagonist.",
-        "A 70\u2011year-old patient reports sudden onset of bilateral leg weakness; MRI spine shows longitudinally extensive transverse myelitis; CSF reveals oligoclonal bands; initially treated for multiple sclerosis, later identified as paraneoplastic syndrome related to a hidden ovarian carcinoma."
+        "A 42-year-old woman with chronic fatigue, elevated CK levels, and normal MRIs, later diagnosed with mitochondrial myopathy.",
+        "A 28-year-old man with recurrent headaches, low serum sodium, and a missed diagnosis of SIADH due to small-cell lung cancer.",
+        "A 19-year-old with muscle weakness, high potassium levels, and EKG changes, unexpectedly diagnosed with hyperkalemic periodic paralysis.",
+        "A 51-year-old man with joint pain, low platelets, and a rash, initially misdiagnosed as rheumatoid arthritis but later found to be hepatitis C-induced cryoglobulinemia.",
+        "A 34-year-old woman with chest pain, elevated troponin, and normal coronaries, diagnosed with Takotsubo cardiomyopathy triggered by emotional stress.",
+        "A 72-year-old with cognitive decline, elevated CSF tau protein, and imaging showing normal atrophy, revealing early-onset Alzheimer\u2019s with rare genetic mutation.",
+        "A 48-year-old man with weight loss, high cortisol levels, and a CT scan showing an adrenal mass, unexpectedly diagnosed with ectopic ACTH syndrome from a bronchial carcinoid.",
+        "A 31-year-old woman with dizziness, low vitamin B12, and normal gastric biopsies, later found to have pernicious anemia due to parietal cell antibody-negative autoimmune gastritis.",
+        "A 59-year-old with leg swelling, elevated D-dimer, and CT revealing bilateral pulmonary embolisms, caused by a rare factor V Leiden mutation.",
+        "A 25-year-old man with seizures, low glucose levels, and MRI showing a hypothalamic lesion, diagnosed with a rare insulinoma causing hypoglycemic seizures.",
+        "A 45-year-old woman with shortness of breath, elevated BNP, and echocardiogram showing restrictive cardiomyopathy, caused by amyloid deposition from multiple myeloma.",
+        "A 63-year-old man with cough, elevated ACE levels, and chest X-ray showing hilar lymphadenopathy, diagnosed with sarcoidosis mimicking lung cancer.",
+        "A 37-year-old with blurred vision, low intraocular pressure, and OCT revealing retinal edema, unexpectedly diagnosed with Vogt-Koyanagi-Harada disease.",
+        "A 55-year-old woman with fever, elevated ESR, and PET scan showing diffuse uptake, initially misdiagnosed as lymphoma but later confirmed as adult-onset Still\u2019s disease.",
+        "A 29-year-old man with chest tightness, high CK-MB levels, and angiography showing normal coronaries, diagnosed with myocarditis caused by a coxsackievirus infection."
       ],
-      "last_run": "2026-08-01T06:47:30.464735"
+      "last_run": "2026-08-15T10:07:28.125561"
     },
     "toxicology_cases": {
       "top_hook_formulas": [
