@@ -2647,7 +2647,15 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     here, so a bad day for one provider group no longer starves the
     whole chain down to a single survivor.
     """
-    providers = [("cerebras", call_cerebras), ("github_models", call_github_models),
+    # GITHUB MODELS IS RETIRED AND IS NO LONGER IN THE CHAIN.
+    #
+    # It answers 410 Gone — the service was withdrawn, not rate limited. Left
+    # in the list it cost a call and a log line on every single sweep, and the
+    # daily audit reported it every morning as "needs a human: set
+    # GITHUB_TOKEN", which is advice to reconnect something that no longer
+    # exists. call_github_models is kept in the file so the audit can still
+    # confirm the retirement rather than assume it.
+    providers = [("cerebras", call_cerebras),
                  ("cloudflare", call_cloudflare), ("nvidia_nim", call_nvidia_nim),
                  ("sambanova", call_sambanova),
                  ("gemini", call_gemini), ("groq", call_groq),

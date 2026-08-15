@@ -326,14 +326,24 @@ def audit(write=True):
 
     healthy = [n for n, r in results.items() if r["state"] == "ok"]
     limited = [n for n, r in results.items() if r["state"] == "rate_limited"]
+    # NO KEY IS NOT A FAULT, AND MUST NOT BE REPORTED AS ONE.
+    #
+    # A provider nobody configured is a decision, not a breakage. github_models
+    # has no key AND the service is retired -- reporting it every morning as
+    # "needs a human, set GITHUB_TOKEN" is advice to reconnect something dead,
+    # which is exactly the kind of noise that gets a daily report ignored.
+    # Only a credential that is PRESENT and being REFUSED is escalated.
     needs_human = {n: r for n, r in results.items()
-                   if r["state"] in ("auth_denied", "auth_bad", "no_key")}
+                   if r["state"] in ("auth_denied", "auth_bad")}
+    not_configured = [n for n, r in results.items() if r["state"] == "no_key"]
 
     print("\n" + "=" * 74)
     print("VERDICT")
     print("=" * 74)
     print("  working now      : %d  (%s)" % (len(healthy), ", ".join(healthy) or "none"))
     print("  rate limited     : %d  (%s)" % (len(limited), ", ".join(limited) or "none"))
+    print("  not configured   : %d  (%s)  — optional, no action"
+          % (len(not_configured), ", ".join(not_configured) or "none"))
     print("  need a human     : %d" % len(needs_human))
     for n, r in needs_human.items():
         env, url = KEY_HELP.get(n, ("?", "?"))
@@ -344,6 +354,7 @@ def audit(write=True):
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "healthy": healthy,
         "rate_limited": limited,
+        "not_configured": not_configured,
         "needs_human": {n: {"reason": r["detail"],
                             "env": KEY_HELP.get(n, ("?", "?"))[0],
                             "where": KEY_HELP.get(n, ("?", "?"))[1]}

@@ -131,7 +131,7 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git add channels/betrayal_deepdive/provider_health.json || true
+          git add video_pipeline/provider_health.json || true
           git diff --staged --quiet || \
             git commit -m "chore: provider health [skip ci]"
           for i in 1 2 3; do
