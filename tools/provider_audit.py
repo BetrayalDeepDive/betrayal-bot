@@ -371,7 +371,23 @@ def audit(write=True):
     for n, r in needs_human.items():
         env, url = KEY_HELP.get(n, ("?", "?"))
         print("      %-14s %s" % (n, r["detail"]))
-        print("      %-14s fix: set %s  (%s)" % ("", env, url))
+        # "SET GEMINI_API_KEY" IS NOT ADVICE WHEN THE KEY IS ALREADY SET.
+        #
+        # The owner has two Gemini keys installed and said, correctly, that
+        # being told to set one made no sense. The Telegram summary was fixed
+        # to print the real causes; this console block was not, so the run log
+        # -- the thing anyone actually reads when diagnosing -- still gave the
+        # advice that had already been called out as useless. A 403 with a
+        # valid key is a permission or project problem, and the playbook says
+        # which ones to check.
+        steps = DENIED_PLAYBOOK.get(n)
+        if steps:
+            print("      %-14s the key IS installed — a 403 here is a "
+                  "permission/project problem, not a missing key:" % "")
+            for i, s in enumerate(steps, 1):
+                print("      %-14s   %d. %s" % ("", i, s))
+        else:
+            print("      %-14s fix: set %s  (%s)" % ("", env, url))
 
     payload = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
