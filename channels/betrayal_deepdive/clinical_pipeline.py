@@ -2635,8 +2635,27 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     # it costs a full sweep of ten providers, with a 10s pause between each,
     # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN
     # for what that did to run 31257986626's clock.
+    # WHAT LAST SUNDAY'S AUDIT LEARNED, APPLIED BEFORE THE FIRST CALL.
+    #
+    # tools/provider_audit.py probes every provider weekly and records which
+    # ones answered, which are rate limited, and which are refusing on
+    # credentials. A provider in that last group will refuse this call too --
+    # there is no version of a 403 "your project has been denied access" that
+    # comes good because an episode is running. Skipping it here costs
+    # nothing and saves the sweep that put run 31820199959 into the ground.
+    #
+    # Deliberately NOT permanent: the file is advisory and only ever removes a
+    # provider from the FRONT of a run. If everything is marked bad, or the
+    # file is missing or stale, the chain is used in full -- a health file
+    # must never be the reason nothing gets tried.
+    _skip = _providers_known_dead()
     live = [(name, fn) for name, fn in providers
-            if name not in _DEAD_PROVIDERS_THIS_RUN]
+            if name not in _DEAD_PROVIDERS_THIS_RUN and name not in _skip]
+    if not live and _skip:
+        log(f"  Every provider is flagged in provider_health.json "
+            f"({sorted(_skip)}) — ignoring the file and trying them all.")
+        live = [(name, fn) for name, fn in providers
+                if name not in _DEAD_PROVIDERS_THIS_RUN]
     if not live:
         revivable = [(name, fn) for name, fn in providers
                      if name not in _EXHAUSTED_PROVIDERS_THIS_RUN]
@@ -11011,6 +11030,45 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 # genuinely re-roll pacing, tint, anchors and transitions instead of handing
 # back an identical render and calling it the new version. 0 on a first
 # render, so ordinary runs are unchanged.
+_HEALTH_CACHE = [None]
+
+
+def _providers_known_dead(max_age_days=14):
+    """Providers last week's audit found refusing on credentials.
+
+    Only auth failures are honoured. A 429 is a provider having a busy day and
+    must still be tried; a 403 "your project has been denied access" is an
+    account decision that an episode cannot change.
+
+    A file older than max_age_days is ignored entirely. A stale verdict is
+    worse than none -- it would keep skipping a provider whose key was fixed
+    a fortnight ago, and nothing would ever put it back.
+    """
+    if _HEALTH_CACHE[0] is not None:
+        return _HEALTH_CACHE[0]
+    dead = set()
+    try:
+        import datetime as _dt
+        p = Path(__file__).parent / "provider_health.json"
+        if p.exists():
+            data = json.loads(p.read_text())
+            when = _dt.datetime.strptime(data.get("checked_at", ""),
+                                         "%Y-%m-%dT%H:%M:%SZ")
+            age = (_dt.datetime.utcnow() - when).days
+            if age <= max_age_days:
+                dead = set((data.get("needs_human") or {}).keys())
+                if dead:
+                    log(f"  Provider health ({age}d old): skipping "
+                        f"{sorted(dead)} — credentials refused at last audit.")
+            else:
+                log(f"  Provider health file is {age}d old — ignoring it.")
+    except Exception as e:
+        log(f"  Provider health file unreadable, using the full chain: {e}")
+        dead = set()
+    _HEALTH_CACHE[0] = dead
+    return dead
+
+
 _VIDEO_REMAKE_NONCE = [0]
 
 # Which photographs the last video assembly actually used. Carried across a

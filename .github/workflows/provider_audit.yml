@@ -1,0 +1,84 @@
+name: Weekly provider health audit
+
+# WHY THIS EXISTS, ON A SCHEDULE, INSTEAD OF BEING NOTICED MID-EPISODE.
+#
+# Run 31820199959 spent 280 minutes of runner time and reached zero review
+# gates. Gemini refused every call with 403 "your project has been denied
+# access" and NVIDIA NIM read-timed-out on the same models round after round.
+# The first anyone knew of it was the owner asking why no Telegram message
+# had arrived after five hours.
+#
+# This asks every provider the same question once a week, for the price of ten
+# tiny prompts, and reports what died. Retired MODELS are replaced
+# automatically from each provider's live catalogue; dead CREDENTIALS are
+# escalated with the exact secret name and the exact page to fix it on,
+# because no algorithm can mint an API key.
+
+on:
+  schedule:
+    # 06:15 UTC every Sunday — before the week's episodes, and off the hour so
+    # it does not queue behind the flood of jobs every cron fires at :00.
+    - cron: '15 6 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests -q
+
+      - name: Probe every provider
+        id: probe
+        env:
+          PYTHONUNBUFFERED: 1
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # continue-on-error so a thin week still COMMITS its findings below.
+        # Exiting here would throw away the very file the pipeline reads to
+        # avoid the dead providers — the failure would make the next episode
+        # worse instead of better.
+        continue-on-error: true
+        run: python tools/provider_audit.py
+
+      - name: Commit the health file
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add channels/betrayal_deepdive/provider_health.json || true
+          git diff --staged --quiet || \
+            git commit -m "chore: weekly provider health [skip ci]"
+          for i in 1 2 3; do
+            git push origin "HEAD:$GITHUB_REF_NAME" && break
+            sleep $((i*5))
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+          done
+
+      - name: Fail loudly if the chain is too thin to run an episode
+        if: steps.probe.outcome == 'failure'
+        run: |
+          echo "::error::Fewer than 3 usable providers — episodes will fail \
+          the way run 31820199959 did. See the Telegram message for which \
+          credential needs replacing."
+          exit 1
