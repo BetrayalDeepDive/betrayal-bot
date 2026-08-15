@@ -1,0 +1,70 @@
+{
+  "episode_case": {
+    "narrative": "A 23-year-old man was referred by his general dental practitioner. One year ago the dentist diagnosed a cyst with a ectopic lower right canine tooth by an x-ray. Beside an uneventful medical history the patient presented no conspicuous intraoral clinical findings except the absence of the tooth 43. Radiologically, he showed a 3 cm unicystic radiolucent image with a comparatively clear demarcation. The tooth 43 was located on the floor of this process. No resorption of the root apices was observed (Fig. ). Figure 1 Panoramic radiograph before therapy. Unicystic radiolucent lesion in the lawer right jaw with a comparatively clear demarcation. The tooth 43 is located on the floor of this process. There are no resorption of the root apices. Under general anesthesia the lesion was enucleated and afterwards filled with pelvic spongiosa. Separating the lesion from mandibular bone caused no problems. The postoperative course was uneventful. After the operation, the specimen was fixed in 4 per cent formal saline and prepared for histological examination. Some sections were stained with haematoxylin-eosin. Histologically, the tumor is solid and there is a cyst formation (Fig. ). The epithelium is in the form of whorled masses of spindle cells as well as sheets and plexiform strands. Rings of columnar cells give rise to duct-like appearance (Fig. ). Calcification is sometimes seen and may be extensive (Fig. ). Figure 2 Tumor with fibrous connective tissue capsule (*). Nodular aggregates of cells (#). Duct-like structures (\u2192). (HE \u00d7 50) Figure 3 Gland-like spaces are surrounded by cuboidal to columnar cells (\u2192). (HE \u00d7 160) Figure 4 Tumor with calcified areas (\u2192). (HE \u00d7 200) Half a year after surgery a clinical and radiographic follow-up examination was performed. There was no evidence of recurrence and no apical resorption of the adjacent teeth could be observed (Fig. ). Figure 5 Panoramic radiograph six months after therapy. No root resorption could be observed. With respect to the age of the patient and the localization of the AOT in the lower jaw, the reported case is a rare example of this tumor entity. Beyond it our case supports the above mentioned general description of AOTs.",
+    "figures": [
+      {
+        "pmcid": "PMC1266042",
+        "label": "Figure 1",
+        "caption": "Panoramic radiograph before therapy. Unicystic radiolucent lesion in the lawer right jaw with a comparatively clear demarcation. The tooth 43 is located on the floor of this process. There are no resorption of the root apices.",
+        "filename": "1746-160X-1-3-1.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1266042/bin/1746-160X-1-3-1.jpg",
+        "score": 4,
+        "local_path": "/tmp/deepdive/verify_fig_0.jpg"
+      },
+      {
+        "pmcid": "PMC1266042",
+        "label": "Figure 5",
+        "caption": "Panoramic radiograph six months after therapy. No root resorption could be observed.",
+        "filename": "1746-160X-1-3-5.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1266042/bin/1746-160X-1-3-5.jpg",
+        "score": 4,
+        "local_path": "/tmp/deepdive/verify_fig_1.jpg"
+      },
+      {
+        "pmcid": "PMC1266042",
+        "label": "Figure 2",
+        "caption": "Tumor with fibrous connective tissue capsule (*). Nodular aggregates of cells (#). Duct-like structures (\u2192). (HE \u00d7 50)",
+        "filename": "1746-160X-1-3-2.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1266042/bin/1746-160X-1-3-2.jpg",
+        "score": 0,
+        "local_path": "/tmp/deepdive/verify_fig_2.jpg"
+      },
+      {
+        "pmcid": "PMC1266042",
+        "label": "Figure 3",
+        "caption": "Gland-like spaces are surrounded by cuboidal to columnar cells (\u2192). (HE \u00d7 160)",
+        "filename": "1746-160X-1-3-3.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1266042/bin/1746-160X-1-3-3.jpg",
+        "score": 0,
+        "local_path": "/tmp/deepdive/verify_fig_3.jpg"
+      },
+      {
+        "pmcid": "PMC1266042",
+        "label": "Figure 4",
+        "caption": "Tumor with calcified areas (\u2192). (HE \u00d7 200)",
+        "filename": "1746-160X-1-3-4.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1266042/bin/1746-160X-1-3-4.jpg",
+        "score": 0,
+        "local_path": "/tmp/deepdive/verify_fig_4.jpg"
+      }
+    ],
+    "citation": "Handschel JG, Depprich RA, Zimmermann AC, Braunstein S, K\u00fcbler NR. Adenomatoid odontogenic tumor of the mandible: review of the literature and report of a rare case. Head & face medicine 2005 doi:10.1186/1746-160x-1-3 \u2014 licensed CC BY",
+    "pmcid": "PMC1266042",
+    "title": "Adenomatoid odontogenic tumor of the mandible: review of the literature and report of a rare case.",
+    "year": "2005",
+    "journal": "Head & face medicine",
+    "license": "cc by",
+    "richness": 3.5,
+    "richness_reasons": [
+      "narrative 357 words (thin)",
+      "5 advertised figure(s)",
+      "no timeline",
+      "0 differential(s)",
+      "no chart data"
+    ],
+    "_structures_extracted": false,
+    "figures_expected": 5,
+    "figures_missing": 0,
+    "figures_verified": 5
+  }
+}
