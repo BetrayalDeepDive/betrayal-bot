@@ -45,7 +45,7 @@ on:
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','figures','report','clear','drafts','drafts_apply','cleanup','true']
+        options: ['false','probe','figures','providers','report','clear','drafts','drafts_apply','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -89,6 +89,57 @@ jobs:
       - name: Probe PMC figure routes
         run: python tools/probe_figure_routes.py
 
+  # THE PROVIDER AUDIT, REACHABLE BEFORE THE WEEKLY WORKFLOW IS ON MAIN.
+  #
+  # provider_audit.yml carries the real Sunday schedule, but GitHub only
+  # registers schedule/workflow_dispatch for workflows that exist on the
+  # DEFAULT branch — so until that file is merged to main it cannot be
+  # triggered at all, and its cron never fires. Same reason the figures probe
+  # rides in here. This hatch runs the identical script on demand so the
+  # provider chain can be checked today rather than after a merge.
+  provider_probe:
+    if: inputs.probe_only == 'providers'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests -q
+      - name: Audit every LLM provider
+        continue-on-error: true
+        env:
+          PYTHONUNBUFFERED: 1
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tools/provider_audit.py
+      - name: Commit the health file
+        if: always()
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add channels/betrayal_deepdive/provider_health.json || true
+          git diff --staged --quiet || \
+            git commit -m "chore: provider health [skip ci]"
+          for i in 1 2 3; do
+            git push origin "HEAD:$GITHUB_REF_NAME" && break
+            sleep $((i*5))
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+          done
+
   # Diagnostic only — see probe_only above. Uploads one ~6s PRIVATE clip
   # declaring containsSyntheticMedia=false and reads the stored status back,
   # to find out whether YouTube applies the "Made with AI" label from its own
@@ -96,7 +147,7 @@ jobs:
   label_probe:
     # 'figures' has its own job above; without excluding it here the AI-label
     # probe would also fire and upload a clip nobody asked for.
-    if: inputs.probe_only != 'false' && inputs.probe_only != '' && inputs.probe_only != 'figures'
+    if: inputs.probe_only != 'false' && inputs.probe_only != '' && inputs.probe_only != 'figures' && inputs.probe_only != 'providers'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
