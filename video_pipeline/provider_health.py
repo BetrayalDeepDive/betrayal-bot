@@ -136,6 +136,61 @@ def note_denied(provider, reason, env_name="", where="", log_fn=None):
         return False
 
 
+def record_working_model(provider, model, log_fn=None):
+    """Remember the model that actually answered for `provider`.
+
+    THE MISSING HALF OF "REPLACE DECOMMISSIONED MODELS AUTOMATICALLY".
+    ----------------------------------------------------------------
+    Model discovery re-ranks a live catalogue on every run and keeps no memory
+    of which of its suggestions ever produced a sentence. In run 31876972186
+    that cost the whole job: NVIDIA's /v1/models advertises the full catalogue
+    (base models included), the six-name cap landed entirely on names the chat
+    endpoint does not serve, all three 404'd, and the run had no way to know
+    that a different NVIDIA name had answered perfectly well that morning.
+
+    So a name that DID work is written down here, shared by all five channels,
+    and put at the head of the list next time. Discovery still leads on
+    everything else -- this only stops the pipeline from forgetting a proven
+    answer between one run and the next.
+    """
+    if not provider or not model:
+        return False
+    try:
+        data = _load()
+        if not data:
+            data = {"checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                time.gmtime()),
+                    "healthy": [], "rate_limited": [], "needs_human": {},
+                    "providers": {}}
+        known = data.setdefault("working_models", {})
+        if known.get(provider) == model:
+            return False
+        known[provider] = model
+        HEALTH_PATH.write_text(json.dumps(data, indent=1))
+        _CACHE[0] = None
+        if log_fn:
+            log_fn("  Recorded %s as a working model for %s." % (model, provider))
+        return True
+    except Exception as e:
+        if log_fn:
+            log_fn("  Could not record working model (non-fatal): %s" % e)
+        return False
+
+
+def working_model(provider, max_age_days=MAX_AGE_DAYS):
+    """The model last PROVEN to answer for `provider`, or "" if unknown.
+
+    Returns "" rather than a guess when the record is missing or stale: a
+    fourteen-day-old name is no better than what discovery would suggest, and
+    a health file must never be the reason a provider is asked the wrong
+    question.
+    """
+    data = _load()
+    if not data or _age_days(data) > max_age_days:
+        return ""
+    return (data.get("working_models") or {}).get(provider, "") or ""
+
+
 def summary_line():
     """One line for a run log or a report."""
     data = _load()

@@ -978,7 +978,7 @@ def format_script_context(case):
 CASE_RICHNESS_FLOOR = 5.0
 
 
-def case_richness(case, verified_figures=None):
+def case_richness(case, verified_figures=None, structures_extracted=True):
     """Score 0-10 for how much real content this case can put on screen.
 
     Returns (score, reasons) where reasons explains every point, so a
@@ -986,9 +986,33 @@ def case_richness(case, verified_figures=None):
 
     verified_figures, when given, overrides the advertised figure count.
     Pass the number that actually downloaded.
+
+    structures_extracted=False WHEN THE EXTRACTION ITSELF FAILED, AND THIS
+    DISTINCTION IS THE WHOLE POINT.
+    ---------------------------------------------------------------------
+    Timeline, differentials and chart values are pulled out of the paper by an
+    AI call. When the provider chain is struggling that call returns nothing --
+    and the first version of this function then scored those three dimensions
+    as ZERO and rejected the paper for being thin.
+
+    Run 31876972186 died of exactly that. Every candidate logged "all 3
+    extraction attempts failed", so every candidate scored on narrative and
+    figures alone, the ceiling became 5.5 against a floor of 5.0, and 13
+    attempts x 3 rounds were all rejected. No episode was possible. The gate
+    was blaming papers for a provider outage.
+
+    "Not extracted" and "not present" are different facts and must not share a
+    score. When extraction failed, those dimensions are UNKNOWN: they are
+    dropped from both the numerator and the denominator, and the result is
+    rescaled to what was actually measurable. A paper is then judged on what
+    could genuinely be assessed, which is all any gate can honestly do.
     """
     c = case or {}
     reasons, score = [], 0.0
+    # Points available from dimensions we could actually measure. Everything
+    # below adds to this as it is scored, so the rescale at the end divides by
+    # what was really on the table rather than a fixed 10.
+    available = 0.0
 
     narrative = (c.get("narrative") or "").strip()
     words = len(narrative.split())
@@ -1002,6 +1026,7 @@ def case_richness(case, verified_figures=None):
         score += 1.0; reasons.append("narrative %d words (thin)" % words)
     else:
         reasons.append("narrative only %d words (too thin)" % words)
+    available += 3.0
 
     n_fig = (len(c.get("figures") or []) if verified_figures is None
              else int(verified_figures))
@@ -1014,6 +1039,16 @@ def case_richness(case, verified_figures=None):
         score += 0.5; reasons.append("1 %s figure" % label)
     else:
         reasons.append("NO %s figures" % label)
+    available += 2.5
+
+    if not structures_extracted:
+        # Extraction failed. These three are UNKNOWN, not absent -- see the
+        # docstring. Judge on narrative and figures, rescaled.
+        reasons.append("timeline/differentials/chart NOT ASSESSED — the "
+                       "extraction step failed, so these are unknown rather "
+                       "than missing")
+        scaled = round(min(10.0, score * 10.0 / available), 2) if available else 0.0
+        return scaled, reasons
 
     timeline = c.get("timeline") or []
     if len(timeline) >= 5:
@@ -1024,6 +1059,7 @@ def case_richness(case, verified_figures=None):
         reasons.append("only %d timeline entr(y/ies)" % len(timeline))
     else:
         reasons.append("no timeline")
+    available += 1.5
 
     diffs = c.get("differentials") or []
     if len(diffs) >= 4:
@@ -1032,6 +1068,7 @@ def case_richness(case, verified_figures=None):
         score += 1.0; reasons.append("%d differentials" % len(diffs))
     else:
         reasons.append("%d differential(s)" % len(diffs))
+    available += 1.5
 
     chart = (c.get("chart_data") or {}).get("labels") or []
     if len(chart) >= 4:
@@ -1040,8 +1077,9 @@ def case_richness(case, verified_figures=None):
         score += 0.75; reasons.append("%d charted value(s)" % len(chart))
     else:
         reasons.append("no chart data")
+    available += 1.5
 
-    return round(min(10.0, score), 2), reasons
+    return round(min(10.0, score * 10.0 / available), 2) if available else 0.0, reasons
 
 
 def verify_figures(case, work_dir, log_fn=None, cap=6):

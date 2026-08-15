@@ -1947,6 +1947,7 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("cerebras", model)
                     log(f"  OK Cerebras ({model})")
                     return t
             elif r.status_code == 401:
@@ -1955,7 +1956,7 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
                 log("  Then update CEREBRAS_API_KEY in GitHub Secrets.")
                 return None  # Wrong key — no point trying other model names
             elif r.status_code == 404:
-                log(f"  Cerebras {model}: 404 (wrong model name, trying next)")
+                _note_model_gone("Cerebras", model, 404, log)
                 continue
             else:
                 log(f"  Cerebras {model}: {r.status_code} | {r.text[:150]}")
@@ -2027,6 +2028,7 @@ def call_groq(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("groq", model)
                     log(f"OK Groq ({model})"); return t
                 # FIX (found on live-run investigation, July 24 2026): a
                 # 200 with a too-short response fell through every
@@ -2035,7 +2037,7 @@ def call_groq(prompt, tokens=8000, min_chars=100):
                 # all" when reading the log. Real gap, now visible.
                 log(f"Groq {model}: 200 but response too short ({len(t.strip()) if t else 0} < {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
-                log(f"Groq {model}: {r.status_code} (model gone) — trying next"); continue
+                _note_model_gone("Groq", model, r.status_code, log); continue
             else:
                 log(f"Groq {model}: {r.status_code}: {r.text[:200]}")
                 if r.status_code == 429:
@@ -2072,6 +2074,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                     if c:
                         t = c[0]["content"]["parts"][0]["text"]
                         if t and len(t.strip()) >= min_chars:
+                            _note_model_ok("gemini", model)
                             log(f"  OK Gemini ({model})")
                             return t
                 elif r.status_code == 429:
@@ -2082,7 +2085,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                     quota_hit = True
                     break  # break model loop, try next key
                 elif r.status_code in [400, 404]:
-                    log(f"  Gemini {model}: {r.status_code} — trying next model")
+                    _note_model_gone("Gemini", model, r.status_code, log)
                     continue
                 elif r.status_code == 403 and key_idx == 0 and GEMINI_KEY_2:
                     # THE BACKUP KEY EXISTS. TRY IT BEFORE CONDEMNING GEMINI.
@@ -2185,6 +2188,7 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("openrouter", model)
                     log(f"OK OpenRouter ({model.split('/')[-1]})")
                     return t
             else:
@@ -2329,9 +2333,15 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
         log("  Cloudflare: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not set — skipping")
         return None
     url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions"
-    for model in ["@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-                  "@cf/mistralai/mistral-small-3.1-24b-instruct",
-                  "@cf/google/gemma-3-12b-it"]:
+    _cf_models = _models_left("cloudflare", [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        "@cf/google/gemma-3-12b-it"])
+    if not _cf_models:
+        log("  Cloudflare: no model left this account can use — dropping the "
+            "provider for this run.")
+        return None
+    for model in _cf_models:
         # A model this account is not entitled to will never become
         # entitled mid-run. Observed live: gemma-3-12b-it returned
         # "Account ... is not allowed to access" on every single call for
@@ -2352,11 +2362,12 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("cloudflare", model)
                     log(f"OK Cloudflare ({model})")
                     return t
                 log(f"Cloudflare {model}: 200 but response too short (< {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
-                log(f"Cloudflare {model}: {r.status_code} (wrong model name) — trying next")
+                _note_model_gone("Cloudflare", model, r.status_code, log)
             elif r.status_code == 429:
                 log(f"Cloudflare {model}: 429 — daily 10k Neuron allocation likely used up")
                 _note_quota_exhausted("cloudflare")
@@ -2391,8 +2402,29 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
         {"Authorization": f"Bearer {NVIDIA_NIM_KEY}"},
         prefer=("llama-3.3-70b", "llama-3.1-405b", "qwen", "mixtral",
                 "nemotron"))
-    for model in _nim_models or ["meta/llama-3.3-70b-instruct", "mistralai/mixtral-8x7b-instruct-v0.1",
-                  "meta/llama-3.1-70b-instruct"]:
+    # DISCOVERY IS A SUGGESTION, NOT THE ONLY LIST.
+    #
+    # The known-good names used to be reachable ONLY when discovery returned
+    # nothing at all. In run 31876972186 discovery returned three names and
+    # all three 404'd -- NVIDIA's /v1/models publishes the whole catalogue
+    # (100+ entries, base models included), while integrate.api.nvidia.com
+    # serves a subset, and the six-name cap happened to land entirely on
+    # entries the chat endpoint does not serve. mixtral-8x22b-v0.1 is a BASE
+    # model; it was never going to answer a chat completion.
+    #
+    # So the hand-written names now come AFTER the discovered ones rather than
+    # INSTEAD OF them. Discovery still leads -- it is what keeps this current
+    # when a model is retired -- but a bad ranking can no longer cost the
+    # whole provider.
+    _nim_models = _models_left("nvidia_nim", list(dict.fromkeys(
+        list(_nim_models or []) + ["meta/llama-3.3-70b-instruct",
+                                   "mistralai/mixtral-8x7b-instruct-v0.1",
+                                   "meta/llama-3.1-70b-instruct"])))
+    if not _nim_models:
+        log("  NVIDIA NIM: every model it offered has 404'd or timed out — "
+            "nothing left to ask. Dropping the provider for this run.")
+        return None
+    for model in _nim_models:
         # A MODEL THAT ALREADY BURNED NINETY SECONDS DOING NOTHING GETS ONE GO.
         #
         # Run 31820199959 spent 280 minutes of real work and reached zero
@@ -2421,11 +2453,12 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("nvidia_nim", model)
                     log(f"OK NVIDIA NIM ({model})")
                     return t
                 log(f"NVIDIA NIM {model}: 200 but response too short (< {min_chars} chars) — trying next")
             elif r.status_code in (400, 404):
-                log(f"NVIDIA NIM {model}: {r.status_code} (wrong model name) — trying next")
+                _note_model_gone("NVIDIA NIM", model, r.status_code, log)
             elif r.status_code == 429:
                 log(f"NVIDIA NIM {model}: 429 rate limited — trying next")
                 _note_quota_exhausted("nvidia_nim")
@@ -2481,6 +2514,7 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
                 if t and len(t.strip()) >= min_chars:
+                    _note_model_ok("sambanova", model)
                     log(f"  OK SambaNova ({model.split('-')[2]})")
                     return t
             elif r.status_code == 401:
@@ -2567,10 +2601,95 @@ _PROVIDER_STRIKES = {}
 _PROVIDER_WINS = {}
 
 
+# Providers with nothing left to ask. See _note_model_gone / _models_left.
+_NO_MODELS_LEFT = set()
+
+# The model that last actually answered, per provider. The daily audit reads
+# this and writes it to provider_health.json, so a name PROVEN to work this
+# morning leads the list tonight -- across all five channels, and across runs.
+# Discovery alone cannot do that: it re-ranks a live catalogue every time and
+# has no memory of which of its suggestions ever produced a sentence.
+_LAST_GOOD_MODEL = {}
+
+
+def _note_model_ok(provider, model):
+    """Record the model that just answered, for the health file to persist."""
+    if model:
+        _LAST_GOOD_MODEL[provider] = model
+
+
 def _note_quota_exhausted(name):
     """Record that `name` is out of quota until its allocation resets."""
     _EXHAUSTED_PROVIDERS_THIS_RUN.add(name)
     _DEAD_PROVIDERS_THIS_RUN.add(name)
+
+
+def _note_model_gone(provider, model, code, log_fn=None):
+    """A model name the provider does not serve. Stop asking for it.
+
+    A 404 ON A MODEL NAME IS NOT A TRANSIENT FAILURE, AND TREATING IT AS ONE
+    COST RUN 31876972186 TWO HOURS.
+    ---------------------------------------------------------------------
+    Only a read TIMEOUT was remembered here. A 400/404 logged "wrong model
+    name — trying next" and moved on without recording anything, so the same
+    three dead names were re-requested on every call:
+
+      NVIDIA NIM mistralai/mixtral-8x22b-v0.1: 404 (wrong model name)
+      NVIDIA NIM nvidia/llama-3.1-nemotron-51b-instruct: 404
+      NVIDIA NIM nvidia/llama-3.1-nemotron-70b-instruct: 404
+
+    repeated for 130 minutes. provider_health.py assumed "the catalogue
+    moved; discovery handles it" -- but discovery is what HANDED BACK those
+    names (NVIDIA's /v1/models lists the whole catalogue, not the subset the
+    chat endpoint serves) and it caches per run, so it re-supplied the same
+    dead names every time. Nothing in the loop could learn.
+
+    A name the provider does not recognise now will not be recognised in
+    four seconds. Recording it costs one round-trip per run instead of one
+    per call.
+    """
+    # ONLY 404 IS UNAMBIGUOUS.
+    #
+    # 404 means the provider has no such model -- that is a fact about the
+    # NAME and cannot change mid-run. 400 "Bad Request" is about THIS REQUEST:
+    # most often the prompt exceeded the model's context window. Retiring a
+    # model because one long prompt overflowed it would lose a perfectly good
+    # model for every shorter prompt afterwards, which is the opposite of the
+    # bug being fixed here. A 400 still moves to the next model, as before; it
+    # is just not held against this one.
+    if int(code) == 404:
+        _DENIED_MODELS_THIS_RUN.add(model)
+        if log_fn:
+            log_fn(f"  {provider} {model}: 404 — the provider does not serve "
+                   f"this model. Dropped for the rest of the run.")
+    elif log_fn:
+        log_fn(f"  {provider} {model}: {code} (bad request — likely this "
+               f"prompt, not this model) — trying next")
+
+
+def _models_left(provider, models):
+    """Filter out models already known dead; flag a provider with none left.
+
+    A provider whose every model has 404'd has nothing to offer this run.
+    Without this it stayed "transiently failed" forever -- ai_generate's
+    revival path only excludes providers that reported a QUOTA limit, so NIM
+    was revived on every single call, answered nothing, and kept the chain
+    from ever reaching its own "nothing will answer" exit.
+    """
+    ordered = list(models or [])
+    # A name PROVEN to answer beats a name a catalogue merely listed. The
+    # daily audit writes this; every channel reads it.
+    try:
+        import provider_health
+        _known = provider_health.working_model(provider)
+        if _known:
+            ordered = [_known] + [m for m in ordered if m != _known]
+    except Exception:
+        pass
+    live = [m for m in ordered if m not in _DENIED_MODELS_THIS_RUN]
+    if not live:
+        _NO_MODELS_LEFT.add(provider)
+    return live
 
 # WHICH PROVIDER GOES FIRST — ROTATED PER ATTEMPT.
 #
@@ -2680,27 +2799,54 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     # must never be the reason nothing gets tried.
     _skip = _providers_known_dead()
     live = [(name, fn) for name, fn in providers
-            if name not in _DEAD_PROVIDERS_THIS_RUN and name not in _skip]
+            if name not in _DEAD_PROVIDERS_THIS_RUN and name not in _skip
+            and name not in _NO_MODELS_LEFT]
     if not live and _skip:
-        log(f"  Every provider is flagged in provider_health.json "
-            f"({sorted(_skip)}) — ignoring the file and trying them all.")
+        # WORDING MATTERS HERE: this fired hundreds of times in run
+        # 31876972186 saying "Every provider is flagged in
+        # provider_health.json (['gemini'])", which reads as though the health
+        # file had condemned all ten. It had not — only gemini was flagged.
+        # The chain was empty because every OTHER provider had already been
+        # marked dead by THIS RUN. Naming the real cause saves the next
+        # diagnosis chasing a health file that was behaving correctly.
+        log(f"  No provider left to try: {sorted(_skip)} flagged by the health "
+            f"file, and {sorted(_DEAD_PROVIDERS_THIS_RUN)} failed earlier in "
+            f"this run. Retrying the whole chain once more.")
         live = [(name, fn) for name, fn in providers
-                if name not in _DEAD_PROVIDERS_THIS_RUN]
+                if name not in _DEAD_PROVIDERS_THIS_RUN
+                and name not in _NO_MODELS_LEFT]
     if not live:
+        # A PROVIDER WITH NO MODEL LEFT IS NOT "TRANSIENTLY FAILED".
+        #
+        # This excluded only the QUOTA-exhausted, so NVIDIA NIM -- whose three
+        # discovered model names all 404 -- was revived on every single call
+        # of run 31876972186. It answered nothing, was never exhausted, and so
+        # kept `revivable` non-empty forever: the honest "nothing will answer"
+        # exit below could never be reached, and the run spent 130 minutes
+        # re-asking three names that do not exist.
         revivable = [(name, fn) for name, fn in providers
-                     if name not in _EXHAUSTED_PROVIDERS_THIS_RUN]
+                     if name not in _EXHAUSTED_PROVIDERS_THIS_RUN
+                     and name not in _NO_MODELS_LEFT]
         if not revivable:
-            # Every provider has reported a daily limit. Nothing will answer
-            # before the allocations reset, so stop asking. The alternative is
-            # spending the rest of the job's clock -- and the review window --
-            # proving the same point 275 times.
-            log("  Every AI provider has hit its daily limit. Not retrying: "
-                "nothing will answer until the allocations reset.")
+            # Nothing will answer before the allocations reset, so stop
+            # asking. The alternative is spending the rest of the job's clock
+            # -- and the review window -- proving the same point 275 times.
+            if _NO_MODELS_LEFT:
+                log(f"  No provider can answer: {sorted(_EXHAUSTED_PROVIDERS_THIS_RUN)} "
+                    f"are out of quota until their allocations reset, and "
+                    f"{sorted(_NO_MODELS_LEFT)} have no model left that they "
+                    f"still serve. Not retrying.")
+            else:
+                log("  Every AI provider has hit its daily limit. Not retrying: "
+                    "nothing will answer until the allocations reset.")
             return None
         log("  All providers failed transiently — giving the non-exhausted "
             "ones one more pass.")
         live = revivable
-        _DEAD_PROVIDERS_THIS_RUN.intersection_update(_EXHAUSTED_PROVIDERS_THIS_RUN)
+        # Keep the permanently-unusable retired. Reviving a provider with no
+        # model left just reruns the loop that proved it had none.
+        _DEAD_PROVIDERS_THIS_RUN.intersection_update(
+            _EXHAUSTED_PROVIDERS_THIS_RUN | _NO_MODELS_LEFT)
     # Start at a different working provider each attempt. Every provider is
     # still tried before giving up -- this changes the ORDER, never the
     # coverage, so a rotation can't cost a response that would have come.
@@ -4049,6 +4195,10 @@ def generate_script_content(niche, topic, episode, attempt,
         else:
             log("  Case structures: all 3 extraction attempts failed — "
                 "the episode will run on ANATOMY and FIGURE only")
+            # REMEMBER THAT THIS FAILED, so the richness gate below does not
+            # score three unknown dimensions as zero and reject the paper for
+            # a provider outage. See case_richness(structures_extracted=...).
+            case["_structures_extracted"] = False
 
     # ── Step 2b: prove the figures are actually fetchable ────────────────
     # The visual quota schedules ~30% of the episode as FIGURE segments based
@@ -4119,7 +4269,9 @@ def generate_script_content(niche, topic, episode, attempt,
         # Downloading first and scoring second is the whole point. A paper
         # that promises pictures and delivers none scores as what it is.
         try:
-            _ok, _score, _why = accept_case_or_repick(case, WORK_DIR, log_fn=log)
+            _ok, _score, _why = accept_case_or_repick(
+                case, WORK_DIR, log_fn=log,
+                structures_extracted=case.get("_structures_extracted", True))
             if not _ok:
                 log(f"  Case REJECTED on richness ({_score}/10) — repicking. "
                     f"A thin case is not worth an episode.")
@@ -6941,7 +7093,7 @@ def set_episode_case(case):
             f"({len(_EPISODE_CASE.get('figures') or [])} advertised figures)")
 
 
-def accept_case_or_repick(case, work_dir, log_fn=None):
+def accept_case_or_repick(case, work_dir, log_fn=None, structures_extracted=True):
     """Is this case rich enough to be an episode? Verified, not advertised.
 
     "When the case is really thin, yes, I wanted to reject and repick it."
@@ -6959,7 +7111,8 @@ def accept_case_or_repick(case, work_dir, log_fn=None):
     _log = log_fn or log
     from pmc_data import case_richness, verify_figures, CASE_RICHNESS_FLOOR
     verified = verify_figures(case, work_dir, log_fn=_log)
-    score, reasons = case_richness(case, verified_figures=verified)
+    score, reasons = case_richness(case, verified_figures=verified,
+                                   structures_extracted=structures_extracted)
     ok = score >= CASE_RICHNESS_FLOOR
     _log(f"  Case richness {case.get('pmcid','?')}: {score}/10 "
          f"(floor {CASE_RICHNESS_FLOOR}) — {'ACCEPTED' if ok else 'REJECTED, repicking'}")

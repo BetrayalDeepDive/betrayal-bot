@@ -2596,6 +2596,102 @@ def main():
             check("a provider that never answers is still dropped at once",
                   "cerebras" in _cp_mod._DEAD_PROVIDERS_THIS_RUN,
                   "the clock is spent being patient with a dead provider")
+
+            # ── RUN 31876972186: 130 MINUTES ASKING FOR THREE DEAD NAMES ──
+            #
+            # Only a read TIMEOUT was remembered. A 404 "wrong model name"
+            # logged and moved on, so discovery re-supplied the same three
+            # NVIDIA names on every call; and because the revival path only
+            # excluded QUOTA-exhausted providers, NIM was revived forever and
+            # the honest "nothing will answer" exit was unreachable.
+            for _s in (_cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                       _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                       _cp_mod._DENIED_MODELS_THIS_RUN,
+                       _cp_mod._NO_MODELS_LEFT):
+                _s.clear()
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+
+            _cp_mod._note_model_gone("NVIDIA NIM", "nvidia/gone-9b", 404, None)
+            check("a 404 model name is remembered, not re-asked every call",
+                  "nvidia/gone-9b" in _cp_mod._DENIED_MODELS_THIS_RUN,
+                  "a name the provider does not serve is requested again on "
+                  "the next call, and the one after that")
+
+            check("a provider with no model left says so",
+                  _cp_mod._models_left("nvidia_nim", ["nvidia/gone-9b"]) == []
+                  and "nvidia_nim" in _cp_mod._NO_MODELS_LEFT,
+                  "a provider whose every model has gone still looks healthy "
+                  "to the chain")
+
+            _nim_calls = [0]
+
+            def _all_404(p, t=8000, m=100):
+                _nim_calls[0] += 1
+                _left = _cp_mod._models_left("nvidia_nim", ["a/dead-1", "a/dead-2"])
+                for _m in _left:
+                    _cp_mod._note_model_gone("NVIDIA NIM", _m, 404, None)
+                return None
+
+            for _s in (_cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                       _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                       _cp_mod._DENIED_MODELS_THIS_RUN,
+                       _cp_mod._NO_MODELS_LEFT):
+                _s.clear()
+            _cp_mod._PROVIDER_STRIKES.clear()
+            _cp_mod._PROVIDER_WINS.clear()
+            for _n in ("cerebras", "cloudflare", "sambanova", "gemini",
+                       "groq", "openrouter", "cohere", "mistral"):
+                _cp_mod._note_quota_exhausted(_n)
+            for _fn in ("call_cerebras", "call_cloudflare", "call_sambanova",
+                        "call_gemini", "call_groq", "call_openrouter",
+                        "call_cohere", "call_mistral"):
+                setattr(_cp_mod, _fn, lambda p, t=8000, m=100: None)
+            _cp_mod.call_nvidia_nim = _all_404
+            _res = [_cp_mod.ai_generate("x", 50, 5) for _ in range(20)]
+            check("the chain stops asking once nothing can answer",
+                  all(_r is None for _r in _res) and _nim_calls[0] <= 2,
+                  "the only surviving provider serves no model and was still "
+                  "re-asked %d times across 20 calls — this is the 130 minutes "
+                  "run 31876972186 spent" % _nim_calls[0])
+
+            for _s in (_cp_mod._DEAD_PROVIDERS_THIS_RUN,
+                       _cp_mod._EXHAUSTED_PROVIDERS_THIS_RUN,
+                       _cp_mod._DENIED_MODELS_THIS_RUN,
+                       _cp_mod._NO_MODELS_LEFT):
+                _s.clear()
+
+            # ── A MODEL PROVEN TO WORK SURVIVES THE RUN THAT PROVED IT ──
+            #
+            # Discovery re-ranks a live catalogue every run and remembers
+            # nothing, so the pipeline had no way to know that a different
+            # NVIDIA name had answered perfectly well that same morning.
+            import provider_health as _ph
+            import tempfile as _tf, json as _js, pathlib as _pl
+            _real_path, _real_cache = _ph.HEALTH_PATH, _ph._CACHE[0]
+            try:
+                _ph.HEALTH_PATH = _pl.Path(_tf.mkdtemp()) / "provider_health.json"
+                _ph._CACHE[0] = None
+                _ph.record_working_model("nvidia_nim", "meta/llama-3.3-70b-instruct")
+                _order = _cp_mod._models_left(
+                    "nvidia_nim", ["a/dead-1", "meta/llama-3.3-70b-instruct"])
+                check("a model proven to answer leads the list next time",
+                      _order and _order[0] == "meta/llama-3.3-70b-instruct",
+                      "the catalogue's guess still outranks a name that "
+                      "actually produced a sentence: %s" % (_order,))
+
+                _d = _js.loads(_ph.HEALTH_PATH.read_text())
+                _d["checked_at"] = "2020-01-01T00:00:00Z"
+                _ph.HEALTH_PATH.write_text(_js.dumps(_d))
+                _ph._CACHE[0] = None
+                check("a stale working-model record is not trusted",
+                      _ph.working_model("nvidia_nim") == "",
+                      "a name from a fortnight ago is still being preferred "
+                      "over what discovery says today")
+            finally:
+                _ph.HEALTH_PATH, _ph._CACHE[0] = _real_path, _real_cache
+                _cp_mod._DENIED_MODELS_THIS_RUN.clear()
+                _cp_mod._NO_MODELS_LEFT.clear()
         finally:
             _cp_mod.time.sleep, _cp_mod.log = _sleep, _log
             for _n, _f in _saved.items():

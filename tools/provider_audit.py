@@ -57,6 +57,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "video_pipeline"))
 sys.path.insert(0, str(ROOT / "channels" / "betrayal_deepdive"))
 
+import provider_health
+
 # Shared by all five channels — they authenticate with the same secrets, so
 # one record serves all of them. Lives in video_pipeline because every channel
 # already imports from there; under one channel the other four would be
@@ -311,7 +313,27 @@ def audit(write=True):
             cp._EXHAUSTED_PROVIDERS_THIS_RUN.clear()
         except Exception:
             pass
+        try:
+            # Must be cleared with the rest: a provider flagged as having no
+            # usable model would otherwise stay flagged for every LATER probe
+            # in this loop, and the audit would report healthy providers dead.
+            cp._NO_MODELS_LEFT.clear()
+        except Exception:
+            pass
         r = _classify(name, fn, print)
+        # WRITE DOWN WHAT ACTUALLY ANSWERED.
+        #
+        # The audit knew which model worked and threw the knowledge away, so
+        # every episode re-derived it from a catalogue ranking that had just
+        # cost run 31876972186 its entire job. Persisting it means a name
+        # proven at 05:40 leads the list for all five channels that day.
+        try:
+            _good = (cp._LAST_GOOD_MODEL or {}).get(name)
+            if _good:
+                provider_health.record_working_model(name, _good, print)
+                r["working_model"] = _good
+        except Exception:
+            pass
         models = live_models(name, print)
         if models:
             r["catalogue"] = models[:12]
