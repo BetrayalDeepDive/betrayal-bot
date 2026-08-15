@@ -77,7 +77,7 @@ jobs:
           git config user.name "GitHub Actions"
           git add video_pipeline/provider_health.json || true
           git diff --staged --quiet || \
-            git commit -m "chore: weekly provider health [skip ci]"
+            git commit -m "chore: provider health [skip ci]"
           for i in 1 2 3; do
             git push origin "HEAD:$GITHUB_REF_NAME" && break
             sleep $((i*5))

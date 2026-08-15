@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-WEEKLY PROVIDER HEALTH AUDIT — FIND WHAT DIED BEFORE A RUN DOES.
+DAILY PROVIDER HEALTH AUDIT — FIND WHAT DIED BEFORE A RUN DOES.
 
 "I want the authentication of these every week, so make an algorithm which can
-check every week if there is anything that is decommissioned and it can replace
-it automatically rather than me pointing out every time."
+check ... if there is anything that is decommissioned and it can replace it
+automatically rather than me pointing out every time." Runs DAILY, not weekly:
+"there should be constant checking... it's not only for one channel."
 
 Run 31820199959 is the reason. Gemini answered every call with 403 "your
 project has been denied access", NVIDIA NIM read-timed-out on the same models
