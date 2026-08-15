@@ -1,0 +1,193 @@
+{
+ "checked_at": "2026-08-15T06:20:32Z",
+ "healthy": [
+  "cerebras",
+  "groq",
+  "openrouter",
+  "cohere",
+  "mistral"
+ ],
+ "rate_limited": [
+  "sambanova"
+ ],
+ "needs_human": {
+  "cloudflare": {
+   "reason": "403 \u2014 the account is refused, not rate limited",
+   "env": "CLOUDFLARE_API_TOKEN",
+   "where": "https://dash.cloudflare.com/profile/api-tokens"
+  },
+  "gemini": {
+   "reason": "403 \u2014 the account is refused, not rate limited",
+   "env": "GEMINI_API_KEY",
+   "where": "https://aistudio.google.com/apikey"
+  }
+ },
+ "providers": {
+  "cerebras": {
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 0.5,
+   "log": [
+    "  Cerebras: 3 models available, using ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7']",
+    "  OK Cerebras (gemma-4-31b)"
+   ],
+   "catalogue": [
+    "zai-glm-4.7",
+    "gemma-4-31b",
+    "gpt-oss-120b"
+   ],
+   "catalogue_size": 3
+  },
+  "github_models": {
+   "state": "no_output",
+   "detail": "returned nothing, no reason given",
+   "seconds": 0.0,
+   "log": [
+    "  GitHub Models: no GITHUB_TOKEN available \u2014 skipping"
+   ]
+  },
+  "cloudflare": {
+   "state": "auth_denied",
+   "detail": "403 \u2014 the account is refused, not rate limited",
+   "seconds": 0.4,
+   "log": [
+    "Cloudflare @cf/meta/llama-3.3-70b-instruct-fp8-fast: 429 \u2014 daily 10k Neuron allocation likely used up",
+    "Cloudflare @cf/mistralai/mistral-small-3.1-24b-instruct: 429 \u2014 daily 10k Neuron allocation likely used up",
+    "Cloudflare @cf/google/gemma-3-12b-it: 403 \u2014 this account is not entitled to this model. Dropping the model for this run."
+   ]
+  },
+  "nvidia_nim": {
+   "state": "timeout",
+   "detail": "no answer within the timeout",
+   "seconds": 270.7,
+   "log": [
+    "NVIDIA NIM nvidia/llama-3.1-nemotron-51b-instruct: 404 (wrong model name) \u2014 trying next",
+    "NVIDIA NIM nvidia/llama-3.1-nemotron-70b-instruct: 404 (wrong model name) \u2014 trying next",
+    "NVIDIA NIM nvidia/llama-3.1-nemotron-nano-8b-v1: read timeout after 90s \u2014 dropping this model for the rest of the run rather than paying 90s again."
+   ],
+   "catalogue": [
+    "01-ai/yi-large",
+    "adept/fuyu-8b",
+    "ai21labs/jamba-1.5-large-instruct",
+    "aisingapore/sea-lion-7b-instruct",
+    "baai/bge-m3",
+    "bigcode/starcoder2-15b",
+    "databricks/dbrx-instruct",
+    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "google/codegemma-1.1-7b",
+    "google/codegemma-7b",
+    "google/deplot"
+   ],
+   "catalogue_size": 40
+  },
+  "sambanova": {
+   "state": "rate_limited",
+   "detail": "429 \u2014 alive but out of allowance right now",
+   "seconds": 0.8,
+   "log": [
+    "  SambaNova: 6 models available, using ['Meta-Llama-3.3-70B-Instruct', 'DeepSeek-V3.1', 'DeepSeek-V3.2', 'MiniMax-M2.7', 'gemma-4-31B-it', 'gpt-oss-120b']",
+    "  SambaNova 429 \u2014 daily limit reached"
+   ],
+   "catalogue": [
+    "DeepSeek-V3.1",
+    "DeepSeek-V3.2",
+    "Meta-Llama-3.3-70B-Instruct",
+    "MiniMax-M2.7",
+    "gemma-4-31B-it",
+    "gpt-oss-120b"
+   ],
+   "catalogue_size": 6
+  },
+  "gemini": {
+   "state": "auth_denied",
+   "detail": "403 \u2014 the account is refused, not rate limited",
+   "seconds": 0.1,
+   "log": [
+    "  Gemini gemini-2.5-flash: 403 \u2014 this project is DENIED access (not a rate limit). Dropping Gemini for this run."
+   ]
+  },
+  "groq": {
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 0.7,
+   "log": [
+    "Groq openai/gpt-oss-120b: 200 but response too short (0 < 1 chars) \u2014 trying next",
+    "OK Groq (llama-3.3-70b-versatile)"
+   ],
+   "catalogue": [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "allam-2-7b",
+    "openai/gpt-oss-120b",
+    "whisper-large-v3",
+    "meta-llama/llama-prompt-guard-2-86m",
+    "canopylabs/orpheus-v1-english",
+    "groq/compound-mini",
+    "qwen/qwen3.6-27b",
+    "openai/gpt-oss-20b",
+    "whisper-large-v3-turbo",
+    "groq/compound"
+   ],
+   "catalogue_size": 15
+  },
+  "openrouter": {
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 4.7,
+   "log": [
+    "  OpenRouter: 17 models available, using ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'dots-studio/dots-3-note-preview:free', 'poolside/laguna-s-2.1:free', 'poolside/laguna-xs-2.1:free', 'nvidia/nemotron-3-super-120b-a12b:free']",
+    "OK OpenRouter (gemma-4-26b-a4b-it:free)"
+   ],
+   "catalogue": [
+    "qwen/qwen3.8-27b",
+    "dots-studio/dots-3-note-preview:free",
+    "google/gemini-3.7-flash",
+    "google/gemini-3.7-flash:batch",
+    "bytedance-seed/seed-2-1-turbo",
+    "qwen/qwen3.8-2.4t-a95b",
+    "bytedance-seed/seed-2.0-code",
+    "deepseek/deepseek-v4-pro-0813",
+    "x-ai/grok-4.6",
+    "liquid/lfm-2.5-2.6b:free",
+    "nvidia/nemotron-3.5-lightning",
+    "nvidia/nemotron-3.5-lightning:free"
+   ],
+   "catalogue_size": 40
+  },
+  "cohere": {
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 0.7,
+   "log": [
+    "  Cohere command-a-plus-05-2026: 200 but response too short (0 < 1 chars) \u2014 trying next",
+    "OK Cohere (command-a-03-2025)"
+   ]
+  },
+  "mistral": {
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 0.8,
+   "log": [
+    "  Mistral: 48 models available, using ['mistral-large-2512', 'mistral-large-latest', 'mistral-medium-2505', 'mistral-medium-2508', 'mistral-medium-latest', 'mistral-medium']",
+    "OK Mistral"
+   ],
+   "catalogue": [
+    "mistral-medium-2505",
+    "mistral-medium-2508",
+    "codestral-2508",
+    "codestral-latest",
+    "mistral-code-latest",
+    "mistral-code-fim-latest",
+    "devstral-2512",
+    "devstral-medium-latest",
+    "devstral-latest",
+    "mistral-code-agent-latest",
+    "mistral-small-2603",
+    "mistral-small-latest"
+   ],
+   "catalogue_size": 40
+  }
+ },
+ "min_healthy": 3
+}
