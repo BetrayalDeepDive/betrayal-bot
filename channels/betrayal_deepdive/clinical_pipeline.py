@@ -2084,6 +2084,26 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                 elif r.status_code in [400, 404]:
                     log(f"  Gemini {model}: {r.status_code} — trying next model")
                     continue
+                elif r.status_code == 403:
+                    # PERMISSION_DENIED IS AN ACCOUNT DECISION, NOT A BAD MINUTE.
+                    #
+                    # Run 31820199959 died on this. Gemini answered every single
+                    # call with 403 "Your project has been denied access. Please
+                    # contact support." -- and 403 had no branch, so it fell to
+                    # the generic log-and-continue below, the provider was never
+                    # marked dead, and every retry round asked both models again
+                    # and got the same refusal. The run spent 280 minutes of
+                    # real work and reached ZERO review gates.
+                    #
+                    # A 429 resets at midnight and is worth retrying. A 403 of
+                    # this shape does not change until a human contacts Google,
+                    # so it is dropped for the whole run on the first sighting,
+                    # exactly as Cloudflare's entitlement 403 already is.
+                    log(f"  Gemini {model}: 403 — this project is DENIED access "
+                        f"(not a rate limit). Dropping Gemini for this run.")
+                    _note_quota_exhausted("gemini")
+                    _DEAD_PROVIDERS_THIS_RUN.add("gemini")
+                    return None
                 else:
                     log(f"  Gemini {model}: {r.status_code} | {r.text[:200]}")
             except Exception as e:
@@ -2351,6 +2371,23 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                 "nemotron"))
     for model in _nim_models or ["meta/llama-3.3-70b-instruct", "mistralai/mixtral-8x7b-instruct-v0.1",
                   "meta/llama-3.1-70b-instruct"]:
+        # A MODEL THAT ALREADY BURNED NINETY SECONDS DOING NOTHING GETS ONE GO.
+        #
+        # Run 31820199959 spent 280 minutes of real work and reached zero
+        # review gates. Gemini's 403 was half of it; this was the other half.
+        # The same NIM models read-timed-out at 90 seconds each, round after
+        # round, and nothing remembered:
+        #
+        #   21:32:31  llama-3.3-70b   read timeout (90s)
+        #   21:34:07  llama-3.3-70b   read timeout (90s)   <- again
+        #   21:35:38  mistral-nemotron read timeout (90s)
+        #   21:37:08  nemotron-nano   read timeout (90s)
+        #
+        # A timeout is not a rate limit and not a bad response -- it is that
+        # model not answering within a minute and a half. Asking it again in
+        # the same run costs another ninety seconds to learn the same thing.
+        if model in _DENIED_MODELS_THIS_RUN:
+            continue
         try:
             r = requests.post(url,
                 headers={"Authorization": f"Bearer {NVIDIA_NIM_KEY}",
@@ -2382,6 +2419,11 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                 _note_quota_exhausted("nvidia_nim")
             else:
                 log(f"NVIDIA NIM {model}: {r.status_code}: {r.text[:200]}")
+        except requests.exceptions.Timeout:
+            # Drop it for the run. See the note at the top of this loop.
+            _DENIED_MODELS_THIS_RUN.add(model)
+            log(f"NVIDIA NIM {model}: read timeout after 90s — dropping this "
+                f"model for the rest of the run rather than paying 90s again.")
         except Exception as e:
             log(f"NVIDIA NIM {model}: {e}")
     return None
