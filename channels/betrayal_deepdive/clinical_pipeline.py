@@ -2084,6 +2084,21 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                 elif r.status_code in [400, 404]:
                     log(f"  Gemini {model}: {r.status_code} — trying next model")
                     continue
+                elif r.status_code == 403 and key_idx == 0 and GEMINI_KEY_2:
+                    # THE BACKUP KEY EXISTS. TRY IT BEFORE CONDEMNING GEMINI.
+                    #
+                    # The owner has two Gemini keys configured and pointed out,
+                    # correctly, that being told to "set GEMINI_API_KEY" made no
+                    # sense. They were right: the first 403 returned immediately
+                    # and GEMINI_API_KEY_2 was never called, so the audit only
+                    # ever tested key 1 and reported on a key the owner had
+                    # already replaced. A second project can be perfectly
+                    # healthy while the first is blocked -- that is the entire
+                    # reason for having a second key.
+                    log(f"  Gemini {model}: 403 on key 1 — trying the backup "
+                        f"key (GEMINI_API_KEY_2) before giving up on Gemini.")
+                    quota_hit = True     # reuse the "advance to next key" path
+                    break
                 elif r.status_code == 403:
                     # PERMISSION_DENIED IS AN ACCOUNT DECISION, NOT A BAD MINUTE.
                     #
@@ -2103,6 +2118,13 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                         f"(not a rate limit). Dropping Gemini for this run.")
                     _note_quota_exhausted("gemini")
                     _DEAD_PROVIDERS_THIS_RUN.add("gemini")
+                    # Both keys have now been refused (key 2 is tried first --
+                    # see the branch above). Tell every channel rather than
+                    # letting Ch2..Ch5 each spend a run learning it again.
+                    _record_denied(
+                        "gemini",
+                        "403 PERMISSION_DENIED on every configured key",
+                        "GEMINI_API_KEY", "https://aistudio.google.com/apikey")
                     return None
                 else:
                     log(f"  Gemini {model}: {r.status_code} | {r.text[:200]}")
@@ -11030,43 +11052,29 @@ def add_horror_atmosphere_fx(video_path, script, audio_duration, niche_name, out
 # genuinely re-roll pacing, tint, anchors and transitions instead of handing
 # back an identical render and calling it the new version. 0 on a first
 # render, so ordinary runs are unchanged.
-_HEALTH_CACHE = [None]
-
-
-def _providers_known_dead(max_age_days=14):
-    """Providers last week's audit found refusing on credentials.
-
-    Only auth failures are honoured. A 429 is a provider having a busy day and
-    must still be tried; a 403 "your project has been denied access" is an
-    account decision that an episode cannot change.
-
-    A file older than max_age_days is ignored entirely. A stale verdict is
-    worse than none -- it would keep skipping a provider whose key was fixed
-    a fortnight ago, and nothing would ever put it back.
-    """
-    if _HEALTH_CACHE[0] is not None:
-        return _HEALTH_CACHE[0]
-    dead = set()
+# ONE HEALTH RECORD, SHARED BY ALL FIVE CHANNELS.
+#
+# This used to be a private copy living in this file, which meant Ch2..Ch5 each
+# had to rediscover the same dead credential for themselves -- and they all
+# authenticate with the SAME secrets. The reader and the writer now live in
+# video_pipeline/provider_health.py so one channel's discovery protects the
+# other four immediately.
+def _providers_known_dead():
     try:
-        import datetime as _dt
-        p = Path(__file__).parent / "provider_health.json"
-        if p.exists():
-            data = json.loads(p.read_text())
-            when = _dt.datetime.strptime(data.get("checked_at", ""),
-                                         "%Y-%m-%dT%H:%M:%SZ")
-            age = (_dt.datetime.utcnow() - when).days
-            if age <= max_age_days:
-                dead = set((data.get("needs_human") or {}).keys())
-                if dead:
-                    log(f"  Provider health ({age}d old): skipping "
-                        f"{sorted(dead)} — credentials refused at last audit.")
-            else:
-                log(f"  Provider health file is {age}d old — ignoring it.")
+        from provider_health import providers_known_dead
+        return providers_known_dead(log_fn=log)
     except Exception as e:
-        log(f"  Provider health file unreadable, using the full chain: {e}")
-        dead = set()
-    _HEALTH_CACHE[0] = dead
-    return dead
+        log(f"  Provider health unavailable, using the full chain: {e}")
+        return set()
+
+
+def _record_denied(provider, reason, env_name="", where=""):
+    """Tell every channel, now, that this credential is being refused."""
+    try:
+        from provider_health import note_denied
+        note_denied(provider, reason, env_name, where, log_fn=log)
+    except Exception as e:
+        log(f"  Could not record provider health (non-fatal): {e}")
 
 
 _VIDEO_REMAKE_NONCE = [0]

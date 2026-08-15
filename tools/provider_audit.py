@@ -56,7 +56,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "video_pipeline"))
 sys.path.insert(0, str(ROOT / "channels" / "betrayal_deepdive"))
 
-HEALTH_PATH = ROOT / "channels" / "betrayal_deepdive" / "provider_health.json"
+# Shared by all five channels — they authenticate with the same secrets, so
+# one record serves all of them. Lives in video_pipeline because every channel
+# already imports from there; under one channel the other four would be
+# second-class readers of a file they equally own.
+HEALTH_PATH = ROOT / "video_pipeline" / "provider_health.json"
 
 # A prompt short enough to be free everywhere and specific enough that a
 # provider echoing its system preamble does not read as a pass.
@@ -77,6 +81,45 @@ KEY_HELP = {
     "nvidia_nim":    ("NVIDIA_API_KEY",     "https://build.nvidia.com"),
     "sambanova":     ("SAMBANOVA_API_KEY",  "https://cloud.sambanova.ai"),
     "mistral":       ("MISTRAL_API_KEY",    "https://console.mistral.ai/api-keys"),
+}
+
+# WHAT TO ACTUALLY DO, WHEN THE KEY IS ALREADY THERE.
+#
+# The first version of this told the owner to "set GEMINI_API_KEY". They had
+# already set two, and said so: "I don't know why you are asking me about
+# another Gemini key... I have already done it." Fair. A 403 against a
+# configured key is not a missing key, and "set the key" is advice for a
+# problem they do not have.
+#
+# A 403 with a valid credential has a small number of real causes, and they
+# differ per provider. These are the ones worth checking, in the order they
+# are usually the answer.
+DENIED_PLAYBOOK = {
+    "gemini": [
+        "The API is not enabled on that Google Cloud project — open "
+        "console.cloud.google.com > APIs & Services > Enable APIs, and enable "
+        "'Generative Language API' for the SAME project the key belongs to.",
+        "The key has API restrictions — console.cloud.google.com > "
+        "Credentials > your key > 'API restrictions'. If it is set to "
+        "'Restrict key', Generative Language API must be in the allowed list.",
+        "The region is not served. Gemini's free tier is unavailable in some "
+        "countries, and a runner in an unsupported region gets exactly this "
+        "PERMISSION_DENIED.",
+        "The project itself is flagged. If the message says 'contact "
+        "support', a NEW KEY ON THE SAME PROJECT WILL NOT HELP — the block is "
+        "on the project. Make a fresh project and issue a key from that.",
+    ],
+    "cloudflare": [
+        "The token is missing the Workers AI permission — dash.cloudflare.com "
+        "> My Profile > API Tokens > your token > Edit, and add "
+        "'Account / Workers AI / Read' (and Edit).",
+        "CLOUDFLARE_ACCOUNT_ID belongs to a different account than the token. "
+        "Both must come from the same account.",
+    ],
+    "github_models": [
+        "GitHub Models was RETIRED — it answers 410 Gone. Nothing to fix; it "
+        "should simply be dropped from the chain.",
+    ],
 }
 
 # Below this many working providers an episode cannot realistically finish:
@@ -120,27 +163,80 @@ def _classify(name, fn, log):
         return {"state": "ok", "detail": "answered (did not echo exactly)",
                 "seconds": secs, "log": captured[-2:]}
 
-    # No text. The provider's own log lines say why.
-    if "not set" in blob or "api key" in blob and "skipping" in blob:
+    # No text. Work out WHY from the provider's own lines.
+    #
+    # THIS USED TO BE A LADDER OF `if "403" in blob`, AND IT WAS WRONG.
+    #
+    # Cloudflare's real audit output was two models answering
+    # "429 — daily 10k Neuron allocation likely used up" and one answering
+    # "403 — this account is not entitled to THIS MODEL". The ladder saw the
+    # substring "403" and reported the whole provider as account-denied, so
+    # the owner was told to replace a Cloudflare token that was working
+    # perfectly and had simply run out of its daily free allocation.
+    #
+    # Two distinctions the ladder could not make, both of which decide whether
+    # a human needs to do anything at all:
+    #
+    #   ACCOUNT-level 403  "your project has been denied access"     -> human
+    #   MODEL-level 403    "not entitled to THIS MODEL"              -> not human
+    #
+    # and when a provider emits several different codes, the one that appears
+    # most is the provider's actual state -- one unavailable model among three
+    # is not an outage.
+    blob_lines = [c.lower() for c in captured]
+
+    def _count(*needles):
+        return sum(1 for L in blob_lines if any(n in L for n in needles))
+
+    # "no credential" comes in several house styles across the ten providers:
+    #   "NVIDIA_API_KEY not set — skipping"
+    #   "no GITHUB_TOKEN available — skipping"
+    #   "SAMBANOVA_API_KEY not set — add free key from ..."
+    # Matched on "available"/"not set"/"not configured" NEXT TO a credential
+    # word, so a provider merely mentioning a key in passing is not misread.
+    if (("not set" in blob or "not configured" in blob
+         or "not available" in blob or "available" in blob and "no " in blob)
+            and ("key" in blob or "token" in blob)):
         return {"state": "no_key", "detail": "no credential configured",
                 "seconds": secs, "log": captured[-3:]}
-    if "403" in blob or "denied" in blob or "permission_denied" in blob:
+
+    n_rate = _count("429", "rate limit", "quota", "allocation")
+    n_model_403 = _count("not entitled to this model", "entitled to this model")
+    n_acct_403 = _count("denied access", "permission_denied", "project has been denied")
+    n_401 = _count("401", "unauthorized", "invalid api key", "invalid_api_key")
+    n_timeout = _count("timeout", "timed out")
+    n_404 = _count("404", "wrong model", "410")
+
+    # A refused ACCOUNT is the only 403 a human can act on, and only when it
+    # is not drowned out by rate limiting.
+    if n_acct_403 and n_acct_403 >= n_rate:
         return {"state": "auth_denied",
-                "detail": "403 — the account is refused, not rate limited",
+                "detail": "403 PERMISSION_DENIED — the provider is refusing "
+                          "this account, and a key is already configured",
                 "seconds": secs, "log": captured[-3:]}
-    if "401" in blob or "unauthorized" in blob or "invalid api key" in blob:
-        return {"state": "auth_bad", "detail": "401 — the key is rejected",
+    if n_401:
+        return {"state": "auth_bad",
+                "detail": "401 — the configured key is rejected as invalid",
                 "seconds": secs, "log": captured[-3:]}
-    if "429" in blob or "quota" in blob or "rate limit" in blob:
+    if n_rate:
+        extra = (" (%d model also not entitled — normal on a free tier)"
+                 % n_model_403) if n_model_403 else ""
         return {"state": "rate_limited",
-                "detail": "429 — alive but out of allowance right now",
+                "detail": "429 — alive, out of allowance right now" + extra,
                 "seconds": secs, "log": captured[-3:]}
-    if "timeout" in blob or "timed out" in blob:
-        return {"state": "timeout", "detail": "no answer within the timeout",
-                "seconds": secs, "log": captured[-3:]}
-    if "404" in blob or "wrong model" in blob or "410" in blob:
+    if n_model_403:
+        # Only model-level refusals and nothing else: the account works, these
+        # particular models are not on its plan.
         return {"state": "models_gone",
-                "detail": "every model name 404s — catalogue moved",
+                "detail": "account is fine; these models are not on its plan",
+                "seconds": secs, "log": captured[-3:]}
+    if n_timeout:
+        return {"state": "timeout",
+                "detail": "no answer within the timeout — provider is slow or down",
+                "seconds": secs, "log": captured[-3:]}
+    if n_404:
+        return {"state": "models_gone",
+                "detail": "every model name 404s — the catalogue moved",
                 "seconds": secs, "log": captured[-3:]}
     return {"state": "no_output", "detail": "returned nothing, no reason given",
             "seconds": secs, "log": captured[-3:]}
@@ -286,6 +382,17 @@ def telegram_summary(payload):
         lines.append("\n<b>%s</b> — %s" % (n, d.get("reason", "?")))
         lines.append("   set <code>%s</code>" % d.get("env", "?"))
         lines.append("   %s" % d.get("where", "?"))
+    lines.append("")
+    lines.append("Your key IS installed for these — a 403 with a valid key is "
+                 "a permission or project problem, not a missing key. What to "
+                 "check, in order:")
+    for n in needs:
+        steps = DENIED_PLAYBOOK.get(n)
+        if not steps:
+            continue
+        lines.append("\n<b>%s</b>" % n)
+        for i, s in enumerate(steps, 1):
+            lines.append("  %d. %s" % (i, s))
     lines.append("\nRetired or renamed MODELS are already replaced "
                  "automatically from each provider's live catalogue — only "
                  "credentials are listed here.")

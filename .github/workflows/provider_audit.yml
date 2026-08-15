@@ -1,4 +1,4 @@
-name: Weekly provider health audit
+name: Daily provider health audit
 
 # WHY THIS EXISTS, ON A SCHEDULE, INSTEAD OF BEING NOTICED MID-EPISODE.
 #
@@ -8,17 +8,26 @@ name: Weekly provider health audit
 # The first anyone knew of it was the owner asking why no Telegram message
 # had arrived after five hours.
 #
-# This asks every provider the same question once a week, for the price of ten
-# tiny prompts, and reports what died. Retired MODELS are replaced
+# This asks every provider the same question every morning, for the price of
+# ten tiny prompts, and reports what died. Retired MODELS are replaced
 # automatically from each provider's live catalogue; dead CREDENTIALS are
 # escalated with the exact secret name and the exact page to fix it on,
 # because no algorithm can mint an API key.
 
 on:
   schedule:
-    # 06:15 UTC every Sunday — before the week's episodes, and off the hour so
-    # it does not queue behind the flood of jobs every cron fires at :00.
-    - cron: '15 6 * * 0'
+    # DAILY, not weekly. The owner asked for "constant checking... it's not
+    # only for one channel, there are five channels, and it needs to keep
+    # repeating. It's a process."
+    #
+    # A weekly audit leaves a six-day window in which every channel
+    # rediscovers the same dead credential the expensive way — which is
+    # precisely the five hours run 31820199959 burned. Ten tiny prompts a day
+    # costs nothing on a free tier and closes that window to hours.
+    #
+    # 05:40 UTC: before the day's episodes, and off the hour so it does not
+    # queue behind the flood of jobs every cron fires at :00.
+    - cron: '40 5 * * *'
   workflow_dispatch:
 
 permissions:
