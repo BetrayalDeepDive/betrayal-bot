@@ -1188,6 +1188,29 @@ def _strip_reasoning(text):
     text = re.sub(r'<\|[^|]{1,40}\|>', '', text)
     return text.strip()
 
+# ── HOW MUCH EACH PROVIDER WILL ACTUALLY ACCEPT ──────────────────────────
+#
+# Every call below asked for a flat min(tokens, N) with N taken from
+# documentation, ignoring how long the prompt was. A script-length prompt plus
+# a 12,000-token answer request exceeds the free tier and is refused outright
+# -- and the chain reads that refusal as "no response" and marks a working
+# provider dead. tools/ai_capacity.py measures the prompt and asks for what is
+# actually left, and learns each provider's real ceiling from its own refusal
+# because the published figures contradict each other.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools import ai_capacity as _cap
+
+
+def _ask_for(name, prompt, tokens):
+    """Answer-token budget for `name`, or None when the prompt leaves no room."""
+    b = _cap.budget(name, prompt, tokens)
+    if b is None:
+        log(f"  {name} skipped for this call: the prompt is about "
+            f"{_cap.estimate_tokens(prompt)} tokens and this account's "
+            f"ceiling is {_cap.limit_for(name)[0]} — no room for an answer.")
+    return b
+
+
 def call_cerebras(prompt, tokens=8000, min_chars=100):
     """
     Cerebras Cloud — 1M tokens/day free tier. PRIMARY provider.
@@ -1196,6 +1219,9 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
     """
     if not CEREBRAS_KEY:
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
+        return None
+    _bud = _ask_for("cerebras", prompt, tokens)
+    if _bud is None:
         return None
     _url    = "https://api.cerebras.ai/v1/chat/completions"
     _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]  # Cerebras free-tier catalog narrowed to gpt-oss-120b/zai-glm-4.7 as of June 2026 — old llama names kept as fallback in case they return
@@ -1206,7 +1232,7 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_completion_tokens": min(tokens, 12000),
+                      "max_completion_tokens": _bud,
                       "temperature": 0.88},
                 timeout=120)
             if r.status_code == 200:
@@ -1240,7 +1266,7 @@ def call_groq(prompt, tokens=8000, min_chars=100):
                 headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.88, "max_tokens": min(tokens, 4800)}, timeout=90)  # Groq TPM limit = 6000
+                      "temperature": 0.88, "max_tokens": _cap.budget("groq", prompt, tokens) or 512}, timeout=90)  # Groq TPM limit = 6000
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars: log(f"OK Groq ({model})"); return t
@@ -1272,7 +1298,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                 r = requests.post(url,
                     headers={"Content-Type": "application/json"},
                     json={"contents": [{"parts": [{"text": prompt}]}],
-                          "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
+                          "generationConfig": {"temperature": 0.88, "maxOutputTokens": _cap.budget("gemini", prompt, tokens)},
                           "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]},
                     timeout=90)
                 if r.status_code == 200:
@@ -1323,6 +1349,9 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
         return None
+    _bud = _ask_for("openrouter", prompt, tokens)
+    if _bud is None:
+        return None
     for model in OR_FREE_MODELS:
         try:
             r = requests.post(OPENROUTER_URL,
@@ -1331,7 +1360,7 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
                          "HTTP-Referer": "https://github.com/TheCollapseIndex/betrayal-bot"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
+                      "max_tokens": _bud, "temperature": 0.88}, timeout=90)  # OR free models
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
                 if t and len(t.strip()) >= min_chars:
@@ -1367,7 +1396,7 @@ def call_cohere(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": _cohere_model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000),
+                      "max_tokens": _cap.budget("cohere", prompt, tokens),
                       "temperature": 0.88},
                 timeout=120)
             if r.status_code == 200:
@@ -1400,6 +1429,9 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
+    _bud = _ask_for("sambanova", prompt, tokens)
+    if _bud is None:
+        return None
     for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
         try:
             r = requests.post(SAMBANOVA_URL,
@@ -1407,7 +1439,7 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 8192),
+                      "max_tokens": _bud,
                       "temperature": 0.88},
                 timeout=90)
             if r.status_code == 200:
@@ -1438,7 +1470,7 @@ def call_mistral(prompt, tokens=8000, min_chars=100):
                      "Content-Type": "application/json"},
             json={"model": "mistral-small-latest",
                   "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": min(tokens, 4000),
+                  "max_tokens": _cap.budget("mistral", prompt, tokens),
                   "temperature": 0.88},
             timeout=120)
         if r.status_code == 200:

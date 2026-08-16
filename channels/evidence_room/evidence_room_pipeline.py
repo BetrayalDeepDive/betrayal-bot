@@ -917,9 +917,35 @@ def save_intel(d): INTEL_FILE.write_text(json.dumps(d,indent=2))
 # Same architecture as Channel 1 (master_pipeline.py)
 # ═══════════════════════════════════════════════════════════
 
+# ── HOW MUCH EACH PROVIDER WILL ACTUALLY ACCEPT ──────────────────────────
+#
+# Every call below asked for a flat min(tokens, N) with N taken from
+# documentation, ignoring how long the prompt was. A script-length prompt plus
+# a 12,000-token answer request exceeds the free tier and is refused outright
+# -- and the chain reads that refusal as "no response" and marks a working
+# provider dead. tools/ai_capacity.py measures the prompt and asks for what is
+# actually left, and learns each provider's real ceiling from its own refusal
+# because the published figures contradict each other.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools import ai_capacity as _cap
+
+
+def _ask_for(name, prompt, tokens):
+    """Answer-token budget for `name`, or None when the prompt leaves no room."""
+    b = _cap.budget(name, prompt, tokens)
+    if b is None:
+        log(f"  {name} skipped for this call: the prompt is about "
+            f"{_cap.estimate_tokens(prompt)} tokens and this account's "
+            f"ceiling is {_cap.limit_for(name)[0]} — no room for an answer.")
+    return b
+
+
 def _call_cerebras(prompt, tokens=9000, min_chars=100):
     if not CEREBRAS_KEY:
         log("  Cerebras: CEREBRAS_API_KEY secret not set — skipping")
+        return None
+    _bud = _ask_for("cerebras", prompt, tokens)
+    if _bud is None:
         return None
     _url = "https://api.cerebras.ai/v1/chat/completions"
     _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b", "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]  # Cerebras free-tier catalog narrowed to gpt-oss-120b/zai-glm-4.7 as of June 2026 — old llama names kept as fallback in case they return
@@ -930,7 +956,7 @@ def _call_cerebras(prompt, tokens=9000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_completion_tokens": min(tokens, 12000),
+                      "max_completion_tokens": _bud,
                       "temperature": 0.88}, timeout=120)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
@@ -960,7 +986,7 @@ def _call_gemini(prompt, tokens=9000, min_chars=100):
                 headers={"Content-Type": "application/json"},
                 json={"contents": [{"parts": [{"text": prompt}]}],
                       "generationConfig": {"temperature": 0.88,
-                                           "maxOutputTokens": min(tokens, 12000)},
+                                           "maxOutputTokens": _cap.budget("gemini", prompt, tokens)},
                       "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
                                          for c in ["HARM_CATEGORY_HARASSMENT",
                                                    "HARM_CATEGORY_HATE_SPEECH",
@@ -996,7 +1022,7 @@ def _call_groq(prompt, tokens=9000, min_chars=100):
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
                       "temperature": 0.88,
-                      "max_tokens": min(tokens, 4800)},  # TPM limit is 6000
+                      "max_tokens": _cap.budget("groq", prompt, tokens) or 512},  # TPM limit is 6000
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
@@ -1015,6 +1041,9 @@ def _call_groq(prompt, tokens=9000, min_chars=100):
 def _call_openrouter(prompt, tokens=9000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY secret not set — skipping")
+        return None
+    _bud = _ask_for("openrouter", prompt, tokens)
+    if _bud is None:
         return None
     # FIX (direct user report, July 24 2026): "Open Router is not working" —
     # real test logs showed 404 on every slug below. OpenRouter regularly
@@ -1038,7 +1067,7 @@ def _call_openrouter(prompt, tokens=9000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000), "temperature": 0.88},
+                      "max_tokens": _bud, "temperature": 0.88},
                 timeout=90)
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
@@ -1065,7 +1094,7 @@ def _call_cohere(prompt, tokens=9000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": _cohere_model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000), "temperature": 0.88},
+                      "max_tokens": _cap.budget("cohere", prompt, tokens), "temperature": 0.88},
                 timeout=120)
             if r.status_code == 200:
                 t = r.json().get("message",{}).get("content",[{}])
@@ -1087,7 +1116,7 @@ def _call_mistral(prompt, tokens=9000, min_chars=100):
                      "Content-Type": "application/json"},
             json={"model": "mistral-small-latest",
                   "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": min(tokens, 4000), "temperature": 0.88},
+                  "max_tokens": _cap.budget("mistral", prompt, tokens), "temperature": 0.88},
             timeout=120)
         if r.status_code == 200:
             t = r.json().get("choices",[{}])[0].get("message",{}).get("content","")
@@ -1109,6 +1138,9 @@ def _call_sambanova(prompt, tokens=9000, min_chars=100):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
+    _bud = _ask_for("sambanova", prompt, tokens)
+    if _bud is None:
+        return None
     for model in ["Meta-Llama-3.3-70B-Instruct", "Meta-Llama-3.3-70B-Instruct"]:
         try:
             r = requests.post(SAMBANOVA_URL,
@@ -1116,7 +1148,7 @@ def _call_sambanova(prompt, tokens=9000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 8192),
+                      "max_tokens": _bud,
                       "temperature": 0.88},
                 timeout=90)
             if r.status_code == 200:
@@ -1150,7 +1182,7 @@ def _call_gemini_with_fallback(prompt, tokens=9000, min_chars=100):
                     headers={"Content-Type": "application/json"},
                     json={"contents": [{"parts": [{"text": prompt}]}],
                           "generationConfig": {"temperature": 0.88,
-                                               "maxOutputTokens": min(tokens, 12000)},
+                                               "maxOutputTokens": _cap.budget("gemini", prompt, tokens)},
                           "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"}
                                              for c in ["HARM_CATEGORY_HARASSMENT",
                                                        "HARM_CATEGORY_HATE_SPEECH",
@@ -1367,7 +1399,15 @@ def call_gemini(prompt, temp=0.85, tokens=7000, model="2.0", min_chars=100):
     return _call_gemini_with_fallback(prompt, tokens) or ai(prompt, tokens=tokens)
 
 def call_groq(prompt, temp=0.7, tokens=2000, min_chars=100):
-    return _call_groq(prompt, min(tokens, 4800)) or ai(prompt, tokens=min(tokens, 4800))
+    # THE 4800 WAS NEVER RIGHT, AND THE COMMENT EXPLAINING IT WAS WRONG TOO.
+    #
+    # Groq's free tier caps the prompt AND the completion together at 8000 per
+    # minute. This capped only the completion, at 4800, alongside a comment
+    # claiming the limit was 6000 -- so a script-length prompt asked for well
+    # over the ceiling and was refused every time. Run 30717615638 collected
+    # seventeen of those refusals on Ch1 before the same bug was found there.
+    # _call_groq now budgets against the real combined limit itself.
+    return _call_groq(prompt, tokens) or ai(prompt, tokens=tokens)
 
 def strip_md(text):
     for _ in range(2):
