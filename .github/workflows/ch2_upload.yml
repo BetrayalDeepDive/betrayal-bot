@@ -70,7 +70,12 @@ jobs:
         run: |
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
-          git pull --rebase origin "$GITHUB_REF_NAME" || true
+          # --autostash: the retry could never work without it. The pull ran
+          # with the pipeline's own uncommitted output still in the tree, so
+          # git refused ("cannot pull with rebase: You have unstaged
+          # changes") on all five attempts and the commit never reached
+          # GitHub -- the exact failure this retry loop exists to prevent.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
 
       # ── FIX: pull back actual video/audio/thumbnail files from Generate ──
       - name: Download video artifact from latest Generate run
@@ -171,7 +176,12 @@ jobs:
             fi
             echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
             sleep $((i*5))
-            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            # --autostash: the retry could never work without it. The pull ran
+          # with the pipeline's own uncommitted output still in the tree, so
+          # git refused ("cannot pull with rebase: You have unstaged
+          # changes") on all five attempts and the commit never reached
+          # GitHub -- the exact failure this retry loop exists to prevent.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
               exit 1

@@ -2979,6 +2979,9 @@ CHAIN_DOWN_AFTER = 8
 _WHOLE_CHAIN_FAILURES = [0]
 _CHAIN_DOWN = [False]
 
+# Say "these providers have no key" once per run, not on every call.
+_AI_ANNOUNCED_SKIPS = []
+
 
 def chain_is_down():
     """True once the breaker has tripped — every provider failed repeatedly.
@@ -3207,6 +3210,57 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     # between a title and no title. Off until benchmarked; see call_local.
     if LOCAL_MODEL_ENABLED:
         providers.append(("local", call_local))
+
+    # ── A PROVIDER WITH NO KEY IS NOT A PROVIDER ─────────────────────────
+    #
+    # THIS IS THE FAULT THAT COST RUN 31943236984 ITS 143 MINUTES, AND IT IS
+    # THE SAME SHAPE AS THE NVIDIA NIM FAULT DOCUMENTED IN _note_model_gone.
+    #
+    # Adding five providers to the chain added five that have no key
+    # configured yet. Each returned None instantly -- correct behaviour on its
+    # own -- but the chain treated that as a FAILED ATTEMPT rather than as
+    # "not configured", and three things followed:
+    #
+    #   1. Every whole-chain sweep was guaranteed to contain five certain
+    #      failures, so a sweep could never be clean.
+    #   2. The `revivable` list excludes only quota-exhausted and
+    #      no-models-left providers. A keyless provider is neither, so it was
+    #      revived on every single call -- forever -- exactly as NIM's three
+    #      404ing model names once were.
+    #   3. Eight such sweeps tripped the CHAIN_DOWN breaker, which is
+    #      permanent for the run. Every attempt after that returned None in
+    #      milliseconds without asking anybody.
+    #
+    # The run's own ledger is the proof: 188 calls, 138 of them SUCCESSFUL --
+    # cloudflare 57, cohere 34, mistral 25, cerebras 22 -- and the five new
+    # providers at exactly 8 calls each and zero successes. Eight is
+    # CHAIN_DOWN_AFTER. The chain was healthy and declared itself dead.
+    #
+    # An unconfigured provider is a DECISION, not a breakage -- provider_audit
+    # already says so in as many words and refuses to escalate "no key" to a
+    # human. The chain has to agree with it: never asked, never counted, never
+    # revived, and never able to contribute to the breaker.
+    _configured = {
+        "cerebras": CEREBRAS_KEY, "groq": GROQ_KEY,
+        "gemini": (GEMINI_KEY or GEMINI_KEY_2),
+        "openrouter": OPENROUTER_KEY, "cohere": COHERE_KEY,
+        "mistral": MISTRAL_KEY, "sambanova": SAMBANOVA_KEY,
+        "nvidia_nim": NVIDIA_NIM_KEY, "github_models": GITHUB_MODELS_TOKEN,
+        "cloudflare": (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID),
+        "kilocode": KILOCODE_KEY, "huggingface": HUGGINGFACE_KEY,
+        "modelscope": MODELSCOPE_KEY, "siliconflow": SILICONFLOW_KEY,
+        # LLM7 works unauthenticated, so it is always configured.
+        "llm7": True,
+        "local": (LOCAL_MODEL_ENABLED and LOCAL_MODEL_PATH),
+    }
+    _unconfigured = [n for n, _fn in providers if not _configured.get(n, True)]
+    if _unconfigured:
+        if not _AI_ANNOUNCED_SKIPS:
+            log(f"  Not configured, so not in the chain: "
+                f"{', '.join(sorted(_unconfigured))}. Add their keys to enable "
+                f"them; nothing is broken.")
+            _AI_ANNOUNCED_SKIPS.append(True)
+        providers = [(n, fn) for n, fn in providers if n not in _unconfigured]
     # A provider that is out of its DAILY allocation is not retried. Reviving
     # it costs a full sweep of ten providers, with a 10s pause between each,
     # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN
@@ -11264,13 +11318,37 @@ def run_stage1(state):
         # managed to write a script at all, because every provider was down.
         # Reporting that as a quality decision sends the owner looking at the
         # writing, which is the one thing that was never tested.
-        tg("Ch1 Day Skipped — NOT a quality problem. Every AI provider was "
-           "down or out of quota, so no script could be written at all. "
-           "Nothing was judged and nothing was published. The provider audit "
-           "will report which credentials or allocations need attention.")
-        log("EXIT 2: every AI provider was unavailable — no script was ever "
-            "generated, so nothing could be scored. This is an outage, not a "
-            "quality failure.")
+        # SAY "OUTAGE" ONLY IF THE LEDGER AGREES IT WAS ONE.
+        #
+        # Run 31943236984 printed "every AI provider was unavailable" directly
+        # above its own tally of 188 calls with 138 SUCCESSES. Both lines came
+        # from the same process, seconds apart, and only one of them was true.
+        # That is the same class of mistake as blaming the script: a confident
+        # diagnosis pointing away from the real fault, which sends the next
+        # hour of investigation in the wrong direction.
+        #
+        # The breaker tripping means the chain stopped answering; it does NOT
+        # by itself mean the providers were down. Now the message reports what
+        # actually happened and lets the numbers speak.
+        _ok = sum(_cap.LEDGER.wins.values())
+        _tot = _cap.LEDGER.calls
+        if _ok:
+            _detail = (f"The AI chain stopped answering partway through: "
+                       f"{_ok} of {_tot} calls had succeeded before it went "
+                       f"quiet, so this was NOT a straightforward outage. "
+                       f"Something retired the working providers — check the "
+                       f"per-provider tally in the log.")
+        else:
+            _detail = (f"No AI call succeeded at any point ({_tot} attempted). "
+                       f"Every provider was down, out of quota, or refusing "
+                       f"this account. This is an outage, not a quality "
+                       f"failure.")
+        tg("Ch1 Day Skipped — NOT a quality problem. No script could be "
+           "written at all, so nothing was judged and nothing was published. "
+           + _detail)
+        log("EXIT 2: no script was ever generated, so nothing could be "
+            "scored. " + _detail)
+        log(f"  {_cap.LEDGER.summary()}")
     else:
         tg(f"Ch1 Day Skipped — no script cleared {MIN_GATE}/10 in {rounds_used} "
            f"rounds x {MAX_ATTEMPTS} attempts ({rounds_used * MAX_ATTEMPTS} scripts, "

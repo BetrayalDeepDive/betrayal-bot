@@ -145,6 +145,44 @@ for p in non_renewable:
           chain.index(p), len(chain) - 1)
 
 print()
+print("An unconfigured provider never enters the chain")
+# THE REGRESSION GUARD FOR RUN 31943236984.
+#
+# Five providers were added with no keys set. Each returned None instantly --
+# correct on its own -- but the chain counted that as a FAILED ATTEMPT, so
+# every whole-chain sweep contained five guaranteed failures, the `revivable`
+# list (which excludes only quota-exhausted and no-models-left) revived them
+# forever, and eight such sweeps tripped the permanent CHAIN_DOWN breaker.
+#
+# The run's own ledger disproved its own conclusion: 188 calls, 138 SUCCESSES,
+# and an exit message reading "every AI provider was unavailable". 143 minutes
+# spent, no script written.
+guard = pipeline[pipeline.index("_configured = {"):]
+guard = guard[:guard.index("providers = [(n, fn) for n, fn")]
+check("chain filters on configuration", "_unconfigured" in guard, True)
+for p in ("kilocode", "huggingface", "modelscope", "siliconflow", "cerebras",
+          "groq", "gemini", "cloudflare", "sambanova"):
+    check(f"{p} has a configured-check", f'"{p}"' in guard, True)
+# LLM7 needs no account at all, so it must NOT be gated behind a key.
+check("llm7 is always configured (no account needed)",
+      '"llm7": True' in guard, True)
+
+print()
+print("The outage message cannot contradict the ledger")
+# The same run printed "every AI provider was unavailable" seconds above its
+# own tally of 138 successful calls. A confident diagnosis pointing at the
+# wrong thing costs more than no diagnosis.
+exitmsg = pipeline[pipeline.index("EXIT 2: no script was ever generated") - 2200:]
+exitmsg = exitmsg[:2600]
+check("outage claim is conditional on wins",
+      "_ok = sum(_cap.LEDGER.wins.values())" in exitmsg, True)
+# Comments may quote the old wording — that is the record of what went wrong.
+# Only executable lines matter.
+_live = [l for l in pipeline.splitlines() if not l.lstrip().startswith("#")]
+check("the old unconditional claim is gone from live code",
+      any("every AI provider was unavailable" in l for l in _live), False)
+
+print()
 if FAILURES:
     print(f"FAILED — {len(FAILURES)} check(s):")
     for f in FAILURES:

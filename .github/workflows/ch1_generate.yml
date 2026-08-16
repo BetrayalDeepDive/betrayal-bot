@@ -190,7 +190,12 @@ jobs:
           for i in 1 2 3; do
             git push origin "HEAD:$GITHUB_REF_NAME" && break
             sleep $((i*5))
-            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            # --autostash: the retry could never work without it. The pull ran
+          # with the pipeline's own uncommitted output still in the tree, so
+          # git refused ("cannot pull with rebase: You have unstaged
+          # changes") on all five attempts and the commit never reached
+          # GitHub -- the exact failure this retry loop exists to prevent.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
           done
 
   # Diagnostic only — see probe_only above. Uploads one ~6s PRIVATE clip
@@ -508,7 +513,12 @@ jobs:
           # actual checked-out branch (main on schedule, the given ref
           # on workflow_dispatch), so this now targets whatever branch
           # genuinely triggered the run instead of a hardcoded guess.
-          git pull --rebase origin "$GITHUB_REF_NAME" || true
+          # --autostash: the retry could never work without it. The pull ran
+          # with the pipeline's own uncommitted output still in the tree, so
+          # git refused ("cannot pull with rebase: You have unstaged
+          # changes") on all five attempts and the commit never reached
+          # GitHub -- the exact failure this retry loop exists to prevent.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
 
       - name: Generate video (no upload)
         env:
@@ -682,7 +692,12 @@ jobs:
             fi
             echo "Push failed (attempt $i) — pulling + retrying in $((i*5))s"
             sleep $((i*5))
-            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            # --autostash: the retry could never work without it. The pull ran
+          # with the pipeline's own uncommitted output still in the tree, so
+          # git refused ("cannot pull with rebase: You have unstaged
+          # changes") on all five attempts and the commit never reached
+          # GitHub -- the exact failure this retry loop exists to prevent.
+          git pull --rebase --autostash origin "$GITHUB_REF_NAME" || true
             if [ "$i" = "5" ]; then
               echo "::error::Push failed after 5 attempts — commit did NOT reach GitHub"
               exit 1
