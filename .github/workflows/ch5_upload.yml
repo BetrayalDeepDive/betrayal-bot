@@ -7,12 +7,20 @@
 name: Ch5 The Collapse Index — Upload
 
 on:
-  # PAUSED (2026-07-24, explicit user request): all automations disabled
-  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
-  # workflow_dispatch below still works for manual runs. Re-enable by
-  # uncommenting the schedule block once fixes are confirmed.
+  # ── THE TIMETABLE ────────────────────────────────────────────────
+  # The Collapse Index — finance. THE ODD ONE OUT: 6am US East /
+  # noon UK. The only channel aimed at people at work rather than
+  # people relaxing, so it goes out for the American morning and
+  # the British lunch hour, not the evening.
+  #
+  # STILL PAUSED, DELIBERATELY. These are the final values, ready to
+  # go; uncommenting the two lines below turns this channel on. They
+  # are not enabled yet because no channel has completed a clean run
+  # since the capacity fixes landed, and scheduling five channels
+  # against a pipeline that has not finished once would just multiply
+  # the failure by five. Turn Ch1 on first, once its test passes.
   # schedule:
-  #   - cron: '0 21 * * 2-6'   # 2:30 AM IST | Tue-Sat (1h after Ch4 upload; was an exact duplicate of Ch4's schedule)
+  #   - cron: '0 11 * * 2,4,6'   # 16:30 IST | Tue, Thu, Sat
   workflow_dispatch:
 
 env:

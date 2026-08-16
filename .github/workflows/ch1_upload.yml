@@ -10,12 +10,18 @@
 name: Ch1 No Known Cause — Upload
 
 on:
-  # PAUSED (2026-07-24, explicit user request): all automations disabled
-  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
-  # workflow_dispatch below still works for manual runs. Re-enable by
-  # uncommenting the schedule block once fixes are confirmed.
+  # ── THE TIMETABLE ────────────────────────────────────────────────
+  # No Known Cause — medical documentary. 3pm US East / 8pm UK:
+  # educational documentary is afternoon-and-evening viewing.
+  #
+  # STILL PAUSED, DELIBERATELY. These are the final values, ready to
+  # go; uncommenting the two lines below turns this channel on. They
+  # are not enabled yet because no channel has completed a clean run
+  # since the capacity fixes landed, and scheduling five channels
+  # against a pipeline that has not finished once would just multiply
+  # the failure by five. Turn Ch1 on first, once its test passes.
   # schedule:
-  #   - cron: '0 17 * * 2-6'   # 10:30 PM IST | Tue-Sat
+  #   - cron: '0 19 * * 0,3,5'   # 00:30 IST | Wed, Fri, Sun
   workflow_dispatch:
 
 env:

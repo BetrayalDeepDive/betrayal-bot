@@ -295,6 +295,14 @@ def audit(write=True):
         ("openrouter",    cp.call_openrouter),
         ("cohere",        cp.call_cohere),
         ("mistral",       cp.call_mistral),
+        # The five additions. Probed like everything else -- an unconfigured
+        # one reports "no key", which is a decision rather than a fault and is
+        # never escalated to a human.
+        ("kilocode",      cp.call_kilocode),
+        ("huggingface",   cp.call_huggingface),
+        ("llm7",          cp.call_llm7),
+        ("modelscope",    cp.call_modelscope),
+        ("siliconflow",   cp.call_siliconflow),
     ]
 
     print("=" * 74)
@@ -389,8 +397,49 @@ def audit(write=True):
         else:
             print("      %-14s fix: set %s  (%s)" % ("", env, url))
 
+    # ── RULE 8: MEASUREMENTS MUST SURVIVE THE REWRITE ────────────────────
+    #
+    # This file is rewritten wholesale every morning. The real size limits the
+    # pipelines learn overnight -- parsed from each provider's own refusal,
+    # because the published figures contradict each other -- live in the same
+    # file. Without this, every audit would erase them and nothing could ever
+    # accumulate: we would re-learn the same limits every night and still be
+    # planning against somebody's documentation a month from now.
+    _prior = {}
+    try:
+        _prior = (json.loads(HEALTH_PATH.read_text()).get("providers") or {})
+    except Exception:
+        pass
+    for _n, _r in results.items():
+        _lim = (_prior.get(_n) or {}).get("observed_limit")
+        if _lim:
+            _r["observed_limit"] = _lim
+    # Anything the audit's own probes just learned wins over the old value.
+    try:
+        for _n, _lim in cp._cap.observed_limits().items():
+            if _n in results:
+                results[_n]["observed_limit"] = _lim
+    except Exception:
+        pass
+    _measured = {n: r["observed_limit"] for n, r in results.items()
+                 if r.get("observed_limit")}
+    if _measured:
+        print("\n  measured limits (ours, not the documentation): %s" % _measured)
+
+    # RULE 7: a one-off grant is not capacity. Reported separately so a chain
+    # that looks healthy on paper cannot be propped up by credits that will
+    # stop, without warning, on a day nobody chose.
+    _finite = [n for n in healthy + limited if not cp._cap.is_renewable(n)]
+    _renewable_healthy = [n for n in healthy if cp._cap.is_renewable(n)]
+    if _finite:
+        print("  NOT renewable (one-off credits, excluded from capacity): %s"
+              % ", ".join(_finite))
+
     payload = {
         "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "measured_limits": _measured,
+        "finite_credit_providers": _finite,
+        "renewable_healthy": _renewable_healthy,
         "healthy": healthy,
         "rate_limited": limited,
         "not_configured": not_configured,
@@ -406,7 +455,14 @@ def audit(write=True):
         HEALTH_PATH.write_text(json.dumps(payload, indent=1))
         print("\n  written: %s" % HEALTH_PATH.relative_to(ROOT))
 
-    usable = len(healthy) + len(limited)
+    # RULE 7 APPLIED TO THE VERDICT ITSELF.
+    #
+    # Counting a one-off credit grant here is how a chain reports itself
+    # healthy on the morning before it silently stops. Those credits will run
+    # out at an hour nobody picked, and when they do the failure looks exactly
+    # like an outage. Only allowances that actually regenerate count towards
+    # "enough providers to run an episode".
+    usable = len([n for n in healthy + limited if cp._cap.is_renewable(n)])
     if usable < MIN_HEALTHY:
         print("\n  ONLY %d USABLE PROVIDER(S) — an episode would very likely "
               "fail the way run 31820199959 did." % usable)

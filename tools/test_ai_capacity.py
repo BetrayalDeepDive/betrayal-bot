@@ -115,6 +115,36 @@ check("wins tracked", led.wins, {"cerebras": 2})
 print("        " + led.summary())
 
 print()
+print("Every provider in the live chain has a budget entry")
+# THIS IS THE REGRESSION GUARD FOR THE WHOLE FIX.
+#
+# budget() falls back to "ask for whatever you were going to ask for" when it
+# does not recognise a provider. That is the correct behaviour for an unknown
+# caller, but it means a provider added to the chain WITHOUT an entry in
+# PROVIDER_LIMITS silently reverts to the original bug -- asking for more than
+# the account accepts, being refused, and being marked dead. Nothing would
+# fail; it would just quietly stop working, which is how this went unnoticed.
+import re                                                   # noqa: E402
+
+pipeline = (Path(__file__).resolve().parents[1] /
+            "channels" / "betrayal_deepdive" / "clinical_pipeline.py").read_text()
+block = pipeline[pipeline.index("    providers = ["):]
+block = block[:block.index("]")]
+chain = re.findall(r'\("([a-z0-9_]+)",\s*call_', block)
+check("chain was parsed", len(chain) >= 10, True)
+missing = [p for p in chain if p not in cap.PROVIDER_LIMITS]
+check("no provider missing a budget entry", missing, [])
+print(f"        chain ({len(chain)}): {', '.join(chain)}")
+
+# RULE 7 has an ordering consequence, not just a label: a finite grant must be
+# reached only after everything that regenerates has been tried, or it gets
+# spent while renewable capacity was sitting there unused.
+non_renewable = [p for p in chain if not cap.is_renewable(p)]
+for p in non_renewable:
+    check(f"{p} (finite credits) is last in the chain",
+          chain.index(p), len(chain) - 1)
+
+print()
 if FAILURES:
     print(f"FAILED — {len(FAILURES)} check(s):")
     for f in FAILURES:

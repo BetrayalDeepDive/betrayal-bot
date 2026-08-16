@@ -1004,6 +1004,27 @@ CLOUDFLARE_ACCOUNT_ID  = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 # endpoint, 100+ models. Rate-limited (not credit-metered), so it just
 # slows down rather than bills when busy.
 NVIDIA_NIM_KEY = os.environ.get("NVIDIA_API_KEY", "")
+
+# ── THE ADDITIONS ────────────────────────────────────────────────────────
+#
+# Ten providers was not enough: on a bad day the chain collapsed to a single
+# survivor carrying the whole pipeline, and run 31580988663 is what that looks
+# like -- NVIDIA NIM serving 38 of 46 successful calls while returning 503
+# under the load.
+#
+# All five below have PERMANENT free tiers (not trial credits -- see RULE 7),
+# need no credit card, and speak the OpenAI chat-completions protocol, so they
+# share one implementation rather than five near-identical copies.
+#
+# Every one is optional. A missing key skips that provider silently; nothing
+# here can stop a run that was working before it was added.
+KILOCODE_KEY    = os.environ.get("KILOCODE_API_KEY", "")
+HUGGINGFACE_KEY = os.environ.get("HUGGINGFACE_API_KEY", "") or \
+                  os.environ.get("HF_TOKEN", "")
+LLM7_KEY        = os.environ.get("LLM7_API_KEY", "") or "unused"
+MODELSCOPE_KEY  = os.environ.get("MODELSCOPE_API_KEY", "")
+SILICONFLOW_KEY = os.environ.get("SILICONFLOW_API_KEY", "")
+
 GEMINI_KEY_2   = os.environ.get("GEMINI_API_KEY_2", "")  # backup Gemini key
 YT_CLIENT_ID   = os.environ.get("YOUTUBE_CLIENT_ID", "")
 YT_CLIENT_SEC  = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
@@ -2690,6 +2711,162 @@ def call_mistral(prompt, tokens=8000, min_chars=100):
         log(f"  Mistral: {e}")
     return None
 
+# ══════════════════════════════════════════════════════════════════════════
+# THE FIVE ADDITIONS — one implementation, because they all speak OpenAI
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Writing these as five copies of call_cerebras would have meant five copies of
+# every bug we have already fixed once: the retired-model memory, the quota
+# retirement, the right-sized request. They share the protocol, so they share
+# the code, and a fix lands in all of them at once.
+
+def _call_openai_compatible(provider, label, base_url, key, prompt, tokens,
+                            min_chars, models_url=None, prefer=(),
+                            fallback_models=(), extra_headers=None,
+                            timeout=90):
+    """One OpenAI-shaped chat-completions call, with all the lessons applied.
+
+    Everything this project learned the expensive way is in here once:
+      * the request is sized to what the account will accept (RULE 4)
+      * a refusal that names the real limit is learned, then retried (RULE 8)
+      * a 404/410 model is remembered, not re-asked every call
+      * a daily exhaustion retires the provider instead of being retried
+    """
+    if not key:
+        return None
+    _bud = _ask_for(provider, prompt, tokens)
+    if _bud is None:
+        return None
+    headers = {"Authorization": f"Bearer {key}",
+               "Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
+
+    models = []
+    if models_url:
+        models = _discover_models(label, models_url, headers, prefer=prefer)
+    models = [m for m in (models or list(fallback_models))
+              if m not in _DENIED_MODELS_THIS_RUN]
+    if not models:
+        log(f"  {label}: no model left to try.")
+        return None
+
+    for model in models:
+        body = {"model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.88,
+                "max_tokens": _bud}
+        try:
+            r = requests.post(base_url, headers=headers, json=body,
+                              timeout=timeout)
+            # A provider that states its real limit is available, not down.
+            if r.status_code in (400, 413, 422) and \
+               _cap.note_limit_error(provider, r.status_code, r.text, log):
+                _bud = _cap.budget(provider, prompt, tokens)
+                if _bud is None:
+                    return None
+                body["max_tokens"] = _bud
+                r = requests.post(base_url, headers=headers, json=body,
+                                  timeout=timeout)
+            if r.status_code == 200:
+                t = ((r.json().get("choices") or [{}])[0]
+                     .get("message", {}).get("content", ""))
+                if t and len(t.strip()) >= min_chars:
+                    _note_model_ok(provider, model)
+                    log(f"  OK {label} ({model})")
+                    return t
+                log(f"  {label} {model}: 200 but only "
+                    f"{len(t.strip()) if t else 0} chars (need {min_chars}) "
+                    f"— trying next model")
+            elif r.status_code == 401:
+                log(f"  {label} 401 — the key is wrong or expired. No point "
+                    f"trying other models on this account.")
+                return None
+            elif r.status_code in (404, 410):
+                _note_model_gone(label, model, r.status_code, log)
+                continue
+            elif r.status_code == 429:
+                log(f"  {label} {model}: 429 rate limited / out of quota")
+                _note_quota_exhausted(provider)
+                return None
+            else:
+                log(f"  {label} {model}: {r.status_code} | {r.text[:150]}")
+        except Exception as e:
+            log(f"  {label} {model}: {e}")
+    return None
+
+
+def call_kilocode(prompt, tokens=8000, min_chars=100):
+    """Kilo Code — around 200 requests an HOUR on the free pool.
+
+    The largest free allowance of the five by a wide margin: on its own it
+    roughly doubles the chain's daily ceiling. The free pool rotates which
+    models it carries, so discovery matters more here than anywhere else --
+    a hardcoded list would be stale within weeks.
+    """
+    return _call_openai_compatible(
+        "kilocode", "Kilo Code", "https://api.kilocode.ai/v1/chat/completions",
+        KILOCODE_KEY, prompt, tokens, min_chars,
+        models_url="https://api.kilocode.ai/v1/models",
+        prefer=("nemotron", "gpt-oss", "qwen", "llama", "command"),
+        fallback_models=("nvidia/nemotron-nano-9b-v2:free",))
+
+
+def call_huggingface(prompt, tokens=8000, min_chars=100):
+    """Hugging Face Inference — 100,000 credits a month, thousands of models."""
+    return _call_openai_compatible(
+        "huggingface", "HuggingFace",
+        "https://router.huggingface.co/v1/chat/completions",
+        HUGGINGFACE_KEY, prompt, tokens, min_chars,
+        models_url="https://router.huggingface.co/v1/models",
+        prefer=("llama-3.3-70b", "qwen", "gpt-oss", "mistral", "gemma"),
+        fallback_models=("meta-llama/Llama-3.3-70B-Instruct",
+                         "Qwen/Qwen2.5-72B-Instruct"))
+
+
+def call_llm7(prompt, tokens=8000, min_chars=100):
+    """LLM7 — 30 requests a minute with no signup at all, 120 with a free token.
+
+    The no-signup part is the valuable bit: there is no account to expire and
+    no key to rotate, so this keeps working through exactly the credential
+    failures that have taken other providers down this month.
+    """
+    return _call_openai_compatible(
+        "llm7", "LLM7", "https://api.llm7.io/v1/chat/completions",
+        LLM7_KEY, prompt, tokens, min_chars,
+        models_url="https://api.llm7.io/v1/models",
+        prefer=("deepseek", "gpt-4o-mini", "qwen", "gemini"),
+        fallback_models=("gpt-4o-mini-2024-07-18", "deepseek-v3"))
+
+
+def call_modelscope(prompt, tokens=8000, min_chars=100):
+    """ModelScope — 2,000 requests a day, the largest daily count here.
+
+    Needs a free Alibaba Cloud account with the identity check completed;
+    without that the key is issued but every call is refused.
+    """
+    return _call_openai_compatible(
+        "modelscope", "ModelScope",
+        "https://api-inference.modelscope.cn/v1/chat/completions",
+        MODELSCOPE_KEY, prompt, tokens, min_chars,
+        models_url="https://api-inference.modelscope.cn/v1/models",
+        prefer=("Qwen3", "Qwen2.5-72B", "DeepSeek-V3", "Qwen"),
+        fallback_models=("Qwen/Qwen2.5-72B-Instruct",
+                         "deepseek-ai/DeepSeek-V3"))
+
+
+def call_siliconflow(prompt, tokens=8000, min_chars=100):
+    """SiliconFlow — 30 requests a minute free, Qwen and DeepSeek models."""
+    return _call_openai_compatible(
+        "siliconflow", "SiliconFlow",
+        "https://api.siliconflow.cn/v1/chat/completions",
+        SILICONFLOW_KEY, prompt, tokens, min_chars,
+        models_url="https://api.siliconflow.cn/v1/models",
+        prefer=("Qwen3", "Qwen2.5", "DeepSeek", "glm"),
+        fallback_models=("Qwen/Qwen2.5-7B-Instruct",
+                         "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"))
+
+
 _DEAD_PROVIDERS_THIS_RUN = set()
 
 # A DAILY QUOTA DOES NOT COME BACK BEFORE TOMORROW.
@@ -2936,12 +3113,32 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     # GITHUB_TOKEN", which is advice to reconnect something that no longer
     # exists. call_github_models is kept in the file so the audit can still
     # confirm the retirement rather than assume it.
+    # ORDER: LARGEST RENEWABLE ALLOWANCE FIRST, FINITE CREDITS LAST.
+    #
+    # Two rules decide this list.
+    #
+    # Biggest first, because a provider that can serve a whole script without
+    # being right-sized down is worth reaching before one that cannot. Cerebras
+    # (a million tokens a day) and Kilo Code (~200 requests an hour) are the
+    # two largest by a wide margin.
+    #
+    # RULE 7 puts SambaNova LAST, and that is the point of the rule. Its
+    # allowance is a one-off grant that never renews -- so every call it serves
+    # while a renewable provider was available is a call permanently gone. At
+    # the end of the chain it becomes what it actually is: an emergency reserve
+    # that only gets spent when everything that regenerates has already failed.
     providers = [("cerebras", call_cerebras),
+                 ("kilocode", call_kilocode),
+                 ("huggingface", call_huggingface),
+                 ("siliconflow", call_siliconflow),
+                 ("modelscope", call_modelscope),
                  ("cloudflare", call_cloudflare), ("nvidia_nim", call_nvidia_nim),
-                 ("sambanova", call_sambanova),
+                 ("llm7", call_llm7),
                  ("gemini", call_gemini), ("groq", call_groq),
                  ("openrouter", call_openrouter), ("cohere", call_cohere),
-                 ("mistral", call_mistral)]
+                 ("mistral", call_mistral),
+                 # Non-renewable. Deliberately last. See RULE 7 above.
+                 ("sambanova", call_sambanova)]
     # A provider that is out of its DAILY allocation is not retried. Reviving
     # it costs a full sweep of ten providers, with a 10s pause between each,
     # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN

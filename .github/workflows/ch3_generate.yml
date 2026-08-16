@@ -17,12 +17,17 @@
 name: Ch3 Control Files — Generate
 
 on:
-  # PAUSED (2026-07-24, explicit user request): all automations disabled
-  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
-  # workflow_dispatch below still works for manual runs. Re-enable by
-  # uncommenting the schedule block once fixes are confirmed.
+  # ── THE TIMETABLE ────────────────────────────────────────────────
+  # Feeds the Tue/Fri/Sun upload at 20:30 UTC (02:00 IST).
+  #
+  # STILL PAUSED, DELIBERATELY. These are the final values, ready to
+  # go; uncommenting the two lines below turns this channel on. They
+  # are not enabled yet because no channel has completed a clean run
+  # since the capacity fixes landed, and scheduling five channels
+  # against a pipeline that has not finished once would just multiply
+  # the failure by five. Turn Ch1 on first, once its test passes.
   # schedule:
-  #   - cron: '0 22 * * 1-5'   # 3:30 AM IST | Mon-Fri
+  #   - cron: '30 6 * * 1,4,6'   # 12:00 IST | Mon, Thu, Sat — slot B
   workflow_dispatch:
     inputs:
       is_makeup:
@@ -47,8 +52,19 @@ env:
 # finishes last silently overwrites the other's pending_upload.json.
 # cancel-in-progress: false queues the new run instead of killing a
 # live review in progress.
+# RULE 2: ONE CHANNEL PRODUCES AT A TIME, ACROSS ALL FIVE.
+#
+# The group used to be per-channel ("ch1-generate"), which prevented a channel
+# from colliding with ITSELF but did nothing about two different channels
+# generating at the same moment. That is the collision that actually matters:
+# two runs asking the same providers in the same minute trip the per-minute
+# limits, and the result looks exactly like an outage on both.
+#
+# With three channels producing on a busy day, a shared group is what makes
+# the capacity arithmetic true. cancel-in-progress: false queues the second
+# run rather than killing a live review in progress.
 concurrency:
-  group: ch3-generate
+  group: episode-generation
   cancel-in-progress: false
 
 jobs:

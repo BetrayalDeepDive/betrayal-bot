@@ -44,7 +44,11 @@ import time
 from pathlib import Path
 
 # Where the daily audit and the pipelines share what they have learned.
-HEALTH_FILE = Path(__file__).resolve().parents[1] / "provider_health.json"
+# Must match tools/provider_audit.py's HEALTH_PATH exactly -- two files
+# disagreeing about where the health file lives means the measurements are
+# written to one place and read from another, and nothing ever learns.
+HEALTH_FILE = (Path(__file__).resolve().parents[1] /
+               "video_pipeline" / "provider_health.json")
 
 # ── STARTING ASSUMPTIONS ──────────────────────────────────────────────────
 #

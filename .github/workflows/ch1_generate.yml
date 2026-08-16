@@ -11,12 +11,17 @@
 name: Ch1 No Known Cause — Generate
 
 on:
-  # PAUSED (2026-07-24, explicit user request): all automations disabled
-  # while outstanding Ch1-5 pipeline bugs are being found and fixed.
-  # workflow_dispatch below still works for manual runs. Re-enable by
-  # uncommenting the schedule block once fixes are confirmed.
+  # ── THE TIMETABLE ────────────────────────────────────────────────
+  # Feeds the Wed/Fri/Sun upload at 19:00 UTC (00:30 IST).
+  #
+  # STILL PAUSED, DELIBERATELY. These are the final values, ready to
+  # go; uncommenting the two lines below turns this channel on. They
+  # are not enabled yet because no channel has completed a clean run
+  # since the capacity fixes landed, and scheduling five channels
+  # against a pipeline that has not finished once would just multiply
+  # the failure by five. Turn Ch1 on first, once its test passes.
   # schedule:
-  #   - cron: '0 15 * * 1-5'   # 8:30 PM IST | Mon-Fri
+  #   - cron: '30 3 * * 2,4,6'   # 09:00 IST | Tue, Thu, Sat — slot A
   workflow_dispatch:
     inputs:
       is_makeup:
@@ -62,8 +67,19 @@ env:
 # finishes last silently overwrites the other's pending_upload.json.
 # cancel-in-progress: false queues the new run instead of killing a
 # live review in progress.
+# RULE 2: ONE CHANNEL PRODUCES AT A TIME, ACROSS ALL FIVE.
+#
+# The group used to be per-channel ("ch1-generate"), which prevented a channel
+# from colliding with ITSELF but did nothing about two different channels
+# generating at the same moment. That is the collision that actually matters:
+# two runs asking the same providers in the same minute trip the per-minute
+# limits, and the result looks exactly like an outage on both.
+#
+# With three channels producing on a busy day, a shared group is what makes
+# the capacity arithmetic true. cancel-in-progress: false queues the second
+# run rather than killing a live review in progress.
 concurrency:
-  group: ch1-generate
+  group: episode-generation
   cancel-in-progress: false
 
 jobs:
@@ -123,6 +139,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
+          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+          LLM7_API_KEY: ${{ secrets.LLM7_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python tools/provider_audit.py
@@ -393,6 +414,53 @@ jobs:
             exit 1
           }
 
+      # ── RULE 3: THE HEALTH CHECK DECIDES WHETHER THE DAY RUNS ──────────
+      #
+      # tools/provider_audit.py already knew how to answer "are there enough
+      # working providers to make an episode", and already exited non-zero
+      # when there were not. Nothing ever asked it. It ran only in a separate
+      # job gated behind probe_only == 'providers', so a normal generate went
+      # straight to work and discovered the answer the expensive way: run
+      # 31888423963 spent 117 minutes proving every provider was down, then
+      # reported it as a script-quality failure.
+      #
+      # Ten small probes cost about a minute. Finding out after five hours of
+      # generation costs the episode, the review window, and a day's
+      # allowance. So the probe runs first, and it is allowed to stop the day.
+      #
+      # RULE 7 is applied inside the audit: providers running on one-off
+      # credits are NOT counted towards the minimum, because a chain propped
+      # up by a finite grant is one that stops without warning.
+      - name: Preflight — enough AI providers to run at all
+        env:
+          PYTHONUNBUFFERED: 1
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_MODELS_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
+          HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+          LLM7_API_KEY: ${{ secrets.LLM7_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python tools/provider_audit.py || {
+            echo "::error::Not enough usable AI providers to generate an episode."
+            echo "::error::Stopping now rather than spending hours discovering this."
+            echo "::error::The audit output above names which are down and why."
+            exit 1
+          }
+
       - name: Pull latest state
         run: |
           git config user.email "action@github.com"
@@ -441,6 +509,26 @@ jobs:
           OPENROUTER_API_KEY:    ${{ secrets.OPENROUTER_API_KEY }}
           COHERE_API_KEY:        ${{ secrets.COHERE_API_KEY }}
           MISTRAL_API_KEY:       ${{ secrets.MISTRAL_API_KEY }}
+          # ── The five additions ───────────────────────────────────────
+          # All permanent free tiers, none needs a credit card. Every one
+          # is OPTIONAL: an unset secret is an empty string, the provider
+          # skips itself silently, and the chain behaves exactly as it did
+          # before it was added. Nothing here can break a working run.
+          #   Kilo Code    kilocode.ai -> sign in -> API Keys
+          #                (~200 requests an HOUR — the largest here)
+          #   Hugging Face huggingface.co -> Settings -> Access Tokens
+          #                (100,000 credits a month)
+          #   LLM7         token.llm7.io — no account needed at all;
+          #                works unauthenticated, a free token raises the
+          #                rate from 30 to 120 requests a minute
+          #   ModelScope   modelscope.cn -> Access Tokens (2,000 requests
+          #                a day; needs the free Alibaba ID check done)
+          #   SiliconFlow  siliconflow.cn -> API Keys (30 a minute)
+          KILOCODE_API_KEY:      ${{ secrets.KILOCODE_API_KEY }}
+          HUGGINGFACE_API_KEY:   ${{ secrets.HUGGINGFACE_API_KEY }}
+          LLM7_API_KEY:          ${{ secrets.LLM7_API_KEY }}
+          MODELSCOPE_API_KEY:    ${{ secrets.MODELSCOPE_API_KEY }}
+          SILICONFLOW_API_KEY:   ${{ secrets.SILICONFLOW_API_KEY }}
           PIXABAY_KEY:           ${{ secrets.PIXABAY_KEY }}
           PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
           # FIX (found on full workflow audit, matching the same fix
