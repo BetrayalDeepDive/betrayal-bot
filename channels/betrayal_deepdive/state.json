@@ -215,6 +215,50 @@
         "A 55\u2011year-old woman complained of chronic fatigue; endocrine workup was normal, yet pituitary MRI detected a microadenoma later identified as the first case of hypophysitis secondary to IgG4\u2011related disease."
       ],
       "last_run": "2026-08-13T11:56:22.173773"
+    },
+    "medical_history": {
+      "top_hook_formulas": [
+        "The patient presented with [Symptom], but the lab results revealed something that defied every clinical expectation.",
+        "It looked like a textbook case of [Common Condition], until one specific imaging finding changed the entire diagnosis.",
+        "A [Age]-year-old arrived with [Symptom]; the medical team suspected [X], but the pathology report proved them wrong."
+      ],
+      "winning_title_patterns": [
+        "The Case of the [Unexpected Symptom]: A Clinical Mystery",
+        "Why This [Condition] Diagnosis Was Almost Missed",
+        "Medical Mystery: The [Organ] Finding That Changed Everything"
+      ],
+      "thumbnail_text_examples": [
+        "MISSED DIAGNOSIS",
+        "RARE PATHOLOGY",
+        "LABS DON'T LIE",
+        "CLINICAL ANOMALY",
+        "UNEXPECTED FINDING"
+      ],
+      "retention_hooks": {
+        "30pct": "But as the initial treatment failed, a second look at the imaging revealed a hidden anomaly.",
+        "60pct": "The differential diagnosis was narrowing, but one remaining lab value remained inexplicably high.",
+        "80pct": "The final pathology report confirmed a condition so rare it had only been documented a handful of times."
+      },
+      "niche_power_words": [
+        "Pathognomonic",
+        "Idiopathic",
+        "Differential",
+        "Refractory",
+        "Sequelae",
+        "Asymptomatic"
+      ],
+      "fresh_topic_ideas": [
+        "A 45-year-old man with persistent cough and fever whose chest X-ray revealed a calcified mass mimicking a malignancy but was actually a rare fungal infection.",
+        "A 28-year-old woman presenting with acute confusion and seizures where MRI showed reversible posterior leukoencephalopathy syndrome following a previously unremarkable pregnancy.",
+        "A 50-year-old woman with recurrent fainting spells and bradycardia whose EKG showed a rare conduction block caused by an undiagnosed cardiac amyloidosis.",
+        "A 34-year-old man with progressive muscle weakness and dark urine whose EMG findings pointed to a rare metabolic myopathy rather than Guillain-Barr\u00e9.",
+        "A 70-year-old patient with chronic kidney failure and sudden hypercalcemia whose PTH levels were unexpectedly low, revealing a hidden parathyroid carcinoma.",
+        "A 55-year-old man with severe abdominal pain and elevated lipase whose CT scan showed a rare pancreatic pseudocyst causing a gastric outlet obstruction.",
+        "A 48-year-old male with persistent hiccups and nausea whose MRI revealed a small cavernoma in the brainstem mimicking a primary glial tumor.",
+        "A 66-year-old woman with sudden onset dementia and visual hallucinations whose EEG showed periodic sharp wave complexes diagnostic of Creutzfeldt-Jakob disease.",
+        "A 41-year-old male with chronic sinusitis and nasal polyps whose systemic labs revealed an unexpected IgG4-related disease affecting multiple organs."
+      ],
+      "last_run": "2026-08-16T14:44:35.774854"
     }
   },
   "last_title_register": "dread",
