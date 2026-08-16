@@ -1974,7 +1974,21 @@ def _report_ai_spend():
 
 
 import atexit
-atexit.register(_report_ai_spend)
+
+# ONLY THE PIPELINE ITSELF MAY WRITE THE HEALTH FILE.
+#
+# This was registered unconditionally, so it fired on ANY import of this
+# module -- and tools/preflight_ch1_thumbnails.py imports it purely to drive
+# assertions against a fake provider. A local preflight run therefore wrote
+# "cloudflare: 14 calls, 0 wins" into the committed health file, from a
+# sandbox whose proxy blocks those hosts. The file is the record of what the
+# providers really did; numbers from a machine that cannot reach them are not
+# a measurement, they are noise that looks like one.
+#
+# provider_audit.py does not need this either -- it writes the health file
+# itself and now carries observed limits forward explicitly.
+if __name__ == "__main__":
+    atexit.register(_report_ai_spend)
 
 
 # Known Cerebras model names (they change naming without notice)
