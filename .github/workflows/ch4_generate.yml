@@ -263,6 +263,12 @@ jobs:
           # state file above.
           git add channels/archive/thumb_format_history.json || true
           git add channels/archive/shorts_format_history.json || true
+          # RULE 8 CANNOT ACCUMULATE IF THE MEASUREMENTS ARE THROWN AWAY.
+          # The preflight audit records which providers are healthy, which run
+          # on finite credits, and the real size limits parsed from their own
+          # refusals -- and none of it was ever committed, so every run
+          # measured and discarded. See ch1_generate.yml for the full note.
+          git add video_pipeline/provider_health.json || true
           git diff --staged --quiet || git commit -m "chore: ch4 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing

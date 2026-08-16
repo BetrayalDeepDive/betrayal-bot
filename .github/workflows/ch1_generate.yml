@@ -678,6 +678,21 @@ jobs:
           # committed by hand, while a single episode needs 37 photo cards.
           # That is why a 114-segment video showed 5 distinct photographs.
           git add video_pipeline/stock_library/ || true
+          # RULE 8 CANNOT ACCUMULATE IF THE MEASUREMENTS ARE THROWN AWAY.
+          #
+          # The preflight audit probes every provider before each run and now
+          # records what it learned -- which are healthy, which are on finite
+          # credits, and the real size limits parsed from their own refusals.
+          # None of it was ever committed: provider_health.json was written by
+          # the on-demand probe job only, so a normal run measured everything
+          # and discarded it. The file on the branch was still dated the
+          # previous day, with measured_limits empty, while a fresh audit had
+          # just run minutes earlier.
+          #
+          # RULE 8 is "we measure the limits ourselves instead of trusting the
+          # documentation". That is worth nothing if today's measurement never
+          # survives the runner.
+          git add video_pipeline/provider_health.json || true
           git add channels/betrayal_deepdive/checkpoint.json || true
           git add channels/betrayal_deepdive/checkpoint_audio.mp3 || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
