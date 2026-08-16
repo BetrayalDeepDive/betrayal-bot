@@ -1892,6 +1892,70 @@ def _discover_models(name, url, headers, free_only=False, prefer=(), limit=6):
     return ordered
 
 
+# ── HOW MUCH EACH PROVIDER WILL ACTUALLY ACCEPT ──────────────────────────
+#
+# _groq_budget (below) got this right for exactly one provider: measure the
+# prompt, subtract it from the account's real ceiling, ask for the remainder.
+# Every other provider in this file asked for a flat `min(tokens, N)` with N
+# picked from documentation, and Cerebras -- the BIGGEST allowance in the
+# chain at a million tokens a day -- was asking for 12,000 on every call and
+# being refused, then marked dead.
+#
+# tools/ai_capacity.py generalises the budget to all of them and, because the
+# published limits genuinely contradict each other (Cerebras' context cap is
+# documented as both 8,192 and 64,000), LEARNS each provider's real ceiling
+# from the refusal it sends back. See that module's docstring.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools import ai_capacity as _cap
+
+
+def _ask_for(name, prompt, tokens):
+    """Answer-token budget for `name`, or None when the prompt leaves no room.
+
+    None means: do NOT spend a round-trip proving this prompt is too big for
+    this account. That wasted round-trip is what marked working providers dead
+    for the rest of a run -- seventeen times in run 30717615638 for Groq alone.
+    """
+    b = _cap.budget(name, prompt, tokens)
+    if b is None:
+        _lim = _cap.limit_for(name)[0]
+        log(f"  {name} skipped for this call: the prompt is about "
+            f"{_cap.estimate_tokens(prompt)} tokens and this account's ceiling "
+            f"is {_lim} — there is no room left for an answer, so asking would "
+            f"only spend a round-trip on a refusal.")
+    return b
+
+def _report_ai_spend():
+    """Print what this run spent, and save what it learned.
+
+    RULE 8: WE MEASURE THE LIMITS OURSELVES.
+    ---------------------------------------
+    Published free-tier figures contradict each other -- Cerebras' context cap
+    is documented as both 8,192 and 64,000, Gemini's daily allowance as
+    anywhere between 20 and 1,500 requests. Planning against any of them is
+    guessing. Every refusal a provider sends us states its real limit, and
+    this writes those measurements to provider_health.json so that within a
+    week the schedule is built on our own numbers instead of somebody's
+    documentation.
+
+    Registered with atexit so the tally survives a crash, a cancellation, or
+    a gate that stops the run early -- the runs that most need measuring are
+    exactly the ones that do not finish tidily.
+    """
+    try:
+        log("")
+        log(f"  {_cap.LEDGER.summary()}")
+        if _cap.observed_limits():
+            log(f"  Real limits measured this run: {_cap.observed_limits()}")
+        _cap.persist()
+    except Exception:
+        pass          # bookkeeping must never be the reason a run fails
+
+
+import atexit
+atexit.register(_report_ai_spend)
+
+
 # Known Cerebras model names (they change naming without notice)
 CEREBRAS_MODELS = [
     "gpt-oss-120b",        # current Cerebras free-tier default (June 2026)
@@ -1934,6 +1998,19 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
     if not _models:
         _models = ["gpt-oss-120b", "zai-glm-4.7", "llama-3.3-70b",
                    "llama3.3-70b", "llama-3.1-70b", "llama3.1-70b", "llama3.1-8b"]
+    # THE BUG THAT MADE THE BIGGEST ALLOWANCE IN THE CHAIN LOOK DEAD.
+    #
+    # This asked for min(tokens, 12000) regardless of how long the prompt was.
+    # A script prompt is ~4,300 tokens; asking for 12,000 completion tokens on
+    # top of it exceeds the free tier and is refused outright. Cerebras has a
+    # MILLION tokens a day -- more than the rest of the chain combined -- and
+    # it was being skipped on every script-length call.
+    _budget = _cap.budget("cerebras", prompt, tokens)
+    if _budget is None:
+        log(f"  Cerebras skipped: prompt is ~{_cap.estimate_tokens(prompt)} "
+            f"tokens and the ceiling is {_cap.limit_for('cerebras')[0]} — no "
+            f"room for an answer, so asking would only spend a round-trip.")
+        return None
     for model in _models:
         try:
             r = requests.post(_url,
@@ -1941,9 +2018,30 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_completion_tokens": min(tokens, 12000),
+                      "max_completion_tokens": _budget,
                       "temperature": 0.88},
                 timeout=120)
+            # A REFUSAL THAT STATES THE LIMIT IS NOT A FAILURE, IT IS AN ANSWER.
+            #
+            # Our starting figure for Cerebras is the optimistic end of two
+            # contradictory published numbers. If it is the wrong one, the
+            # provider says so in the refusal -- and it is available, we simply
+            # asked wrongly. Learn the real number and retry this same model
+            # once at the corrected size rather than walking away from a
+            # working provider.
+            if r.status_code in (400, 413, 422) and \
+               _cap.note_limit_error("cerebras", r.status_code, r.text, log):
+                _budget = _cap.budget("cerebras", prompt, tokens)
+                if _budget is None:
+                    return None
+                r = requests.post(_url,
+                    headers={"Authorization": f"Bearer {CEREBRAS_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"model": model,
+                          "messages": [{"role": "user", "content": prompt}],
+                          "max_completion_tokens": _budget,
+                          "temperature": 0.88},
+                    timeout=120)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
                 if t and len(t.strip()) >= min_chars:
@@ -1987,7 +2085,18 @@ def _groq_budget(prompt, tokens):
     Returns None when the prompt alone leaves no room for a usable answer --
     better to skip Groq for this one call than to spend a round-trip proving
     it cannot fit.
+
+    NOW SHARED. This logic was correct and was the only correct instance in
+    the file; tools/ai_capacity.py is that same arithmetic applied to every
+    provider, so this delegates rather than keeping a second copy that can
+    drift. GROQ_TPM_LIMIT above is retained as documentation of where the
+    8000 came from -- it was measured from seventeen real refusals.
     """
+    return _cap.budget("groq", prompt, tokens)
+
+
+def _groq_budget_legacy(prompt, tokens):
+    """The original inline arithmetic, kept only for reference."""
     prompt_tokens = len(prompt) // 4 + 1      # ~4 chars/token, deliberately rough
     room = GROQ_TPM_LIMIT - prompt_tokens - 200   # 200 = headroom for the envelope
     if room < 256:
@@ -2066,7 +2175,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
                 r = requests.post(url,
                     headers={"Content-Type": "application/json"},
                     json={"contents": [{"parts": [{"text": prompt}]}],
-                          "generationConfig": {"temperature": 0.88, "maxOutputTokens": min(tokens, 12000)},
+                          "generationConfig": {"temperature": 0.88, "maxOutputTokens": _cap.budget("gemini", prompt, tokens)},
                           "safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]},
                     timeout=90)
                 if r.status_code == 200:
@@ -2161,6 +2270,9 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
         return None
+    _bud = _ask_for("openrouter", prompt, tokens)
+    if _bud is None:
+        return None
     # THE FIX FOR "unavailable for free".
     #
     # OpenRouter withdrew the ":free" tier from every model this code had
@@ -2184,7 +2296,7 @@ def call_openrouter(prompt, tokens=8000, min_chars=100):
                          "HTTP-Referer": "https://github.com/BetrayalDeepDive/betrayal-bot"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000), "temperature": 0.88}, timeout=90)  # OR free models
+                      "max_tokens": _bud, "temperature": 0.88}, timeout=90)  # OR free models
             if r.status_code == 200:
                 t = r.json()["choices"][0]["message"]["content"]
                 if t and len(t.strip()) >= min_chars:
@@ -2223,7 +2335,7 @@ def call_cohere(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": _cohere_model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 4000),
+                      "max_tokens": _cap.budget("cohere", prompt, tokens),
                       "temperature": 0.88},
                 timeout=120)
             if r.status_code == 200:
@@ -2268,6 +2380,9 @@ def call_github_models(prompt, tokens=8000, min_chars=100):
     if not GITHUB_MODELS_TOKEN:
         log("  GitHub Models: no GITHUB_TOKEN available — skipping")
         return None
+    _bud = _ask_for("github_models", prompt, tokens)
+    if _bud is None:
+        return None
     for model in ["openai/gpt-4o-mini", "openai/gpt-4o", "meta/Llama-3.3-70B-Instruct",
                   "mistral-ai/Mistral-Large-2411", "deepseek/DeepSeek-R1"]:
         try:
@@ -2277,7 +2392,7 @@ def call_github_models(prompt, tokens=8000, min_chars=100):
                          "Accept": "application/vnd.github+json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                      "temperature": 0.88, "max_tokens": _bud},
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -2332,6 +2447,9 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
     if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID):
         log("  Cloudflare: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not set — skipping")
         return None
+    _bud = _ask_for("cloudflare", prompt, tokens)
+    if _bud is None:
+        return None
     url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions"
     _cf_models = _models_left("cloudflare", [
         "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -2357,7 +2475,7 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                      "temperature": 0.88, "max_tokens": _bud},
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -2395,6 +2513,9 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
     """
     if not NVIDIA_NIM_KEY:
         log("  NVIDIA NIM: NVIDIA_API_KEY not set — skipping")
+        return None
+    _bud = _ask_for("nvidia_nim", prompt, tokens)
+    if _bud is None:
         return None
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
     _nim_models = _discover_models(
@@ -2448,7 +2569,7 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.88, "max_tokens": min(tokens, 4000)},
+                      "temperature": 0.88, "max_tokens": _bud},
                 timeout=90)
             if r.status_code == 200:
                 t = r.json().get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -2494,6 +2615,9 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
         return None
+    _bud = _ask_for("sambanova", prompt, tokens)
+    if _bud is None:
+        return None
     # The hand-written list here was the SAME model twice, so a single bad
     # response meant the provider was marked dead with nothing else tried.
     _sn_models = _discover_models(
@@ -2508,7 +2632,7 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
                          "Content-Type": "application/json"},
                 json={"model": model,
                       "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": min(tokens, 8192),
+                      "max_tokens": _bud,
                       "temperature": 0.88},
                 timeout=90)
             if r.status_code == 200:
@@ -2550,7 +2674,7 @@ def call_mistral(prompt, tokens=8000, min_chars=100):
                      "Content-Type": "application/json"},
             json={"model": _MISTRAL_MODEL[0],
                   "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": min(tokens, 4000),
+                  "max_tokens": _cap.budget("mistral", prompt, tokens),
                   "temperature": 0.88},
             timeout=120)
         if r.status_code == 200:
@@ -2907,8 +3031,39 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     if len(live) > 1:
         _off = _AI_VARIANT[0] % len(live)
         live = live[_off:] + live[:_off]
+    # ── RULE 1: THIS RUN HAS A SPENDING LIMIT ────────────────────────────
+    #
+    # Run 31876972186 spent 130 minutes and a whole day's allowance re-asking
+    # three model names that did not exist. That specific fault is fixed, but
+    # "one run can consume the entire day" is a SHAPE of failure rather than a
+    # single bug, and the only general defence is a budget the run cannot
+    # argue its way past.
+    #
+    # The limit is deliberately generous -- several times what a healthy
+    # episode is modelled to need -- so it never interrupts normal work,
+    # including the 13-attempt x 3-round gate retries that are supposed to be
+    # expensive. It exists to catch the runaway, not to ration the writing.
+    if _cap.LEDGER.exceeded():
+        if not _cap.LEDGER.stopped_reason:
+            _cap.LEDGER.stop("call budget exhausted")
+            log("")
+            log("  ══════════════════════════════════════════════════════════")
+            log(f"  THIS RUN HAS SPENT ITS AI CALL BUDGET "
+                f"({_cap.LEDGER.calls} calls).")
+            log("  Stopping rather than continuing to spend today's allowance "
+                "on one episode. This is a capacity stop, NOT a quality")
+            log("  failure — the episode is unfinished because the run ran out "
+                "of its own budget, and tomorrow's episodes still have theirs.")
+            log(f"  {_cap.LEDGER.summary()}")
+            log("  ══════════════════════════════════════════════════════════")
+            log("")
+        return None
     for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens, min_chars)
+        # Count every call, answered or not. This tally is the first real
+        # per-episode measurement this project will have -- every capacity
+        # figure quoted so far has been modelled from the code.
+        _cap.LEDGER.record(name, ok=bool(r), prompt=prompt)
         if r:
             # A success wipes the slate. Strikes are for a provider that is
             # actually going down, not for one that had a bad minute.
