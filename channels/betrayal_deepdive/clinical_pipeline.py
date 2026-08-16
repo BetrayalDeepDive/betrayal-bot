@@ -1946,6 +1946,61 @@ def _ask_for(name, prompt, tokens):
             f"only spend a round-trip on a refusal.")
     return b
 
+# ── THE RUN HAS TO BE ABLE TO EXPLAIN ITSELF WITHOUT THE LOG ─────────────
+#
+# Three runs in a row failed for reasons that were fully visible in the job
+# log and unreadable in practice. GitHub serves raw logs by redirecting to a
+# storage host this project's tooling cannot reach, and the API returns only
+# the tail -- so diagnosing "why did 39 attempts produce no script" meant
+# repeatedly guessing how many trailing lines would reach the interesting part
+# and paying for the whole tail each time. Two of those runs cost two hours
+# each and still ended in a guess.
+#
+# provider_health.json already proved the alternative: a small committed file
+# answered in one read what the log could not. So the run now records its own
+# decisions -- every case scored, every extraction outcome, every script
+# attempt -- and commits them. The next diagnosis is a file read, not an
+# archaeology expedition.
+_RUN_EVENTS = []
+
+
+def note_event(kind, **fields):
+    """Record one decision the run made. Never raises."""
+    try:
+        fields["kind"] = kind
+        fields["at_min"] = round((time.time() - _JOB_T0[0]) / 60.0, 1)
+        _RUN_EVENTS.append(fields)
+    except Exception:
+        pass
+
+
+_JOB_T0 = [time.time()]
+RUN_REPORT_PATH = (Path(__file__).resolve().parent / "last_run_report.json")
+
+
+def _write_run_report():
+    """Save what this run decided, so the next diagnosis is one file read."""
+    try:
+        from collections import Counter
+        kinds = Counter(e.get("kind") for e in _RUN_EVENTS)
+        doc = {
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "minutes": round((time.time() - _JOB_T0[0]) / 60.0, 1),
+            "ai_calls": _cap.LEDGER.calls,
+            "ai_wins": sum(_cap.LEDGER.wins.values()),
+            "by_provider": dict(_cap.LEDGER.by_provider),
+            "event_counts": dict(kinds),
+            # Newest last, capped so a pathological run cannot write a
+            # 50 MB file into the repository.
+            "events": _RUN_EVENTS[-400:],
+        }
+        RUN_REPORT_PATH.write_text(json.dumps(doc, indent=1))
+        log(f"  Run report written: {RUN_REPORT_PATH.name} "
+            f"({len(_RUN_EVENTS)} events, {dict(kinds)})")
+    except Exception as e:
+        log(f"  Run report not written: {e}")
+
+
 def _report_ai_spend():
     """Print what this run spent, and save what it learned.
 
@@ -1969,6 +2024,7 @@ def _report_ai_spend():
         if _cap.observed_limits():
             log(f"  Real limits measured this run: {_cap.observed_limits()}")
         _cap.persist()
+        _write_run_report()
     except Exception:
         pass          # bookkeeping must never be the reason a run fails
 
@@ -4801,11 +4857,22 @@ def generate_script_content(niche, topic, episode, attempt,
                 if not _raw:
                     log(f"  Case structure attempt {attempt+1}: the AI chain "
                         f"returned nothing at all.")
+                    note_event("extract_no_response", attempt=attempt + 1,
+                               pmcid=case.get("pmcid"))
                 else:
                     _flat = " ".join(str(_raw).split())
                     log(f"  Case structure attempt {attempt+1}: got "
                         f"{len(_raw)} chars but no usable JSON object. "
                         f"First 300: {_flat[:300]}")
+                    note_event("extract_unparseable", attempt=attempt + 1,
+                               pmcid=case.get("pmcid"), chars=len(_raw),
+                               sample=_flat[:400])
+            else:
+                note_event("extract_ok", attempt=attempt + 1,
+                           pmcid=case.get("pmcid"),
+                           differentials=len(st["differentials"]),
+                           timeline=len(st["timeline"]),
+                           chart=bool(st["chart_data"]))
             sc = _score(st)
             if sc > best_score:
                 best, best_score = st, sc
@@ -7742,6 +7809,11 @@ def accept_case_or_repick(case, work_dir, log_fn=None, structures_extracted=True
     score, reasons = case_richness(case, verified_figures=verified,
                                    structures_extracted=structures_extracted)
     ok = score >= CASE_RICHNESS_FLOOR
+    note_event("case_accepted" if ok else "case_rejected",
+               pmcid=case.get("pmcid"), score=score,
+               floor=CASE_RICHNESS_FLOOR,
+               structures_extracted=structures_extracted,
+               reasons=[str(r)[:160] for r in (reasons or [])])
     _log(f"  Case richness {case.get('pmcid','?')}: {score}/10 "
          f"(floor {CASE_RICHNESS_FLOOR}) — {'ACCEPTED' if ok else 'REJECTED, repicking'}")
     for _r in reasons:

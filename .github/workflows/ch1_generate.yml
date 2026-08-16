@@ -185,6 +185,9 @@ jobs:
           git config user.email "action@github.com"
           git config user.name "GitHub Actions"
           git add video_pipeline/provider_health.json || true
+          # The run's own explanation of what it decided, for the same
+          # reason: a diagnosis that dies with the runner is not a diagnosis.
+          git add channels/betrayal_deepdive/last_run_report.json || true
           git diff --staged --quiet || \
             git commit -m "chore: provider health [skip ci]"
           for i in 1 2 3; do
