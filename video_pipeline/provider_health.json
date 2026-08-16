@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-08-16T17:51:26Z",
+ "checked_at": "2026-08-16T20:18:33Z",
  "measured_limits": {},
  "finite_credit_providers": [
   "sambanova"
@@ -38,7 +38,7 @@
   "cerebras": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 0.4,
+   "seconds": 20.2,
    "log": [
     "  Cerebras: 3 models available, using ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7']",
     "  OK Cerebras (gemma-4-31b)"
@@ -46,12 +46,10 @@
    "working_model": "gemma-4-31b",
    "catalogue": [
     "gpt-oss-120b",
-    "gemma-4-31b",
-    "zai-glm-4.7"
+    "zai-glm-4.7",
+    "gemma-4-31b"
    ],
-   "catalogue_size": 3,
-   "calls_last_run": 13,
-   "wins_last_run": 12
+   "catalogue_size": 3
   },
   "github_models": {
    "state": "no_key",
@@ -64,7 +62,7 @@
   "cloudflare": {
    "state": "rate_limited",
    "detail": "429 \u2014 alive, out of allowance right now (1 model also not entitled \u2014 normal on a free tier)",
-   "seconds": 0.4,
+   "seconds": 0.9,
    "log": [
     "Cloudflare @cf/meta/llama-3.3-70b-instruct-fp8-fast: 429 \u2014 daily 10k Neuron allocation likely used up",
     "Cloudflare @cf/mistralai/mistral-small-3.1-24b-instruct: 429 \u2014 daily 10k Neuron allocation likely used up",
@@ -74,12 +72,12 @@
   "nvidia_nim": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 51.9,
+   "seconds": 90.7,
    "log": [
-    "  NvidiaNIM: 86 models available, using ['meta/llama-3.3-70b-instruct', 'mistralai/mixtral-8x22b-v0.1', 'mistralai/mistral-nemotron', 'nvidia/llama-3.1-nemotron-51b-instruct', 'nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia/llama-3.1-nemotron-nano-8b-v1']",
-    "OK NVIDIA NIM (meta/llama-3.3-70b-instruct)"
+    "  NVIDIA NIM mistralai/mixtral-8x22b-v0.1: 404 \u2014 this model is not served by this provider. Dropped for the rest of the run.",
+    "OK NVIDIA NIM (mistralai/mistral-nemotron)"
    ],
-   "working_model": "meta/llama-3.3-70b-instruct",
+   "working_model": "mistralai/mistral-nemotron",
    "catalogue": [
     "01-ai/yi-large",
     "adept/fuyu-8b",
@@ -95,8 +93,8 @@
     "google/deplot"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 21,
-   "wins_last_run": 19
+   "calls_last_run": 3,
+   "wins_last_run": 1
   },
   "sambanova": {
    "state": "rate_limited",
@@ -128,39 +126,39 @@
   "groq": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 0.7,
+   "seconds": 0.6,
    "log": [
     "Groq openai/gpt-oss-120b: 200 but response too short (0 < 1 chars) \u2014 trying next",
     "OK Groq (llama-3.3-70b-versatile)"
    ],
    "working_model": "llama-3.3-70b-versatile",
    "catalogue": [
-    "meta-llama/llama-prompt-guard-2-86m",
-    "meta-llama/llama-prompt-guard-2-22m",
-    "openai/gpt-oss-120b",
     "qwen/qwen3.6-27b",
-    "allam-2-7b",
-    "whisper-large-v3-turbo",
-    "openai/gpt-oss-safeguard-20b",
-    "openai/gpt-oss-20b",
-    "llama-3.1-8b-instant",
+    "canopylabs/orpheus-arabic-saudi",
     "canopylabs/orpheus-v1-english",
+    "meta-llama/llama-prompt-guard-2-86m",
+    "allam-2-7b",
     "llama-3.3-70b-versatile",
-    "groq/compound"
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "whisper-large-v3",
+    "groq/compound-mini",
+    "groq/compound",
+    "whisper-large-v3-turbo"
    ],
    "catalogue_size": 15,
-   "calls_last_run": 7,
-   "wins_last_run": 7
+   "calls_last_run": 4,
+   "wins_last_run": 4
   },
   "openrouter": {
    "state": "ok",
-   "detail": "answered (did not echo exactly)",
-   "seconds": 1.7,
+   "detail": "answered correctly",
+   "seconds": 0.6,
    "log": [
-    "OpenRouter gemma-4-31b-it:free: 429 | {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"google/gemma-4-31b-it:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate you",
-    "OK OpenRouter (nemotron-3.5-lightning:free)"
+    "  OpenRouter: 17 models available, using ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'dots-studio/dots-3-note-preview:free', 'poolside/laguna-s-2.1:free', 'poolside/laguna-xs-2.1:free', 'nvidia/nemotron-3-super-120b-a12b:free']",
+    "OK OpenRouter (gemma-4-26b-a4b-it:free)"
    ],
-   "working_model": "nvidia/nemotron-3.5-lightning:free",
+   "working_model": "google/gemma-4-26b-a4b-it:free",
    "catalogue": [
     "qwen/qwen3.8-27b",
     "dots-studio/dots-3-note-preview:free",
@@ -175,7 +173,9 @@
     "nvidia/nemotron-3.5-lightning",
     "nvidia/nemotron-3.5-lightning:free"
    ],
-   "catalogue_size": 40
+   "catalogue_size": 40,
+   "calls_last_run": 13,
+   "wins_last_run": 13
   },
   "cohere": {
    "state": "ok",
@@ -184,14 +184,12 @@
    "log": [
     "  Cohere command-a-plus-05-2026: 200 but response too short (0 < 1 chars) \u2014 trying next",
     "OK Cohere (command-a-03-2025)"
-   ],
-   "calls_last_run": 5,
-   "wins_last_run": 4
+   ]
   },
   "mistral": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 0.7,
+   "seconds": 1.0,
    "log": [
     "  Mistral: 48 models available, using ['mistral-large-2512', 'mistral-large-latest', 'mistral-medium-2505', 'mistral-medium-2508', 'mistral-medium-latest', 'mistral-medium']",
     "OK Mistral"
@@ -211,8 +209,8 @@
     "mistral-small-latest"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 10,
-   "wins_last_run": 9
+   "calls_last_run": 17,
+   "wins_last_run": 16
   },
   "kilocode": {
    "state": "no_output",
@@ -229,7 +227,7 @@
   "llm7": {
    "state": "no_output",
    "detail": "returned nothing, no reason given",
-   "seconds": 0.8,
+   "seconds": 1.0,
    "log": [
     "  LLM7: model catalogue unreachable (int() argument must be a string, a bytes-like object or a real number, not 'dict') \u2014 using the built-in list",
     "  LLM7 gpt-4o-mini-2024-07-18: 400 | {\"error\":{\"message\":\"Model 'gpt-4o-mini-2024-07-18' is currently unavailable.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_unavailable\"}",
@@ -253,9 +251,9 @@
  },
  "min_healthy": 3,
  "last_run": {
-  "calls": 57,
+  "calls": 38,
   "budget": 600,
   "stopped_reason": null,
-  "at": "2026-08-16T19:50:56Z"
+  "at": "2026-08-16T22:13:15Z"
  }
 }
