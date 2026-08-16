@@ -332,7 +332,15 @@ def persist(path=None, extra=None):
         }
         if extra:
             doc.update(extra)
-        target.write_text(json.dumps(doc, indent=2))
+        # indent=1 MATCHES tools/provider_audit.py. It has to.
+        #
+        # This file is committed on every run. Written at a different indent
+        # from the audit, each side reformats all 200 lines the other wrote, so
+        # every commit shows the whole file as changed and the one line that
+        # actually moved -- a provider going dead, a limit being learned -- is
+        # invisible in the diff. A health file nobody can read the history of
+        # is most of the way to not having one.
+        target.write_text(json.dumps(doc, indent=1))
         return True
     except Exception:
         return False
