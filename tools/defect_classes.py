@@ -281,8 +281,12 @@ def scan_gate_ceilings():
             # is a word count, _ASSEMBLY_COST_MIN is minutes, *_SEC is seconds.
             # Flagging those is the noise that teaches you to ignore a scanner,
             # which is worse than not having one.
+            # TOKENS belongs with CHARS and BYTES: a token budget is a
+            # size, not a score. It was missing, so every request-size
+            # constant added for the provider budget read as "a /10 gate
+            # set above 10".
             if re.search(r"(?i)WORDS|SEC|COST|SIZE|BYTES|CHARS|COUNT|"
-                         r"HOURS|MINUTES|_MS$|DAYS", name):
+                         r"TOKENS?|HOURS|MINUTES|_MS$|DAYS", name):
                 continue
             if val > 10:
                 finding("1-unreachable-acceptance", rel(p),
@@ -369,7 +373,21 @@ def scan_phantom_imports():
     # machine asking the question.
     RUNTIME_OK = {"gtts", "kokoro", "soundfile", "reportlab", "bpy", "torch",
                   "edge_tts", "PIL", "numpy", "whisper", "docx"}
+    # llama-cpp-python is installed on demand by tools/bench_local_model.py,
+    # exactly like bpy and torch above: a real dependency of one optional
+    # feature, absent from every requirements file by design.
+    RUNTIME_OK |= {"llama_cpp"}
     RUNTIME_OK |= _declared_dependencies()
+    # FIRST-PARTY PACKAGES MUST RESOLVE TOO.
+    #
+    # This runs as `python tools/defect_classes.py`, so sys.path[0] is tools/
+    # and NOT the repo root. find_spec("tools") therefore failed for a package
+    # that plainly exists, and every first-party import read as phantom. The
+    # pipelines add the repo root themselves before importing; the checker has
+    # to model that or it reports working code as broken.
+    _root = str(pathlib.Path(__file__).resolve().parents[1])
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
     for p in py_files():
         src = p.read_text()
         try:

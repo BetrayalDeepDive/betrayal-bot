@@ -118,7 +118,7 @@ CHARS_PER_TOKEN = 4
 ENVELOPE = 200
 
 # Below this an answer is not worth the round-trip.
-MIN_USABLE_ANSWER = 256
+MIN_USABLE_ANSWER_TOKENS = 256
 
 
 def _load_observed():
@@ -176,7 +176,7 @@ def budget(provider, prompt, want):
         # is the answer size itself.
         return max(1, min(want, lim))
     room = lim - estimate_tokens(prompt) - ENVELOPE
-    if room < MIN_USABLE_ANSWER:
+    if room < MIN_USABLE_ANSWER_TOKENS:
         return None
     return max(1, min(want, room))
 
