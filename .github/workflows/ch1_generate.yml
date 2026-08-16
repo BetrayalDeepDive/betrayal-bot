@@ -50,7 +50,7 @@ on:
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','figures','providers','report','clear','drafts','drafts_apply','cleanup','true']
+        options: ['false','probe','figures','providers','localmodel','report','clear','drafts','drafts_apply','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -113,6 +113,38 @@ jobs:
   # triggered at all, and its cron never fires. Same reason the figures probe
   # rides in here. This hatch runs the identical script on demand so the
   # provider chain can be checked today rather than after a merge.
+  # IS A MODEL ON THE RUNNER ITSELF FAST ENOUGH TO BE USEFUL?
+  #
+  # The repository is public, so these machines are free and unmetered. A small
+  # model running here would have no key, no quota and nothing anyone can
+  # decommission -- immune to every failure mode this project has hit. Whether
+  # it is fast enough is an open question, and it can only be answered on the
+  # real hardware: the dev sandbox blocks huggingface.co by policy, so the
+  # model cannot even be downloaded there.
+  #
+  # Read-only, ~5 minutes, touches no episode state and no provider quota.
+  localmodel_probe:
+    if: inputs.probe_only == 'localmodel'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Benchmark a model running on this runner
+        run: |
+          python tools/bench_local_model.py && \
+            echo "::notice::Local model is fast enough — set LOCAL_MODEL_ENABLED=true to use it" || \
+            echo "::notice::Local model is too slow on this hardware — leaving it disabled (this is a real answer, not a failure)"
+      - name: Keep the verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-model-verdict
+          path: video_pipeline/local_model_verdict.json
+          if-no-files-found: ignore
+
   provider_probe:
     if: inputs.probe_only == 'providers'
     runs-on: ubuntu-latest

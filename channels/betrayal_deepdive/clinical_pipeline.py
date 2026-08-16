@@ -2867,6 +2867,68 @@ def call_siliconflow(prompt, tokens=8000, min_chars=100):
                          "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"))
 
 
+# ── THE PROVIDER THAT IS NOT A SERVICE ───────────────────────────────────
+#
+# This repository is public, so GitHub gives it build machines free and
+# UNMETERED -- 4 processors, 16 GB. A small model can run directly on the
+# machine already doing the work.
+#
+# It is far too slow to write a script. But about half the calls an episode
+# makes are tiny -- a title, a six-word thumbnail line, hashtags, a yes/no
+# judgement -- and for those it does not need to be fast, it needs to exist.
+#
+# That is the whole argument. It has no key to expire, no quota to exhaust, no
+# model for a provider to retire, and no account for anyone to deny. Every
+# incident this project has had for a month is structurally impossible for it.
+# It is the one provider that can never appear in a morning report as dead.
+#
+# DISABLED UNTIL MEASURED. I proposed this as an untested idea and it stays
+# untested until tools/bench_local_model.py has run on a real runner -- the dev
+# sandbox blocks huggingface.co by policy, so the model cannot even be fetched
+# there. Enabling an unbenchmarked provider ahead of Ch1's test would risk the
+# very run it is meant to protect.
+LOCAL_MODEL_ENABLED = os.environ.get("LOCAL_MODEL_ENABLED", "").lower() == "true"
+LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")
+_LOCAL_LLM = [None]          # loaded once per run, on first use
+
+# Above this many answer-tokens it is not a "short call" and the local model
+# has no business trying: it would be slower than the whole rest of the chain.
+LOCAL_MAX_ANSWER_TOKENS = 200
+
+
+def call_local(prompt, tokens=8000, min_chars=100):
+    """Last resort: a small model on the build machine itself.
+
+    Deliberately refuses anything that is not a short call. Answering a script
+    prompt here would take longer than every other provider combined, and the
+    point of this provider is to be available, not to be capable.
+    """
+    if not (LOCAL_MODEL_ENABLED and LOCAL_MODEL_PATH):
+        return None
+    if tokens > LOCAL_MAX_ANSWER_TOKENS or min_chars > 400:
+        return None
+    if not Path(LOCAL_MODEL_PATH).exists():
+        log(f"  Local model: {LOCAL_MODEL_PATH} is not on disk — skipping.")
+        return None
+    try:
+        if _LOCAL_LLM[0] is None:
+            from llama_cpp import Llama
+            log("  Local model: loading (once per run)...")
+            _LOCAL_LLM[0] = Llama(model_path=LOCAL_MODEL_PATH, n_ctx=2048,
+                                  n_threads=os.cpu_count() or 4, verbose=False)
+        out = _LOCAL_LLM[0].create_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=min(tokens, LOCAL_MAX_ANSWER_TOKENS), temperature=0.85)
+        t = (out["choices"][0]["message"]["content"] or "").strip()
+        if t and len(t) >= min_chars:
+            _note_model_ok("local", Path(LOCAL_MODEL_PATH).name)
+            log("  OK Local model (on this runner, no quota involved)")
+            return t
+    except Exception as e:
+        log(f"  Local model: {e}")
+    return None
+
+
 _DEAD_PROVIDERS_THIS_RUN = set()
 
 # A DAILY QUOTA DOES NOT COME BACK BEFORE TOMORROW.
@@ -3139,6 +3201,12 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
                  ("mistral", call_mistral),
                  # Non-renewable. Deliberately last. See RULE 7 above.
                  ("sambanova", call_sambanova)]
+    # After even the emergency reserve: the model on this machine. It only
+    # answers short calls and only when explicitly enabled, so for now it is
+    # inert -- but when everything else has failed it is the difference
+    # between a title and no title. Off until benchmarked; see call_local.
+    if LOCAL_MODEL_ENABLED:
+        providers.append(("local", call_local))
     # A provider that is out of its DAILY allocation is not retried. Reviving
     # it costs a full sweep of ten providers, with a 10s pause between each,
     # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN
