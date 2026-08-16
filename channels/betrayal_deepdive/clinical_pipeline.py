@@ -2010,7 +2010,7 @@ def call_cerebras(prompt, tokens=8000, min_chars=100):
     """
     if not CEREBRAS_KEY:
         log("  Cerebras: CEREBRAS_API_KEY not in GitHub Secrets — ADD IT")
-        return None
+        return UNCONFIGURED
     _url    = "https://api.cerebras.ai/v1/chat/completions"
     # FIX (direct user report, July 24 2026 — real live-run data, run
     # 30126085986): "qwen-3-32b"/"qwen-3-235b-a22b" both 404'd for real —
@@ -2140,7 +2140,7 @@ def _groq_budget_legacy(prompt, tokens):
 
 
 def call_groq(prompt, tokens=8000, min_chars=100):
-    if not GROQ_KEY: return None
+    if not GROQ_KEY: return UNCONFIGURED
     _budget = _groq_budget(prompt, tokens)
     if _budget is None:
         log(f"  Groq skipped: this prompt is ~{len(prompt)//4} tokens and the "
@@ -2199,7 +2199,7 @@ def call_gemini(prompt, tokens=8000, min_chars=100):
     keys = [k for k in [GEMINI_KEY, GEMINI_KEY_2] if k]
     if not keys:
         log("  Gemini: GEMINI_API_KEY not set")
-        return None
+        return UNCONFIGURED
     base = "https://generativelanguage.googleapis.com/v1beta/models"
     for key_idx, active_key in enumerate(keys):
         key_label = "primary" if key_idx == 0 else "backup"
@@ -2304,7 +2304,7 @@ OR_FREE_MODELS = [
 def call_openrouter(prompt, tokens=8000, min_chars=100):
     if not OPENROUTER_KEY:
         log("  OpenRouter: OPENROUTER_API_KEY not set — skipping")
-        return None
+        return UNCONFIGURED
     _bud = _ask_for("openrouter", prompt, tokens)
     if _bud is None:
         return None
@@ -2356,7 +2356,7 @@ def call_cohere(prompt, tokens=8000, min_chars=100):
     """Cohere Command free tier — 20 RPM, excellent for structured long-form scripts."""
     if not COHERE_KEY:
         log("  Cohere: COHERE_API_KEY not set — skipping")
-        return None
+        return UNCONFIGURED
     # FIX (confirmed against Cohere's own official deprecations page):
     # command-r-08-2024 is explicitly marked deprecated, retirement date
     # already passed — removed entirely (dead weight, guaranteed fail).
@@ -2414,7 +2414,7 @@ def call_github_models(prompt, tokens=8000, min_chars=100):
     """
     if not GITHUB_MODELS_TOKEN:
         log("  GitHub Models: no GITHUB_TOKEN available — skipping")
-        return None
+        return UNCONFIGURED
     _bud = _ask_for("github_models", prompt, tokens)
     if _bud is None:
         return None
@@ -2481,7 +2481,7 @@ def call_cloudflare(prompt, tokens=8000, min_chars=100):
     """
     if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID):
         log("  Cloudflare: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not set — skipping")
-        return None
+        return UNCONFIGURED
     _bud = _ask_for("cloudflare", prompt, tokens)
     if _bud is None:
         return None
@@ -2548,7 +2548,7 @@ def call_nvidia_nim(prompt, tokens=8000, min_chars=100):
     """
     if not NVIDIA_NIM_KEY:
         log("  NVIDIA NIM: NVIDIA_API_KEY not set — skipping")
-        return None
+        return UNCONFIGURED
     _bud = _ask_for("nvidia_nim", prompt, tokens)
     if _bud is None:
         return None
@@ -2649,7 +2649,7 @@ def call_sambanova(prompt, tokens=8000, min_chars=100):
     """
     if not SAMBANOVA_KEY:
         log("  SambaNova: SAMBANOVA_API_KEY not set — add free key from cloud.sambanova.ai")
-        return None
+        return UNCONFIGURED
     _bud = _ask_for("sambanova", prompt, tokens)
     if _bud is None:
         return None
@@ -2693,7 +2693,7 @@ def call_mistral(prompt, tokens=8000, min_chars=100):
     """Mistral AI free tier — reliable European servers, strong at structured writing."""
     if not MISTRAL_KEY:
         log("  Mistral: MISTRAL_API_KEY not set — skipping")
-        return None
+        return UNCONFIGURED
     # Mistral has been carrying almost the whole pipeline while the other
     # providers are down, and it was pinned to ONE hardcoded model with no
     # fallback: the day "mistral-small-latest" is renamed or rate-limited,
@@ -2747,7 +2747,7 @@ def _call_openai_compatible(provider, label, base_url, key, prompt, tokens,
       * a daily exhaustion retires the provider instead of being retried
     """
     if not key:
-        return None
+        return UNCONFIGURED
     _bud = _ask_for(provider, prompt, tokens)
     if _bud is None:
         return None
@@ -2918,7 +2918,7 @@ def call_local(prompt, tokens=8000, min_chars=100):
     point of this provider is to be available, not to be capable.
     """
     if not (LOCAL_MODEL_ENABLED and LOCAL_MODEL_PATH):
-        return None
+        return UNCONFIGURED
     if tokens > LOCAL_MAX_ANSWER_TOKENS or min_chars > 400:
         return None
     if not Path(LOCAL_MODEL_PATH).exists():
@@ -2995,6 +2995,30 @@ _CHAIN_DOWN = [False]
 
 # Say "these providers have no key" once per run, not on every call.
 _AI_ANNOUNCED_SKIPS = []
+
+
+class _Unconfigured:
+    """Returned by a provider that has no credentials to try with.
+
+    NOT A FAILURE. Run 31943236984 spent 143 minutes proving the difference
+    matters: five providers had been added with no keys yet, each returned
+    None instantly, and the chain read that as five failing providers. They
+    took strikes, they were never "exhausted" or "out of models" so the
+    revival list could never empty, the honest "nothing will answer" exit
+    could therefore never fire, and eight sweeps tripped the permanent
+    breaker -- while cloudflare, cohere, mistral and cerebras between them
+    were answering 138 calls successfully.
+
+    A sentinel rather than an outside key-check because the provider is the
+    only thing that actually knows, and because a test that substitutes a
+    provider function must never be mistaken for a missing key.
+    """
+    def __bool__(self):
+        return False
+
+
+UNCONFIGURED = _Unconfigured()
+_UNCONFIGURED_THIS_RUN = set()
 
 
 def chain_is_down():
@@ -3225,56 +3249,20 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     if LOCAL_MODEL_ENABLED:
         providers.append(("local", call_local))
 
-    # ── A PROVIDER WITH NO KEY IS NOT A PROVIDER ─────────────────────────
+    # ── A PROVIDER WITH NO KEY IS NOT A PROVIDER (see UNCONFIGURED) ──────
+    # The filter that used to live here read the key constants directly and
+    # removed providers before they were ever asked. That was the wrong
+    # mechanism twice over: it duplicated, outside each provider, knowledge
+    # that already lives inside it, and it silently deleted providers that
+    # tools/preflight_ch1_thumbnails.py had substituted for its own fakes --
+    # so three real regression assertions about the strike and breaker logic
+    # started failing, which is the suite correctly refusing to let a change
+    # alter chain behaviour unnoticed.
     #
-    # THIS IS THE FAULT THAT COST RUN 31943236984 ITS 143 MINUTES, AND IT IS
-    # THE SAME SHAPE AS THE NVIDIA NIM FAULT DOCUMENTED IN _note_model_gone.
-    #
-    # Adding five providers to the chain added five that have no key
-    # configured yet. Each returned None instantly -- correct behaviour on its
-    # own -- but the chain treated that as a FAILED ATTEMPT rather than as
-    # "not configured", and three things followed:
-    #
-    #   1. Every whole-chain sweep was guaranteed to contain five certain
-    #      failures, so a sweep could never be clean.
-    #   2. The `revivable` list excludes only quota-exhausted and
-    #      no-models-left providers. A keyless provider is neither, so it was
-    #      revived on every single call -- forever -- exactly as NIM's three
-    #      404ing model names once were.
-    #   3. Eight such sweeps tripped the CHAIN_DOWN breaker, which is
-    #      permanent for the run. Every attempt after that returned None in
-    #      milliseconds without asking anybody.
-    #
-    # The run's own ledger is the proof: 188 calls, 138 of them SUCCESSFUL --
-    # cloudflare 57, cohere 34, mistral 25, cerebras 22 -- and the five new
-    # providers at exactly 8 calls each and zero successes. Eight is
-    # CHAIN_DOWN_AFTER. The chain was healthy and declared itself dead.
-    #
-    # An unconfigured provider is a DECISION, not a breakage -- provider_audit
-    # already says so in as many words and refuses to escalate "no key" to a
-    # human. The chain has to agree with it: never asked, never counted, never
-    # revived, and never able to contribute to the breaker.
-    _configured = {
-        "cerebras": CEREBRAS_KEY, "groq": GROQ_KEY,
-        "gemini": (GEMINI_KEY or GEMINI_KEY_2),
-        "openrouter": OPENROUTER_KEY, "cohere": COHERE_KEY,
-        "mistral": MISTRAL_KEY, "sambanova": SAMBANOVA_KEY,
-        "nvidia_nim": NVIDIA_NIM_KEY, "github_models": GITHUB_MODELS_TOKEN,
-        "cloudflare": (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID),
-        "kilocode": KILOCODE_KEY, "huggingface": HUGGINGFACE_KEY,
-        "modelscope": MODELSCOPE_KEY, "siliconflow": SILICONFLOW_KEY,
-        # LLM7 works unauthenticated, so it is always configured.
-        "llm7": True,
-        "local": (LOCAL_MODEL_ENABLED and LOCAL_MODEL_PATH),
-    }
-    _unconfigured = [n for n, _fn in providers if not _configured.get(n, True)]
-    if _unconfigured:
-        if not _AI_ANNOUNCED_SKIPS:
-            log(f"  Not configured, so not in the chain: "
-                f"{', '.join(sorted(_unconfigured))}. Add their keys to enable "
-                f"them; nothing is broken.")
-            _AI_ANNOUNCED_SKIPS.append(True)
-        providers = [(n, fn) for n, fn in providers if n not in _unconfigured]
+    # A provider now SAYS it is unconfigured, by returning the UNCONFIGURED
+    # sentinel. Nothing has to guess from the outside, and a substituted
+    # function is never mistaken for a missing key.
+    _OLD_FILTER_REMOVED = True
     # A provider that is out of its DAILY allocation is not retried. Reviving
     # it costs a full sweep of ten providers, with a 10s pause between each,
     # on this call and every call after it -- see _EXHAUSTED_PROVIDERS_THIS_RUN
@@ -3311,7 +3299,8 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
     _skip = _providers_known_dead()
     live = [(name, fn) for name, fn in providers
             if name not in _DEAD_PROVIDERS_THIS_RUN and name not in _skip
-            and name not in _NO_MODELS_LEFT]
+            and name not in _NO_MODELS_LEFT
+            and name not in _UNCONFIGURED_THIS_RUN]
     if not live and _skip:
         # WORDING MATTERS HERE: this fired hundreds of times in run
         # 31876972186 saying "Every provider is flagged in
@@ -3337,7 +3326,11 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
         # re-asking three names that do not exist.
         revivable = [(name, fn) for name, fn in providers
                      if name not in _EXHAUSTED_PROVIDERS_THIS_RUN
-                     and name not in _NO_MODELS_LEFT]
+                     and name not in _NO_MODELS_LEFT
+                     # A provider with no key will not have grown one. Left in
+                     # here it kept `revivable` non-empty forever, so the
+                     # honest exit below could never be reached.
+                     and name not in _UNCONFIGURED_THIS_RUN]
         if not revivable:
             # Nothing will answer before the allocations reset, so stop
             # asking. The alternative is spending the rest of the job's clock
@@ -3393,6 +3386,16 @@ def ai_generate(prompt, tokens=8000, min_chars=100):
         return None
     for i, (name, fn) in enumerate(live):
         r = fn(prompt, tokens, min_chars)
+        # NOT CONFIGURED IS NOT FAILED. See the _Unconfigured docstring for
+        # the 143 minutes that distinction cost. No strike, no ledger entry,
+        # no contribution to the breaker -- and excluded from `revivable`
+        # below, so the honest "nothing will answer" exit can still fire.
+        if r is UNCONFIGURED:
+            if name not in _UNCONFIGURED_THIS_RUN:
+                _UNCONFIGURED_THIS_RUN.add(name)
+                log(f"  {name}: no key configured — not part of the chain "
+                    f"this run. Nothing is broken; add its key to enable it.")
+            continue
         # Count every call, answered or not. This tally is the first real
         # per-episode measurement this project will have -- every capacity
         # figure quoted so far has been modelled from the code.

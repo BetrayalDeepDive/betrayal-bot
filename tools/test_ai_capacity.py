@@ -157,15 +157,21 @@ print("An unconfigured provider never enters the chain")
 # The run's own ledger disproved its own conclusion: 188 calls, 138 SUCCESSES,
 # and an exit message reading "every AI provider was unavailable". 143 minutes
 # spent, no script written.
-guard = pipeline[pipeline.index("_configured = {"):]
-guard = guard[:guard.index("providers = [(n, fn) for n, fn")]
-check("chain filters on configuration", "_unconfigured" in guard, True)
-for p in ("kilocode", "huggingface", "modelscope", "siliconflow", "cerebras",
-          "groq", "gemini", "cloudflare", "sambanova"):
-    check(f"{p} has a configured-check", f'"{p}"' in guard, True)
-# LLM7 needs no account at all, so it must NOT be gated behind a key.
-check("llm7 is always configured (no account needed)",
-      '"llm7": True' in guard, True)
+check("providers report being unconfigured themselves",
+      "class _Unconfigured" in pipeline and "UNCONFIGURED = _Unconfigured()" in pipeline,
+      True)
+check("the loop skips them without a strike",
+      "if r is UNCONFIGURED:" in pipeline, True)
+check("they cannot keep the revival list alive",
+      "and name not in _UNCONFIGURED_THIS_RUN]" in pipeline, True)
+# The mechanism must NOT be an outside key-check: that silently deleted
+# providers the preflight had substituted for its own fakes, and broke three
+# real regression assertions about the strike and breaker logic.
+check("no outside key-map filter remains",
+      "_unconfigured = [n for n, _fn in providers" in pipeline, False)
+_n_unconf = pipeline.count("return UNCONFIGURED")
+check("every provider can report it", _n_unconf >= 11, True)
+print(f"        {_n_unconf} providers return the sentinel")
 
 print()
 print("The outage message cannot contradict the ledger")
