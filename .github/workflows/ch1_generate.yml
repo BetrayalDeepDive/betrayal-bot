@@ -50,7 +50,7 @@ on:
         required: false
         default: 'false'
         type: choice
-        options: ['false','probe','figures','providers','localmodel','report','clear','drafts','drafts_apply','cleanup','true']
+        options: ['false','fastdiag','probe','figures','providers','localmodel','report','clear','drafts','drafts_apply','cleanup','true']
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -274,7 +274,7 @@ jobs:
         run: python tools/ai_label_probe.py --cleanup
 
   generate:
-    if: inputs.probe_only == 'false' || inputs.probe_only == ''
+    if: inputs.probe_only == 'false' || inputs.probe_only == '' || inputs.probe_only == 'fastdiag'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
@@ -599,6 +599,11 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           PIPELINE_PHASE:        "generate"
           IS_MAKEUP:             ${{ github.event.inputs.is_makeup || 'false' }}
+          # FAST DIAGNOSTIC MODE. Same code path, same providers, same gates,
+          # ~2 attempts instead of 39, and it stops the moment the script
+          # stage resolves. Finds out WHY in minutes instead of buying one
+          # clue per two-and-a-half-hour run. Never publishes anything.
+          FAST_DIAG:             ${{ inputs.probe_only == 'fastdiag' && 'true' || '' }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/channels:$(pwd)/video_pipeline"
           python -u channels/betrayal_deepdive/clinical_pipeline.py

@@ -1114,7 +1114,26 @@ MIN_GATE    = 8.5
 # rebuilt engine is worth running.
 SHORTS_ENABLED = os.environ.get("SHORTS_ENABLED", "").strip().lower() in (
     "1", "true", "yes", "on")
-MAX_ATTEMPTS = 13
+# ── FAST DIAGNOSTIC MODE ─────────────────────────────────────────────────
+#
+# A normal run spends ~143 minutes and 39 attempts on case selection --
+# fetching papers, downloading figures, scoring, rejecting -- before reaching
+# the stage under investigation. Four consecutive runs were spent that way to
+# buy roughly one clue each. The bug is not what made that expensive; the
+# feedback loop is.
+#
+# FAST_DIAG runs the SAME code path -- same providers, same prompts, same
+# case gate, same script gate -- with far fewer attempts, and stops the moment
+# the script stage resolves. It is for finding out WHY, not for making an
+# episode, and it never publishes anything.
+#
+# Deliberately not "1 attempt": two is the smallest number that still shows
+# whether a retry behaves differently from the first try, which is exactly the
+# distinction several of these bugs turned on.
+FAST_DIAG = os.environ.get("FAST_DIAG", "").strip().lower() in (
+    "1", "true", "yes", "on")
+
+MAX_ATTEMPTS = 2 if FAST_DIAG else 13
 
 # Word targets per stage (sum = MIN_WORDS baseline)
 STAGE_WORDS = [100, 200, 250, 400, 200, 650, 200]
@@ -11455,6 +11474,21 @@ def run_stage1(state):
         "Script", lambda rnd, angles=None: _run_stage1_once(state, rnd, angles),
         between_rounds=_research_script_angles, round_cost_min=45,
         tg_fn=tg, log_fn=log)
+    if FAST_DIAG:
+        # The whole point: stop here, whatever happened, and leave the
+        # evidence behind. No audio, no video, no thumbnail, no publishing.
+        note_event("fast_diag_result", got_script=bool(result),
+                   rounds=rounds_used, stopped_for_time=stopped_for_time)
+        log("")
+        log("  ══════════════════════════════════════════════════════════")
+        log(f"  FAST DIAGNOSTIC: script stage {'PRODUCED a script' if result else 'produced NOTHING'} "
+            f"after {rounds_used} round(s) x {MAX_ATTEMPTS} attempts.")
+        log("  Stopping here by design — this mode exists to find out why, "
+            "not to make an episode. Nothing was published.")
+        log("  Read channels/betrayal_deepdive/last_run_report.json for the "
+            "case scores, extraction outcomes and per-provider tally.")
+        log("  ══════════════════════════════════════════════════════════")
+        sys.exit(0 if result else 3)
     if result:
         return result
     if stopped_for_time:
