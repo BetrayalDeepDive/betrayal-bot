@@ -4738,11 +4738,36 @@ def generate_script_content(niche, topic, episode, attempt,
                            + ". Look again specifically for those. If the text "
                              "genuinely does not contain one, leave it null — "
                              "do not invent it.")
+            # WHY THIS FAILS HAS TO BE VISIBLE, NOT INFERRED.
+            #
+            # Run 31952331323 spent 120 minutes and 39 attempts without ever
+            # writing a script, while 82 of its 87 AI calls SUCCEEDED. The
+            # attempts were not going into script writing at all: every case
+            # logged "all 3 extraction attempts failed", dropped to ANATOMY
+            # and FIGURE only, scored below the richness floor, and was
+            # repicked -- until the attempts ran out.
+            #
+            # And the log said only "failed". It could not distinguish
+            # "the chain returned nothing" from "the model answered and the
+            # parser rejected it", which are opposite problems with opposite
+            # fixes. Two runs were spent guessing between them. It now says
+            # which, and shows what it actually got.
+            _raw = None
             try:
-                st = _parse_structures(ai_generate(prompt, tokens=900))
+                _raw = ai_generate(prompt, tokens=900)
+                st = _parse_structures(_raw)
             except Exception as e:
                 log(f"  Case structure extraction attempt {attempt+1} failed: {e}")
                 st = None
+            if st is None:
+                if not _raw:
+                    log(f"  Case structure attempt {attempt+1}: the AI chain "
+                        f"returned nothing at all.")
+                else:
+                    _flat = " ".join(str(_raw).split())
+                    log(f"  Case structure attempt {attempt+1}: got "
+                        f"{len(_raw)} chars but no usable JSON object. "
+                        f"First 300: {_flat[:300]}")
             sc = _score(st)
             if sc > best_score:
                 best, best_score = st, sc
