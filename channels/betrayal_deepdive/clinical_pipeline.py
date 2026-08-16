@@ -4657,15 +4657,53 @@ def generate_script_content(niche, topic, episode, attempt,
                 return None
             if not isinstance(ex, dict):
                 return None
+            # ACCEPT AN OBJECT PER ROW, NOT ONLY A POSITIONAL ARRAY.
+            #
+            # This took [["Sarcoidosis", "raised ACE", "ruled out"]] and
+            # nothing else. Models asked for named fields overwhelmingly
+            # answer with [{"diagnosis": ..., "evidence": ..., "outcome": ...}]
+            # instead, which is a perfectly good answer to the question --
+            # and every one of those rows was dropped in silence.
+            #
+            # The consequence is not a visible error. The case simply arrives
+            # with zero differentials and zero timeline events, scores below
+            # the richness floor, and is rejected as "thin". Run 31952331323
+            # rejected case after case that way for 120 minutes.
+            #
+            # Positional arrays still work exactly as before. Objects are read
+            # by their obvious keys, falling back to whatever order the model
+            # wrote them in, which is nearly always the order asked for.
+            def _row(row, keysets):
+                if isinstance(row, (list, tuple)):
+                    return [str(x) for x in row]
+                if isinstance(row, dict):
+                    vals = []
+                    for names in keysets:
+                        hit = next((row[k] for k in row
+                                    if str(k).strip().lower() in names), None)
+                        vals.append("" if hit is None else str(hit))
+                    if any(v.strip() for v in vals):
+                        return vals
+                    # Unrecognised key names: trust the model's own ordering
+                    # rather than discarding a row that plainly has content.
+                    return [str(v) for v in row.values()]
+                return []
+
             diffs = []
             for row in (ex.get("differentials") or []):
-                if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]).strip():
-                    diffs.append((str(row[0]), str(row[1]),
-                                  str(row[2]) if len(row) > 2 else ""))
+                p = _row(row, [{"diagnosis", "name", "condition", "differential"},
+                               {"evidence", "finding", "reason", "why", "for"},
+                               {"outcome", "result", "status", "against",
+                                "excluded", "ruled_out"}])
+                if len(p) >= 2 and p[0].strip():
+                    diffs.append((p[0], p[1], p[2] if len(p) > 2 else ""))
             tl = []
             for row in (ex.get("timeline") or []):
-                if isinstance(row, (list, tuple)) and len(row) >= 2 and str(row[0]).strip():
-                    tl.append((str(row[0]), str(row[1])))
+                p = _row(row, [{"when", "date", "day", "time", "age", "point"},
+                               {"what", "event", "description", "detail",
+                                "finding"}])
+                if len(p) >= 2 and p[0].strip():
+                    tl.append((p[0], p[1]))
             cd = ex.get("chart_data") or {}
             if isinstance(cd, dict) and cd.get("labels") and cd.get("values"):
                 try:
