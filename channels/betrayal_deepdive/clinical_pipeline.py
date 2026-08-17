@@ -11337,7 +11337,7 @@ def _run_stage1_once(state, round_no=1, angles=None):
             try:
                 from topic_scoring import add_topic_candidate
                 add_topic_candidate(SCRIPT_DIR, "betrayal_deepdive", topic, niche_name,
-                                     lambda p, tokens=200, min_chars=25: ai_generate(p, tokens=tokens))
+                                     lambda p, tokens=200: ai_generate(p, tokens=tokens, min_chars=25))
             except Exception as e:
                 log(f"  Topic scoring (non-fatal): {e}")
         used_topics.append(topic)
@@ -12765,7 +12765,7 @@ def main():
                     "related_links": related,
                 },
                 output_root=docs_root,
-                ai_fn=lambda p, tokens=500, min_chars=25: ai_generate(p, tokens=tokens),
+                ai_fn=lambda p, tokens=500: ai_generate(p, tokens=tokens, min_chars=25),
             )
             if page_path:
                 add_archive_entry(SCRIPT_DIR, {
@@ -12789,7 +12789,7 @@ def main():
             products_root = SCRIPT_DIR.parent / "products"
             note = add_product_note(products_root, title, script_clean[:800],
                                       "betrayal_deepdive",
-                                      lambda p, tokens=300, min_chars=25: ai_generate(p, tokens=tokens))
+                                      lambda p, tokens=300: ai_generate(p, tokens=tokens, min_chars=25))
             if note:
                 log(f"  Product note added to '{note['chapter']}': {note['note_text'][:80]}")
             else:
@@ -14508,7 +14508,7 @@ def main():
                 title=title,
                 thumbnail_family=thumb_family,
                 thumbnail_pose=thumb_pose_id,
-                ai_fn=lambda p, tokens=100, min_chars=25: ai_generate(p, tokens=tokens),
+                ai_fn=lambda p, tokens=100: ai_generate(p, tokens=tokens, min_chars=25),
             )
             log(format_authenticity_report(auth_result, "Ch1"))
             _auth_score = auth_result["composite_score"]

@@ -1522,10 +1522,10 @@ def main():
         if _t and int(_t.group(1)) <= 1200 and "min_chars" not in _seg:
             _short_no_floor.append(_i)
     check("every short-answer AI call states its own min_chars",
-          _short_no_floor, [],
+          not _short_no_floor,
           "a correct short answer is discarded as a failure and the provider "
           "is marked dead — this exact defect cost runs 30703316566 and "
-          "31968947048")
+          "31968947048. Offending line(s): %s" % (_short_no_floor or "none"))
 
     check("every provider marks its own daily exhaustion",
           _cp.count("_note_quota_exhausted(\"") >= 9,
