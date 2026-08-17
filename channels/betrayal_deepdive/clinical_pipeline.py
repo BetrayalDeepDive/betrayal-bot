@@ -11436,9 +11436,27 @@ def _run_stage1_once(state, round_no=1, angles=None):
             except Exception as e:
                 log(f"  Promise/payoff check (non-fatal): {e}")
 
-            score, _, _ = score_result(result, topic)
+            score, _issues, _subs = score_result(result, topic)
             wc       = result.get("words", 0)
             log(f"  {score}/10 {'APPROVED' if score>=gate else 'BLOCKED'} | {wc}w")
+            # THE NUMBER WITHOUT THE REASON ANSWERS NOTHING.
+            #
+            # score_result computes issues and per-dimension subscores, and
+            # this caller threw both away into `_, _`. So a failed round
+            # could only ever report "best: 6.4/10" — which does not say
+            # whether the writing is nearly there or nowhere near, and those
+            # two need opposite fixes.
+            #
+            # Run 32025748825 spent 116 minutes and ended with no script and
+            # no way to tell which. The run report recorded the extraction
+            # outcomes and the case decision and then went quiet at exactly
+            # the point that mattered.
+            note_event("script_scored", attempt=attempt, round=round_no,
+                       score=score, gate=gate, words=wc,
+                       passed=bool(score >= gate),
+                       topic=str(topic)[:120],
+                       issues=[str(i)[:160] for i in (_issues or [])][:12],
+                       subscores=_subs)
             notify_stage_score("Script", attempt, MAX_ATTEMPTS, score, gate, extra=f"{wc} words | {topic[:60]}")
 
             if score > best_score:
@@ -11470,6 +11488,9 @@ def _run_stage1_once(state, round_no=1, angles=None):
     # even as a "best available" compromise.
     log(f"  Script round {round_no} never cleared {MIN_GATE}/10 after "
         f"{MAX_ATTEMPTS} attempts (best: {best_score}/10).")
+    note_event("script_round_failed", round=round_no,
+               attempts=MAX_ATTEMPTS, best_score=best_score, gate=MIN_GATE,
+               best_topic=str(best_topic)[:120])
     return None
 
 

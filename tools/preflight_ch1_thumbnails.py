@@ -372,6 +372,31 @@ def main():
               "job's step does nothing, which is how run 32025748825 lost "
               "every score it produced")
 
+    # ── A REPORT THAT SURVIVES BUT SAYS NOTHING IS NO BETTER ───────────
+    #
+    # Committing the file was only half of it. The report recorded the
+    # extraction outcomes and the case decision and then went silent at the
+    # one point that mattered: score_result returns (score, issues,
+    # subscores) and the gate loop threw two thirds of that away into
+    # `score, _, _ = ...`.
+    #
+    # So a failed round could only ever say "best: 6.4/10". That does not
+    # distinguish "nearly there, tune the gate" from "nowhere near, fix the
+    # writing" — opposite problems needing opposite fixes, and the reason
+    # run 32025748825's 116 minutes produced no actionable answer.
+    _cp_src = open(os.path.join(ROOT, "channels", "betrayal_deepdive",
+                                "clinical_pipeline.py")).read()
+    check("the script gate keeps the reasons, not just the number",
+          "score, _, _ = score_result(" not in _cp_src,
+          "score_result computes issues and per-dimension subscores; "
+          "discarding them into `_, _` leaves a failed round unable to say "
+          "anything except a bare score")
+    for _ev in ("script_scored", "script_round_failed"):
+        check("the run report records %s" % _ev,
+              'note_event("%s"' % _ev in _cp_src,
+              "without it the report is silent about the gate, which is the "
+              "only stage that has failed since the extractor was fixed")
+
     # ── both sources are used, neither replaces the other ──────────
     # "I never said that I only want you to create visuals from your own end
     # and not try for stock footage. I want you to use both the things
