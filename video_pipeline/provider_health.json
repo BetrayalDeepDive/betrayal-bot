@@ -1,5 +1,5 @@
 {
- "checked_at": "2026-08-17T12:03:18Z",
+ "checked_at": "2026-08-17T14:52:05Z",
  "measured_limits": {},
  "finite_credit_providers": [
   "sambanova"
@@ -37,19 +37,21 @@
  "providers": {
   "cerebras": {
    "state": "ok",
-   "detail": "answered (did not echo exactly)",
-   "seconds": 0.2,
+   "detail": "answered correctly",
+   "seconds": 1.7,
    "log": [
     "  Cerebras: 3 models available, using ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b']",
-    "  OK Cerebras (gpt-oss-120b)"
+    "  OK Cerebras (gemma-4-31b)"
    ],
-   "working_model": "gpt-oss-120b",
+   "working_model": "gemma-4-31b",
    "catalogue": [
-    "gemma-4-31b",
     "zai-glm-4.7",
+    "gemma-4-31b",
     "gpt-oss-120b"
    ],
-   "catalogue_size": 3
+   "catalogue_size": 3,
+   "calls_last_run": 1,
+   "wins_last_run": 1
   },
   "github_models": {
    "state": "no_key",
@@ -62,18 +64,18 @@
   "cloudflare": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 0.6,
+   "seconds": 0.7,
    "log": [
     "OK Cloudflare (@cf/meta/llama-3.3-70b-instruct-fp8-fast)"
    ],
    "working_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-   "calls_last_run": 36,
-   "wins_last_run": 36
+   "calls_last_run": 42,
+   "wins_last_run": 42
   },
   "nvidia_nim": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 295.7,
+   "seconds": 272.4,
    "log": [
     "  NVIDIA NIM mistralai/mixtral-8x7b-instruct-v0.1: 410 \u2014 this model has been retired by the provider (end of life). Dropped for the rest of the run.",
     "OK NVIDIA NIM (meta/llama-3.1-70b-instruct)"
@@ -94,13 +96,13 @@
     "google/deplot"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 1,
-   "wins_last_run": 0
+   "calls_last_run": 4,
+   "wins_last_run": 2
   },
   "sambanova": {
    "state": "rate_limited",
    "detail": "429 \u2014 alive, out of allowance right now",
-   "seconds": 0.6,
+   "seconds": 0.7,
    "log": [
     "  SambaNova: 6 models available, using ['Meta-Llama-3.3-70B-Instruct', 'DeepSeek-V3.1', 'DeepSeek-V3.2', 'MiniMax-M2.7', 'gemma-4-31B-it', 'gpt-oss-120b']",
     "  SambaNova 429 \u2014 daily limit reached"
@@ -118,7 +120,7 @@
   "gemini": {
    "state": "auth_denied",
    "detail": "403 PERMISSION_DENIED \u2014 the provider is refusing this account, and a key is already configured",
-   "seconds": 0.3,
+   "seconds": 0.4,
    "log": [
     "  Gemini gemini-2.5-flash: 403 on key 1 \u2014 trying the backup key (GEMINI_API_KEY_2) before giving up on Gemini.",
     "  Gemini gemini-2.5-flash: 403 \u2014 this project is DENIED access (not a rate limit). Dropping Gemini for this run."
@@ -126,35 +128,35 @@
   },
   "groq": {
    "state": "ok",
-   "detail": "answered correctly",
-   "seconds": 0.6,
+   "detail": "answered (did not echo exactly)",
+   "seconds": 0.7,
    "log": [
     "Groq openai/gpt-oss-120b: 200 but response too short (0 < 1 chars) \u2014 trying next",
     "OK Groq (qwen/qwen3.6-27b)"
    ],
    "working_model": "qwen/qwen3.6-27b",
    "catalogue": [
-    "whisper-large-v3",
-    "canopylabs/orpheus-arabic-saudi",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-safeguard-20b",
-    "openai/gpt-oss-20b",
+    "meta-llama/llama-prompt-guard-2-22m",
     "allam-2-7b",
-    "whisper-large-v3-turbo",
-    "groq/compound-mini",
-    "meta-llama/llama-prompt-guard-2-86m",
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
     "groq/compound",
-    "canopylabs/orpheus-v1-english",
-    "meta-llama/llama-prompt-guard-2-22m"
+    "qwen/qwen3.6-27b",
+    "groq/compound-mini",
+    "openai/gpt-oss-safeguard-20b",
+    "whisper-large-v3-turbo",
+    "meta-llama/llama-prompt-guard-2-86m",
+    "canopylabs/orpheus-arabic-saudi",
+    "canopylabs/orpheus-v1-english"
    ],
    "catalogue_size": 13,
-   "calls_last_run": 19,
-   "wins_last_run": 18
+   "calls_last_run": 23,
+   "wins_last_run": 23
   },
   "openrouter": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 2.3,
+   "seconds": 0.7,
    "log": [
     "  OpenRouter: 18 models available, using ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it:free', 'z-ai/glm-5.2:free', 'nvidia/nemotron-3.5-lightning:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'dots-studio/dots-3-note-preview:free', 'poolside/laguna-s-2.1:free', 'poolside/laguna-xs-2.1:free']",
     "OK OpenRouter (gemma-4-26b-a4b-it:free)"
@@ -175,22 +177,22 @@
     "nvidia/nemotron-3.5-lightning:free"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 14,
-   "wins_last_run": 14
+   "calls_last_run": 4,
+   "wins_last_run": 4
   },
   "cohere": {
    "state": "rate_limited",
    "detail": "429 \u2014 alive, out of allowance right now",
-   "seconds": 0.5,
+   "seconds": 0.6,
    "log": [
-    "  Cohere command-a-plus-05-2026: 200 but response too short (0 < 1 chars) \u2014 trying next",
-    "  Cohere command-a-03-2025 429: {\"id\":\"7ccff63d-9626-4a7e-a356-1610cd72343d\",\"message\":\"You are using a Trial key, which is limited to 1000 API calls / month. You can continue to use"
+    "  Cohere command-a-plus-05-2026 429: {\"id\":\"15dff594-b0f7-4f15-ab7d-262733d81eac\",\"message\":\"You are using a Trial key, which is limited to 1000 API calls / month. You can continue to use",
+    "  Cohere command-a-03-2025 429: {\"id\":\"d7d8c9ca-4099-4c85-817a-4e1afe952700\",\"message\":\"You are using a Trial key, which is limited to 1000 API calls / month. You can continue to use"
    ]
   },
   "mistral": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 2.1,
+   "seconds": 1.1,
    "log": [
     "  Mistral: 48 models available, using ['mistral-large-2512', 'mistral-large-latest', 'mistral-medium-2505', 'mistral-medium-2508', 'mistral-medium-latest', 'mistral-medium']",
     "OK Mistral"
@@ -210,8 +212,8 @@
     "mistral-small-latest"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 26,
-   "wins_last_run": 26
+   "calls_last_run": 11,
+   "wins_last_run": 10
   },
   "kilocode": {
    "state": "no_output",
@@ -228,11 +230,11 @@
   "llm7": {
    "state": "no_output",
    "detail": "returned nothing, no reason given",
-   "seconds": 1.5,
+   "seconds": 3.0,
    "log": [
     "  LLM7: model catalogue unreachable (int() argument must be a string, a bytes-like object or a real number, not 'dict') \u2014 using the built-in list",
     "  LLM7 gpt-4o-mini-2024-07-18: 400 | {\"error\":{\"message\":\"Model 'gpt-4o-mini-2024-07-18' is currently unavailable.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_unavailable\"}",
-    "  LLM7 deepseek-v3: 402 | {\"error\":{\"message\":\"Upstream provider rejected the request.\",\"type\":\"upstream_client_error\",\"param\":null,\"code\":\"upstream_client_error\"}}"
+    "  LLM7 deepseek-v3: 200 but only 0 chars (need 1) \u2014 trying next model"
    ],
    "calls_last_run": 1,
    "wins_last_run": 0
@@ -252,9 +254,9 @@
  },
  "min_healthy": 3,
  "last_run": {
-  "calls": 97,
+  "calls": 86,
   "budget": 600,
   "stopped_reason": null,
-  "at": "2026-08-17T13:59:37Z"
+  "at": "2026-08-17T15:31:49Z"
  }
 }
