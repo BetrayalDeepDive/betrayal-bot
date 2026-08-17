@@ -11521,10 +11521,25 @@ def run_stage1(state):
     is visibly red rather than a silent green no-op.
     """
     from gate_rounds import run_in_rounds
+    # THE PAUSE IS DEAD TIME, AND IN A DIAGNOSTIC IT IS ONLY DEAD TIME.
+    #
+    # run_in_rounds waits ten minutes between rounds so provider rate limits
+    # have a chance to recover before the next attempt. That is a real reason
+    # in a real episode, and it stays untouched there.
+    #
+    # In FAST_DIAG it is twenty minutes of sleeping in a mode whose entire
+    # purpose is to answer quickly -- and it answers nothing, because the
+    # question the diagnostic asks (does the script stage produce a script?)
+    # is not affected by how long we waited beforehand.
+    #
+    # This shortens the SLEEP ONLY. Rounds stay at 3 and attempts stay at
+    # MAX_ATTEMPTS, so the diagnostic still exercises the same number of real
+    # generations against the same gate; it just stops idling between them.
+    _rk = {"pause_sec": 20} if FAST_DIAG else {}
     result, rounds_used, stopped_for_time = run_in_rounds(
         "Script", lambda rnd, angles=None: _run_stage1_once(state, rnd, angles),
         between_rounds=_research_script_angles, round_cost_min=45,
-        tg_fn=tg, log_fn=log)
+        tg_fn=tg, log_fn=log, **_rk)
     if FAST_DIAG:
         # The whole point: stop here, whatever happened, and leave the
         # evidence behind. No audio, no video, no thumbnail, no publishing.
