@@ -4522,15 +4522,28 @@ Anonymous is correct -- published cases are de-identified -- but anonymous is
 not the same as abstract. "A woman in her fifties" is a person. "The subject"
 is not.
 
-COLD OPEN — TWO THINGS IT MUST CONTAIN (both are scored, both were missing
-on every attempt of run 30569528382, and together they are worth 2.8 of the
-hook's 10 points):
+COLD OPEN — THE FIRST 37 WORDS ARE SCORED ON THEIR OWN.
 
-1. NAMED STAKES. State plainly what this patient stood to lose, in the first
-   two sentences, in ordinary words. Not "something was wrong" or "a
-   disturbing case" -- name the thing: her kidneys, his sight, the pregnancy,
-   the use of both legs, consciousness, breathing, memory. A viewer must know
-   what is at risk before they know anything else.
+READ THIS BUDGET FIRST. Everything in the numbered list below must land
+inside the FIRST 37 WORDS of narration — that is 15 seconds of speech, and
+it is measured mechanically by counting words, not by counting sentences.
+An opening that delivers all of it by the end of the third or fourth
+sentence still scores as if none of it were there.
+
+Run 32039970137's only script scored 3.8/10 on this zone against a required
+6.5, and that single number blocked the episode. The instruction then said
+"in the first two sentences", which is not the same thing as 37 words.
+
+Write four or five SHORT sentences. The FIRST sentence must be 18 words or
+fewer — a long wind-up sentence is penalised on its own, separately.
+
+Inside those 37 words, all five of these must appear:
+
+1. NAMED STAKES. State plainly what this patient stood to lose, in ordinary
+   words. Not "something was wrong" or "a disturbing case" -- name the
+   thing: her kidneys, his sight, the pregnancy, the use of both legs,
+   consciousness, breathing, memory. A viewer must know what is at risk
+   before they know anything else.
 
 2. A VIOLATED EXPECTATION. Say the thing that should have explained it and
    did not. In a case report this almost always has one shape: the patient is
@@ -4539,8 +4552,22 @@ hook's 10 points):
    explained it." That contradiction IS the curiosity gap -- a question mark
    alone is not.
 
-Example shape only, do not copy verbatim:
-"A fifty-one-year-old woman lost the use of both kidneys in nine days. Her
+3. A CONCRETE NUMBER. An age, a count of days, a measured value. "Nine
+   days." "A fifty-one-year-old." Digits or spelled out, either counts, but
+   something must be countable.
+
+4. A NAMED PERSON OR PLACE. The patient described specifically ("a
+   fifty-one-year-old teacher"), a city, a hospital, a country. Never invent
+   a name that is not in the source, and never identify a real individual --
+   an occupation, an age or a location from the paper is enough.
+
+5. NO THROAT-CLEARING. Do not open with "In this video", "Today we", "Imagine",
+   "Have you ever", or any scene-setting preamble. The first word of the
+   script is the first word of the story.
+
+Example shape only, do not copy verbatim — note that this reaches all five
+inside 37 words, and its opening sentence is 13:
+"A fifty-one-year-old teacher lost the use of both kidneys in nine days. Her
 scans were normal. Every test came back clean. The cause was sitting on her
 kitchen counter."
 
@@ -14913,12 +14940,43 @@ def main_with_retry():
     fixes both the upload-phase blind spot and the missing retry/alerts
     without touching main()'s internal phase logic at all.
     """
+    # A DECISION IS NOT A CRASH, AND MUST NOT BE RETRIED.
+    #
+    # This caught every non-zero SystemExit and retried it three times with a
+    # ten-minute sleep between. But the pipeline uses non-zero exits to report
+    # DELIBERATE outcomes, not only failures:
+    #
+    #   2  the day was skipped on purpose — nothing cleared the gate. Exiting
+    #      non-zero is intentional (a run that produced nothing must look red
+    #      rather than silently green), and it is a finished verdict.
+    #   3  FAST_DIAG finished. The whole point of that mode is to stop after
+    #      the script stage and leave the evidence behind.
+    #
+    # Both were being treated as crashes. Run 32039970137 is the proof: its
+    # fast diagnostic reached its verdict at minute 11.1 and then ran the
+    # ENTIRE script stage twice more, reporting the same verdict at 26.9 and
+    # 39.7 — three identical answers, two ten-minute sleeps, and 40 minutes
+    # spent on a 13-minute question.
+    #
+    # The same applies to every ordinary "day skipped" run, which has been
+    # re-running the full pipeline three times to re-reach a conclusion it
+    # had already reached. Retries exist for transient faults — a dropped
+    # connection, a flaky API — not for answers we already have.
+    FINAL_EXIT_CODES = {
+        2,  # day skipped: an editorial decision, already final
+        3,  # FAST_DIAG verdict: this mode is meant to stop here
+    }
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
             main(); return
         except SystemExit as e:
             if e.code == 0: return
+            if e.code in FINAL_EXIT_CODES:
+                log(f"  Exit {e.code} is a decision, not a crash — not "
+                    f"retrying. (Retrying would re-run the whole stage to "
+                    f"re-reach the same conclusion.)")
+                raise
             if attempt < max_retries:
                 tg(f"⚠️ Ch1 attempt {attempt}/{max_retries} failed.\nRetrying in 10 minutes...")
                 time.sleep(600)

@@ -159,6 +159,15 @@ _WEAK_OPENERS = [
 _QUESTION_CUES = ["why", "how", "what really", "what happened", "who was really",
                    "what nobody", "no one knew", "until"]
 
+# A number written as words is still a number. Narration spells them out, so
+# a check that only sees digits misreads correct house style as vagueness.
+# Word-boundary anchored so "none" does not match "one" and "seventeen" is not
+# read as "seven".
+_SPELLED_NUMBER = re.compile(
+    r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b")
+
 _ESCALATION_SIGNALS = ["but then", "suddenly", "everything changed", "it got worse",
                         "no one expected", "that's when", "things escalated", "spiraled",
                         # FIX (July 27 2026 — after the hook-gate fix cleared a live test
@@ -385,7 +394,19 @@ def validate_first_15_seconds(script_text, wpm=150):
     else:
         score += 1.2
 
-    if re.search(r'\d', zone) or any(w in zone_lower for w in _QUESTION_CUES) or "?" in zone:
+    # A NARRATION SCRIPT SPELLS ITS NUMBERS OUT. THAT IS CORRECT STYLE.
+    #
+    # This tested `\d` only, so "a fifty-one-year-old woman lost the use of
+    # both kidneys in nine days" counted as having no concrete detail — while
+    # the same sentence written "51-year-old" and "9 days" passed. The script
+    # is spoken aloud; spelling numbers out is what the house style asks for
+    # everywhere else, so the check was penalising the form it wants.
+    #
+    # Measured: the example opening in the Ch1 cold-open instruction scored
+    # 6.6 against a 6.5 bar and still logged "no concrete detail", purely
+    # because its numbers were words.
+    if (re.search(r'\d', zone) or _SPELLED_NUMBER.search(zone_lower)
+            or any(w in zone_lower for w in _QUESTION_CUES) or "?" in zone):
         score += 1.8
     else:
         issues.append("First 15 seconds has no concrete detail or open question — nothing to hook on")

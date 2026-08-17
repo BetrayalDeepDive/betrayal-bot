@@ -970,12 +970,33 @@ def format_script_context(case):
 # something a visual register actually consumes, so a case that scores well
 # here is one the episode can genuinely be built from.
 #
-# The floor is 5 of a possible 10. Deliberately not higher: the search
+# The floor is 4.75 of a possible 10. Deliberately not higher: the search
 # already restricts to open-access CC BY case reports, so the candidate pool
 # is not large, and a gate nothing can pass means every run falls back to
-# whatever it can get -- which is the situation this replaces. 5 rejects the
+# whatever it can get -- which is the situation this replaces. It rejects the
 # genuinely threadbare while leaving a workable pool.
-CASE_RICHNESS_FLOOR = 5.0
+#
+# LOWERED FROM 5.0 ON MEASURED EVIDENCE, BY A QUARTER POINT, ONCE.
+#
+# Run 32039970137 judged seventeen real cases and accepted TWO. Fifteen
+# rejections, and only one script written in the whole run -- the attempts
+# were spent hunting for a case rather than writing. Recalibrating the
+# narrative bands above (which were the larger fault) takes the same seven
+# fully-logged cases from 1/7 accepted to 2/7. This quarter point takes it
+# to 3/7.
+#
+# What the extra 0.25 admits, precisely: a 413-word documented case with SIX
+# verified downloadable figures, which scores 4.75. It failed only because
+# the extractor found no timeline and no differentials in it. Six real
+# figures from the source paper is a great deal of genuine material for an
+# episode, and refusing it was the gate being pedantic rather than careful.
+#
+# What it still refuses, unchanged: 49 and 80-word stubs (0.0 and 1.0), and
+# a 272-word case with one timeline entry and no figures (3.0).
+#
+# This is a judgement call and is recorded as one. If episodes start reading
+# thin, this number is the first thing to put back, not the narrative bands.
+CASE_RICHNESS_FLOOR = 4.75
 
 
 def case_richness(case, verified_figures=None, structures_extracted=True):
@@ -1018,12 +1039,37 @@ def case_richness(case, verified_figures=None, structures_extracted=True):
     words = len(narrative.split())
     # A twenty-minute episode is roughly 2,800 spoken words. The narrative is
     # the seed, not the script, but a 200-word case cannot support one.
-    if words >= 900:
+    #
+    # BANDS CALIBRATED AGAINST WHAT EUROPE PMC ACTUALLY RETURNS.
+    #
+    # The 900/500/300 bands were set from what a case report ought to contain,
+    # never from what this source hands back. Run 32039970137 measured it —
+    # eleven narratives, in words:
+    #
+    #     49  80  148  272  303  311  328  401  413  843  1062
+    #
+    # Median 311. ONE of eleven cleared 900; two cleared 500. So the whole
+    # middle of the real distribution — a 400-word documented case with
+    # verified figures and a timeline — scored 1.0 out of 3.0, the same as a
+    # 300-word one, and 30% of the richness score was effectively unavailable.
+    #
+    # That is the same defect class as the 100-character floor on short AI
+    # answers: a threshold set above what a correct input can reach.
+    #
+    # The bands below span the observed range instead. They are NOT a lower
+    # standard: 49 and 80-word stubs still score zero and are still rejected.
+    # What changes is that a case in the normal band is no longer treated as
+    # nearly worthless. The narrative is a seed the script stage expands six
+    # to twelve times over — the accepted case in that run had a 148-word
+    # narrative and produced an 1,847-word script.
+    if words >= 800:
         score += 3.0; reasons.append("narrative %d words (rich)" % words)
-    elif words >= 500:
-        score += 2.0; reasons.append("narrative %d words (adequate)" % words)
-    elif words >= 300:
-        score += 1.0; reasons.append("narrative %d words (thin)" % words)
+    elif words >= 400:
+        score += 2.25; reasons.append("narrative %d words (adequate)" % words)
+    elif words >= 250:
+        score += 1.5; reasons.append("narrative %d words (usable seed)" % words)
+    elif words >= 120:
+        score += 0.75; reasons.append("narrative %d words (thin)" % words)
     else:
         reasons.append("narrative only %d words (too thin)" % words)
     available += 3.0
