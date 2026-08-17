@@ -1984,20 +1984,40 @@ _RUN_EVENTS = []
 
 
 def note_event(kind, **fields):
-    """Record one decision the run made. Never raises."""
+    """Record one decision the run made, and flush it to disk immediately.
+
+    WRITTEN AS IT HAPPENS, NOT AT THE END.
+    -------------------------------------
+    The first version collected events in memory and wrote the file from an
+    atexit handler. Run 31968947048 produced no file at all: provider_health
+    .json (written on the line immediately before) updated fine, so the
+    handler ran and the report write raised -- into an inner except that
+    logged the reason to the one place this environment cannot read. A
+    diagnostic whose own failure is invisible is worse than none, because it
+    is trusted.
+
+    Flushing on every event removes the whole class: the file exists from the
+    first decision onwards, and survives a crash, a kill, a timeout, or an
+    exception in any later stage.
+    """
     try:
         fields["kind"] = kind
         fields["at_min"] = round((time.time() - _JOB_T0[0]) / 60.0, 1)
         _RUN_EVENTS.append(fields)
-    except Exception:
-        pass
+        _write_run_report(quiet=True)
+    except Exception as e:
+        # LOUD. A silent failure here is what cost run 31968947048.
+        try:
+            log(f"  !! run report could not record {kind!r}: {e}")
+        except Exception:
+            pass
 
 
 _JOB_T0 = [time.time()]
 RUN_REPORT_PATH = (Path(__file__).resolve().parent / "last_run_report.json")
 
 
-def _write_run_report():
+def _write_run_report(quiet=False):
     """Save what this run decided, so the next diagnosis is one file read."""
     try:
         from collections import Counter
@@ -2013,11 +2033,21 @@ def _write_run_report():
             # 50 MB file into the repository.
             "events": _RUN_EVENTS[-400:],
         }
-        RUN_REPORT_PATH.write_text(json.dumps(doc, indent=1))
-        log(f"  Run report written: {RUN_REPORT_PATH.name} "
-            f"({len(_RUN_EVENTS)} events, {dict(kinds)})")
+        # default=str: one unexpected type (a Decimal, a Path, a numpy
+        # float from a scorer) must not sink the entire report. Losing the
+        # exact repr of one field is nothing; losing the file is what
+        # happened last time.
+        RUN_REPORT_PATH.write_text(json.dumps(doc, indent=1, default=str))
+        if not quiet:
+            log(f"  Run report written: {RUN_REPORT_PATH.name} "
+                f"({len(_RUN_EVENTS)} events, {dict(kinds)})")
     except Exception as e:
-        log(f"  Run report not written: {e}")
+        # Never quiet. This is the failure that hid itself last time.
+        try:
+            log(f"  !! RUN REPORT NOT WRITTEN ({type(e).__name__}: {e}) — "
+                f"path={RUN_REPORT_PATH}")
+        except Exception:
+            pass
 
 
 def _report_ai_spend():
