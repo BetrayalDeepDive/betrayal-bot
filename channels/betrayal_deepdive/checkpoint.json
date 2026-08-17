@@ -1,79 +1,133 @@
 {
   "episode_case": {
-    "narrative": "Globally, at the time of writing (20 March 2021), 121.759.109 confirmed COVID-19 cases have been reported to the WHO, including 2.690.731 deaths. Globally, on 18 March 2021, a total of 364.184.603 vaccine doses have been administered. In Italy, 3.306.711 confirmed COVID-19 cases with 103.855 deaths have been reported to WHO. In Italy, on 9 March 2021, a total of 6.634.450 vaccine doses have been administered. On 15 March 2021, Italian Medicines Agency (AIFA) decided to temporarily suspend the use of the AstraZeneca COVID-19 vaccine throughout the country as a precaution, pending the rulings of the European Medicines Agency (EMA). This decision was taken in line with similar measures adopted by other European countries due to the death of vaccinated people. On 18 March 2021, EMA\u2019s safety committee concluded its preliminary review about thromboembolic events in people vaccinated with COVID-19 Vaccine AstraZeneca at its extraordinary meeting, confirming the benefits of the vaccine continue to outweigh the risk of side effects, however, the vaccine may be associated with very rare cases of blood clots associated with thrombocytopenia, i.e., low levels of blood platelets with or without bleeding, including rare cases of cerebral venous thrombosis (CVT). We report the case of a 54-year-old woman who developed disseminated intravascular coagulation (DIC) with multi-district thrombosis 12 days after the AstraZeneca COVID-19 vaccine administration. A brain computed tomography (CT) scan showed multiple subacute intra-axial hemorrhages in atypical locations, including the right frontal and the temporal lobes. A plain old balloon angioplasty (POBA) of the right coronary artery was performed, without stent implantation, with restoration of distal flow, but with persistence of extensive thrombosis of the vessel. A successive thorax angio-CT added the findings of multiple contrast filling defects with multi-vessel involvement: at the level of the left upper lobe segmental branches, of left interlobar artery, of the right middle lobe segmental branches and of the right interlobar artery. A brain magnetic resonance imaging (MRI) in the same day showed the presence of an acute basilar thrombosis associated with the superior sagittal sinus thrombosis. An abdomen angio-CT showed filling defects at the level of left portal branch and at the level of right suprahepatic vein. Bilaterally, it was adrenal hemorrhage and blood in the pelvis. An evaluation of coagulation factors did not show genetic alterations so as the nasopharyngeal swab ruled out a COVID-19 infection. The patient died after 5 days of hospitalization in intensive care.",
+    "narrative": "Background Hodgkin disease (HD) and medulloblastoma (MB) are common malignancies found in children and young adults, and radiotherapy is part of the standard treatment. It was reported that these patients who received radiation therapy have an increased risk of cardiovascular late effects. We compared the predicted risk of developing radiogenic cardiac toxicity after photon versus proton radiotherapies for a pediatric patient with HD and a pediatric patient with MB. Methods In the treatment plans, each patient\u2019s heart was contoured in fine detail, including substructures of the pericardium and myocardium. Risk calculations took into account both therapeutic and stray radiation doses. We calculated the relative risk ( RR ) of cardiac toxicity using a linear risk model and the normal tissue complication probability ( NTCP ) values using relative seriality and Lyman models. Uncertainty analyses were also performed. Results The RR values of cardiac toxicity for the HD patient were 7.27 (proton) and 8.37 (photon), respectively; the RR values for the MB patient were 1.28 (proton) and 8.39 (photon), respectively. The predicted NTCP values for the HD patient were 2.17% (proton) and 2.67% (photon) for the myocardium, and were 2.11% (proton) and 1.92% (photon) for the whole heart. The predicted ratios of NTCP values (proton/photon) for the MB patient were much less than unity. Uncertainty analyses revealed that the predicted ratio of risk between proton and photon therapies was sensitive to uncertainties in the NTCP model parameters and the mean radiation weighting factor for neutrons, but was not sensitive to heart structure contours. The qualitative findings of the study were not sensitive to uncertainties in these factors. Conclusions We conclude that proton and photon radiotherapies confer similar predicted risks of cardiac toxicity for the HD patient in this study, and that proton therapy reduced the predicted risk for the MB patient in this study.",
     "figures": [
       {
-        "pmcid": "PMC8068274",
+        "pmcid": "PMC3751146",
         "label": "Figure 1",
-        "caption": "Brain computed tomography (CT) scan: presence of multiple subacute intra-axial hemorrhages in atypical locations ( a , b ).",
-        "filename": "jpm-11-00285-g001.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g001.jpg",
-        "score": 10,
+        "caption": "Sensitivity tests. Sensitivity of the predicted (a) RRR values, and RNTCP values for the (b) pericardium, (c) myocardium, and (d) whole heart to changes in the neutron radiation weighting factor w R \u2014 . The NTCP model parameters used for the calculations are listed in each panel.",
+        "filename": "1748-717X-8-184-1.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3751146/bin/1748-717X-8-184-1.jpg",
+        "score": 0,
         "local_path": "/tmp/deepdive/verify_fig_0.jpg"
       },
       {
-        "pmcid": "PMC8068274",
+        "pmcid": "PMC3751146",
         "label": "Figure 2",
-        "caption": "CT-angiography: partial thrombosis of the vein of Galen ( a ); presence of a floating thrombus within the aortic arch ( b ).",
-        "filename": "jpm-11-00285-g002.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g002.jpg",
-        "score": 7,
+        "caption": "Heart substructure contouring: (a) baseline contouring, and (b) revised contouring that was used for uncertainty analysis.",
+        "filename": "1748-717X-8-184-2.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3751146/bin/1748-717X-8-184-2.jpg",
+        "score": 0,
         "local_path": "/tmp/deepdive/verify_fig_1.jpg"
       },
       {
-        "pmcid": "PMC8068274",
-        "label": "Figure 7",
-        "caption": "CT scan; in ( a ) MPR (arrow shows thrombosis of the left portal branch) and in ( b ) axial plain during portal phase arrow shows thrombosis if the right (Figuer suprahepatic vein).",
-        "filename": "jpm-11-00285-g007.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g007.jpg",
-        "score": 6,
+        "pmcid": "PMC3751146",
+        "label": "Figure 3",
+        "caption": "Axial and sagittal slices of dose distributions from the photon and proton plans. (a , b) Slices for the HD patient and (c , d) slices for the MB patient. Heart contour (red) was displayed for both patients, and CTV contour (blue) was displayed for the HD patient.",
+        "filename": "1748-717X-8-184-3.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3751146/bin/1748-717X-8-184-3.jpg",
+        "score": 0,
         "local_path": "/tmp/deepdive/verify_fig_2.jpg"
       },
       {
-        "pmcid": "PMC8068274",
-        "label": "Figure 8",
-        "caption": "CT scan without ( a ) and with contrast ( b ) shows adrenal hemorrhage (arrow).",
-        "filename": "jpm-11-00285-g008.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g008.jpg",
-        "score": 6,
+        "pmcid": "PMC3751146",
+        "label": "Figure 4",
+        "caption": "Differential DVHs of the whole heart and heart substructures. DVHs from (a) proton and (b) photon treatment plans for the MB patient and the HD patient. For the photon plan, the DVHs were taken from TPS directly; for the proton plan, the DVHs for primary dose were obtained from TPS, then a mean neutron equivalent dose was added uniformly to the primary DVHs.",
+        "filename": "1748-717X-8-184-4.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3751146/bin/1748-717X-8-184-4.jpg",
+        "score": 0,
         "local_path": "/tmp/deepdive/verify_fig_3.jpg"
       },
       {
-        "pmcid": "PMC8068274",
-        "label": "Figure 9",
-        "caption": "Brain CT scan: diffuse ischemic hypodensity involving the right occipito-temporal ( a ) and the superior cerebellar regions, the right thalamic and internal capsula regions, pons and mesencephalon ( b ).",
-        "filename": "jpm-11-00285-g009.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g009.jpg",
-        "score": 6,
-        "local_path": "/tmp/deepdive/verify_fig_4.jpg"
-      },
-      {
-        "pmcid": "PMC8068274",
+        "pmcid": "PMC3751146",
         "label": "Figure 5",
-        "caption": "MR-angiography: acute basilar thrombosis associated with superior coronal ( a ) and sagittal ( b ) sinus thrombosis.",
-        "filename": "jpm-11-00285-g005.jpg",
-        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8068274/bin/jpm-11-00285-g005.jpg",
-        "score": 4,
-        "local_path": "/tmp/deepdive/verify_fig_5.jpg"
+        "caption": "Surfaces of predicted RNTCP values for heart substructures as functions of different NTCP parameters for the MB patient. ( Top ) The surfaces displayed were calculated for m values of 0.1, 0.3, 0.5, and 1 (pericardium) and \u03b3 values of 0.1, 0.5, 1, and 2 (myocardium and whole heart). ( Bottom ) The surfaces displayed were calculated for n values of 0.1, 0.3, 0.5, and 1 (pericardium) and s values of 0.1, 0.5, and 1 (myocardium and whole heart). Color has been interpolated to facilitate visualization.",
+        "filename": "1748-717X-8-184-5.jpg",
+        "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3751146/bin/1748-717X-8-184-5.jpg",
+        "score": 0,
+        "local_path": "/tmp/deepdive/verify_fig_4.jpg"
       }
     ],
-    "citation": "D'Agostino V et al. A Rare Case of Cerebral Venous Thrombosis and Disseminated Intravascular Coagulation Temporally Associated to the COVID-19 Vaccine Administration. Journal of personalized medicine 2021 doi:10.3390/jpm11040285 \u2014 licensed CC BY",
-    "pmcid": "PMC8068274",
-    "title": "A Rare Case of Cerebral Venous Thrombosis and Disseminated Intravascular Coagulation Temporally Associated to the COVID-19 Vaccine Administration.",
-    "year": "2021",
-    "journal": "Journal of personalized medicine",
+    "citation": "Zhang R, Howell RM, Homann K, Giebeler A, Taddei PJ, Mahajan A, Newhauser WD. Predicted risks of radiogenic cardiac toxicity in two pediatric patients undergoing photon or proton radiotherapy. Radiation oncology (London, England) 2013 doi:10.1186/1748-717x-8-184 \u2014 licensed CC BY",
+    "pmcid": "PMC3751146",
+    "title": "Predicted risks of radiogenic cardiac toxicity in two pediatric patients undergoing photon or proton radiotherapy.",
+    "year": "2013",
+    "journal": "Radiation oncology (London, England)",
     "license": "cc by",
     "richness": 3.5,
     "richness_reasons": [
-      "narrative 399 words (thin)",
-      "9 advertised figure(s)",
+      "narrative 303 words (thin)",
+      "5 advertised figure(s)",
       "no timeline",
       "0 differential(s)",
       "no chart data"
     ],
-    "_structures_extracted": false,
-    "figures_expected": 9,
-    "figures_missing": 1,
-    "figures_verified": 6
+    "differentials": [
+      [
+        "Hodgkin disease (HD)",
+        "CONFIRMED",
+        "Stated as the diagnosis for one pediatric patient in the study."
+      ],
+      [
+        "Medulloblastoma (MB)",
+        "CONFIRMED",
+        "Stated as the diagnosis for one pediatric patient in the study."
+      ]
+    ],
+    "timeline": [
+      [
+        "Not specified",
+        "Two pediatric patients (one with HD, one with MB) received radiotherapy (photon or proton)."
+      ],
+      [
+        "Not specified",
+        "Heart substructures (pericardium and myocardium) were contoured in treatment plans."
+      ],
+      [
+        "Not specified",
+        "Risk calculations for radiogenic cardiac toxicity were performed using therapeutic and stray radiation doses."
+      ],
+      [
+        "Not specified",
+        "Relative risk (RR) and normal tissue complication probability (NTCP) values were calculated for both patients."
+      ],
+      [
+        "Not specified",
+        "Uncertainty analyses were conducted on NTCP model parameters, radiation weighting factors, and heart structure contours."
+      ]
+    ],
+    "chart_data": {
+      "chart_type": "bar",
+      "title": "Predicted Relative Risk of Cardiac Toxicity",
+      "y_label": "Relative Risk (RR) values",
+      "labels": [
+        "HD (proton)",
+        "HD (photon)",
+        "MB (proton)",
+        "MB (photon)"
+      ],
+      "values": [
+        7.27,
+        8.37,
+        1.28,
+        8.39
+      ]
+    },
+    "anatomy": {
+      "title": "Radiogenic cardiac toxicity mechanism",
+      "explanation": "Radiation exposure to the heart damages myocardial and pericardial tissues, increasing the risk of long-term cardiovascular complications.",
+      "search": "heart anatomy radiation damage",
+      "pathway": [
+        "radiation exposure",
+        "DNA damage",
+        "cell death",
+        "fibrosis"
+      ],
+      "blocked_step": 3
+    },
+    "quote": "We conclude that proton and photon radiotherapies confer similar predicted risks of cardiac toxicity for the HD patient in this study, and that proton therapy reduced the predicted risk for the MB patient in this study.",
+    "figures_expected": 5,
+    "figures_missing": 0,
+    "figures_verified": 5
   }
 }

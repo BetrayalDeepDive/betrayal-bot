@@ -1,28 +1,28 @@
 {
- "checked_at": "2026-08-16T20:18:33Z",
+ "checked_at": "2026-08-17T12:03:18Z",
  "measured_limits": {},
  "finite_credit_providers": [
   "sambanova"
  ],
  "renewable_healthy": [
   "cerebras",
+  "cloudflare",
   "nvidia_nim",
   "groq",
   "openrouter",
-  "cohere",
   "mistral"
  ],
  "healthy": [
   "cerebras",
+  "cloudflare",
   "nvidia_nim",
   "groq",
   "openrouter",
-  "cohere",
   "mistral"
  ],
  "rate_limited": [
-  "cloudflare",
-  "sambanova"
+  "sambanova",
+  "cohere"
  ],
  "not_configured": [
   "github_models"
@@ -37,17 +37,17 @@
  "providers": {
   "cerebras": {
    "state": "ok",
-   "detail": "answered correctly",
-   "seconds": 20.2,
+   "detail": "answered (did not echo exactly)",
+   "seconds": 0.2,
    "log": [
-    "  Cerebras: 3 models available, using ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7']",
-    "  OK Cerebras (gemma-4-31b)"
+    "  Cerebras: 3 models available, using ['gpt-oss-120b', 'zai-glm-4.7', 'gemma-4-31b']",
+    "  OK Cerebras (gpt-oss-120b)"
    ],
-   "working_model": "gemma-4-31b",
+   "working_model": "gpt-oss-120b",
    "catalogue": [
-    "gpt-oss-120b",
+    "gemma-4-31b",
     "zai-glm-4.7",
-    "gemma-4-31b"
+    "gpt-oss-120b"
    ],
    "catalogue_size": 3
   },
@@ -60,24 +60,25 @@
    ]
   },
   "cloudflare": {
-   "state": "rate_limited",
-   "detail": "429 \u2014 alive, out of allowance right now (1 model also not entitled \u2014 normal on a free tier)",
-   "seconds": 0.9,
+   "state": "ok",
+   "detail": "answered correctly",
+   "seconds": 0.6,
    "log": [
-    "Cloudflare @cf/meta/llama-3.3-70b-instruct-fp8-fast: 429 \u2014 daily 10k Neuron allocation likely used up",
-    "Cloudflare @cf/mistralai/mistral-small-3.1-24b-instruct: 429 \u2014 daily 10k Neuron allocation likely used up",
-    "Cloudflare @cf/google/gemma-3-12b-it: 403 \u2014 this account is not entitled to this model. Dropping the model for this run."
-   ]
+    "OK Cloudflare (@cf/meta/llama-3.3-70b-instruct-fp8-fast)"
+   ],
+   "working_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+   "calls_last_run": 36,
+   "wins_last_run": 36
   },
   "nvidia_nim": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 90.7,
+   "seconds": 295.7,
    "log": [
-    "  NVIDIA NIM mistralai/mixtral-8x22b-v0.1: 404 \u2014 this model is not served by this provider. Dropped for the rest of the run.",
-    "OK NVIDIA NIM (mistralai/mistral-nemotron)"
+    "  NVIDIA NIM mistralai/mixtral-8x7b-instruct-v0.1: 410 \u2014 this model has been retired by the provider (end of life). Dropped for the rest of the run.",
+    "OK NVIDIA NIM (meta/llama-3.1-70b-instruct)"
    ],
-   "working_model": "mistralai/mistral-nemotron",
+   "working_model": "meta/llama-3.1-70b-instruct",
    "catalogue": [
     "01-ai/yi-large",
     "adept/fuyu-8b",
@@ -93,13 +94,13 @@
     "google/deplot"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 3,
-   "wins_last_run": 1
+   "calls_last_run": 1,
+   "wins_last_run": 0
   },
   "sambanova": {
    "state": "rate_limited",
    "detail": "429 \u2014 alive, out of allowance right now",
-   "seconds": 0.4,
+   "seconds": 0.6,
    "log": [
     "  SambaNova: 6 models available, using ['Meta-Llama-3.3-70B-Instruct', 'DeepSeek-V3.1', 'DeepSeek-V3.2', 'MiniMax-M2.7', 'gemma-4-31B-it', 'gpt-oss-120b']",
     "  SambaNova 429 \u2014 daily limit reached"
@@ -129,33 +130,33 @@
    "seconds": 0.6,
    "log": [
     "Groq openai/gpt-oss-120b: 200 but response too short (0 < 1 chars) \u2014 trying next",
-    "OK Groq (llama-3.3-70b-versatile)"
+    "OK Groq (qwen/qwen3.6-27b)"
    ],
-   "working_model": "llama-3.3-70b-versatile",
+   "working_model": "qwen/qwen3.6-27b",
    "catalogue": [
-    "qwen/qwen3.6-27b",
-    "canopylabs/orpheus-arabic-saudi",
-    "canopylabs/orpheus-v1-english",
-    "meta-llama/llama-prompt-guard-2-86m",
-    "allam-2-7b",
-    "llama-3.3-70b-versatile",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
     "whisper-large-v3",
+    "canopylabs/orpheus-arabic-saudi",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-safeguard-20b",
+    "openai/gpt-oss-20b",
+    "allam-2-7b",
+    "whisper-large-v3-turbo",
     "groq/compound-mini",
+    "meta-llama/llama-prompt-guard-2-86m",
     "groq/compound",
-    "whisper-large-v3-turbo"
+    "canopylabs/orpheus-v1-english",
+    "meta-llama/llama-prompt-guard-2-22m"
    ],
-   "catalogue_size": 15,
-   "calls_last_run": 4,
-   "wins_last_run": 4
+   "catalogue_size": 13,
+   "calls_last_run": 19,
+   "wins_last_run": 18
   },
   "openrouter": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 0.6,
+   "seconds": 2.3,
    "log": [
-    "  OpenRouter: 17 models available, using ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it:free', 'nvidia/nemotron-3.5-lightning:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'dots-studio/dots-3-note-preview:free', 'poolside/laguna-s-2.1:free', 'poolside/laguna-xs-2.1:free', 'nvidia/nemotron-3-super-120b-a12b:free']",
+    "  OpenRouter: 18 models available, using ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it:free', 'z-ai/glm-5.2:free', 'nvidia/nemotron-3.5-lightning:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'dots-studio/dots-3-note-preview:free', 'poolside/laguna-s-2.1:free', 'poolside/laguna-xs-2.1:free']",
     "OK OpenRouter (gemma-4-26b-a4b-it:free)"
    ],
    "working_model": "google/gemma-4-26b-a4b-it:free",
@@ -174,22 +175,22 @@
     "nvidia/nemotron-3.5-lightning:free"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 13,
-   "wins_last_run": 13
+   "calls_last_run": 14,
+   "wins_last_run": 14
   },
   "cohere": {
-   "state": "ok",
-   "detail": "answered correctly",
+   "state": "rate_limited",
+   "detail": "429 \u2014 alive, out of allowance right now",
    "seconds": 0.5,
    "log": [
     "  Cohere command-a-plus-05-2026: 200 but response too short (0 < 1 chars) \u2014 trying next",
-    "OK Cohere (command-a-03-2025)"
+    "  Cohere command-a-03-2025 429: {\"id\":\"7ccff63d-9626-4a7e-a356-1610cd72343d\",\"message\":\"You are using a Trial key, which is limited to 1000 API calls / month. You can continue to use"
    ]
   },
   "mistral": {
    "state": "ok",
    "detail": "answered correctly",
-   "seconds": 1.0,
+   "seconds": 2.1,
    "log": [
     "  Mistral: 48 models available, using ['mistral-large-2512', 'mistral-large-latest', 'mistral-medium-2505', 'mistral-medium-2508', 'mistral-medium-latest', 'mistral-medium']",
     "OK Mistral"
@@ -209,8 +210,8 @@
     "mistral-small-latest"
    ],
    "catalogue_size": 40,
-   "calls_last_run": 17,
-   "wins_last_run": 16
+   "calls_last_run": 26,
+   "wins_last_run": 26
   },
   "kilocode": {
    "state": "no_output",
@@ -227,11 +228,11 @@
   "llm7": {
    "state": "no_output",
    "detail": "returned nothing, no reason given",
-   "seconds": 1.0,
+   "seconds": 1.5,
    "log": [
     "  LLM7: model catalogue unreachable (int() argument must be a string, a bytes-like object or a real number, not 'dict') \u2014 using the built-in list",
     "  LLM7 gpt-4o-mini-2024-07-18: 400 | {\"error\":{\"message\":\"Model 'gpt-4o-mini-2024-07-18' is currently unavailable.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_unavailable\"}",
-    "  LLM7 deepseek-v3: 400 | {\"error\":{\"message\":\"Model 'deepseek-v3' is currently unavailable.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"model_unavailable\"}}"
+    "  LLM7 deepseek-v3: 402 | {\"error\":{\"message\":\"Upstream provider rejected the request.\",\"type\":\"upstream_client_error\",\"param\":null,\"code\":\"upstream_client_error\"}}"
    ],
    "calls_last_run": 1,
    "wins_last_run": 0
@@ -251,9 +252,9 @@
  },
  "min_healthy": 3,
  "last_run": {
-  "calls": 38,
+  "calls": 97,
   "budget": 600,
   "stopped_reason": null,
-  "at": "2026-08-16T22:13:15Z"
+  "at": "2026-08-17T13:59:37Z"
  }
 }

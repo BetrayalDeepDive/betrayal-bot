@@ -86,39 +86,39 @@
     },
     "toxicology_cases": {
       "top_hook_formulas": [
-        "The labs were normal, but the patient was crashing from [Symptom].",
-        "A routine [Procedure] revealed a toxin that shouldn't have been there.",
-        "The presenting complaint was [Symptom], but the toxicology screen showed something impossible."
+        "Mysterious Symptoms Revealed",
+        "The Poisoning You've Never Heard Of",
+        "When Medication Turns Toxic"
       ],
       "winning_title_patterns": [
-        "The Case of the [Unexpected Symptom]: A Toxicology Mystery",
-        "Why This [Age/Gender] Patient's Blood Turned [Color/State]",
-        "Clinical Puzzle: The Hidden Danger of [Compound/Substance]"
+        "The [Adjective] Case of [Condition]",
+        "Uncovering the Truth Behind [Toxin/Poison]",
+        "A [Age]-Year-Old's Brush with Death: [Toxin/Poison] Overdose"
       ],
       "thumbnail_text_examples": [
-        "LABS DON'T MATCH",
-        "HIDDEN TOXIN FOUND",
-        "MYSTERIOUS BLOOD COLOR",
-        "THE WRONG DOSAGE",
-        "SUDDEN ORGAN FAILURE"
+        "TOXIC SHOCK",
+        "POISON CONTROL",
+        "MEDICAL MYSTERY",
+        "DEADLY DOSAGE",
+        "LAB RESULTS"
       ],
-      "retention_hooks": {
-        "30pct": "Just as the team considered a psychiatric cause, a single outlier in the metabolic panel changed everything.",
-        "60pct": "The standard antidote was administered, but the patient's condition paradoxically worsened.",
-        "80pct": "The final clue lay not in the bloodwork, but in a forgotten detail of the patient's environment."
-      },
+      "retention_hooks": [
+        "30pct: Introduction to the puzzling case",
+        "60pct: Revealing the unexpected diagnosis",
+        "80pct: Explaining the treatment and outcome"
+      ],
       "niche_power_words": [
-        "Refractory",
-        "Pathognomonic",
-        "Iatrogenic",
-        "Toxidrome",
-        "Metabolic",
-        "Idiopathic"
+        "Toxicology",
+        "Poisoning",
+        "Overdose",
+        "Toxin",
+        "Clinical",
+        "Case Report"
       ],
       "fresh_topic_ideas": [
-        "A 60-year-old male shows profound bradycardia and hypotension; EKG shows characteristic PR prolongation indicating digitalis toxicity from an herbal tea."
+        "A 36-year-old woman with gastrointestinal bleeding from NSAID overdose"
       ],
-      "last_run": "2026-08-10T09:40:37.412430"
+      "last_run": "2026-08-17T12:09:44.708725"
     },
     "neurology_cases": {
       "top_hook_formulas": [
