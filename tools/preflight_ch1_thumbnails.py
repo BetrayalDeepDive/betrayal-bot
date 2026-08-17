@@ -340,6 +340,38 @@ def main():
           "without it the fuzz preflight costs about twenty-five minutes of "
           "every run, on every channel, for coverage it already has")
 
+    # ── THE DIAGNOSTIC MUST BE COMMITTED BY THE JOB THAT WRITES IT ──────
+    #
+    # `git add last_run_report.json` was present in ch1_generate.yml and did
+    # nothing, because it sat in the PROVIDER PROBE's commit step — a job
+    # that only runs when someone explicitly asks for a probe. The generate
+    # job wrote the report and threw it away with the ephemeral runner.
+    #
+    # Run 32025748825: 116 minutes, 97 AI calls, a real case extracted with
+    # differentials, timeline, chart and quote, no script cleared the gate,
+    # and not one score survived to say why.
+    #
+    # Grepping the whole file for the filename is exactly the check that
+    # would have passed while the bug was live. So this looks only INSIDE
+    # the generate job's own commit step.
+    _wf = open(os.path.join(ROOT, ".github", "workflows",
+                            "ch1_generate.yml")).read()
+    _marker = 'git commit -m "chore: ch1 generated'
+    if _marker not in _wf:
+        check("the generate job still has a commit step", False,
+              "the marker this guard anchors to is gone; re-point it")
+    else:
+        # The step body is everything from its name down to its own commit.
+        _end = _wf.index(_marker)
+        _start = _wf.rindex("- name: Commit generated artifacts", 0, _end)
+        _step = _wf[_start:_end]
+        check("the generate job commits the run report it just wrote",
+              "last_run_report.json" in _step,
+              "the report is written on an ephemeral runner and is lost "
+              "unless THIS step adds it — a copy of the line in another "
+              "job's step does nothing, which is how run 32025748825 lost "
+              "every score it produced")
+
     # ── both sources are used, neither replaces the other ──────────
     # "I never said that I only want you to create visuals from your own end
     # and not try for stock footage. I want you to use both the things

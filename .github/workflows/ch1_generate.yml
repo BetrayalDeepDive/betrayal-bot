@@ -703,6 +703,18 @@ jobs:
           git add video_pipeline/provider_health.json || true
           git add channels/betrayal_deepdive/checkpoint.json || true
           git add channels/betrayal_deepdive/checkpoint_audio.mp3 || true
+          # THE RUN'S OWN EXPLANATION OF WHAT IT DECIDED.
+          #
+          # This line existed, but in the WRONG JOB — it sat in the provider
+          # probe's commit step, which only runs when someone asks for a
+          # probe. So the generate job wrote the report on the runner and
+          # then threw it away with the runner, every single time.
+          #
+          # Run 32025748825 is what that costs: 116 minutes, 97 AI calls, a
+          # real case extracted with differentials, timeline, chart and
+          # quote, no script cleared the gate — and not one score survived
+          # to say why. The file was written and deleted unread.
+          git add channels/betrayal_deepdive/last_run_report.json || true
           git diff --staged --quiet || git commit -m "chore: ch1 generated [skip ci]"
           # FIX: retry push instead of silently dropping it on conflict.
           # "|| true" alone meant a failed push (e.g. two workflows landing
