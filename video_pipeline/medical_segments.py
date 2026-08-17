@@ -1030,7 +1030,7 @@ def render_medical_segment(register, case, segment_text, duration, index,
                            chart_fn=None, run_ffmpeg=None, log_fn=print,
                            progress=1.0, variant=None, variant_total=1,
                            accent=None, transition="fade", last_move=None,
-                           photo_fn=None, used_photos=None):
+                           photo_fn=None, used_photos=None, frame_budget=None):
     """
     Render one segment. Returns True on success.
 
@@ -1162,7 +1162,7 @@ def render_medical_segment(register, case, segment_text, duration, index,
                 if render_anatomy_motion(
                         case, segment_text, out_path, duration, work_dir,
                         niche_name=case.get("niche_name", ""), accent=accent,
-                        run_ffmpeg=run_ffmpeg):
+                        run_ffmpeg=run_ffmpeg, frame_budget=frame_budget):
                     return True
             except Exception as _e:
                 log_fn(f"  Segment {index + 1} anatomy motion "

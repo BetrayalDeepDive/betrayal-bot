@@ -282,7 +282,17 @@ def run_shape(name, case, work):
                     12.0, 0, str(out.with_suffix(".mp4")), work_dir=str(work),
                     log_fn=lambda m: None, progress=progress, variant=0,
                     variant_total=6,
-                    run_ffmpeg=None if ENCODE else _stub_ffmpeg)
+                    run_ffmpeg=None if ENCODE else _stub_ffmpeg,
+                    # ANATOMY animates: 12s x 12fps = 144 blurred 1920x1080
+                    # frames, ~21s per call against 0.1s for every other
+                    # register. Three calls x 24 shapes made this preflight
+                    # cost about twenty-five minutes of every run -- and the
+                    # frames were deleted unread, because --encode is off and
+                    # only the still is inspected. Three frames exercise
+                    # _frame() at the start, middle and end of the span,
+                    # which is the invariant this fuzz is actually for.
+                    # Pass --encode to render the real sequence.
+                    frame_budget=None if ENCODE else 3)
             except Exception as e:
                 fail(name, f"{reg}: raised", f"{type(e).__name__}: {e}")
                 continue

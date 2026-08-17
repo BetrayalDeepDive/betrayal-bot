@@ -295,6 +295,51 @@ def main():
     check("the pipeline asks the brief before reaching for a photo", _consults,
           "" if _consults else "an analyser nothing consults changes nothing")
 
+    # ── THE FRAME BUDGET IS A PREFLIGHT SAVING, NEVER AN EPISODE'S ──────
+    #
+    # render_anatomy_motion takes frame_budget so the fuzz can exercise
+    # _frame() at three points instead of rendering 144 blurred 1920x1080
+    # frames it then deletes unread. That one parameter took the fuzz
+    # preflight from about twenty-five minutes to two and a half, on every
+    # run of every channel.
+    #
+    # The same parameter, reaching a real episode, would render animated
+    # anatomy cards at three frames -- a still with a stutter, shipped to
+    # the channel, and nothing would error. So: only the fuzz may pass it,
+    # and it must stay optional everywhere else.
+    import re as _re_fb
+    _fuzz_src = open(os.path.join(ROOT, "tools", "fuzz_case_shapes.py")).read()
+    _mot_src = open(os.path.join(ROOT, "video_pipeline",
+                                 "medical_anatomy_motion.py")).read()
+    check("the animated anatomy card renders every frame unless asked not to",
+          "frame_budget=None" in _mot_src and "frame_budget=None" in _src,
+          "the default must be the full sequence in both the renderer and "
+          "render_medical_segment, or an episode silently animates at three "
+          "frames")
+    # A NUMBER is someone choosing a frame count. `frame_budget=frame_budget`
+    # is render_medical_segment handing its own caller's choice down, and
+    # `=None` is the safe default; neither is a decision to shorten anything.
+    _fb_num = _re_fb.compile(r"frame_budget\s*=\s*[^\n]*\d")
+    _fb_prod = []
+    for _p in ("video_pipeline/medical_segments.py",
+               "video_pipeline/medical_anatomy_motion.py",
+               "video_pipeline/master_pipeline.py",
+               "channels/betrayal_deepdive/clinical_pipeline.py"):
+        _full = os.path.join(ROOT, *_p.split("/"))
+        if os.path.exists(_full) and _fb_num.search(open(_full).read()):
+            _fb_prod.append(_p.split("/")[-1])
+    check("no episode-rendering file ever names a frame count", not _fb_prod,
+          "an episode rendered at a fuzz frame count is a still with a "
+          "stutter, and nothing would raise. Naming one: %s"
+          % (", ".join(_fb_prod) or "none"))
+    # And the saving itself must not be silently reverted: if the fuzz stops
+    # asking for a small budget, the preflight quietly goes back to ~25
+    # minutes per run and nothing anywhere says so.
+    check("the fuzz harness still asks for a small frame budget",
+          bool(_fb_num.search(_fuzz_src)),
+          "without it the fuzz preflight costs about twenty-five minutes of "
+          "every run, on every channel, for coverage it already has")
+
     # ── both sources are used, neither replaces the other ──────────
     # "I never said that I only want you to create visuals from your own end
     # and not try for stock footage. I want you to use both the things

@@ -187,8 +187,32 @@ def _frame(shape, motion, t, colour, label, sub, citation, accent):
 
 def render_anatomy_motion(case, segment_text, out_path, duration, work_dir,
                           niche_name="", accent=None, run_ffmpeg=None,
-                          label="WHAT WAS HAPPENING"):
-    """Render the animated anatomy card. Returns True on success."""
+                          label="WHAT WAS HAPPENING", frame_budget=None):
+    """
+    Render the animated anatomy card. Returns True on success.
+
+    frame_budget -- None (the default, and what every episode uses) renders
+        the full sequence: duration x FPS frames, which is what the encoder
+        needs to produce real motion. A small integer renders that many
+        EVENLY SPACED frames across the same 0..1 span instead.
+
+        THIS IS NOT A SHORTCUT. IT IS THE COST OF THE PREFLIGHT.
+
+        Each frame is a 1920x1080 draw plus a Gaussian blur, measured at
+        ~145ms. A twelve-second card is 144 frames, so one call costs about
+        21 seconds -- against 0.1 seconds for every other register. The fuzz
+        preflight calls this three times for each of twenty-four case shapes,
+        which is roughly TWENTY-FIVE MINUTES spent before generation starts,
+        on every run, including the fast diagnostic that is supposed to
+        answer in fifteen.
+
+        And it bought nothing. The fuzz stubs the encoder out, so all 144
+        PNGs were deleted unread; the only thing inspected is the still that
+        render_medical_segment writes separately. What the fuzz genuinely
+        needs is that _frame() survives the ends and the middle of the span,
+        which three frames cover. Full sequences stay the default so no
+        episode is ever quietly rendered at three frames.
+    """
     accent = tuple(accent) if accent else ACCENT
     shape = ca.shape_for(niche_name, f"{case.get('narrative','')} {segment_text}")
     colour = ca.anomaly_colour(f"{case.get('narrative','')} {segment_text}",
@@ -196,6 +220,10 @@ def render_anatomy_motion(case, segment_text, out_path, duration, work_dir,
     motion = motion_for(segment_text)
 
     frames = max(8, int(duration * FPS))
+    if frame_budget:
+        # Keep the same 0..1 span (t below divides by frames - 1), so the
+        # first, middle and last frames are the real first, middle and last.
+        frames = max(2, min(frames, int(frame_budget)))
     work = Path(work_dir) / f"anim_{abs(hash((shape, motion, frames))) % 99999}"
     work.mkdir(parents=True, exist_ok=True)
     # NOT the first nine words of the narration.
