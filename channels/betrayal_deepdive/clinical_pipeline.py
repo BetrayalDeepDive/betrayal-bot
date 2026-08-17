@@ -3930,7 +3930,7 @@ VARIANT_3:
 
 Write all 3 now. Zero markdown."""
 
-    raw = ai_generate(prompt, tokens=1200)
+    raw = ai_generate(prompt, tokens=1200, min_chars=25)
     if not raw:
         return None
 
@@ -4897,7 +4897,28 @@ def generate_script_content(niche, topic, episode, attempt,
             # which, and shows what it actually got.
             _raw = None
             try:
-                _raw = ai_generate(prompt, tokens=900)
+                # min_chars=20, NOT the 100 default. THIS IS THE BUG THAT
+                # STOPPED FIVE RUNS.
+                #
+                # ai_generate's own docstring says the 100-char floor "exists
+                # to catch genuinely truncated long-form output ... so it
+                # stays the default, and short-answer callers say what they
+                # need." This caller never said. A perfectly correct answer --
+                #   {"differentials":[],"timeline":[],"chart_data":null,
+                #    "anatomy":{},"quote":null}
+                # is 78 characters, so it was discarded as "too short", the
+                # provider was marked dead, the chain walked itself out, and
+                # the step logged "all 3 extraction attempts failed".
+                #
+                # Identical in shape to run 30703316566, where a perfect
+                # 19-character thumbnail line was thrown away for the same
+                # reason. That was fixed at the thumbnail call site only; this
+                # one was never updated.
+                #
+                # Correctness here is whether _parse_structures can read it,
+                # not how long it is. The floor only needs to exclude an empty
+                # reply.
+                _raw = ai_generate(prompt, tokens=900, min_chars=20)
                 st = _parse_structures(_raw)
             except Exception as e:
                 log(f"  Case structure extraction attempt {attempt+1} failed: {e}")
@@ -5792,7 +5813,7 @@ FORBIDDEN TITLE WORDS: "Shocking", "Incredible", "Amazing", "Unbelievable",
 Rules: 50-65 characters each (fits fully on mobile). Front-load the most
 compelling part in the first 40 characters. No quotes.
 Return ONLY 5 titles, one per line."""
-    raw  = ai_generate(prompt, tokens=400)
+    raw  = ai_generate(prompt, tokens=400, min_chars=25)
 
     def strip_list_marker(t):
         """
@@ -5870,7 +5891,7 @@ Return ONLY 5 titles, one per line."""
                                     "trying:\n" + "\n".join(f"- {a}" for a in angles[:8]))
                 _raw2 = ai_generate(prompt + _angle_block +
                                     f"\n\nThis is retry round {rnd}. The previous round's "
-                                    f"titles all failed. Do not repeat them.", tokens=400)
+                                    f"titles all failed. Do not repeat them.", tokens=400, min_chars=25)
                 if not _raw2:
                     return None
                 _lines2 = [l.strip() for l in _raw2.strip().splitlines()
@@ -6068,7 +6089,7 @@ those are added separately afterward."""
     # applied identically to both paths.
     hashtags = generate_episode_hashtags(niche, topic)
 
-    raw = ai_generate(prompt, tokens=1000)
+    raw = ai_generate(prompt, tokens=1000, min_chars=25)
     # v12: three-channel cross-promo in every description
     cross_promo_txt = get_cross_promo("betrayal_deepdive", is_short=False)
     # FIX (direct user report, this session — "whenever the audio starts,
@@ -11055,7 +11076,7 @@ def generate_ch1_short_script(niche_name, topic, short_num):
         f"Line 7 (CTA 5sec): Follow for the full case.\n\n"
         f"RULES: 120-130 words total. No markdown. Plain text only."
     )
-    result = ai_generate(prompt, tokens=350)
+    result = ai_generate(prompt, tokens=350, min_chars=25)
     if result:
         clean = result.strip().replace("**","").replace("##","").replace("*","")
         words = clean.split()
@@ -11316,7 +11337,7 @@ def _run_stage1_once(state, round_no=1, angles=None):
             try:
                 from topic_scoring import add_topic_candidate
                 add_topic_candidate(SCRIPT_DIR, "betrayal_deepdive", topic, niche_name,
-                                     lambda p, tokens=200: ai_generate(p, tokens=tokens))
+                                     lambda p, tokens=200, min_chars=25: ai_generate(p, tokens=tokens))
             except Exception as e:
                 log(f"  Topic scoring (non-fatal): {e}")
         used_topics.append(topic)
@@ -12744,7 +12765,7 @@ def main():
                     "related_links": related,
                 },
                 output_root=docs_root,
-                ai_fn=lambda p, tokens=500: ai_generate(p, tokens=tokens),
+                ai_fn=lambda p, tokens=500, min_chars=25: ai_generate(p, tokens=tokens),
             )
             if page_path:
                 add_archive_entry(SCRIPT_DIR, {
@@ -12768,7 +12789,7 @@ def main():
             products_root = SCRIPT_DIR.parent / "products"
             note = add_product_note(products_root, title, script_clean[:800],
                                       "betrayal_deepdive",
-                                      lambda p, tokens=300: ai_generate(p, tokens=tokens))
+                                      lambda p, tokens=300, min_chars=25: ai_generate(p, tokens=tokens))
             if note:
                 log(f"  Product note added to '{note['chapter']}': {note['note_text'][:80]}")
             else:
@@ -14441,7 +14462,7 @@ def main():
                             _set_preview_thumbnail(thumb_path)
                     _new_desc = ai_generate(f"Rewrite this video description based on real feedback.\n"
                                     f"Current description:\n{description}\nFeedback: {fb}\n"
-                                    f"Return ONLY the new description, nothing else.", tokens=800)
+                                    f"Return ONLY the new description, nothing else.", tokens=800, min_chars=25)
                     if _new_desc and len(_new_desc.split()) > 20:
                         description = _new_desc.strip()
                     tg("✅ Title/thumbnail/description updated per your feedback — sending the revised version.")
@@ -14487,7 +14508,7 @@ def main():
                 title=title,
                 thumbnail_family=thumb_family,
                 thumbnail_pose=thumb_pose_id,
-                ai_fn=lambda p, tokens=100: ai_generate(p, tokens=tokens),
+                ai_fn=lambda p, tokens=100, min_chars=25: ai_generate(p, tokens=tokens),
             )
             log(format_authenticity_report(auth_result, "Ch1"))
             _auth_score = auth_result["composite_score"]

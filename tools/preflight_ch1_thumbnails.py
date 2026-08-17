@@ -1489,6 +1489,44 @@ def main():
           "_EXHAUSTED_PROVIDERS_THIS_RUN" in _cp
           and "_DEAD_PROVIDERS_THIS_RUN.clear()" not in _cp,
           "clearing the set re-swept ten dead providers on every call")
+    # ── A SHORT-ANSWER CALLER MUST STATE ITS OWN FLOOR ────────────────
+    #
+    # THIS HAS NOW COST TWO SEPARATE MULTI-HOUR FAILURES.
+    #
+    # ai_generate's 100-char floor exists to catch truncated long-form output,
+    # and its docstring says so: "it stays the default, and short-answer
+    # callers say what they need." Run 30703316566 spent 57 minutes because a
+    # perfect 19-character thumbnail line was discarded by it. That was fixed
+    # at the thumbnail call site alone.
+    #
+    # The case-structure extractor asked for JSON with tokens=900 and never
+    # stated a floor. A correct "I found nothing" answer --
+    #   {"differentials":[],"timeline":[],"chart_data":null,"anatomy":{},
+    #    "quote":null}
+    # -- is 78 characters. Every extraction was therefore thrown away, every
+    # case fell back to ANATOMY+FIGURE only, half of them scored under the
+    # richness floor and were repicked, and FIVE consecutive runs produced no
+    # episode. The gate was blaming the papers for a length check.
+    #
+    # Fixing call sites one at a time is what let it recur. This makes the
+    # RULE checkable: ask for a short answer, state what short means.
+    _short_no_floor = []
+    for _i, _l in enumerate(_cp.splitlines(), 1):
+        if "ai_generate(" not in _l or "def ai_generate" in _l:
+            continue
+        if _l.strip().startswith("#"):
+            continue
+        _seg = " ".join(_x.strip() for _x in
+                        _cp.splitlines()[_i - 1:_i + 3])
+        _t = re.search(r"tokens\s*=\s*(\d+)", _seg)
+        if _t and int(_t.group(1)) <= 1200 and "min_chars" not in _seg:
+            _short_no_floor.append(_i)
+    check("every short-answer AI call states its own min_chars",
+          _short_no_floor, [],
+          "a correct short answer is discarded as a failure and the provider "
+          "is marked dead — this exact defect cost runs 30703316566 and "
+          "31968947048")
+
     check("every provider marks its own daily exhaustion",
           _cp.count("_note_quota_exhausted(\"") >= 9,
           "a provider that never reports quota is revived forever")
